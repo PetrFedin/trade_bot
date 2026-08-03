@@ -1,0 +1,52 @@
+name: schema101-materialize
+
+on:
+  push:
+    branches:
+      - agent/schema101-external-sandbox-qualification
+    paths:
+      - .github/workflows/schema101-materialize.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: schema101-materialize
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Schema 101 branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/schema101-external-sandbox-qualification
+          fetch-depth: 0
+
+      - name: Verify and materialize Schema 101
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat releases/schema101/payload/chunk-* > /tmp/schema101.tar.gz.b64
+          echo "e4c4fef7fcf980afced783a45b259fd8e29ec4e72055b80e292ea45bf0e01cca  /tmp/schema101.tar.gz.b64" | sha256sum -c -
+
+          base64 -d /tmp/schema101.tar.gz.b64 > /tmp/schema101.tar.gz
+          echo "997ab6573466555c44fe6ff4dcc23fc5804336311220c512c56b6c173af29272  /tmp/schema101.tar.gz" | sha256sum -c -
+
+          tar -xzf /tmp/schema101.tar.gz -C .
+          rm -rf releases/schema101/payload
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "Schema 101 payload already materialized"
+            exit 0
+          fi
+
+          git commit -m "Materialize Schema 101 external sandbox qualification"
+          git push origin HEAD:agent/schema101-external-sandbox-qualification
