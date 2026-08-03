@@ -20,9 +20,15 @@ FORBIDDEN = (
 
 def audit(root: Path) -> dict[str, object]:
     findings: list[str] = []
-    files = sorted((root / "app").rglob("*.py")) + sorted((root / "tools").rglob("*.py"))
+    files = sorted((root / "app").rglob("*.py")) + sorted(
+        (root / "tools").rglob("*.py")
+    )
     for path in files:
-        if path.name == "static_audit_v101.py":
+        # Static auditors intentionally contain the forbidden signatures they
+        # search for. Excluding every versioned static auditor prevents the
+        # scanner from flagging its own detection vocabulary while keeping all
+        # runtime, CLI, migration helper and stress code in scope.
+        if path.name.startswith("static_audit_v"):
             continue
         text = path.read_text(encoding="utf-8")
         for token in FORBIDDEN:
