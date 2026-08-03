@@ -1,0 +1,113 @@
+{
+  "base_commit": "8e186d2afad56200ee2ed3556d73e578a1b0cb53",
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "a76430fa91496f673917368d92e4013987c6917776aaf43c0ae899c82bd66127",
+      "size": 1630
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "4552614eadd254acfbc46e8da3cb2190206597a25a1bc1cdbadcafd05cd68b9d",
+      "size": 1475
+    },
+    {
+      "path": "ENGINEERING_REPORT_V103.md",
+      "sha256": "57a3ed438739402198c3637156d500069282f3cce62cccae4f61d4e387305943",
+      "size": 1688
+    },
+    {
+      "path": "INTEGRATION_V103.md",
+      "sha256": "404f6113d02f877adda2cef98e58e9fea12091f67a54211d6ddcc35f183032b3",
+      "size": 1204
+    },
+    {
+      "path": "LIVE_EXECUTION_STATUS_V103.json",
+      "sha256": "678882e86bdb8bf66373cf904d5b6a4d11c59cf1e474a22f9a08295c6ad79869",
+      "size": 630
+    },
+    {
+      "path": "OPERATOR_RUNBOOK_V103.md",
+      "sha256": "7bff617a376b88986426089e013dafda0390df695166303b6f4740ae10a25259",
+      "size": 2205
+    },
+    {
+      "path": "QUALIFICATION_SUMMARY_V103.md",
+      "sha256": "4e9c3fdf1b27713470ed8cbf987e4dd3445abafd30a02b00423bab2588576b17",
+      "size": 1777
+    },
+    {
+      "path": "RELEASE_NOTES_V103.md",
+      "sha256": "0cb7211cecc28cc4d2c246a1ce0a9562ad80b45a6809130d4e52edae7c7189e5",
+      "size": 436
+    },
+    {
+      "path": "app/runtime/campaign_control_plane_v103.py",
+      "sha256": "635a08540c0bd9664b4faf92a273372e7e360a4598bc9ab7459f65742152d345",
+      "size": 60624
+    },
+    {
+      "path": "app/runtime/postgres_control_plane_v103.py",
+      "sha256": "81a0b35746c2bf8ce97eb47d53b6767d7086ad3560417ca0b8517a2475e86bd3",
+      "size": 5959
+    },
+    {
+      "path": "app/platform_assets/v103/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "app/platform_assets/v103/migrations/001_production_campaign_control_plane.sql",
+      "sha256": "872ec384784c1da91b768a2ecb77fd8e4cb17f5f536f0a3bd4eea774b1465171",
+      "size": 12445
+    },
+    {
+      "path": "migrations/v103/001_production_campaign_control_plane.sql",
+      "sha256": "872ec384784c1da91b768a2ecb77fd8e4cb17f5f536f0a3bd4eea774b1465171",
+      "size": 12445
+    },
+    {
+      "path": "tools/architecture_audit_v103.py",
+      "sha256": "ac2cee408a2ab7413aad657e530db95f9abd66ebe21fc3af726186b814a50013",
+      "size": 3243
+    },
+    {
+      "path": "tools/platform_v103.py",
+      "sha256": "d343c359c7fbec801794fa9a2fdb377a45946cff8b0334380774724d2e5ddee2",
+      "size": 2633
+    },
+    {
+      "path": "tools/static_audit_v103.py",
+      "sha256": "d506bb04fd39ccb8b2ed6a2cddbe016da9d5039de37fd297506990e5925eae1f",
+      "size": 1490
+    },
+    {
+      "path": "tools/stress_v103.py",
+      "sha256": "7db76abc2fdc8123a3bce2632c3d6f62ff5971239e2726ecca488f7b1e84ebf1",
+      "size": 3943
+    },
+    {
+      "path": "tests/test_campaign_control_plane_v103.py",
+      "sha256": "00f5dc407c7f410e668b2f3cb9c8348bab936b701f0ce09703bdbc0bc4bf31f6",
+      "size": 24304
+    },
+    {
+      "path": "tests/test_postgres_control_plane_v103.py",
+      "sha256": "a329c83f3468588aabbea65eded64caf8c061dbc945c125abd28671f9781003e",
+      "size": 4256
+    },
+    {
+      "path": "tests/test_tools_v103.py",
+      "sha256": "78c1c437f5df9ad8767a9c5df9273a5187f553b48342b4876831f880a067e514",
+      "size": 2130
+    },
+    {
+      "path": ".github/workflows/schema103-production-control-plane.yml",
+      "sha256": "513fca6f0cec3f83ad2b6c18fa3043e15742eccb824af0b11a5c24fb894fb66d",
+      "size": 1252
+    }
+  ],
+  "manifest_digest": "523e9f6659b12b85ba4720521100b88e6961377c6b1e7ffbe8318b7ca56404ca",
+  "schema": 103,
+  "version": "7.33.0"
+}
