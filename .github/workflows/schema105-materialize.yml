@@ -1,0 +1,75 @@
+name: schema105-materialize
+
+on:
+  pull_request:
+    branches:
+      - agent/schema104-production-worker-execution-plane
+    types: [opened, reopened, synchronize]
+    paths:
+      - .github/workflows/schema105-materialize.yml
+      - releases/schema105/payload/**
+
+permissions:
+  contents: write
+
+concurrency:
+  group: schema105-materialize
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/schema105-production-worker-fleet-operations'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Schema 105 branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/schema105-production-worker-fleet-operations
+          fetch-depth: 0
+
+      - name: Verify and materialize Schema 105 source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          parts=(
+            releases/schema105/payload/chunk-000
+            releases/schema105/payload/chunk-001
+            releases/schema105/payload/chunk-002
+            releases/schema105/payload/chunk-003
+            releases/schema105/payload/chunk-004
+            releases/schema105/payload/chunk-005
+            releases/schema105/payload/chunk-006
+            releases/schema105/payload/chunk-007
+          )
+
+          echo "22a70ef9099fd4809a3088f43889b1d71f9e9a4977ebfdadaebb01347211609c  ${parts[0]}" | sha256sum -c -
+          echo "7d63fda19734ac1022ca25d46be6bf159cc12be7335d49ca037b7b3786c8e57a  ${parts[1]}" | sha256sum -c -
+          echo "4afe3f52183c3999ffb2bfee8448eb5ab90cb3a3165b00f290c8d4143b1a1873  ${parts[2]}" | sha256sum -c -
+          echo "0af3740928fcf4e7ba6368ee70e297995b9d25df88007efaff7a3554cd0bf866  ${parts[3]}" | sha256sum -c -
+          echo "aa9ad5980577498c5323f6e8e89e675402b5909543d6bca63a62547f989ee87e  ${parts[4]}" | sha256sum -c -
+          echo "18c428a967f5ec59e1564ee871621c77fa713a52cde1d67f5425c8486b4f073e  ${parts[5]}" | sha256sum -c -
+          echo "fd266ff7e1676e8da7135c6c8e27e4aa2069c1e2a6c98d14107399d80d377938  ${parts[6]}" | sha256sum -c -
+          echo "b3531a3e2cab5d0e00330b908468ffda2f7e303e237663d3b470640ec55d8db9  ${parts[7]}" | sha256sum -c -
+
+          cat "${parts[@]}" | tr -d '\r\n\t ' > /tmp/schema105.tar.gz.b64
+          echo "10750954892a1c1599366e66ccf9ab11838e8fc894a0395a44f8c740634baa08  /tmp/schema105.tar.gz.b64" | sha256sum -c -
+
+          base64 -d /tmp/schema105.tar.gz.b64 > /tmp/schema105.tar.gz
+          echo "4d570c572fefd27e025b1d0dc1997058dd948ef5fc9e2ca377c375d977a66978  /tmp/schema105.tar.gz" | sha256sum -c -
+
+          tar -xzf /tmp/schema105.tar.gz -C .
+          rm -rf releases/schema105/payload
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "Schema 105 source already materialized"
+            exit 0
+          fi
+
+          git commit -m "Materialize Schema 105 production worker fleet operations"
+          git push origin HEAD:agent/schema105-production-worker-fleet-operations
