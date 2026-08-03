@@ -1,0 +1,71 @@
+name: schema104-materialize
+
+on:
+  pull_request:
+    branches:
+      - agent/schema103-production-control-plane
+    types: [opened, reopened, synchronize]
+    paths:
+      - .github/workflows/schema104-materialize.yml
+      - releases/schema104/payload/**
+
+permissions:
+  contents: write
+
+concurrency:
+  group: schema104-materialize
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/schema104-production-worker-execution-plane'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Schema 104 branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/schema104-production-worker-execution-plane
+          fetch-depth: 0
+
+      - name: Verify and materialize Schema 104 source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          parts=(
+            releases/schema104/payload/chunk-000
+            releases/schema104/payload/chunk-001
+            releases/schema104/payload/chunk-002
+            releases/schema104/payload/chunk-003
+            releases/schema104/payload/chunk-004
+            releases/schema104/payload/chunk-005
+          )
+
+          echo "be3a116fd01c624fcb921988c37e324cbfe3dcc7949c97fdc31a0c7e958a0a58  ${parts[0]}" | sha256sum -c -
+          echo "38ceb9d8f8dccf71b312d9f9defcbf0fcffe5459805697bdcdf2e1c44b407545  ${parts[1]}" | sha256sum -c -
+          echo "5e9fdb9d2163adb8ceb858fc03ffda95de1df4c1df68d9bb9f999a61a3d18391  ${parts[2]}" | sha256sum -c -
+          echo "f2abea33f75f2dd2a2cb8379fe640f62f2423cc2a2c840af744b505485ff8dc2  ${parts[3]}" | sha256sum -c -
+          echo "2a7458510961292a3e29773a81e45cdbeaad0ac6062757cedbaeb1efad973849  ${parts[4]}" | sha256sum -c -
+          echo "e84870bf5c05ce0b77b88adbea4b2a441666deb97c285d4396ec7cef582465e4  ${parts[5]}" | sha256sum -c -
+
+          cat "${parts[@]}" | tr -d '\r\n\t ' > /tmp/schema104.tar.gz.b64
+          echo "11cc3168d016b3f44d609f1ccb75aca63363db8b5c3e2893695acc59cfd21087  /tmp/schema104.tar.gz.b64" | sha256sum -c -
+
+          base64 -d /tmp/schema104.tar.gz.b64 > /tmp/schema104.tar.gz
+          echo "a3a2583d08da433b513bbc96ea3a466951290f76dfd7a0561c7679d6a069020a  /tmp/schema104.tar.gz" | sha256sum -c -
+
+          tar -xzf /tmp/schema104.tar.gz -C .
+          rm -rf releases/schema104/payload
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "Schema 104 source already materialized"
+            exit 0
+          fi
+
+          git commit -m "Materialize Schema 104 production worker execution plane"
+          git push origin HEAD:agent/schema104-production-worker-execution-plane
