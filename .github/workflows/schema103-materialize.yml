@@ -1,0 +1,73 @@
+name: schema103-materialize
+
+on:
+  pull_request:
+    branches:
+      - agent/schema102-sandbox-soak-orchestrator
+    types: [opened, reopened, synchronize]
+    paths:
+      - .github/workflows/schema103-materialize.yml
+      - releases/schema103/payload/**
+
+permissions:
+  contents: write
+
+concurrency:
+  group: schema103-materialize
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/schema103-production-control-plane'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Schema 103 branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/schema103-production-control-plane
+          fetch-depth: 0
+
+      - name: Verify and materialize Schema 103 source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          parts=(
+            releases/schema103/payload/chunk-000
+            releases/schema103/payload/chunk-001
+            releases/schema103/payload/chunk-002
+            releases/schema103/payload/chunk-003
+            releases/schema103/payload/chunk-004
+            releases/schema103/payload/chunk-005
+            releases/schema103/payload/chunk-006
+          )
+
+          echo "1b3a5b4818f971596fa2e4ccf3bfc7d6238dd18d483d1dbf306505bc529e18d6  ${parts[0]}" | sha256sum -c -
+          echo "5b167761084125887212d2c81cc86f233d5b0d84556e5a45fd1fa47dd9ea52de  ${parts[1]}" | sha256sum -c -
+          echo "1cd8ddd53e2e527333bc535586f4511873a6047a196cc6891ddc375fdf2649cb  ${parts[2]}" | sha256sum -c -
+          echo "0401344845df7f76585d35bd368d46008be7b40fcea71a07ba1a00a587a7ba3c  ${parts[3]}" | sha256sum -c -
+          echo "d94df25a466c441ffa289d4d7e9d6344cc98a09569e1b4c6b6ec8c85b959db53  ${parts[4]}" | sha256sum -c -
+          echo "edb21d621cf3b374e568b214720cdcd1bf787b599c28a09131218db85430c557  ${parts[5]}" | sha256sum -c -
+          echo "28640d4b67c2a2f27a8e9d92055da19a16d31b9d7ed97d3a64ae09ab23587141  ${parts[6]}" | sha256sum -c -
+
+          cat "${parts[@]}" | tr -d '\r\n\t ' > /tmp/schema103.tar.gz.b64
+          echo "1151e230c8f16c93c9dd695c679b076b1130b2788bd9e5ec88dd3d5c7836b93d  /tmp/schema103.tar.gz.b64" | sha256sum -c -
+
+          base64 -d /tmp/schema103.tar.gz.b64 > /tmp/schema103.tar.gz
+          echo "d354460d2ba6d2b29eff323ecf6e6f478409d4771f3fab68184fb169ab9316a9  /tmp/schema103.tar.gz" | sha256sum -c -
+
+          tar -xzf /tmp/schema103.tar.gz -C .
+          rm -rf releases/schema103/payload
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "Schema 103 source already materialized"
+            exit 0
+          fi
+
+          git commit -m "Materialize Schema 103 production campaign control plane"
+          git push origin HEAD:agent/schema103-production-control-plane
