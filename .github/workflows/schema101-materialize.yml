@@ -28,7 +28,7 @@ jobs:
           ref: agent/schema101-external-sandbox-qualification
           fetch-depth: 0
 
-      - name: Verify and materialize Schema 101
+      - name: Verify and materialize Schema 101 source
         shell: bash
         run: |
           set -euo pipefail
@@ -41,7 +41,6 @@ jobs:
             releases/schema101/payload/chunk-002b
           )
 
-          wc -c "${parts[@]}"
           echo "cb2538136663233fa04eb2f05c61cad8b22eead6d2e92a3672fea8b6b8d98b0a  ${parts[0]}" | sha256sum -c -
           echo "022333e26aa840165e8de65f76deb4c6391040e68ca29120b97157a536d05fee  ${parts[1]}" | sha256sum -c -
           echo "441ab377d2ff58c938053c62784879b14eb20f9a06f1f38696130be851a311f0  ${parts[2]}" | sha256sum -c -
@@ -57,12 +56,17 @@ jobs:
           tar -xzf /tmp/schema101.tar.gz -C .
           rm -rf releases/schema101/payload
 
+          # The pull-request token may update source but cannot create a new
+          # workflow file. The verified CI workflow is committed separately
+          # through the GitHub connector after source materialization.
+          rm -f .github/workflows/schema101-external-sandbox-qualification.yml
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
 
           if git diff --cached --quiet; then
-            echo "Schema 101 payload already materialized"
+            echo "Schema 101 source already materialized"
             exit 0
           fi
 
