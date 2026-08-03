@@ -3,9 +3,9 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "astra-schema104-production-worker-execution-plane"
-version = "7.34.0"
-description = "ASTRA signed read-only production worker execution plane"
+name = "astra-schema105-production-worker-fleet-operations"
+version = "7.35.0"
+description = "ASTRA production worker fleet enrollment, autoscaling, containment, and evidence operations"
 requires-python = ">=3.11"
 dependencies = []
 
@@ -31,6 +31,10 @@ astra-platform-v104 = "tools.platform_v104:main"
 astra-architecture-audit-v104 = "tools.architecture_audit_v104:main"
 astra-static-audit-v104 = "tools.static_audit_v104:main"
 astra-stress-v104 = "tools.stress_v104:main"
+astra-platform-v105 = "tools.platform_v105:main"
+astra-architecture-audit-v105 = "tools.architecture_audit_v105:main"
+astra-static-audit-v105 = "tools.static_audit_v105:main"
+astra-stress-v105 = "tools.stress_v105:main"
 
 [tool.setuptools.packages.find]
 include = ["app*", "tools*"]
@@ -40,6 +44,7 @@ include = ["app*", "tools*"]
 "app.platform_assets.v102" = ["migrations/*.sql"]
 "app.platform_assets.v103" = ["migrations/*.sql"]
 "app.platform_assets.v104" = ["migrations/*.sql"]
+"app.platform_assets.v105" = ["migrations/*.sql"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"
