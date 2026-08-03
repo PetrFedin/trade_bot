@@ -38,7 +38,8 @@ jobs:
             releases/schema105/payload/chunk-001
             releases/schema105/payload/chunk-002
             releases/schema105/payload/chunk-003
-            releases/schema105/payload/chunk-004
+            releases/schema105/payload/chunk-004a
+            releases/schema105/payload/chunk-004b
             releases/schema105/payload/chunk-005
             releases/schema105/payload/chunk-006
             releases/schema105/payload/chunk-007
@@ -48,10 +49,11 @@ jobs:
           echo "7d63fda19734ac1022ca25d46be6bf159cc12be7335d49ca037b7b3786c8e57a  ${parts[1]}" | sha256sum -c -
           echo "4afe3f52183c3999ffb2bfee8448eb5ab90cb3a3165b00f290c8d4143b1a1873  ${parts[2]}" | sha256sum -c -
           echo "0af3740928fcf4e7ba6368ee70e297995b9d25df88007efaff7a3554cd0bf866  ${parts[3]}" | sha256sum -c -
-          echo "aa9ad5980577498c5323f6e8e89e675402b5909543d6bca63a62547f989ee87e  ${parts[4]}" | sha256sum -c -
-          echo "18c428a967f5ec59e1564ee871621c77fa713a52cde1d67f5425c8486b4f073e  ${parts[5]}" | sha256sum -c -
-          echo "fd266ff7e1676e8da7135c6c8e27e4aa2069c1e2a6c98d14107399d80d377938  ${parts[6]}" | sha256sum -c -
-          echo "b3531a3e2cab5d0e00330b908468ffda2f7e303e237663d3b470640ec55d8db9  ${parts[7]}" | sha256sum -c -
+          echo "8346ed78bc664a20813efe05f29fbfb98e80065e1b0385ec5a095a6ee97bde0d  ${parts[4]}" | sha256sum -c -
+          echo "5bd187b05e41ed19cb64591e6f5fa2339bc196c4cd2afc62a8032ddd39436551  ${parts[5]}" | sha256sum -c -
+          echo "18c428a967f5ec59e1564ee871621c77fa713a52cde1d67f5425c8486b4f073e  ${parts[6]}" | sha256sum -c -
+          echo "fd266ff7e1676e8da7135c6c8e27e4aa2069c1e2a6c98d14107399d80d377938  ${parts[7]}" | sha256sum -c -
+          echo "b3531a3e2cab5d0e00330b908468ffda2f7e303e237663d3b470640ec55d8db9  ${parts[8]}" | sha256sum -c -
 
           cat "${parts[@]}" | tr -d '\r\n\t ' > /tmp/schema105.tar.gz.b64
           echo "10750954892a1c1599366e66ccf9ab11838e8fc894a0395a44f8c740634baa08  /tmp/schema105.tar.gz.b64" | sha256sum -c -
