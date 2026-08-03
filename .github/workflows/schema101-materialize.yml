@@ -33,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          cat releases/schema101/payload/chunk-* > /tmp/schema101.tar.gz.b64
+          cat releases/schema101/payload/chunk-* | tr -d '\r\n\t ' > /tmp/schema101.tar.gz.b64
           echo "e4c4fef7fcf980afced783a45b259fd8e29ec4e72055b80e292ea45bf0e01cca  /tmp/schema101.tar.gz.b64" | sha256sum -c -
 
           base64 -d /tmp/schema101.tar.gz.b64 > /tmp/schema101.tar.gz
