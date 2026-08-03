@@ -1,0 +1,13 @@
+{
+  "schema": 102,
+  "version": "7.32.0",
+  "sandbox_soak_orchestrator_implemented": true,
+  "generation_fencing_implemented": true,
+  "failure_budgets_implemented": true,
+  "evidence_retention_implemented": true,
+  "journal_replay_implemented": true,
+  "external_30_day_soak_verified": false,
+  "external_alpaca_credentials_configured": false,
+  "external_order_routing_allowed": false,
+  "live_trading_allowed": false
+}

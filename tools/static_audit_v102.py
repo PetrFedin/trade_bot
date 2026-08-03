@@ -15,6 +15,8 @@ FORBIDDEN = (
     "wss://api.alpaca.markets",
     "live_trading_allowed=True",
     "external_order_routing_allowed=True",
+    "pickle.loads",
+    "yaml.load(",
 )
 
 
@@ -29,7 +31,7 @@ def audit(root: Path) -> dict[str, object]:
             if token in text:
                 findings.append(f"{path.relative_to(root)}:{token}")
     return {
-        "schema": 101,
+        "schema": 102,
         "status": "PASS" if not findings else "FAIL",
         "python_files_checked": len(files),
         "findings": findings,
