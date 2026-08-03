@@ -1,11 +1,13 @@
 name: schema101-materialize
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/schema101-external-sandbox-qualification
+      - agent/schema100-alpaca-paper-sandbox
+    types: [opened, reopened, synchronize]
     paths:
       - .github/workflows/schema101-materialize.yml
+      - releases/schema101/payload/**
 
 permissions:
   contents: write
@@ -16,6 +18,7 @@ concurrency:
 
 jobs:
   materialize:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/schema101-external-sandbox-qualification'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
