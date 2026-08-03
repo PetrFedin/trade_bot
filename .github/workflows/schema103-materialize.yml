@@ -38,7 +38,8 @@ jobs:
             releases/schema103/payload/chunk-001
             releases/schema103/payload/chunk-002
             releases/schema103/payload/chunk-003
-            releases/schema103/payload/chunk-004
+            releases/schema103/payload/chunk-004a
+            releases/schema103/payload/chunk-004b
             releases/schema103/payload/chunk-005
             releases/schema103/payload/chunk-006
           )
@@ -47,9 +48,10 @@ jobs:
           echo "5b167761084125887212d2c81cc86f233d5b0d84556e5a45fd1fa47dd9ea52de  ${parts[1]}" | sha256sum -c -
           echo "1cd8ddd53e2e527333bc535586f4511873a6047a196cc6891ddc375fdf2649cb  ${parts[2]}" | sha256sum -c -
           echo "0401344845df7f76585d35bd368d46008be7b40fcea71a07ba1a00a587a7ba3c  ${parts[3]}" | sha256sum -c -
-          echo "d94df25a466c441ffa289d4d7e9d6344cc98a09569e1b4c6b6ec8c85b959db53  ${parts[4]}" | sha256sum -c -
-          echo "edb21d621cf3b374e568b214720cdcd1bf787b599c28a09131218db85430c557  ${parts[5]}" | sha256sum -c -
-          echo "28640d4b67c2a2f27a8e9d92055da19a16d31b9d7ed97d3a64ae09ab23587141  ${parts[6]}" | sha256sum -c -
+          echo "e4d4ca48cdd181576353ccc74adbe25cc03434e59cf23cb25fae429160d38e10  ${parts[4]}" | sha256sum -c -
+          echo "50266d9a20d2c7d550dba25f69f6a4ace853acbe7958922f274508bbdbfc3c64  ${parts[5]}" | sha256sum -c -
+          echo "edb21d621cf3b374e568b214720cdcd1bf787b599c28a09131218db85430c557  ${parts[6]}" | sha256sum -c -
+          echo "28640d4b67c2a2f27a8e9d92055da19a16d31b9d7ed97d3a64ae09ab23587141  ${parts[7]}" | sha256sum -c -
 
           cat "${parts[@]}" | tr -d '\r\n\t ' > /tmp/schema103.tar.gz.b64
           echo "1151e230c8f16c93c9dd695c679b076b1130b2788bd9e5ec88dd3d5c7836b93d  /tmp/schema103.tar.gz.b64" | sha256sum -c -
