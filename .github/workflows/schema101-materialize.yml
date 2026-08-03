@@ -33,13 +33,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          wc -c releases/schema101/payload/chunk-*
-          sha256sum releases/schema101/payload/chunk-*
-          echo "cb2538136663233fa04eb2f05c61cad8b22eead6d2e92a3672fea8b6b8d98b0a  releases/schema101/payload/chunk-000" | sha256sum -c -
-          echo "3ee25f0d1d1ba0096beeabd45570cf92395080826149f0ed4e0b8e96e2543b29  releases/schema101/payload/chunk-001" | sha256sum -c -
-          echo "4f894144de691db07f21402c940315a3eab2ae546540c1ee5f64e7b80b60d567  releases/schema101/payload/chunk-002" | sha256sum -c -
+          parts=(
+            releases/schema101/payload/chunk-000
+            releases/schema101/payload/chunk-001a
+            releases/schema101/payload/chunk-001b
+            releases/schema101/payload/chunk-002a
+            releases/schema101/payload/chunk-002b
+          )
 
-          cat releases/schema101/payload/chunk-* | tr -d '\r\n\t ' > /tmp/schema101.tar.gz.b64
+          wc -c "${parts[@]}"
+          echo "cb2538136663233fa04eb2f05c61cad8b22eead6d2e92a3672fea8b6b8d98b0a  ${parts[0]}" | sha256sum -c -
+          echo "022333e26aa840165e8de65f76deb4c6391040e68ca29120b97157a536d05fee  ${parts[1]}" | sha256sum -c -
+          echo "441ab377d2ff58c938053c62784879b14eb20f9a06f1f38696130be851a311f0  ${parts[2]}" | sha256sum -c -
+          echo "38e037c4a28eefa2581cb3e789481ee9d6ae0880bfc0be91d4d4e16b2e70bcf4  ${parts[3]}" | sha256sum -c -
+          echo "a1e443ceac982c431a4b2f5a849a95b0b7eb0381b5d8796bc86d1843d2d3e27b  ${parts[4]}" | sha256sum -c -
+
+          cat "${parts[@]}" | tr -d '\r\n\t ' > /tmp/schema101.tar.gz.b64
           echo "e4c4fef7fcf980afced783a45b259fd8e29ec4e72055b80e292ea45bf0e01cca  /tmp/schema101.tar.gz.b64" | sha256sum -c -
 
           base64 -d /tmp/schema101.tar.gz.b64 > /tmp/schema101.tar.gz
