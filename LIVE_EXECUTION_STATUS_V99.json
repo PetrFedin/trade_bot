@@ -1,0 +1,15 @@
+{
+  "schema_version": 99,
+  "package_version": "7.29.0",
+  "paper_broker_contract_present": true,
+  "paper_round_trip_runtime_present": true,
+  "deployment_supervisor_present": true,
+  "github_ci_verified": true,
+  "external_paper_broker_credentials_configured": false,
+  "external_paper_broker_round_trip_verified": false,
+  "live_market_data_capture_verified": false,
+  "live_postgresql_tls_verified": false,
+  "continuous_30_day_paper_run_verified": false,
+  "external_order_routing_allowed": false,
+  "live_trading_allowed": false
+}
