@@ -1,32 +1,33 @@
-# ASTRA 7.30.0 — Schema 100 Alpaca paper sandbox
+# ASTRA 7.31.0 — Schema 101 external sandbox qualification
 
-Schema 100 adds a concrete, self-contained Alpaca **paper-only** adapter boundary on top of the Schema 99 round-trip and deployment controls.
+Schema 101 adds a fail-closed qualification boundary for an external paper broker sandbox. It does **not** enable live trading.
+
+## Control flow
 
 ```text
-secret-store credentials
-  -> paper endpoint pinning
-  -> independent read/write rate limits
-  -> bounded retry for reads only
-  -> single-attempt submit/replace/cancel
-  -> authenticated trade_updates stream
-  -> duplicate suppression and generation fencing
-  -> regression quarantine and qualification evidence
+sealed plan
+  -> read-only account and open-order probe
+  -> authenticated paper stream evidence
+  -> signed, scoped, one-time operator approval
+  -> single-attempt submit / replace / cancel
+  -> read-only resolution of ambiguous mutations
+  -> bounded cleanup proof
+  -> verified or blocked / recovering / quarantined
 ```
 
-The runnable repository slice includes the adapter, tests, PostgreSQL migration, operator CLI, static/architecture audits and GitHub Actions.
+Safety controls include generation fencing, HMAC approval sealing, replay protection, sticky kill switch, allowlisted symbols, quantity/notional caps, hash-chain/fsync evidence and fail-closed recovery.
 
 ```bash
 python -m pip install -e '.[test]'
 python -m pytest -q
-python -m tools.architecture_audit_v100 .
-python -m tools.static_audit_v100 .
-python -m tools.stress_v100 --iterations 1000 --workers 8
+python -m tools.architecture_audit_v101 .
+python -m tools.static_audit_v101 .
+python -m tools.stress_v101 --iterations 1000 --workers 8
 ```
 
-Credentials are read only from `ASTRA_ALPACA_PAPER_KEY_ID` and `ASTRA_ALPACA_PAPER_SECRET_KEY`; logs and evidence contain only a short fingerprint.
+External probes require paper credentials in environment variables and the optional market-data dependency. Paper mutations remain disabled until a separately signed approval is accepted by the qualification service.
 
 ```text
-alpaca_paper_credentials_configured = false
 external_order_routing_allowed = false
 live_trading_allowed = false
 ```
