@@ -3,9 +3,9 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "astra-schema103-production-control-plane"
-version = "7.33.0"
-description = "ASTRA production campaign control plane for read-only paper-sandbox qualification"
+name = "astra-schema104-production-worker-execution-plane"
+version = "7.34.0"
+description = "ASTRA signed read-only production worker execution plane"
 requires-python = ">=3.11"
 dependencies = []
 
@@ -27,6 +27,10 @@ astra-platform-v103 = "tools.platform_v103:main"
 astra-architecture-audit-v103 = "tools.architecture_audit_v103:main"
 astra-static-audit-v103 = "tools.static_audit_v103:main"
 astra-stress-v103 = "tools.stress_v103:main"
+astra-platform-v104 = "tools.platform_v104:main"
+astra-architecture-audit-v104 = "tools.architecture_audit_v104:main"
+astra-static-audit-v104 = "tools.static_audit_v104:main"
+astra-stress-v104 = "tools.stress_v104:main"
 
 [tool.setuptools.packages.find]
 include = ["app*", "tools*"]
@@ -35,6 +39,7 @@ include = ["app*", "tools*"]
 "app.platform_assets.v101" = ["migrations/*.sql"]
 "app.platform_assets.v102" = ["migrations/*.sql"]
 "app.platform_assets.v103" = ["migrations/*.sql"]
+"app.platform_assets.v104" = ["migrations/*.sql"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"

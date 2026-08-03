@@ -1,0 +1,16 @@
+{
+  "base_commit": "2a021a9e7ad1918fc7d648e5fe36c4750b3511f7",
+  "external_order_routing_allowed": false,
+  "file_sha256": {
+    "app/runtime/postgres_worker_plane_v104.py": "2a345603c5a0814315f5307d135f5426d2ced8b8a6527d177e427a96840f9a24",
+    "app/runtime/worker_execution_plane_v104.py": "530ebe44f26172696000ee71606874ed8d75b5ade52028750256f64bc9217d4e",
+    "migrations/v104/001_production_worker_execution_plane.sql": "10ef7f3cddbcdf4898e1b2f75d02fad7633a513a4b07716a9bb907987bc73f43",
+    "pyproject.toml": "72dc03fcc9167677f09de36883c0c3fd3c4946ac68a6d115cbf90f6a5f2e8a97",
+    "tests/test_postgres_worker_plane_v104.py": "d7dfded0a7be1514479b8ff606cb5759ad24af6a1f311a5c5bfa5e553d5ae37d",
+    "tests/test_worker_execution_plane_v104.py": "dabf75667cd75684476f412c7c95e76ed0fe9ce10c536a3f686843452a4d9f69",
+    "tools/stress_v104.py": "b070f30f0fad97e70d6b46f2ff1160600b14540dea0ca4cc9a25a615aa16b145"
+  },
+  "live_trading_allowed": false,
+  "schema": 104,
+  "version": "7.34.0"
+}
