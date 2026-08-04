@@ -43,7 +43,8 @@ jobs:
             releases/schema106/payload/chunk-006
             releases/schema106/payload/chunk-007
             releases/schema106/payload/chunk-008
-            releases/schema106/payload/chunk-009
+            releases/schema106/payload/chunk-009a
+            releases/schema106/payload/chunk-009b
             releases/schema106/payload/chunk-010
           )
 
@@ -56,8 +57,9 @@ jobs:
           echo "629080cb0e98e5f8c3c4e317267c8202563a66c8ec29dc205e42983063c3cd19  ${parts[6]}" | sha256sum -c -
           echo "16362d0eff88ef3eb1ebba4b5b1c6124f91f0ab156a0ccb428b677df9be3465c  ${parts[7]}" | sha256sum -c -
           echo "326309965e65feace9712b385cbfa968dde40c27e6496d05a07699d5dff41f25  ${parts[8]}" | sha256sum -c -
-          echo "8d9819199d48513f20659a30b26dd472a5a7f8ee41d6cbf6ce926417e0d76f68  ${parts[9]}" | sha256sum -c -
-          echo "bbb4714fcdd2b251b02f007cd71b746e4fbb91210b58fceae388513833212d5f  ${parts[10]}" | sha256sum -c -
+          echo "94889e174d4ad15e510a5acacef2347e5fe4bddc1f1554eeaad6eab924f39144  ${parts[9]}" | sha256sum -c -
+          echo "8ee8464032faf65c3321950852bca09fcf8b5a1d73103268611cc4dbf052768e  ${parts[10]}" | sha256sum -c -
+          echo "bbb4714fcdd2b251b02f007cd71b746e4fbb91210b58fceae388513833212d5f  ${parts[11]}" | sha256sum -c -
 
           cat "${parts[@]}" | tr -d '\r\n\t ' > /tmp/schema106.tar.gz.b64
           echo "e9cb607166c38fbf89da6e84bea0a1cd68de83cce9b86b8ab98889a2c1db5e0b  /tmp/schema106.tar.gz.b64" | sha256sum -c -
