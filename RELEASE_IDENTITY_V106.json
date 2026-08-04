@@ -1,0 +1,38 @@
+{
+  "files": {
+    ".github/workflows/schema106-production-fleet-deployment-qualification.yml": "db4da35b02390223d1024d0f79596ae6b3d3f5b47e4d4ab9fff3e2a199022810",
+    "ENGINEERING_REPORT_V106.md": "f26ce6240b8b3a4f1bd683630feadeb66c4e745ca3f1def14bc887d09f7b0a38",
+    "INTEGRATION_V106.md": "25f3ace239a37cae0a224f4744681610df03b061cb6cc1c829b17996bdd0155c",
+    "LIVE_EXECUTION_STATUS_V106.json": "96d437007324ff376f8247818b5fc14462fd5b5684d8c898f109466358ed1ea4",
+    "OPERATOR_RUNBOOK_V106.md": "68704f175923b948b19044a15ec6f73bd0a354d9f87036c9ebb6809dd46c9fcc",
+    "QUALIFICATION_SUMMARY_V106.md": "88ca32acba9d0a9bfc28846480e8ada1959f31d3f4e534f7983e32ee56115102",
+    "README.md": "661a354f4b050d58206cb33320db5522eaf3a197496bc9099ff7af454d1bfef0",
+    "RELEASE_NOTES_V106.md": "37f181010a1c98284ffe57ba7b039f470097299a6871101b9899ad5116c11a1e",
+    "app/platform_assets/v106/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "app/platform_assets/v106/migrations/001_production_fleet_deployment_qualification.sql": "33be81a63d39a1375c9cb57075cb22fe9ae7163f4ee90596112fe3a321398035",
+    "app/runtime/deployment_qualification_v106.py": "a9c494d6fb34d7d0f4916b4a5ba1a0719eb98be5ae898aa5687c89730b6d518e",
+    "app/runtime/kubernetes_qualification_adapter_v106.py": "0985a30a9287e9bcbec98dd2c3ab504c204ae91dee4f87026ea86caa0588af41",
+    "app/runtime/postgres_deployment_qualification_v106.py": "66a767c09c2175c5f52974239fcedfa455c4dc0625028508b791e353dc50dbd7",
+    "migrations/v106/001_production_fleet_deployment_qualification.sql": "33be81a63d39a1375c9cb57075cb22fe9ae7163f4ee90596112fe3a321398035",
+    "pyproject.toml": "946a75de1be228f74ec91a4336e583cd7824a0ecbaf08cc3abe9e8d142cc06c9",
+    "tests/test_deployment_qualification_v106.py": "fa6eab01842eaac492d5928cda765ac7cd44d79f170219466036dbbb5748a480",
+    "tests/test_kubernetes_qualification_adapter_v106.py": "ae36c44b49dc49e96c80ec8f4d0c7f8d645bb1536d53a78f7929f8cb0d2ee288",
+    "tests/test_postgres_deployment_qualification_v106.py": "bf3b4277a61943b2a7f5d07bb0dceefab458d47358d912ce7cb72745acdb45db",
+    "tests/test_tools_v106.py": "8ac5973e191c4494eb475fdc7174a5218664728d16dc933ef7355e16b745fabb",
+    "tools/architecture_audit_v106.py": "020c2cb2ca5d1b78285ce8c3feca7e4ffaee7797e09d42bad4d976b595b8fac8",
+    "tools/platform_v106.py": "eb47bf2637d68f686747e5d4ba0420499bc7e04cfa8e11b19a2f48b6778deafd",
+    "tools/static_audit_v106.py": "0b784f92469debadd9f956b100a9c6586b2b7b0a79e49ea8817df8a13597a892",
+    "tools/stress_v106.py": "fca48fe25ea8b15ebcdb6ac2ee0a4f5aef347c049c64109847ab21e090698484"
+  },
+  "package": "astra-schema106-production-fleet-deployment-qualification",
+  "qualification": {
+    "branch_coverage_percent": 99,
+    "stress_failures": 0,
+    "stress_iterations": 1000,
+    "stress_workers": 8,
+    "tests_passed": 161
+  },
+  "schema": 106,
+  "version": "7.36.0",
+  "wheel_sha256": "ee1bd2f01de1c0d9de75eab2323f368fee00ee89cfd03c2a9783cef60cab8d5a"
+}

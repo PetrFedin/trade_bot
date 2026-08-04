@@ -1,37 +1,33 @@
-# ASTRA 7.35.0 — Schema 105 production worker fleet operations
+# ASTRA 7.36.0 — Schema 106 production fleet deployment qualification
 
-Schema 105 adds fleet-level safety and operations above the signed Schema 104 worker execution plane.
+Schema 106 qualifies the complete deployment process above the Schema 105 worker fleet boundary.
 
 ```text
-Kubernetes-style deployment attestation
-  -> signed one-time worker enrollment
-  -> key/certificate rotation and revocation
-  -> heartbeat and identity generation fencing
-  -> controlled autoscaling
-  -> graceful drain or quarantine
-  -> fleet/zone/deployment/worker containment
-  -> S3-compatible evidence delivery
-  -> PostgreSQL append-only operational record
+signed deployment manifest
+  -> read-only Kubernetes evidence collection
+  -> preflight safety gates
+  -> isolated canary observation
+  -> dual-control signed rollout action
+  -> full-rollout verification
+  -> certificate renewal drill
+  -> disaster-recovery drill
+  -> immutable evidence bundle
 ```
 
-Safety boundaries:
+Safety invariants:
 
-- one active enrollment-signing key, with retiring-key verification and explicit revocation;
-- replay-protected enrollment tokens and nonces;
-- cluster, namespace, service-account, zone, image and configuration attestation;
-- controlled scale-up/scale-down steps, cooldowns and stabilization windows;
-- no scale changes during containment, dependency failure or incident-budget exhaustion;
-- drain rejects new claims and requires zero active claims plus flushed evidence;
-- drain timeout enters quarantine and requires recovery;
-- containment release requires dual control and cleanup evidence;
-- evidence uploads use HTTPS-only allowlisted S3-compatible endpoints;
-- TLS verification enabled and redirects disabled;
-- mutation calls are never blindly retried;
-- ambiguous multipart mutations recover through read-only listing or HEAD verification;
-- part and total SHA-256 verification;
-- PostgreSQL task claiming uses `FOR UPDATE SKIP LOCKED` and monotonic fencing.
+- Kubernetes API access is GET-only, HTTPS-only, TLS-verified and redirect-free;
+- image and configuration digests must match the signed manifest;
+- default-deny network policy and exact egress allowlist are mandatory;
+- live broker endpoints, external order routing and live trading remain disabled;
+- rollout actions are dual-control, signed, fenced, idempotent and single-attempt;
+- canary promotion requires a complete observation window and zero critical failures;
+- certificate renewal requires generation increment, bounded overlap and old-certificate revocation;
+- disaster recovery runs only in an isolated `drill-*` environment and enforces RPO/RTO;
+- all evidence is content-addressed and hash-chain journaled.
 
 ```text
 external_order_routing_allowed = false
 live_trading_allowed = false
+kubernetes_mutations_allowed = false
 ```

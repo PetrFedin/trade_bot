@@ -1,0 +1,13 @@
+{
+  "schema": 106,
+  "status": "LOCAL_QUALIFICATION_ONLY",
+  "external_kubernetes_cluster_verified": false,
+  "external_postgresql_repository_verified": false,
+  "external_s3_compatible_storage_verified": false,
+  "external_certificate_authority_verified": false,
+  "external_disaster_recovery_restore_verified": false,
+  "external_read_only_fleet_soak_verified": false,
+  "kubernetes_mutations_allowed": false,
+  "external_order_routing_allowed": false,
+  "live_trading_allowed": false
+}
