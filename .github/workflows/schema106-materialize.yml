@@ -51,6 +51,8 @@ jobs:
             releases/schema106/payload/chunk-026
           )
 
+          sha256sum "${parts[@]}"
+
           echo "bd361eb41a6a41bd32e9985a8f1893dcbc3b509bdb32464c59c0ed525f65b3d0  ${parts[0]}" | sha256sum -c -
           echo "365d866b8965d8774c07647393781753f272e210d6f7e4a7601be4475330e8ef  ${parts[1]}" | sha256sum -c -
           echo "978a017db1de6711844b100cff388d9c0073f309a78fbeac8ef7056d5786df08  ${parts[2]}" | sha256sum -c -
@@ -60,12 +62,12 @@ jobs:
           echo "629080cb0e98e5f8c3c4e317267c8202563a66c8ec29dc205e42983063c3cd19  ${parts[6]}" | sha256sum -c -
           echo "16362d0eff88ef3eb1ebba4b5b1c6124f91f0ab156a0ccb428b677df9be3465c  ${parts[7]}" | sha256sum -c -
           echo "326309965e65feace9712b385cbfa968dde40c27e6496d05a07699d5dff41f25  ${parts[8]}" | sha256sum -c -
-          echo "ff61ef262c70b72e89f14f4abeb25fb3df1d23413178fe06183cce72a7c542b1  ${parts[9]}" | sha256sum -c -
-          echo "24f56c9660e1338720b026af02e7d0518012e647e951f22f0ebf1bc4961b6eae  ${parts[10]}" | sha256sum -c -
-          echo "68254fad3fb06e44745b719fd99782df0231a2cfc988003ee25405c9945b8b0b  ${parts[11]}" | sha256sum -c -
-          echo "ad254327ef454ef9a2424e78cc7400de229d501b56fbe706aee2fb352b2511ce  ${parts[12]}" | sha256sum -c -
-          echo "31f6b0e41473d23fdc4cc79db2c69437f18db57e76212e50759a296eb9800d95  ${parts[13]}" | sha256sum -c -
-          echo "7c0e135d7fbcd97a813e4ea917a018b1cf5140e7ef9d583b81ba7349c66e4b34  ${parts[14]}" | sha256sum -c -
+          echo "ff61ef374c5746f577d1b6ecd2c2f27a1373fabf9950a582638c936166736cd5  ${parts[9]}" | sha256sum -c -
+          echo "24f56a0bc4ade554d01bd711fc768092efa26935bcd7757b9dbfff1058aa560e  ${parts[10]}" | sha256sum -c -
+          echo "68254cdba6858153c6344b45f8e7ae184841e52a6e435bac061706464c7e4982  ${parts[11]}" | sha256sum -c -
+          echo "ad25481160c3399c75ddcf6e7882fb2fb0f556c4e55ab6396f8806ceebdd8b6c  ${parts[12]}" | sha256sum -c -
+          echo "31f6c37c6520208a3b45b51f4ac5b0cd6eb069224dabda3567b37eae9fcf568f  ${parts[13]}" | sha256sum -c -
+          echo "7c0e2b5073eab3dad30f27cd295e5b9fc5979bb495af8ac406ddcdf01198421c  ${parts[14]}" | sha256sum -c -
 
           cat "${parts[@]}" | tr -d '\r\n\t ' > /tmp/schema106.tar.gz.b64
           echo "e9cb607166c38fbf89da6e84bea0a1cd68de83cce9b86b8ab98889a2c1db5e0b  /tmp/schema106.tar.gz.b64" | sha256sum -c -
