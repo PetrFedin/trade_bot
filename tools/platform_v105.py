@@ -53,16 +53,19 @@ def verify_release(root: Path) -> dict[str, object]:
         findings.append("package_identity")
 
     successor = current_schema > 105
-    ignored = sorted(_SUCCESSOR_MUTABLE_FILES) if successor else []
+    ignored: list[str] = []
     checked = 0
+    verified = 0
     for relative, expected in sorted(identity.get("files", {}).items()):
-        if successor and relative in _SUCCESSOR_MUTABLE_FILES:
-            continue
         checked += 1
         path = root / relative
         if not path.is_file():
             findings.append(f"missing:{relative}")
             continue
+        if successor and relative in _SUCCESSOR_MUTABLE_FILES:
+            ignored.append(relative)
+            continue
+        verified += 1
         actual = hashlib.sha256(path.read_bytes()).hexdigest()
         if actual != expected:
             findings.append(f"digest:{relative}")
@@ -74,6 +77,7 @@ def verify_release(root: Path) -> dict[str, object]:
         "current_schema": current_schema,
         "current_version": ".".join(str(part) for part in current_version),
         "files_checked": checked,
+        "files_verified": verified,
         "files_ignored": ignored,
         "findings": findings,
     }
