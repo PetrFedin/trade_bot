@@ -48,7 +48,10 @@ jobs:
               "chunk-003.txt": "48fe173cda1efe658d922f18e554c772f250fa26493b9571dc1477f517a26c2e",
               "chunk-004.txt": "0dfa4d382814d5b8f04775097be3a311dad3509cc2dd8ee4954ab0a3b60610c4",
               "chunk-005.txt": "352932f3b2b36c3f487a3863b614cc655a17cb48c17410858f1369e50d56ae0b",
-              "chunk-006.txt": "c7c680868e8cb3cc5440278057630626d152a65d65bdb6a87fe0b437bc464307",
+              "chunk-006a.txt": "51282e347f9748697568235c0e012c433d15fbefeb6f643c1b01cca0a885a345",
+              "chunk-006b.txt": "10370e1f199b313359254f4c04d8fb26b5de3acf5ec0564aed75124c3ab68462",
+              "chunk-006c.txt": "ea081bf0396836ac1790d36f0037b772d43315ef49971b223dc6980508c4e2dd",
+              "chunk-006d.txt": "024313b78f0d73b4359dcaec34a32add9e9c17330740e896c90ec0118db803a6",
               "chunk-007.txt": "1c6792c4a4f09befe16ccdb6f34a25d23181402dee616300beae5575eef691a3",
           }
           expected_base64_sha256 = "e7ee47feb60eb8447047a140d708326ee029d44f0b2240477aa8766df16f7b8b"
