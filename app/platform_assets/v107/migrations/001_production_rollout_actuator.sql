@@ -7,10 +7,8 @@ CREATE TABLE IF NOT EXISTS astra_rollout_replay_v107 (
     consumed_at timestamptz NOT NULL
 );
 
-
 CREATE TABLE IF NOT EXISTS astra_rollout_fence_v107 (
     deployment_uid text PRIMARY KEY,
-    deployment_uid text NOT NULL,
     fencing_token bigint NOT NULL CHECK (fencing_token > 0),
     command_id text NOT NULL UNIQUE,
     updated_at timestamptz NOT NULL
@@ -25,6 +23,7 @@ CREATE TABLE IF NOT EXISTS astra_rollout_execution_v107 (
         'PENDING', 'CLAIMED', 'PREFLIGHT', 'MUTATION_STARTED',
         'VERIFYING', 'SUCCEEDED', 'FAILED', 'UNCERTAIN', 'QUARANTINED'
     )),
+    deployment_uid text NOT NULL,
     fencing_token bigint NOT NULL CHECK (fencing_token > 0),
     target_replicas integer NOT NULL CHECK (target_replicas >= 0),
     claimed_by text,

@@ -2,11 +2,12 @@
 
 ## Qualified source boundary
 
-Schema 107 is qualified locally as a source-level, single-attempt Kubernetes replica rollout actuator stacked on Schema 106. It does not authorize a production mutation by itself.
+Schema 107 is qualified as a source-level, single-attempt Kubernetes replica rollout actuator stacked on Schema 106. It does not authorize a production mutation by itself.
 
-## Final local qualification
+## Final qualification
 
-- focused and available full local suite: **136 passed**;
+- focused Schema 107 suite: **139 passed**;
+- complete stacked suite: **718 passed**;
 - branch-aware runtime coverage: **93.900804%**;
 - runtime statements measured: **1,184**;
 - runtime branches measured: **308**;
@@ -19,11 +20,13 @@ Schema 107 is qualified locally as a source-level, single-attempt Kubernetes rep
 - static security audit: **PASS**;
 - compileall: **PASS**;
 - canonical/package migration byte comparison: **PASS**;
+- migration column-contract tests: **PASS**;
+- migration apply and idempotent re-apply against PostgreSQL 16: **PASS**;
 - stress: **1,000 commands / 8 workers / 0 failures**;
 - durable-style replay ledger size: **1,000**;
 - unique command digests: **1,000 / 1,000**.
 
-The GitHub workflow also runs `pytest -q` against the complete stacked repository after publication. The inherited Schema 99–106 suite is not present in this local overlay and must be confirmed by that server-side run.
+The permanent GitHub workflow executes the complete stacked repository and starts an isolated PostgreSQL service. It applies the canonical migration twice with `ON_ERROR_STOP=1`, then queries `information_schema` to verify the execution/fence column contract used by the repository.
 
 ## Verified safety invariants
 
@@ -34,6 +37,8 @@ The GitHub workflow also runs `pytest -q` against the complete stacked repositor
 - command validity and all signatures are rechecked immediately before the durable mutation marker;
 - replay guard, execution row and outbox event are created in one PostgreSQL transaction;
 - fencing tokens are durable, monotonic per deployment UID and recorded atomically with the mutation marker;
+- the persisted execution schema contains one non-null `deployment_uid` column matching repository writes and fence indexes;
+- every migration table is statically checked for duplicate top-level column declarations;
 - the Kubernetes JSON Patch tests deployment UID, resourceVersion, generation and current replicas;
 - a command can attempt PATCH at most once in process and at most once in durable state;
 - HTTP 408, 5xx, transport failures and malformed successful responses are ambiguous, never retried;
@@ -46,7 +51,7 @@ The GitHub workflow also runs `pytest -q` against the complete stacked repositor
 ## Not externally verified
 
 - production Kubernetes API and admission chain;
-- production PostgreSQL repository and transaction isolation;
+- production PostgreSQL credentials, role grants and transaction-isolation configuration;
 - workload identity and secret/key distribution;
 - Kubernetes audit sink and external observability pipeline;
 - real production rollout or rollback;

@@ -35,6 +35,20 @@ jobs:
   deterministic:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra-ci
+          POSTGRES_DB: astra
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - name: Checkout exact PR head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -90,6 +104,44 @@ jobs:
 
       - name: Verify canonical migration packaging
         run: cmp migrations/v107/001_production_rollout_actuator.sql app/platform_assets/v107/migrations/001_production_rollout_actuator.sql
+
+      - name: Apply migration twice to real PostgreSQL
+        shell: bash
+        env:
+          PGPASSWORD: astra-ci
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          for pass in 1 2; do
+            psql --host=127.0.0.1 --port=5432 --username=astra --dbname=astra \
+              --set=ON_ERROR_STOP=1 --file=migrations/v107/001_production_rollout_actuator.sql
+          done
+          psql --host=127.0.0.1 --port=5432 --username=astra --dbname=astra \
+            --set=ON_ERROR_STOP=1 --tuples-only --no-align <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND table_name = 'astra_rollout_execution_v107'
+                AND column_name = 'deployment_uid'
+                AND is_nullable = 'NO'
+            ) THEN
+              RAISE EXCEPTION 'execution deployment_uid contract missing';
+            END IF;
+            IF (
+              SELECT count(*) FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND table_name = 'astra_rollout_fence_v107'
+                AND column_name = 'deployment_uid'
+            ) <> 1 THEN
+              RAISE EXCEPTION 'fence deployment_uid must exist exactly once';
+            END IF;
+          END
+          $$;
+          SQL
 
       - name: Verify production safety remains disabled
         shell: bash
