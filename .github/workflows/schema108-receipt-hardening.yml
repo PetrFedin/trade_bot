@@ -1,0 +1,328 @@
+name: schema108-receipt-hardening
+
+on:
+  push:
+    branches:
+      - agent/schema108-materialize-20260806
+    paths:
+      - .github/workflows/schema108-receipt-hardening.yml
+
+permissions:
+  contents: write
+
+jobs:
+  qualify-and-materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra-ci
+          POSTGRES_DB: astra
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout exact staging head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/schema108-materialize-20260806
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Verify and extract durable receipt patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import base64
+          import hashlib
+          import io
+          from pathlib import Path, PurePosixPath
+          import tarfile
+
+          root = Path.cwd().resolve()
+          payload_root = root / "_schema108_receipt_patch"
+          chunk_hashes = {
+              "chunk-000.txt": "85dce4e694dc74d6a9cd9274e0e617fa3c98cf5c51240ba796bad576363c493c",
+              "chunk-001.txt": "ace104e33bb0f0f6e531213bff87c9e1a18138a53d42e1881feec999205acb5a",
+          }
+          expected_base64_sha256 = "46b87397cfebca38c681a5a9ff071b77d6828ca0d49eb9ed1b7749d58bd76c6d"
+          expected_archive_sha256 = "74d89e9e794c83711f4e732e63b850da64c70191364fada4949f027bf80438ea"
+          expected_members = {
+              ".github/workflows/schema108-asymmetric-signing-authority.yml",
+              "ENGINEERING_REPORT_V108.md",
+              "INTEGRATION_V108.md",
+              "OPERATOR_RUNBOOK_V108.md",
+              "QUALIFICATION_SUMMARY_V108.md",
+              "RELEASE_IDENTITY_V108.json",
+              "RELEASE_NOTES_V108.md",
+              "app/platform_assets/v108/migrations/001_asymmetric_signing_authority.sql",
+              "app/runtime/postgres_signing_repository_v108.py",
+              "migrations/v108/001_asymmetric_signing_authority.sql",
+              "tests/test_migration_contract_v108.py",
+              "tests/test_postgres_signing_repository_v108.py",
+              "tools/architecture_audit_v108.py",
+              "tools/static_audit_v108.py",
+          }
+
+          encoded_parts: list[bytes] = []
+          for name, expected in chunk_hashes.items():
+              path = payload_root / name
+              if not path.is_file():
+                  raise SystemExit(f"missing receipt patch part: {name}")
+              data = path.read_bytes()
+              actual = hashlib.sha256(data).hexdigest()
+              if actual != expected:
+                  raise SystemExit(f"receipt patch chunk digest mismatch for {name}: {actual}")
+              encoded_parts.append(data)
+
+          encoded = b"".join(encoded_parts)
+          encoded_digest = hashlib.sha256(encoded).hexdigest()
+          if encoded_digest != expected_base64_sha256:
+              raise SystemExit(f"receipt patch base64 digest mismatch: {encoded_digest}")
+          archive = base64.b64decode(encoded, validate=True)
+          archive_digest = hashlib.sha256(archive).hexdigest()
+          if archive_digest != expected_archive_sha256:
+              raise SystemExit(f"receipt patch archive digest mismatch: {archive_digest}")
+
+          with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as handle:
+              members = handle.getmembers()
+              names = [member.name for member in members]
+              if len(names) != len(set(names)):
+                  raise SystemExit("duplicate receipt patch archive member")
+              if set(names) != expected_members:
+                  raise SystemExit(
+                      f"receipt patch members mismatch: missing={sorted(expected_members - set(names))} "
+                      f"unexpected={sorted(set(names) - expected_members)}"
+                  )
+              for member in members:
+                  pure = PurePosixPath(member.name)
+                  if pure.is_absolute() or ".." in pure.parts or str(pure) != member.name:
+                      raise SystemExit(f"unsafe receipt patch path: {member.name}")
+                  if not member.isfile() or member.issym() or member.islnk():
+                      raise SystemExit(f"unsupported receipt patch member: {member.name}")
+                  source = handle.extractfile(member)
+                  if source is None:
+                      raise SystemExit(f"unreadable receipt patch member: {member.name}")
+                  destination = (root / Path(*pure.parts)).resolve()
+                  if root not in destination.parents:
+                      raise SystemExit(f"receipt patch escaped repository: {member.name}")
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  destination.write_bytes(source.read())
+
+          print({
+              "status": "PASS",
+              "parts": len(chunk_hashes),
+              "members": len(expected_members),
+              "base64_sha256": encoded_digest,
+              "archive_sha256": archive_digest,
+          })
+          PY
+
+      - name: Install qualification dependencies
+        run: python -m pip install --disable-pip-version-check ".[test,postgresql]"
+
+      - name: Focused Schema 108 tests with evidence
+        run: pytest -q tests/*v108.py --junitxml=focused-v108.xml
+
+      - name: Complete stacked test suite with evidence
+        run: pytest -q --junitxml=stacked-v108.xml
+
+      - name: Exact branch-aware Schema 108 coverage
+        shell: bash
+        run: |
+          coverage erase
+          coverage run --branch --include='app/runtime/*_v108.py' -m pytest -q tests/*v108.py
+          coverage json -o coverage-v108.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("coverage-v108.json").read_text(encoding="utf-8"))
+          total = float(report["totals"]["percent_covered"])
+          print(f"exact V108 branch-aware coverage: {total:.6f}%")
+          if total < 98.0:
+              raise SystemExit(f"coverage {total:.6f}% is below 98.0%")
+          PY
+
+      - name: Normalize qualification evidence and release identity
+        shell: bash
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          from pathlib import Path
+          import re
+          import xml.etree.ElementTree as ET
+
+          root = Path.cwd()
+
+          def junit_tests(path: str) -> int:
+              node = ET.parse(root / path).getroot()
+              if "tests" in node.attrib:
+                  return int(node.attrib["tests"])
+              return sum(int(child.attrib.get("tests", "0")) for child in node.findall("testsuite"))
+
+          focused = junit_tests("focused-v108.xml")
+          stacked = junit_tests("stacked-v108.xml")
+          coverage = json.loads((root / "coverage-v108.json").read_text(encoding="utf-8"))["totals"]
+          statements = int(coverage["num_statements"])
+          branches = int(coverage["num_branches"])
+          percent = float(coverage["percent_covered"])
+
+          summary_path = root / "QUALIFICATION_SUMMARY_V108.md"
+          summary = summary_path.read_text(encoding="utf-8")
+          replacements = (
+              (r"- focused Schema 108 suite: \*\*\d+ passed\*\*;", f"- focused Schema 108 suite: **{focused} passed**;"),
+              (r"- expected complete stacked suite after publication: \*\*\d+ passed\*\*;", f"- complete stacked suite: **{stacked} passed**;"),
+              (r"- exact branch-aware V108 runtime coverage: \*\*[0-9.]+%\*\*;", f"- exact branch-aware V108 runtime coverage: **{percent:.6f}%**;"),
+              (r"- runtime statements measured: \*\*\d+\*\*;", f"- runtime statements measured: **{statements}**;"),
+              (r"- runtime branches measured: \*\*\d+\*\*;", f"- runtime branches measured: **{branches}**;"),
+          )
+          for pattern, replacement in replacements:
+              updated, count = re.subn(pattern, replacement, summary, count=1)
+              if count != 1:
+                  raise SystemExit(f"qualification summary field not uniquely replaceable: {pattern}")
+              summary = updated
+          summary_path.write_text(summary, encoding="utf-8")
+
+          identity_path = root / "RELEASE_IDENTITY_V108.json"
+          identity = json.loads(identity_path.read_text(encoding="utf-8"))
+          qualification = identity["qualification"]
+          qualification.update({
+              "branch_aware_runtime_coverage_percent": percent,
+              "runtime_branches": branches,
+              "runtime_statements": statements,
+              "tests_passed": focused,
+          })
+          for relative in sorted(identity["files"]):
+              path = root / relative
+              if not path.is_file():
+                  raise SystemExit(f"release identity source missing: {relative}")
+              identity["files"][relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+          identity_path.write_text(json.dumps(identity, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(json.dumps({
+              "focused_tests": focused,
+              "stacked_tests": stacked,
+              "runtime_statements": statements,
+              "runtime_branches": branches,
+              "coverage_percent": percent,
+              "identity_files": len(identity["files"]),
+              "identity_sha256": hashlib.sha256(identity_path.read_bytes()).hexdigest(),
+          }, indent=2, sort_keys=True))
+          PY
+
+      - name: Architecture, security and release gates
+        shell: bash
+        run: |
+          python tools/architecture_audit_v108.py .
+          python tools/static_audit_v108.py .
+          python -m compileall -q app tools tests
+          python tools/platform_v107.py --root . verify-release
+          python tools/platform_v108.py --root . verify-release
+          cmp migrations/v108/001_asymmetric_signing_authority.sql app/platform_assets/v108/migrations/001_asymmetric_signing_authority.sql
+          if grep -R -n -E 'Ed25519PrivateKey|private_key_(bytes|b64)|hmac\.new' app/runtime/*_v108.py; then
+            echo "forbidden private or symmetric signing material in V108 runtime" >&2
+            exit 1
+          fi
+
+      - name: Concurrent replay stress
+        run: python -m tools.stress_v108 --iterations 1000 --workers 8
+
+      - name: Apply migration twice and verify durable receipt constraints
+        shell: bash
+        env:
+          PGPASSWORD: astra-ci
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          for pass in 1 2; do
+            psql --host=127.0.0.1 --port=5432 --username=astra --dbname=astra \
+              --set=ON_ERROR_STOP=1 --file=migrations/v108/001_asymmetric_signing_authority.sql
+          done
+          psql --host=127.0.0.1 --port=5432 --username=astra --dbname=astra \
+            --set=ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            receipt_fks integer;
+            authorization_unique integer;
+          BEGIN
+            SELECT count(*) INTO receipt_fks
+            FROM information_schema.table_constraints
+            WHERE table_schema = 'public'
+              AND table_name = 'astra_receipt_authorization_v108'
+              AND constraint_type = 'FOREIGN KEY';
+            IF receipt_fks <> 2 THEN
+              RAISE EXCEPTION 'receipt authorization must have exactly two foreign keys, found %', receipt_fks;
+            END IF;
+
+            SELECT count(*) INTO authorization_unique
+            FROM pg_indexes
+            WHERE schemaname = 'public'
+              AND tablename = 'astra_rollout_authorization_v108'
+              AND indexname = 'astra_rollout_authorization_bundle_command_v108';
+            IF authorization_unique <> 1 THEN
+              RAISE EXCEPTION 'authorization bundle/command unique index missing';
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND table_name = 'astra_receipt_authorization_v108'
+                AND column_name = 'executor_signature_id'
+                AND is_nullable = 'NO'
+            ) THEN
+              RAISE EXCEPTION 'executor signature durable binding missing';
+            END IF;
+          END
+          $$;
+          SQL
+
+      - name: Verify production safety remains disabled
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          state = json.loads(Path("LIVE_EXECUTION_STATUS_V108.json").read_text(encoding="utf-8"))
+          assert state["schema"] == 108
+          assert state["production_signing_authority_verified"] is False
+          assert state["production_kubernetes_mutation_authorized"] is False
+          assert state["external_order_routing_allowed"] is False
+          assert state["live_trading_allowed"] is False
+          assert state["private_key_material_persisted_by_runtime"] is False
+          PY
+
+      - name: Commit qualified durable receipt hardening
+        shell: bash
+        run: |
+          rm -rf _schema108_receipt_patch
+          rm -f .github/workflows/schema108-asymmetric-signing-authority.yml
+          rm -rf .pytest_cache build dist htmlcov
+          rm -f .coverage coverage-v108.json coverage.json focused-v108.xml stacked-v108.xml
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          find . -maxdepth 1 -type d -name '*.egg-info' -prune -exec rm -rf {} +
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git status --short
+          git commit -m "Harden Schema 108 durable receipt authorization"
+          git push origin HEAD:agent/schema108-materialize-20260806
