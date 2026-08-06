@@ -1,0 +1,14 @@
+{
+  "schema": 107,
+  "status": "LOCAL_QUALIFICATION_ONLY",
+  "local_source_qualification_complete": true,
+  "external_kubernetes_cluster_verified": false,
+  "external_postgresql_repository_verified": false,
+  "external_workload_identity_verified": false,
+  "external_kubernetes_audit_sink_verified": false,
+  "kubernetes_rollout_actuator_verified": false,
+  "kubernetes_scale_patch_capability_implemented": true,
+  "production_kubernetes_mutation_authorized": false,
+  "external_order_routing_allowed": false,
+  "live_trading_allowed": false
+}
