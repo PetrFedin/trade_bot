@@ -1,0 +1,145 @@
+name: schema109-payload-diagnostic
+
+on:
+  push:
+    branches:
+      - agent/schema109-materialize-20260806
+    paths:
+      - _schema109_payload/**
+      - .github/workflows/schema109-payload-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schema109-payload-diagnostic
+  cancel-in-progress: true
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact staging revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Inspect and safely extract payload
+        shell: bash
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import base64
+          import hashlib
+          import io
+          import json
+          from pathlib import Path, PurePosixPath
+          import tarfile
+
+          root = Path.cwd().resolve()
+          payload_root = root / "_schema109_payload"
+          parts = sorted(payload_root.glob("chunk-*.txt"))
+          if not parts:
+              raise SystemExit("no payload chunks")
+          expected_names = [f"chunk-{index:03d}.txt" for index in range(len(parts))]
+          actual_names = [path.name for path in parts]
+          if actual_names != expected_names:
+              raise SystemExit(f"non-contiguous payload chunks: {actual_names}")
+
+          encoded_parts: list[str] = []
+          chunk_sha256: dict[str, str] = {}
+          for path in parts:
+              data = path.read_bytes()
+              try:
+                  text = data.decode("ascii")
+              except UnicodeDecodeError as exc:
+                  raise SystemExit(f"non-ASCII payload chunk: {path.name}") from exc
+              if any(character.isspace() for character in text):
+                  raise SystemExit(f"whitespace in payload chunk: {path.name}")
+              chunk_sha256[path.name] = hashlib.sha256(data).hexdigest()
+              encoded_parts.append(text)
+
+          encoded = "".join(encoded_parts)
+          encoded_sha256 = hashlib.sha256(encoded.encode("ascii")).hexdigest()
+          try:
+              archive = base64.b64decode(encoded, validate=True)
+          except Exception as exc:
+              raise SystemExit("invalid combined base64") from exc
+          archive_sha256 = hashlib.sha256(archive).hexdigest()
+
+          members: list[dict[str, object]] = []
+          names: set[str] = set()
+          with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as handle:
+              for member in handle.getmembers():
+                  path = PurePosixPath(member.name)
+                  if path.is_absolute() or ".." in path.parts or str(path) != member.name:
+                      raise SystemExit(f"unsafe archive path: {member.name}")
+                  if member.name in names:
+                      raise SystemExit(f"duplicate archive member: {member.name}")
+                  names.add(member.name)
+                  if not member.isfile() or member.issym() or member.islnk():
+                      raise SystemExit(f"unsupported archive member type: {member.name}")
+                  source = handle.extractfile(member)
+                  if source is None:
+                      raise SystemExit(f"unreadable archive member: {member.name}")
+                  body = source.read()
+                  destination = (root / Path(*path.parts)).resolve()
+                  if root not in destination.parents:
+                      raise SystemExit(f"archive path escaped repository: {member.name}")
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  destination.write_bytes(body)
+                  members.append({
+                      "path": member.name,
+                      "size": len(body),
+                      "sha256": hashlib.sha256(body).hexdigest(),
+                  })
+
+          report = {
+              "status": "PASS",
+              "chunk_count": len(parts),
+              "chunk_sha256": chunk_sha256,
+              "combined_base64_sha256": encoded_sha256,
+              "archive_sha256": archive_sha256,
+              "archive_size": len(archive),
+              "member_count": len(members),
+              "members": members,
+          }
+          Path("schema109-payload-report.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+
+      - name: Install project dependencies
+        run: python -m pip install --disable-pip-version-check ".[test,postgresql]"
+
+      - name: Compile extracted overlay
+        run: python -m compileall -q app tools tests
+
+      - name: Run focused Schema 109 tests
+        run: pytest -q tests/*v109.py
+
+      - name: Verify migration packaging when present
+        shell: bash
+        run: |
+          if [[ -f migrations/v109/001_remote_signer_attestation.sql ]]; then
+            cmp migrations/v109/001_remote_signer_attestation.sql app/platform_assets/v109/migrations/001_remote_signer_attestation.sql
+          fi
+
+      - name: Upload diagnostic report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: schema109-payload-report
+          path: schema109-payload-report.json
+          if-no-files-found: error
+          retention-days: 3
