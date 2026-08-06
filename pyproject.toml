@@ -3,11 +3,11 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "astra-schema107-production-rollout-actuator"
-version = "7.37.0"
-description = "ASTRA signed single-attempt production Kubernetes rollout actuator"
+name = "astra-schema108-asymmetric-signing-authority"
+version = "7.38.0"
+description = "ASTRA Ed25519 KMS/HSM signing authority for production rollout admission"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["cryptography>=46,<50"]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10", "coverage>=7,<8"]
@@ -26,6 +26,10 @@ astra-platform-v107 = "tools.platform_v107:main"
 astra-architecture-audit-v107 = "tools.architecture_audit_v107:main"
 astra-static-audit-v107 = "tools.static_audit_v107:main"
 astra-stress-v107 = "tools.stress_v107:main"
+astra-platform-v108 = "tools.platform_v108:main"
+astra-architecture-audit-v108 = "tools.architecture_audit_v108:main"
+astra-static-audit-v108 = "tools.static_audit_v108:main"
+astra-stress-v108 = "tools.stress_v108:main"
 
 [tool.setuptools.packages.find]
 include = ["app*", "tools*"]
@@ -34,6 +38,7 @@ include = ["app*", "tools*"]
 "app.platform_assets.v105" = ["migrations/*.sql"]
 "app.platform_assets.v106" = ["migrations/*.sql"]
 "app.platform_assets.v107" = ["migrations/*.sql"]
+"app.platform_assets.v108" = ["migrations/*.sql"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"
