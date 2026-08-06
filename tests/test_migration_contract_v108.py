@@ -15,6 +15,7 @@ def test_migration_has_replay_keyring_bundle_and_append_only_event_contracts() -
         "astra_signing_keyring_v108",
         "astra_signature_replay_v108",
         "astra_rollout_authorization_v108",
+        "astra_receipt_authorization_v108",
         "astra_signing_event_v108",
     ):
         assert f"CREATE TABLE IF NOT EXISTS {table}" in sql
@@ -22,3 +23,12 @@ def test_migration_has_replay_keyring_bundle_and_append_only_event_contracts() -
     assert "nonce text NOT NULL UNIQUE" in sql
     assert "command_digest text NOT NULL UNIQUE" in sql
     assert "BEFORE UPDATE OR DELETE ON astra_signing_event_v108" in sql
+
+
+def test_receipt_schema_binds_executor_replay_to_the_exact_authorization() -> None:
+    sql = CANONICAL.read_text(encoding="utf-8")
+    assert "executor_signature_id text NOT NULL UNIQUE" in sql
+    assert "REFERENCES astra_signature_replay_v108(signature_id)" in sql
+    assert "FOREIGN KEY (authorization_bundle_digest, command_digest)" in sql
+    assert "REFERENCES astra_rollout_authorization_v108(bundle_digest, command_digest)" in sql
+    assert "astra_rollout_authorization_bundle_command_v108" in sql

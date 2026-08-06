@@ -88,3 +88,46 @@ def test_repository_rejects_naive_time_and_rolls_back_conflicts() -> None:
     assert conflict.rollbacks == 1
     assert conflict.commits == 0
     assert conflict.closed == 1
+
+
+def test_receipt_authorization_and_executor_replay_are_reserved_atomically() -> None:
+    from tests.helpers_v108 import receipt_authorization
+
+    _, providers, descriptors, _, _, bundle = authorization_bundle()
+    receipt = receipt_authorization(bundle, providers, descriptors)
+    connection = FakeConnection()
+    repository = PostgreSQLSigningRepositoryV108(lambda: connection)
+
+    repository.reserve_receipt_authorization(receipt, observed_at=NOW)
+
+    assert connection.commits == 1
+    assert connection.rollbacks == 0
+    normalized = [query for query, _ in connection.cursor_value.executions]
+    assert "astra_signature_replay_v108" in normalized[1]
+    assert "astra_receipt_authorization_v108" in normalized[2]
+    assert "RECEIPT_AUTHORIZATION_RESERVED" in normalized[3]
+    assert connection.cursor_value.executions[1][1][0] == receipt.executor.signature_id
+    assert connection.cursor_value.executions[2][1][0] == receipt.receipt_id
+    assert "private" not in repr(connection.cursor_value.executions).lower()
+
+
+def test_receipt_reservation_rolls_back_when_durable_binding_fails() -> None:
+    from tests.helpers_v108 import receipt_authorization
+
+    _, providers, descriptors, _, _, bundle = authorization_bundle()
+    receipt = receipt_authorization(bundle, providers, descriptors)
+
+    class FailingCursor(FakeCursor):
+        def execute(self, query: str, params=None):
+            super().execute(query, params)
+            if "INSERT INTO astra_receipt_authorization_v108" in query:
+                raise RuntimeError("foreign key conflict")
+
+    connection = FakeConnection(cursor_value=FailingCursor())
+    repository = PostgreSQLSigningRepositoryV108(lambda: connection)
+    import pytest
+    with pytest.raises(RuntimeError, match="foreign key conflict"):
+        repository.reserve_receipt_authorization(receipt, observed_at=NOW)
+    assert connection.commits == 0
+    assert connection.rollbacks == 1
+    assert connection.closed == 1

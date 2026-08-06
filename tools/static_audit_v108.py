@@ -41,8 +41,8 @@ def audit(root: Path) -> dict[str, object]:
     repository_path = root / "app/runtime/postgres_signing_repository_v108.py"
     if repository_path.is_file():
         repository = repository_path.read_text(encoding="utf-8")
-        if repository.count("INSERT INTO astra_signature_replay_v108") != 1:
-            findings.append("repository:unexpected_replay_write_surface")
+        if repository.count("INSERT INTO astra_signature_replay_v108") != 2:
+            findings.append("repository:expected_bundle_and_receipt_replay_surfaces_missing")
         if "connection.rollback()" not in repository:
             findings.append("repository:transaction_rollback_missing")
 

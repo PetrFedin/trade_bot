@@ -11,3 +11,5 @@
 - Adds concurrent replay-ledger stress and high branch-aware runtime coverage.
 
 This release contains no production private key, KMS credential, order-routing permission or live-trading authorization.
+
+- Adds atomic durable reservation of executor receipt authorization, replay identity and audit event, with foreign-key binding to the exact rollout authorization bundle and command.

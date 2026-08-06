@@ -42,3 +42,7 @@ A failed durable reservation must block execution even if all signatures are oth
 ## Rotation
 
 Publish a root-signed snapshot with generation `N+1`. Never overwrite generation `N` in place. Revocation is represented by `revoked_at` in a newer root-signed snapshot. A stale or same-generation snapshot is rejected.
+
+### Durable receipt reservation
+
+After cryptographic verification, call `PostgreSQLSigningRepositoryV108.reserve_receipt_authorization`. Do not treat the receipt as durable evidence until this transaction commits. It atomically consumes the executor signature ID/nonce, binds the receipt to the exact `(authorization_bundle_digest, command_digest)` pair, stores the public receipt evidence and appends `RECEIPT_AUTHORIZATION_RESERVED`.

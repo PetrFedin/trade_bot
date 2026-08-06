@@ -8,6 +8,7 @@ from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
 
 from app.runtime.signing_authority_v108 import (
     RootSignedKeyringSnapshotV108,
+    ReceiptAuthorizationV108,
     RolloutAuthorizationBundleV108,
     SignatureEnvelopeV108,
     SigningAuthorityErrorV108,
@@ -181,4 +182,59 @@ class PostgreSQLSigningRepositoryV108:
                 VALUES ('ROLLOUT_AUTHORIZATION_RESERVED', %s, %s, %s)
                 """,
                 (bundle.bundle_id, current, bundle.bundle_digest),
+            )
+
+    def reserve_receipt_authorization(
+        self, receipt: ReceiptAuthorizationV108, *, observed_at: datetime
+    ) -> None:
+        current = _ensure_utc(observed_at)
+        envelope = receipt.executor
+        with self._transaction() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO astra_signature_replay_v108
+                    (signature_id, nonce, purpose, domain, payload_digest,
+                     key_id, key_generation, keyring_generation, consumed_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    envelope.signature_id,
+                    envelope.nonce,
+                    envelope.purpose.value,
+                    envelope.domain,
+                    envelope.payload_digest,
+                    envelope.key_id,
+                    envelope.key_generation,
+                    envelope.keyring_generation,
+                    current,
+                ),
+            )
+            cursor.execute(
+                """
+                INSERT INTO astra_receipt_authorization_v108
+                    (receipt_id, receipt_digest, command_digest,
+                     authorization_bundle_digest, payload_digest, authorization_digest,
+                     executor_signature_id, receipt_json, keyring_generation, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+                """,
+                (
+                    receipt.receipt_id,
+                    receipt.receipt_digest,
+                    receipt.command_digest,
+                    receipt.authorization_bundle_digest,
+                    receipt.payload_digest,
+                    receipt.authorization_digest,
+                    envelope.signature_id,
+                    _json(receipt.to_payload()),
+                    receipt.keyring_generation,
+                    current,
+                ),
+            )
+            cursor.execute(
+                """
+                INSERT INTO astra_signing_event_v108
+                    (event_type, subject_id, observed_at, payload_digest)
+                VALUES ('RECEIPT_AUTHORIZATION_RESERVED', %s, %s, %s)
+                """,
+                (receipt.receipt_id, current, receipt.authorization_digest),
             )

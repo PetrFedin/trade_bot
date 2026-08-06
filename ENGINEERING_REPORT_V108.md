@@ -55,3 +55,7 @@ Keyring updates use a conditional upsert that accepts only a strictly newer gene
 ## Explicit non-goals
 
 This release does not provide a software private-key store, an embedded KMS SDK, production credentials, production mutation authorization, order routing or live trading.
+
+## Durable receipt evidence
+
+The verified EXECUTOR envelope is reserved in PostgreSQL in the same transaction as its receipt authorization and audit event. The receipt row has a foreign-key binding to both the exact authorization-bundle digest and command digest, and to the consumed executor signature ID. A missing authorization, replayed nonce, duplicate receipt or event-write failure rolls the complete reservation back.

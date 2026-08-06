@@ -32,3 +32,7 @@ A duplicate bundle ID, command digest, signature ID or nonce is a security event
 ## Rollback
 
 Rolling application code back to Schema 107 removes the asymmetric enforcement layer and must not be treated as a safe automatic fallback. Production mutation authorization remains false until an explicit security decision approves the resulting trust boundary.
+
+## Receipt evidence check
+
+Reject a completed rollout if the executor receipt exists only in process memory. Confirm a matching `astra_receipt_authorization_v108` row, consumed executor signature/nonce, exact authorization-bundle/command binding and `RECEIPT_AUTHORIZATION_RESERVED` event. Never repair a missing row by replaying the same executor signature.

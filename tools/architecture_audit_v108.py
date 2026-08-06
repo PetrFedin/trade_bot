@@ -87,6 +87,9 @@ def audit(root: Path) -> dict[str, object]:
         "astra_signing_keyring_v108.generation < EXCLUDED.generation",
         "astra_signature_replay_v108",
         "astra_rollout_authorization_v108",
+        "astra_receipt_authorization_v108",
+        "reserve_receipt_authorization",
+        "RECEIPT_AUTHORIZATION_RESERVED",
         "ROLLBACK",
     ):
         if token == "ROLLBACK":
@@ -100,6 +103,9 @@ def audit(root: Path) -> dict[str, object]:
         "nonce text NOT NULL UNIQUE",
         "command_digest text NOT NULL UNIQUE",
         "astra_signing_event_append_only_v108",
+        "astra_receipt_authorization_v108",
+        "executor_signature_id text NOT NULL UNIQUE",
+        "FOREIGN KEY (authorization_bundle_digest, command_digest)",
         "BEFORE UPDATE OR DELETE",
         "REVOKE ALL",
     ):

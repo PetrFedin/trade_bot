@@ -6,10 +6,10 @@ Schema 108 is a source-qualified asymmetric authorization layer stacked on the c
 
 ## Qualification results
 
-- focused Schema 108 suite: **43 passed**;
-- expected complete stacked suite after publication: **761 passed**;
-- exact branch-aware V108 runtime coverage: **98.234350%**;
-- runtime statements measured: **477**;
+- focused Schema 108 suite: **46 passed**;
+- complete stacked suite: **764 passed**;
+- exact branch-aware V108 runtime coverage: **98.253968%**;
+- runtime statements measured: **484**;
 - runtime branches measured: **146**;
 - architecture audit: **PASS**;
 - static security audit: **PASS**;
@@ -34,3 +34,7 @@ The complete stacked count and GitHub-hosted PostgreSQL result are confirmed by 
 - signature IDs and nonces are consumed atomically in memory and durably in PostgreSQL;
 - private-key-like fields are forbidden by the static audit;
 - production mutation, external routing and live trading remain disabled.
+
+- executor receipt authorization, executor replay identity and audit event are committed atomically;
+- PostgreSQL foreign keys bind each receipt to the exact authorization-bundle and command pair and to the consumed executor signature;
+- receipt persistence failures roll back replay consumption and all evidence writes.

@@ -42,6 +42,25 @@ CREATE TABLE IF NOT EXISTS astra_rollout_authorization_v108 (
     created_at timestamptz NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS astra_rollout_authorization_bundle_command_v108
+    ON astra_rollout_authorization_v108 (bundle_digest, command_digest);
+
+CREATE TABLE IF NOT EXISTS astra_receipt_authorization_v108 (
+    receipt_id text PRIMARY KEY,
+    receipt_digest text NOT NULL UNIQUE CHECK (receipt_digest ~ '^[0-9a-f]{64}$'),
+    command_digest text NOT NULL CHECK (command_digest ~ '^[0-9a-f]{64}$'),
+    authorization_bundle_digest text NOT NULL CHECK (authorization_bundle_digest ~ '^[0-9a-f]{64}$'),
+    payload_digest text NOT NULL UNIQUE CHECK (payload_digest ~ '^[0-9a-f]{64}$'),
+    authorization_digest text NOT NULL UNIQUE CHECK (authorization_digest ~ '^[0-9a-f]{64}$'),
+    executor_signature_id text NOT NULL UNIQUE
+        REFERENCES astra_signature_replay_v108(signature_id),
+    receipt_json jsonb NOT NULL,
+    keyring_generation bigint NOT NULL CHECK (keyring_generation > 0),
+    created_at timestamptz NOT NULL,
+    FOREIGN KEY (authorization_bundle_digest, command_digest)
+        REFERENCES astra_rollout_authorization_v108(bundle_digest, command_digest)
+);
+
 CREATE TABLE IF NOT EXISTS astra_signing_event_v108 (
     event_sequence bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     event_type text NOT NULL,
@@ -67,6 +86,7 @@ FOR EACH ROW EXECUTE FUNCTION astra_signing_event_append_only_v108();
 REVOKE ALL ON astra_signing_keyring_v108 FROM PUBLIC;
 REVOKE ALL ON astra_signature_replay_v108 FROM PUBLIC;
 REVOKE ALL ON astra_rollout_authorization_v108 FROM PUBLIC;
+REVOKE ALL ON astra_receipt_authorization_v108 FROM PUBLIC;
 REVOKE ALL ON astra_signing_event_v108 FROM PUBLIC;
 REVOKE ALL ON FUNCTION astra_signing_event_append_only_v108() FROM PUBLIC;
 
