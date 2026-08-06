@@ -17,7 +17,7 @@
     "app/runtime/rollout_execution_v107.py": "f6b6526038bda83646d7091eec1abd1479cd3b074bcf995edaac408455314f51",
     "app/runtime/rollout_service_v107.py": "98f0a53706af57f6f652b3e28eced50227078591fc8b6aaa09f708f137770edc",
     "migrations/v107/001_production_rollout_actuator.sql": "6fa9459fea46886b49a256abcb62a7f9a959cc82ad350e3132e9684d7f9f17a0",
-    "pyproject.toml": "eacfe1d9cb8d56d7e956d48eaf2b6ba523bdad17c05efc155abf7339ba87e31d",
+    "pyproject.toml": "5b54c19c5115750b50e7178a78c5947cc3676d1d51ae51892dca120428e3346c",
     "tests/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "tests/conftest.py": "478c7dda1f6ca77cc6326e630c5d8989bdce4383b824e3881ebe689c810ff99a",
     "tests/test_kubernetes_rollout_adapter_v107.py": "2abee5fa7143fd7cddcec0f7d237965f188fe9092a83fb31079b0de39bc4a9a3",

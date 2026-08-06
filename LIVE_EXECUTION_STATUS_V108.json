@@ -1,0 +1,17 @@
+{
+  "schema": 108,
+  "version": "7.38.0",
+  "status": "SOURCE_QUALIFICATION_ONLY",
+  "production_signing_authority_verified": false,
+  "production_kms_hsm_connectivity_verified": false,
+  "production_key_rotation_verified": false,
+  "production_kubernetes_mutation_authorized": false,
+  "external_order_routing_allowed": false,
+  "live_trading_allowed": false,
+  "private_key_material_persisted_by_runtime": false,
+  "notes": [
+    "Schema 108 requires an external KMS or HSM provider implementing the Ed25519 signing protocol.",
+    "The in-repository runtime contains public-key verification only and does not contain an Ed25519 private-key implementation.",
+    "The Schema 107 command remains a compatibility gate but is not sufficient for V108 admission."
+  ]
+}

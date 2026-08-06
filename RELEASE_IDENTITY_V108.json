@@ -1,0 +1,42 @@
+{
+  "files": {
+    ".github/workflows/schema108-asymmetric-signing-authority.yml": "cbdb92d91feecfc314a1094b95834064afb63029ffee856805703070c25d7c0c",
+    "ENGINEERING_REPORT_V108.md": "4d6531bc6bac0c74d5b3c0641bf197b9435322727eb8cdb2e441ccebf70d24a2",
+    "INTEGRATION_V108.md": "470492b78db93310843ccbeefaa932d85dff134389becd644068872bf969ef28",
+    "LIVE_EXECUTION_STATUS_V108.json": "9b58ca717601ae36eff43dc410921d9aa191e73631fc364301f884cecac9850b",
+    "OPERATOR_RUNBOOK_V108.md": "bc3b05cc972c99004f05fca9a515a1ef22209807685f8f48732d791f8a3d01c7",
+    "QUALIFICATION_SUMMARY_V108.md": "c7f9cee06b4fe99d1ffd04e76b4e20945a985585bd377580fb8edcf905ef8116",
+    "RELEASE_IDENTITY_V107.json": "cffdee2ee49ac042496d89f6b7c9af602c5b4c38ae2022de0dad1ee54ad3fe46",
+    "RELEASE_NOTES_V108.md": "c55334de54d154d26a058efcea0e24b140607258fb7fab2f743524f4d79f5e26",
+    "app/platform_assets/v108/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "app/platform_assets/v108/migrations/001_asymmetric_signing_authority.sql": "88e279658d55cb687b7ee8a5c35d1f35f317f8d0254348c93e91ac7e2725160f",
+    "app/runtime/postgres_signing_repository_v108.py": "f8b4a26b1ac23e19f4bd737dc04195721ba02da1eb0ef6572a8f8680e4160f6a",
+    "app/runtime/rollout_crypto_bridge_v108.py": "fdf28f60e5aa70b7e52501fb2af641372222eed2135475e3b6d053c1f3bb5fbf",
+    "app/runtime/signing_authority_v108.py": "0f65603a6ce27659204bbac334ebcffc14cdb65a9863b18b8cda6c8091617cda",
+    "migrations/v108/001_asymmetric_signing_authority.sql": "88e279658d55cb687b7ee8a5c35d1f35f317f8d0254348c93e91ac7e2725160f",
+    "pyproject.toml": "5b54c19c5115750b50e7178a78c5947cc3676d1d51ae51892dca120428e3346c",
+    "tests/helpers_v108.py": "5755e017b8171e026cdb828ed462a9b49e0d6cf682789c474b1e8f04120f3ba4",
+    "tests/test_migration_contract_v108.py": "f688cff140be34d34dba7c802d083050adf38502b1a3dc8a47bb623880f7e393",
+    "tests/test_postgres_signing_repository_v108.py": "41eef2841e0bb288c9e88efc419f118658c85a640218608be5e7bfd2e62b9622",
+    "tests/test_rollout_crypto_bridge_v108.py": "7f7689d453b26ad069058e3f06c1878d490511b0003dff8c19efa1871b33342c",
+    "tests/test_signing_authority_v108.py": "e7bc3fe94bbc489c321c6bc0654ac8f563690a03f9bbea736add196082432e40",
+    "tests/test_tools_v108.py": "b12b149c35b43716954da453ba45941aa2c5ed6258dc061479b24c74f2f63429",
+    "tools/architecture_audit_v108.py": "5c1ff557ed064b816da5a131672c7f3ff66c6fc94c0740ffaf05b53479b31d0d",
+    "tools/platform_v108.py": "e716ce6879f55ccde3d21234619a8dc85b9818cc6667cb79dd511569629905b3",
+    "tools/static_audit_v108.py": "3519b1208bb42c15c7eb25de9d649301dcc8dbf6e7e0bd0b20956c60165856d9",
+    "tools/stress_v108.py": "1a32ee22ba96228a10a580f015a597a0d921df67e232f0cb583f0f07c26b3a1e"
+  },
+  "package": "astra-schema108-asymmetric-signing-authority",
+  "qualification": {
+    "branch_aware_runtime_coverage_percent": 98.25396825396825,
+    "runtime_branches": 146,
+    "runtime_statements": 484,
+    "stress_failures": 0,
+    "stress_iterations": 1000,
+    "stress_workers": 8,
+    "tests_passed": 46
+  },
+  "schema": 108,
+  "version": "7.38.0",
+  "wheel_sha256": null
+}
