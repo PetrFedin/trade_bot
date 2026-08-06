@@ -20,7 +20,7 @@
     "tests/test_postgres_deployment_qualification_v106.py": "bf3b4277a61943b2a7f5d07bb0dceefab458d47358d912ce7cb72745acdb45db",
     "tests/test_tools_v106.py": "8ac5973e191c4494eb475fdc7174a5218664728d16dc933ef7355e16b745fabb",
     "tools/architecture_audit_v106.py": "020c2cb2ca5d1b78285ce8c3feca7e4ffaee7797e09d42bad4d976b595b8fac8",
-    "tools/platform_v106.py": "eb47bf2637d68f686747e5d4ba0420499bc7e04cfa8e11b19a2f48b6778deafd",
+    "tools/platform_v106.py": "60fb9b417ce87bb55d596703e2170b80a792a9d1600ccfc7d3e6fe9bfcaa5f1c",
     "tools/static_audit_v106.py": "0b784f92469debadd9f956b100a9c6586b2b7b0a79e49ea8817df8a13597a892",
     "tools/stress_v106.py": "fca48fe25ea8b15ebcdb6ac2ee0a4f5aef347c049c64109847ab21e090698484"
   },
