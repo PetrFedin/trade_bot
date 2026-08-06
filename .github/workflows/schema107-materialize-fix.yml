@@ -207,12 +207,11 @@ jobs:
           python -m tools.stress_v107 --iterations 1000 --workers 8
           cmp migrations/v107/001_production_rollout_actuator.sql app/platform_assets/v107/migrations/001_production_rollout_actuator.sql
 
-      - name: Commit qualified source
+      - name: Commit qualified non-workflow source
         shell: bash
         run: |
           rm -rf _schema107_payload
-          rm -f .github/workflows/schema107-materialize.yml
-          rm -f .github/workflows/schema107-materialize-fix.yml
+          rm -f .github/workflows/schema107-production-rollout-actuator.yml
           rm -rf .pytest_cache build dist .wheel-venv htmlcov
           rm -f .coverage coverage-materialize-v107.json coverage.json
           find . -type d -name __pycache__ -prune -exec rm -rf {} +
@@ -222,5 +221,5 @@ jobs:
           git add -A
           git diff --cached --check
           git status --short
-          git commit -m "Materialize qualified Schema 107 rollout actuator"
+          git commit -m "Materialize qualified Schema 107 non-workflow source"
           git push origin HEAD:agent/schema107-materialize-20260805
