@@ -21,6 +21,7 @@ on:
       - LIVE_EXECUTION_STATUS_V108.json
       - QUALIFICATION_SUMMARY_V108.md
       - RELEASE_NOTES_V108.md
+      - .github/workflows/schema99-external-paper-roundtrip.yml
       - .github/workflows/schema108-asymmetric-signing-authority.yml
 
 permissions:
@@ -73,7 +74,7 @@ jobs:
           coverage erase
           coverage run --branch --include='app/runtime/*_v108.py' -m pytest -q tests/*v108.py
           coverage json -o coverage-v108.json
-          python - <<'PY'
+          python - <<'PYCODE'
           import json
           from pathlib import Path
 
@@ -82,7 +83,7 @@ jobs:
           print(f"exact V108 branch-aware coverage: {total:.6f}%")
           if total < 98.0:
               raise SystemExit(f"coverage {total:.6f}% is below 98.0%")
-          PY
+          PYCODE
 
       - name: Architecture audit
         run: python tools/architecture_audit_v108.py .
@@ -161,7 +162,7 @@ jobs:
       - name: Verify production safety remains disabled
         shell: bash
         run: |
-          python - <<'PY'
+          python - <<'PYCODE'
           import json
           from pathlib import Path
 
@@ -172,4 +173,4 @@ jobs:
           assert state["external_order_routing_allowed"] is False
           assert state["live_trading_allowed"] is False
           assert state["private_key_material_persisted_by_runtime"] is False
-          PY
+          PYCODE

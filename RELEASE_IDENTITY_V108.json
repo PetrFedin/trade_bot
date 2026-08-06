@@ -1,13 +1,14 @@
 {
   "files": {
-    ".github/workflows/schema108-asymmetric-signing-authority.yml": "cbdb92d91feecfc314a1094b95834064afb63029ffee856805703070c25d7c0c",
+    ".github/workflows/schema108-asymmetric-signing-authority.yml": "56e69c891fcf088bb8b4ab54ac55aecd29d3d69f801591a584dc3c3636c23132",
+    ".github/workflows/schema99-external-paper-roundtrip.yml": "ac4365d43ae1565839371b85c208f9671330f4784e8faae3d3f2a011b847d7d1",
     "ENGINEERING_REPORT_V108.md": "4d6531bc6bac0c74d5b3c0641bf197b9435322727eb8cdb2e441ccebf70d24a2",
     "INTEGRATION_V108.md": "470492b78db93310843ccbeefaa932d85dff134389becd644068872bf969ef28",
     "LIVE_EXECUTION_STATUS_V108.json": "9b58ca717601ae36eff43dc410921d9aa191e73631fc364301f884cecac9850b",
     "OPERATOR_RUNBOOK_V108.md": "bc3b05cc972c99004f05fca9a515a1ef22209807685f8f48732d791f8a3d01c7",
     "QUALIFICATION_SUMMARY_V108.md": "c7f9cee06b4fe99d1ffd04e76b4e20945a985585bd377580fb8edcf905ef8116",
     "RELEASE_IDENTITY_V107.json": "cffdee2ee49ac042496d89f6b7c9af602c5b4c38ae2022de0dad1ee54ad3fe46",
-    "RELEASE_NOTES_V108.md": "c55334de54d154d26a058efcea0e24b140607258fb7fab2f743524f4d79f5e26",
+    "RELEASE_NOTES_V108.md": "794a6c15dab4cd477de421e8260124978e1909468d02e060152ec6151e660f61",
     "app/platform_assets/v108/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "app/platform_assets/v108/migrations/001_asymmetric_signing_authority.sql": "88e279658d55cb687b7ee8a5c35d1f35f317f8d0254348c93e91ac7e2725160f",
     "app/runtime/postgres_signing_repository_v108.py": "f8b4a26b1ac23e19f4bd737dc04195721ba02da1eb0ef6572a8f8680e4160f6a",

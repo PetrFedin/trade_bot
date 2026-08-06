@@ -9,7 +9,7 @@
 - Adds durable PostgreSQL storage for keyring snapshots, bundle evidence, atomic replay reservations and append-only events.
 - Adds real PostgreSQL migration apply/re-apply validation and schema-contract checks.
 - Adds concurrent replay-ledger stress and high branch-aware runtime coverage.
+- Adds atomic durable reservation of executor receipt authorization, replay identity and audit event, with foreign-key binding to the exact rollout authorization bundle and command.
+- Hardens the legacy Schema 99 full-suite gate to install the current project with test/PostgreSQL dependencies, run `pip check`, use immutable action pins and avoid dependency-related collection failures.
 
 This release contains no production private key, KMS credential, order-routing permission or live-trading authorization.
-
-- Adds atomic durable reservation of executor receipt authorization, replay identity and audit event, with foreign-key binding to the exact rollout authorization bundle and command.
