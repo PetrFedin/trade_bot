@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from app.domain.trading import OrderIntent
-from app.oms.store import DurableOmsStore, OrderRecord, OrderState
+from app.oms.protocols import OmsStore
+from app.oms.store import OrderRecord, OrderState
 from app.risk.pretrade import RiskDecision
 
 
@@ -22,7 +23,7 @@ class PaperOrderLifecycle:
     call a broker, so a crash cannot create an unjournaled external mutation.
     """
 
-    def __init__(self, store: DurableOmsStore, *, namespace: str = "astra-paper") -> None:
+    def __init__(self, store: OmsStore, *, namespace: str = "astra-paper") -> None:
         if not namespace.strip():
             raise ValueError("namespace is required")
         self.store = store
