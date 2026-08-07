@@ -5,16 +5,20 @@ on:
     branches: [agent/schema108-paper-core-foundation]
     paths:
       - 'app/risk/**'
+      - 'app/application/paper_pipeline.py'
       - 'migrations/product/002_risk_evidence.sql'
       - 'tests/test_risk_evidence.py'
       - 'tests/test_postgres_risk_evidence.py'
+      - 'tests/test_pipeline_risk_evidence.py'
       - '.github/workflows/risk-evidence.yml'
   pull_request:
     paths:
       - 'app/risk/**'
+      - 'app/application/paper_pipeline.py'
       - 'migrations/product/002_risk_evidence.sql'
       - 'tests/test_risk_evidence.py'
       - 'tests/test_postgres_risk_evidence.py'
+      - 'tests/test_pipeline_risk_evidence.py'
       - '.github/workflows/risk-evidence.yml'
 
 permissions:
@@ -56,7 +60,9 @@ jobs:
           python -m pip check
       - name: SQLite and PostgreSQL immutable risk evidence
         run: pytest -q tests/test_risk_evidence.py tests/test_postgres_risk_evidence.py
+      - name: Paper pipeline risk-evidence integration
+        run: pytest -q tests/test_pipeline_risk_evidence.py
       - name: Pre-trade risk regression
         run: pytest -q tests/test_risk_marketdata.py tests/test_advanced_risk.py
       - name: Compile risk evidence boundary
-        run: python -m compileall -q app/risk
+        run: python -m compileall -q app/risk app/application/paper_pipeline.py
