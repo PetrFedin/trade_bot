@@ -2,7 +2,7 @@ name: release-integrity
 
 on:
   push:
-    branches: [agent/schema108-paper-core-foundation]
+    branches: [agent/schema108-paper-core-foundation, main]
     paths:
       - 'pyproject.toml'
       - 'requirements.lock'
@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-integrity-${{ github.ref }}
+  group: release-integrity-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
