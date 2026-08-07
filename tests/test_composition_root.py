@@ -3,8 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
+
 from app.application.composition import ProductConfig, build_local_product
 from app.domain.trading import Bar, Fill, Side
+from app.execution.trade_fills import ExplicitZeroPaperFeeModel
 from app.observability.readiness import OperationalSnapshot
 from app.oms.store import OrderState
 from app.risk.pretrade import RiskLimits
@@ -48,9 +51,10 @@ def test_local_composition_wires_one_coherent_product_graph(tmp_path) -> None:
     prepared = runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
     assert prepared.record.state is OrderState.OUTBOXED
     assert len(runtime.oms_store.pending_outbox()) == 1
+    assert runtime.oms_store.get_by_client_order_id(prepared.client_order_id) == prepared.record
 
 
-def test_local_composition_portfolio_persistence_replays_same_state(tmp_path) -> None:
+def test_local_composition_replays_portfolio_into_runtime_after_restart(tmp_path) -> None:
     runtime = build_local_product(config=config(), state_directory=tmp_path)
     fill = Fill(
         fill_id="composition-fill",
@@ -63,10 +67,26 @@ def test_local_composition_portfolio_persistence_replays_same_state(tmp_path) ->
         fee=Decimal("1"),
     )
     assert runtime.portfolio_store.append_fill(fill)
-    runtime.portfolio.apply_fill(fill)
-    replayed = runtime.portfolio_store.replay(opening_cash=runtime.config.opening_cash)
-    assert replayed.cash == runtime.portfolio.cash
-    assert replayed.position("AAPL") == runtime.portfolio.position("AAPL")
+    assert runtime.portfolio.position("AAPL").quantity == 0
+
+    restarted = build_local_product(config=config(), state_directory=tmp_path)
+    assert restarted.portfolio.cash == Decimal("9899")
+    assert restarted.portfolio.position("AAPL").quantity == Decimal("1")
+    assert restarted.portfolio.position("AAPL").average_cost == Decimal("101")
+    assert restarted.paper_pipeline.ledger is restarted.portfolio
+
+
+def test_fill_accounting_requires_explicit_fee_provider(tmp_path) -> None:
+    runtime = build_local_product(config=config(), state_directory=tmp_path)
+    with pytest.raises(RuntimeError, match="fee provider is not configured"):
+        runtime.require_fill_accounting()
+
+    configured = build_local_product(
+        config=config(),
+        state_directory=tmp_path,
+        fee_provider=ExplicitZeroPaperFeeModel(),
+    )
+    assert configured.require_fill_accounting().portfolio is configured.portfolio_store
 
 
 def test_local_composition_operational_gate_remains_paper_only(tmp_path) -> None:
