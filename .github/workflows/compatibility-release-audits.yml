@@ -1,0 +1,76 @@
+name: compatibility-release-audits
+
+on:
+  pull_request:
+    paths:
+      - 'pyproject.toml'
+      - 'tools/product_identity.py'
+      - 'tools/architecture_audit_v10*.py'
+      - 'tools/platform_v10*.py'
+      - 'tests/test_product_identity.py'
+      - 'tests/test_tools_v10*.py'
+      - 'RELEASE_IDENTITY_V10*.json'
+      - '.github/workflows/compatibility-release-audits.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'pyproject.toml'
+      - 'tools/product_identity.py'
+      - 'tools/architecture_audit_v10*.py'
+      - 'tools/platform_v10*.py'
+      - 'tests/test_product_identity.py'
+      - 'tests/test_tools_v10*.py'
+      - 'RELEASE_IDENTITY_V10*.json'
+      - '.github/workflows/compatibility-release-audits.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compatibility-release-audits-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install product development dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Ruff compatibility tooling
+        run: |
+          ruff check \
+            tools/product_identity.py \
+            tools/architecture_audit_v100.py \
+            tools/architecture_audit_v101.py \
+            tools/architecture_audit_v102.py \
+            tools/architecture_audit_v103.py \
+            tools/architecture_audit_v104.py \
+            tools/architecture_audit_v105.py \
+            tools/architecture_audit_v106.py \
+            tools/architecture_audit_v107.py \
+            tools/architecture_audit_v108.py \
+            tools/platform_v105.py \
+            tools/platform_v106.py \
+            tools/platform_v107.py \
+            tests/test_product_identity.py
+      - name: Historical architecture and release compatibility regression
+        run: |
+          pytest -q \
+            tests/test_product_identity.py \
+            tests/test_tools_v100.py \
+            tests/test_tools_v101.py \
+            tests/test_tools_v102.py \
+            tests/test_tools_v103.py \
+            tests/test_tools_v104.py \
+            tests/test_tools_v105.py \
+            tests/test_tools_v106.py \
+            tests/test_tools_v107.py \
+            tests/test_tools_v108.py
