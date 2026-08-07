@@ -124,21 +124,21 @@ class AlpacaPaperFillActivityReader:
         *,
         credentials: AlpacaPaperCredentialsV100,
         transport: HttpTransportV100,
-        endpoints: AlpacaPaperEndpointsV100 = AlpacaPaperEndpointsV100(),
-        policy: AlpacaPaperPolicyV100 = AlpacaPaperPolicyV100(),
+        endpoints: AlpacaPaperEndpointsV100 | None = None,
+        policy: AlpacaPaperPolicyV100 | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
-        endpoints.validate()
-        policy.validate()
+        self.endpoints = AlpacaPaperEndpointsV100() if endpoints is None else endpoints
+        self.policy = AlpacaPaperPolicyV100() if policy is None else policy
+        self.endpoints.validate()
+        self.policy.validate()
         self.credentials = credentials
         self.transport = transport
-        self.endpoints = endpoints
-        self.policy = policy
         self.sleeper = sleeper
         self._read_limiter = TokenBucketV100(
-            capacity=policy.read_capacity,
-            refill_per_second=policy.read_refill_per_second,
+            capacity=self.policy.read_capacity,
+            refill_per_second=self.policy.read_refill_per_second,
             clock=clock,
         )
 
