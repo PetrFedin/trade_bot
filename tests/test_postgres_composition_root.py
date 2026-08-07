@@ -73,6 +73,20 @@ def test_postgres_composition_uses_shared_durable_backends() -> None:
     assert prepared.record.state is OrderState.OUTBOXED
     assert len(runtime.oms_store.pending_outbox()) == 1
     assert runtime.oms_store.get_by_client_order_id(prepared.client_order_id) == prepared.record
+    runtime.oms_store.transition(
+        intent.intent_id,
+        OrderState.SUBMIT_STARTED,
+        event_id="pg-submit-start",
+        occurred_at=NOW,
+    )
+    acknowledged = runtime.oms_store.transition(
+        intent.intent_id,
+        OrderState.ACKNOWLEDGED,
+        event_id="pg-ack",
+        occurred_at=NOW,
+        broker_order_id="pg-broker-order-1",
+    )
+    assert runtime.oms_store.get_by_broker_order_id("pg-broker-order-1") == acknowledged
 
     fill = Fill(
         fill_id="pg-composition-fill",
