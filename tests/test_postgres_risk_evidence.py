@@ -84,7 +84,7 @@ def test_postgres_risk_chain_serializes_concurrent_workers(
     records = journal.verify()
     assert len(records) == 4
     assert [item.sequence for item in records] == [1, 2, 3, 4]
-    for previous, current in zip(records, records[1:], strict=True):
+    for previous, current in zip(records[:-1], records[1:], strict=True):
         assert current.previous_digest == previous.digest
 
 
