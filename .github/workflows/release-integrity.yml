@@ -42,9 +42,10 @@ jobs:
           python -m pip check
       - name: Prove lock matches pyproject inputs
         run: |
-          pip-compile \
+          python -m piptools compile \
             --resolver=backtracking \
             --generate-hashes \
+            --no-header \
             --strip-extras \
             --extra test \
             --extra postgresql \
