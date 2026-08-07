@@ -39,10 +39,11 @@ class BacktestResult:
 
 
 class HistoricalBacktester:
-    """Deterministic close-to-next-close evaluator with no same-bar execution.
+    """Deterministic next-bar evaluator with an explicit no-lookahead boundary.
 
-    A target is computed only from bars available through time t. Any resulting trade
-    executes at bar t+1 with configured adverse slippage, preventing same-bar lookahead.
+    A target is computed only from bars strictly before each execution bar. Setting
+    ``first_execution_index`` permits training/warm-up history to be supplied while
+    ensuring all simulated fills and performance measurement occur out-of-sample.
     """
 
     def __init__(
@@ -56,10 +57,15 @@ class HistoricalBacktester:
         self.strategy = strategy
         self.config = config
 
-    def run(self, bars: Sequence[Bar]) -> BacktestResult:
-        if len(bars) <= self.config.minimum_history_bars:
-            raise ValueError("insufficient bars for no-lookahead backtest")
+    def run(
+        self,
+        bars: Sequence[Bar],
+        *,
+        first_execution_index: int | None = None,
+    ) -> BacktestResult:
         ordered = list(bars)
+        if len(ordered) <= self.config.minimum_history_bars:
+            raise ValueError("insufficient bars for no-lookahead backtest")
         for bar in ordered:
             bar.validate()
         if len({bar.symbol for bar in ordered}) != 1:
@@ -68,16 +74,26 @@ class HistoricalBacktester:
         if timestamps != sorted(timestamps) or len(set(timestamps)) != len(timestamps):
             raise ValueError("backtest bars must be strictly increasing")
 
+        first_execution = (
+            self.config.minimum_history_bars
+            if first_execution_index is None
+            else first_execution_index
+        )
+        if first_execution < self.config.minimum_history_bars:
+            raise ValueError("first execution cannot precede minimum strategy history")
+        if first_execution >= len(ordered):
+            raise ValueError("first execution must be inside the supplied bar series")
+
         ledger = PortfolioLedger(opening_cash=self.config.opening_cash)
         peak_equity = self.config.opening_cash
         max_drawdown = Decimal("0")
         trades = 0
         slip = self.config.slippage_bps / Decimal("10000")
 
-        for signal_index in range(self.config.minimum_history_bars - 1, len(ordered) - 1):
-            history = ordered[: signal_index + 1]
+        for execution_index in range(first_execution, len(ordered)):
+            history = ordered[:execution_index]
             target = self.strategy.target(history)
-            execution_bar = ordered[signal_index + 1]
+            execution_bar = ordered[execution_index]
             current = ledger.position(target.symbol)
             delta = target.quantity - current.quantity
             if delta != 0:
@@ -90,7 +106,7 @@ class HistoricalBacktester:
                 ledger.apply_fill(
                     Fill(
                         fill_id=f"bt-{trades + 1}-{execution_bar.timestamp.isoformat()}",
-                        order_intent_id=f"bt-intent-{signal_index}",
+                        order_intent_id=f"bt-intent-{execution_index - 1}",
                         symbol=target.symbol,
                         side=side,
                         quantity=abs(delta),
@@ -102,8 +118,7 @@ class HistoricalBacktester:
                 trades += 1
             equity = ledger.equity({execution_bar.symbol: execution_bar.close})
             peak_equity = max(peak_equity, equity)
-            drawdown = peak_equity - equity
-            max_drawdown = max(max_drawdown, drawdown)
+            max_drawdown = max(max_drawdown, peak_equity - equity)
 
         last = ordered[-1]
         snapshot = ledger.snapshot({last.symbol: last.close})
