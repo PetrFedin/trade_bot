@@ -144,6 +144,7 @@ def prepare_order(oms: IndexedDurableOmsStore) -> OrderIntent:
 
 
 def recovery_stack(tmp_path, source: StaticActivitySource):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     oms = IndexedDurableOmsStore(tmp_path / "oms.sqlite")
     prepare_order(oms)
     portfolio = StrictPortfolioEventStore(tmp_path / "portfolio.sqlite")
@@ -158,13 +159,14 @@ def recovery_stack(tmp_path, source: StaticActivitySource):
     return oms, portfolio, ledger, accounting, service
 
 
+def credentials() -> AlpacaPaperCredentialsV100:
+    return AlpacaPaperCredentialsV100(key_id="key", secret_key="secret")
+
+
 def test_reader_is_get_only_and_encodes_bounded_query() -> None:
     body = json.dumps([activity_payload()]).encode()
     transport = QueueTransport([HttpResponseV100(200, {}, body)])
-    reader = AlpacaPaperFillActivityReader(
-        credentials=AlpacaPaperCredentialsV100("key", "secret"),
-        transport=transport,
-    )
+    reader = AlpacaPaperFillActivityReader(credentials=credentials(), transport=transport)
     page = reader.page(
         after=NOW,
         until=NOW + timedelta(hours=1),
@@ -195,7 +197,7 @@ def test_reader_retries_read_only_transient_status_with_per_attempt_calls() -> N
     )
     sleeps: list[float] = []
     reader = AlpacaPaperFillActivityReader(
-        credentials=AlpacaPaperCredentialsV100("key", "secret"),
+        credentials=credentials(),
         transport=transport,
         policy=AlpacaPaperPolicyV100(
             maximum_read_attempts=2,
@@ -219,7 +221,7 @@ def test_reader_retries_read_only_transient_status_with_per_attempt_calls() -> N
 def test_reader_rejects_oversized_or_invalid_payloads() -> None:
     oversized = QueueTransport([HttpResponseV100(200, {}, b"x" * 9)])
     reader = AlpacaPaperFillActivityReader(
-        credentials=AlpacaPaperCredentialsV100("key", "secret"),
+        credentials=credentials(),
         transport=oversized,
         policy=AlpacaPaperPolicyV100(maximum_response_bytes=8),
     )
@@ -232,10 +234,7 @@ def test_reader_rejects_oversized_or_invalid_payloads() -> None:
         )
 
     invalid = QueueTransport([HttpResponseV100(200, {}, b"not-json")])
-    reader = AlpacaPaperFillActivityReader(
-        credentials=AlpacaPaperCredentialsV100("key", "secret"),
-        transport=invalid,
-    )
+    reader = AlpacaPaperFillActivityReader(credentials=credentials(), transport=invalid)
     with pytest.raises(AlpacaPaperProtocolError, match="invalid fill activities JSON"):
         reader.page(
             after=NOW,
@@ -282,7 +281,9 @@ def test_stream_then_activity_same_economics_is_not_double_counted(tmp_path) -> 
     assert result.duplicate_portfolio_events == 1
     assert result.oms_advances == 0
     assert ledger.position("AAPL").quantity == Decimal("1")
-    assert len(portfolio.events()) == 1
+    replayed = portfolio.replay(opening_cash=Decimal("1000"))
+    assert replayed.position("AAPL").quantity == Decimal("1")
+    assert replayed.cash == Decimal("900")
     assert oms.get("intent-backfill").state is OrderState.FILLED
 
 
@@ -295,7 +296,7 @@ def test_unmapped_activity_is_reported_without_portfolio_mutation(tmp_path) -> N
     assert not result.complete
     assert result.reasons == ("UNRESOLVED_BROKER_ORDERS",)
     assert result.unresolved_broker_order_ids == ("manual-or-unknown-order",)
-    assert portfolio.events() == ()
+    assert portfolio.replay(opening_cash=Decimal("1000")).positions() == ()
     assert ledger.positions() == ()
 
 
@@ -303,17 +304,17 @@ def test_backfill_limits_fail_before_applying_collected_events(tmp_path) -> None
     page = FillActivityPage((activity(),), "activity-1")
     source = StaticActivitySource([page])
     _, portfolio, ledger, _, service = recovery_stack(tmp_path, source)
-    service = PaperFillBackfillService(
+    bounded = PaperFillBackfillService(
         source=source,
         oms=service.oms,
         accounting=service.accounting,
         policy=FillBackfillPolicy(maximum_pages=1, maximum_activities=10, page_size=1),
     )
-    result = service.recover(after=NOW, until=NOW + timedelta(minutes=1))
+    result = bounded.recover(after=NOW, until=NOW + timedelta(minutes=1))
     assert not result.complete
     assert result.reasons == ("PAGE_LIMIT_REACHED",)
     assert result.portfolio_events_appended == 0
-    assert portfolio.events() == ()
+    assert portfolio.replay(opening_cash=Decimal("1000")).positions() == ()
     assert ledger.positions() == ()
 
 
@@ -331,10 +332,13 @@ def test_duplicate_activity_ids_and_identity_mismatch_fail_closed(tmp_path) -> N
     mismatch_source = StaticActivitySource(
         [FillActivityPage((activity(symbol="MSFT"),), None)]
     )
-    _, portfolio, _, _, mismatch_service = recovery_stack(tmp_path / "mismatch", mismatch_source)
+    _, portfolio, _, _, mismatch_service = recovery_stack(
+        tmp_path / "mismatch",
+        mismatch_source,
+    )
     with pytest.raises(ValueError, match="BROKER_SYMBOL_MISMATCH"):
         mismatch_service.recover(after=NOW, until=NOW + timedelta(minutes=1))
-    assert portfolio.events() == ()
+    assert portfolio.replay(opening_cash=Decimal("1000")).positions() == ()
 
 
 def test_backfill_window_and_timestamp_inputs_are_bounded(tmp_path) -> None:
