@@ -3,9 +3,9 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "astra-schema108-asymmetric-signing-authority"
+name = "astra-trade-bot"
 version = "7.38.0"
-description = "ASTRA trading product with Schema 108 signing authority compatibility"
+description = "ASTRA paper-trading product with Schema 108 signing compatibility"
 requires-python = ">=3.11"
 dependencies = ["cryptography>=50,<51"]
 
@@ -21,6 +21,7 @@ dev = [
     "mypy>=1.17,<2",
     "bandit>=1.8,<2",
     "pip-audit>=2.9,<3",
+    "pip-tools>=7.5,<8",
     "websockets>=15,<17",
     "psycopg[binary]>=3.2,<4",
 ]
