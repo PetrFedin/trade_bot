@@ -30,9 +30,7 @@ class PaperOrderLifecycle:
 
     def client_order_id(self, intent: OrderIntent) -> str:
         intent.validate()
-        digest = hashlib.sha256(
-            f"{self.namespace}|{intent.intent_id}".encode("utf-8")
-        ).hexdigest()[:32]
+        digest = hashlib.sha256(f"{self.namespace}|{intent.intent_id}".encode()).hexdigest()[:32]
         return f"{self.namespace}-{digest}"
 
     def prepare(

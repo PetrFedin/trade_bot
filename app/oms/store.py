@@ -2,20 +2,20 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Iterator
 
 from app.domain.trading import OrderIntent, Side
 
-UTC = timezone.utc
+UTC = UTC
 
 
-class OrderState(str, Enum):
+class OrderState(StrEnum):
     CREATED = "CREATED"
     RISK_APPROVED = "RISK_APPROVED"
     OUTBOXED = "OUTBOXED"
@@ -39,13 +39,42 @@ _ALLOWED: dict[OrderState, frozenset[OrderState]] = {
     OrderState.CREATED: frozenset({OrderState.RISK_APPROVED, OrderState.REJECTED}),
     OrderState.RISK_APPROVED: frozenset({OrderState.OUTBOXED}),
     OrderState.OUTBOXED: frozenset({OrderState.SUBMIT_STARTED}),
-    OrderState.SUBMIT_STARTED: frozenset({OrderState.ACKNOWLEDGED, OrderState.REJECTED, OrderState.UNCERTAIN}),
-    OrderState.ACKNOWLEDGED: frozenset({OrderState.PARTIALLY_FILLED, OrderState.FILLED, OrderState.CANCEL_REQUESTED, OrderState.CANCELLED, OrderState.UNCERTAIN}),
-    OrderState.PARTIALLY_FILLED: frozenset({OrderState.PARTIALLY_FILLED, OrderState.FILLED, OrderState.CANCEL_REQUESTED, OrderState.CANCELLED, OrderState.UNCERTAIN}),
-    OrderState.CANCEL_REQUESTED: frozenset({OrderState.CANCELLED, OrderState.PARTIALLY_FILLED, OrderState.FILLED, OrderState.UNCERTAIN}),
+    OrderState.SUBMIT_STARTED: frozenset(
+        {OrderState.ACKNOWLEDGED, OrderState.REJECTED, OrderState.UNCERTAIN}
+    ),
+    OrderState.ACKNOWLEDGED: frozenset(
+        {
+            OrderState.PARTIALLY_FILLED,
+            OrderState.FILLED,
+            OrderState.CANCEL_REQUESTED,
+            OrderState.CANCELLED,
+            OrderState.UNCERTAIN,
+        }
+    ),
+    OrderState.PARTIALLY_FILLED: frozenset(
+        {
+            OrderState.PARTIALLY_FILLED,
+            OrderState.FILLED,
+            OrderState.CANCEL_REQUESTED,
+            OrderState.CANCELLED,
+            OrderState.UNCERTAIN,
+        }
+    ),
+    OrderState.CANCEL_REQUESTED: frozenset(
+        {OrderState.CANCELLED, OrderState.PARTIALLY_FILLED, OrderState.FILLED, OrderState.UNCERTAIN}
+    ),
     OrderState.UNCERTAIN: frozenset({OrderState.RECONCILING, OrderState.MANUAL}),
     OrderState.RECONCILING: frozenset({OrderState.RECONCILED, OrderState.MANUAL}),
-    OrderState.RECONCILED: frozenset({OrderState.ACKNOWLEDGED, OrderState.PARTIALLY_FILLED, OrderState.FILLED, OrderState.CANCELLED, OrderState.REJECTED, OrderState.MANUAL}),
+    OrderState.RECONCILED: frozenset(
+        {
+            OrderState.ACKNOWLEDGED,
+            OrderState.PARTIALLY_FILLED,
+            OrderState.FILLED,
+            OrderState.CANCELLED,
+            OrderState.REJECTED,
+            OrderState.MANUAL,
+        }
+    ),
     OrderState.MANUAL: frozenset(),
     OrderState.FILLED: frozenset(),
     OrderState.CANCELLED: frozenset(),
@@ -184,7 +213,9 @@ class DurableOmsStore:
         finally:
             connection.close()
 
-    def create(self, intent: OrderIntent, *, client_order_id: str, occurred_at: datetime | None = None) -> OrderRecord:
+    def create(
+        self, intent: OrderIntent, *, client_order_id: str, occurred_at: datetime | None = None
+    ) -> OrderRecord:
         intent.validate()
         if not client_order_id.strip():
             raise ValueError("client_order_id is required")
@@ -240,13 +271,21 @@ class DurableOmsStore:
             """INSERT OR IGNORE INTO oms_events
             (event_id, intent_id, event_type, payload, occurred_at)
             VALUES (?, ?, ?, ?, ?)""",
-            (event_id, intent_id, event_type, json.dumps(payload, sort_keys=True), occurred_at.isoformat()),
+            (
+                event_id,
+                intent_id,
+                event_type,
+                json.dumps(payload, sort_keys=True),
+                occurred_at.isoformat(),
+            ),
         )
         return cursor.rowcount == 1
 
     @staticmethod
     def _load_for_update(connection: sqlite3.Connection, intent_id: str) -> OrderRecord:
-        row = connection.execute("SELECT * FROM oms_orders WHERE intent_id=?", (intent_id,)).fetchone()
+        row = connection.execute(
+            "SELECT * FROM oms_orders WHERE intent_id=?", (intent_id,)
+        ).fetchone()
         if row is None:
             raise KeyError(intent_id)
         return DurableOmsStore._row(row)
@@ -271,10 +310,14 @@ class DurableOmsStore:
         moment = self._now(occurred_at)
         with self._transaction() as connection:
             current = self._load_for_update(connection, intent_id)
-            if connection.execute("SELECT 1 FROM oms_events WHERE event_id=?", (event_id,)).fetchone():
+            if connection.execute(
+                "SELECT 1 FROM oms_events WHERE event_id=?", (event_id,)
+            ).fetchone():
                 return current
             self._validate_transition(current.state, target)
-            broker_id = current.broker_order_id if broker_order_id is None else broker_order_id.strip()
+            broker_id = (
+                current.broker_order_id if broker_order_id is None else broker_order_id.strip()
+            )
             connection.execute(
                 """UPDATE oms_orders SET state=?, broker_order_id=?, version=version+1, updated_at=?
                 WHERE intent_id=?""",
@@ -293,13 +336,19 @@ class DurableOmsStore:
         return result
 
     def approve_risk(self, intent_id: str, *, event_id: str, occurred_at: datetime) -> OrderRecord:
-        return self.transition(intent_id, OrderState.RISK_APPROVED, event_id=event_id, occurred_at=occurred_at)
+        return self.transition(
+            intent_id, OrderState.RISK_APPROVED, event_id=event_id, occurred_at=occurred_at
+        )
 
-    def enqueue_submit(self, intent_id: str, *, event_id: str, occurred_at: datetime) -> OrderRecord:
+    def enqueue_submit(
+        self, intent_id: str, *, event_id: str, occurred_at: datetime
+    ) -> OrderRecord:
         moment = self._now(occurred_at)
         with self._transaction() as connection:
             current = self._load_for_update(connection, intent_id)
-            if connection.execute("SELECT 1 FROM oms_events WHERE event_id=?", (event_id,)).fetchone():
+            if connection.execute(
+                "SELECT 1 FROM oms_events WHERE event_id=?", (event_id,)
+            ).fetchone():
                 return current
             self._validate_transition(current.state, OrderState.OUTBOXED)
             payload = {
@@ -378,7 +427,9 @@ class DurableOmsStore:
         moment = self._now(occurred_at)
         with self._transaction() as connection:
             current = self._load_for_update(connection, intent_id)
-            if connection.execute("SELECT 1 FROM oms_events WHERE event_id=?", (event_id,)).fetchone():
+            if connection.execute(
+                "SELECT 1 FROM oms_events WHERE event_id=?", (event_id,)
+            ).fetchone():
                 return current
             if cumulative_filled < current.filled_quantity:
                 raise ValueError("FILLED_QUANTITY_REGRESSION")
@@ -392,7 +443,9 @@ class DurableOmsStore:
                 target = OrderState.PARTIALLY_FILLED
             if target != current.state:
                 self._validate_transition(current.state, target)
-            broker_id = current.broker_order_id if broker_order_id is None else broker_order_id.strip()
+            broker_id = (
+                current.broker_order_id if broker_order_id is None else broker_order_id.strip()
+            )
             connection.execute(
                 """UPDATE oms_orders SET state=?, broker_order_id=?, filled_quantity=?,
                 version=version+1, updated_at=? WHERE intent_id=?""",
@@ -414,7 +467,8 @@ class DurableOmsStore:
         connection = self._connect()
         try:
             rows = connection.execute(
-                "SELECT event_id, event_type, payload, occurred_at FROM oms_events WHERE intent_id=? ORDER BY rowid",
+                "SELECT event_id, event_type, payload, occurred_at "
+                "FROM oms_events WHERE intent_id=? ORDER BY rowid",
                 (intent_id,),
             ).fetchall()
             return tuple(

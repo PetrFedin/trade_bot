@@ -48,7 +48,10 @@ class RiskContext:
     turnover_notional: Decimal = Decimal("0")
 
     def validate(self) -> None:
-        for name, value in (("price_timestamp", self.price_timestamp), ("decision_time", self.decision_time)):
+        for name, value in (
+            ("price_timestamp", self.price_timestamp),
+            ("decision_time", self.decision_time),
+        ):
             if value.tzinfo is None or value.utcoffset() is None:
                 raise ValueError(f"{name} must be timezone-aware")
         if self.price_timestamp > self.decision_time:
@@ -122,7 +125,9 @@ class PreTradeRiskEngine:
 
         if context is not None:
             context.validate()
-            age_seconds = Decimal(str((context.decision_time - context.price_timestamp).total_seconds()))
+            age_seconds = Decimal(
+                str((context.decision_time - context.price_timestamp).total_seconds())
+            )
             if age_seconds > self.limits.maximum_price_age_seconds:
                 reasons.append("STALE_PRICE")
             if not context.market_open:

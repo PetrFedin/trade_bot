@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
-from decimal import Decimal
 
 from app.domain.trading import Bar, OrderIntent, Side, TargetPosition
 from app.portfolio.ledger import PortfolioLedger
@@ -24,7 +23,9 @@ class PaperTradingPipeline:
         self.ledger = ledger
         self.risk = risk
 
-    def plan(self, bars: Sequence[Bar], *, kill_switch_engaged: bool = False) -> tuple[TargetPosition, OrderIntent | None, RiskDecision | None]:
+    def plan(
+        self, bars: Sequence[Bar], *, kill_switch_engaged: bool = False
+    ) -> tuple[TargetPosition, OrderIntent | None, RiskDecision | None]:
         target = self.strategy.target(bars)
         current = self.ledger.position(target.symbol)
         delta = target.quantity - current.quantity
@@ -32,7 +33,10 @@ class PaperTradingPipeline:
             return target, None, None
         side = Side.BUY if delta > 0 else Side.SELL
         quantity = abs(delta)
-        raw_id = f"{target.strategy_id}|{target.symbol}|{target.generated_at.isoformat()}|{side.value}|{quantity}|{target.reference_price}"
+        raw_id = (
+            f"{target.strategy_id}|{target.symbol}|{target.generated_at.isoformat()}|"
+            f"{side.value}|{quantity}|{target.reference_price}"
+        )
         intent = OrderIntent(
             intent_id=hashlib.sha256(raw_id.encode("utf-8")).hexdigest(),
             symbol=target.symbol,

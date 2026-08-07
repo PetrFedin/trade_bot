@@ -1,16 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from enum import Enum
-from typing import Mapping
+from enum import StrEnum
 
 from app.oms.store import DurableOmsStore, OrderRecord, OrderState
 from app.portfolio.ledger import PortfolioLedger
 
 
-class BrokerOrderState(str, Enum):
+class BrokerOrderState(StrEnum):
     OPEN = "OPEN"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
     FILLED = "FILLED"
@@ -169,18 +169,25 @@ def reconcile_portfolio(
     quantity_tolerance: Decimal = Decimal("0"),
 ) -> PortfolioReconciliationResult:
     broker.validate()
-    for name, value in (("cash_tolerance", cash_tolerance), ("quantity_tolerance", quantity_tolerance)):
+    for name, value in (
+        ("cash_tolerance", cash_tolerance),
+        ("quantity_tolerance", quantity_tolerance),
+    ):
         if not value.is_finite() or value < 0:
             raise ValueError(f"{name} must be finite and non-negative")
 
     cash_delta = broker.cash - ledger.cash
-    broker_positions: Mapping[str, Decimal] = {position.symbol: position.quantity for position in broker.positions}
+    broker_positions: Mapping[str, Decimal] = {
+        position.symbol: position.quantity for position in broker.positions
+    }
     local_positions = {position.symbol: position.quantity for position in ledger.positions()}
     symbols = sorted(set(broker_positions) | set(local_positions))
     deltas: list[tuple[str, Decimal]] = []
     reasons: list[str] = []
     for symbol in symbols:
-        delta = broker_positions.get(symbol, Decimal("0")) - local_positions.get(symbol, Decimal("0"))
+        delta = broker_positions.get(symbol, Decimal("0")) - local_positions.get(
+            symbol, Decimal("0")
+        )
         if abs(delta) > quantity_tolerance:
             deltas.append((symbol, delta))
             reasons.append(f"POSITION_MISMATCH:{symbol}")

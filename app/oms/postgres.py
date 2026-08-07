@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
 from app.domain.trading import OrderIntent, Side
 from app.oms.store import DurableOmsStore, OrderRecord, OrderState, OutboxMessage
 
-UTC = timezone.utc
+UTC = UTC
 
 try:
     import psycopg
@@ -167,7 +167,11 @@ class PostgresOmsStore:
                     if self._event_exists(cursor, event_id):
                         return current
                     DurableOmsStore._validate_transition(current.state, target)
-                    broker_id = current.broker_order_id if broker_order_id is None else broker_order_id.strip()
+                    broker_id = (
+                        current.broker_order_id
+                        if broker_order_id is None
+                        else broker_order_id.strip()
+                    )
                     cursor.execute(
                         """UPDATE astra_oms_orders
                         SET state=%s, broker_order_id=%s, version=version+1, updated_at=%s
@@ -192,7 +196,9 @@ class PostgresOmsStore:
             occurred_at=occurred_at,
         )
 
-    def enqueue_submit(self, intent_id: str, *, event_id: str, occurred_at: datetime) -> OrderRecord:
+    def enqueue_submit(
+        self, intent_id: str, *, event_id: str, occurred_at: datetime
+    ) -> OrderRecord:
         moment = self._now(occurred_at)
         with self._connect() as connection:
             with connection.transaction():
@@ -296,7 +302,11 @@ class PostgresOmsStore:
                         target = OrderState.PARTIALLY_FILLED
                     if target != current.state:
                         DurableOmsStore._validate_transition(current.state, target)
-                    broker_id = current.broker_order_id if broker_order_id is None else broker_order_id.strip()
+                    broker_id = (
+                        current.broker_order_id
+                        if broker_order_id is None
+                        else broker_order_id.strip()
+                    )
                     cursor.execute(
                         """UPDATE astra_oms_orders SET state=%s, broker_order_id=%s,
                         filled_quantity=%s, version=version+1, updated_at=%s WHERE intent_id=%s""",
@@ -307,7 +317,10 @@ class PostgresOmsStore:
                         event_id=event_id,
                         intent_id=intent_id,
                         event_type="FILL_UPDATE",
-                        payload={"cumulative_filled": str(cumulative_filled), "state": target.value},
+                        payload={
+                            "cumulative_filled": str(cumulative_filled),
+                            "state": target.value,
+                        },
                         occurred_at=moment,
                     )
                     return self._load_for_update(cursor, intent_id)

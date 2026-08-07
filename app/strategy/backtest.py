@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Sequence
 
 from app.domain.trading import Bar, Fill, Side
 from app.portfolio.ledger import PortfolioLedger
@@ -49,8 +49,9 @@ class HistoricalBacktester:
         self,
         *,
         strategy: LongOnlyMomentumStrategy,
-        config: BacktestConfig = BacktestConfig(),
+        config: BacktestConfig | None = None,
     ) -> None:
+        config = BacktestConfig() if config is None else config
         config.validate()
         self.strategy = strategy
         self.config = config

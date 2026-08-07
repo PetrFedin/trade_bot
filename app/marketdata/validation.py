@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Sequence
 
 from app.domain.trading import Bar
 
@@ -35,8 +35,9 @@ def validate_bar_series(
     bars: Sequence[Bar],
     *,
     now: datetime,
-    policy: MarketDataPolicy = MarketDataPolicy(),
+    policy: MarketDataPolicy | None = None,
 ) -> MarketDataQuality:
+    policy = MarketDataPolicy() if policy is None else policy
     policy.validate()
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")

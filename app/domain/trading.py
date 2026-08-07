@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 
 
-class Side(str, Enum):
+class Side(StrEnum):
     BUY = "BUY"
     SELL = "SELL"
 
