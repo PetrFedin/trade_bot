@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from app.domain.trading import OrderIntent
-from app.oms.store import DurableOmsStore, OrderRecord
+from app.oms.store import DurableOmsStore, OrderRecord, OrderState
 from app.risk.pretrade import RiskDecision
 
 
@@ -51,14 +51,23 @@ class PaperOrderLifecycle:
             client_order_id=client_order_id,
             occurred_at=occurred_at,
         )
-        record = self.store.approve_risk(
-            intent.intent_id,
-            event_id=f"risk:{intent.intent_id}",
-            occurred_at=occurred_at,
-        )
-        record = self.store.enqueue_submit(
-            intent.intent_id,
-            event_id=f"outbox:{intent.intent_id}",
-            occurred_at=occurred_at,
-        )
+        if record.state is OrderState.CREATED:
+            record = self.store.approve_risk(
+                intent.intent_id,
+                event_id=f"risk:{intent.intent_id}",
+                occurred_at=occurred_at,
+            )
+        if record.state is OrderState.RISK_APPROVED:
+            record = self.store.enqueue_submit(
+                intent.intent_id,
+                event_id=f"outbox:{intent.intent_id}",
+                occurred_at=occurred_at,
+            )
+        if record.state in {
+            OrderState.REJECTED,
+            OrderState.CANCELLED,
+            OrderState.FILLED,
+            OrderState.MANUAL,
+        }:
+            raise ValueError(f"ORDER_NOT_PREPARABLE:{record.state.value}")
         return PreparedPaperOrder(record=record, client_order_id=client_order_id)
