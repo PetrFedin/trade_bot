@@ -15,6 +15,7 @@ on:
       - 'tests/test_postgres_composition_root.py'
       - 'tests/test_trade_fill_accounting.py'
       - 'tests/test_trade_update_processor.py'
+      - 'tests/test_fill_backfill.py'
       - 'tests/test_portfolio_event_conflicts.py'
       - 'tests/test_postgres_portfolio_event_conflicts.py'
       - 'tests/test_paper_cycle_e2e.py'
@@ -32,6 +33,7 @@ on:
       - 'tests/test_postgres_composition_root.py'
       - 'tests/test_trade_fill_accounting.py'
       - 'tests/test_trade_update_processor.py'
+      - 'tests/test_fill_backfill.py'
       - 'tests/test_portfolio_event_conflicts.py'
       - 'tests/test_postgres_portfolio_event_conflicts.py'
       - 'tests/test_paper_cycle_e2e.py'
@@ -74,15 +76,16 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[test,postgresql]'
           python -m pip check
-      - name: Local composition, exact fills, and bounded paper cycle
+      - name: Local composition, exact fills, recovery, and bounded paper cycle
         run: >-
           pytest -q
           tests/test_composition_root.py
           tests/test_trade_fill_accounting.py
           tests/test_trade_update_processor.py
+          tests/test_fill_backfill.py
           tests/test_portfolio_event_conflicts.py
           tests/test_paper_cycle_e2e.py
-      - name: PostgreSQL composition root, restart, and idempotency conflicts
+      - name: PostgreSQL composition root, restart, recovery index, and idempotency conflicts
         run: >-
           pytest -q
           tests/test_postgres_composition_root.py
