@@ -64,6 +64,7 @@ def test_clean_market_data_and_risk_context_are_ready() -> None:
             daily_pnl=Decimal("10"),
             drawdown=Decimal("20"),
             turnover_notional=Decimal("100"),
+            available_cash=Decimal("1000"),
         ),
     )
     assert decision.approved
@@ -105,6 +106,7 @@ def test_operational_risk_context_blocks_unsafe_order() -> None:
             daily_pnl=Decimal("-100"),
             drawdown=Decimal("150"),
             turnover_notional=Decimal("950"),
+            available_cash=Decimal("1000"),
         ),
     )
     assert not decision.approved
@@ -118,3 +120,34 @@ def test_operational_risk_context_blocks_unsafe_order() -> None:
         "STALE_PRICE",
         "TURNOVER_LIMIT_EXCEEDED",
     }
+
+
+def test_buy_order_cannot_exceed_available_cash() -> None:
+    decision = PreTradeRiskEngine(limits()).evaluate(
+        order(),
+        current_symbol_notional=Decimal("0"),
+        current_gross_notional=Decimal("0"),
+        context=RiskContext(
+            price_timestamp=NOW,
+            decision_time=NOW,
+            available_cash=Decimal("101.99"),
+        ),
+    )
+    assert not decision.approved
+    assert decision.reasons == ("INSUFFICIENT_AVAILABLE_CASH",)
+
+
+def test_zero_available_cash_is_valid_context_and_rejects_buy() -> None:
+    context = RiskContext(
+        price_timestamp=NOW,
+        decision_time=NOW,
+        available_cash=Decimal("0"),
+    )
+    context.validate()
+    decision = PreTradeRiskEngine(limits()).evaluate(
+        order(),
+        current_symbol_notional=Decimal("0"),
+        current_gross_notional=Decimal("0"),
+        context=context,
+    )
+    assert decision.reasons == ("INSUFFICIENT_AVAILABLE_CASH",)
