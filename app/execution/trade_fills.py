@@ -10,6 +10,7 @@ from typing import Protocol
 from app.domain.trading import Fill, Side
 from app.oms.protocols import OmsStore
 from app.oms.store import OrderRecord, OrderState
+from app.portfolio.ledger import PortfolioLedger
 from app.portfolio.protocols import PortfolioStore
 
 
@@ -163,9 +164,9 @@ class PaperTradeFillAccounting:
     """Apply exact broker fill events to durable portfolio state and OMS quantity.
 
     Portfolio persistence happens first. Its event id is the broker execution id, so a
-    retry after a crash is idempotent. OMS quantity is then advanced monotonically. A
-    late exact fill can still repair portfolio history when OMS already knows the higher
-    cumulative quantity; the service never regresses OMS state.
+    retry after a crash is idempotent. When a runtime ledger is supplied, a newly
+    persisted event is applied to that same replayed ledger exactly once so strategy and
+    risk see the broker fill immediately without waiting for a process restart.
     """
 
     _DIRECT_STATES = frozenset(
@@ -192,10 +193,12 @@ class PaperTradeFillAccounting:
         oms: OmsStore,
         portfolio: PortfolioStore,
         fee_provider: PaperFillFeeProvider,
+        runtime_ledger: PortfolioLedger | None = None,
     ) -> None:
         self.oms = oms
         self.portfolio = portfolio
         self.fee_provider = fee_provider
+        self.runtime_ledger = runtime_ledger
 
     def apply(self, intent_id: str, broker_fill: ExactBrokerFill) -> FillAccountingResult:
         broker_fill.validate()
@@ -235,6 +238,8 @@ class PaperTradeFillAccounting:
             occurred_at=broker_fill.occurred_at,
         )
         appended = self.portfolio.append_fill(domain_fill)
+        if appended and self.runtime_ledger is not None:
+            self.runtime_ledger.apply_fill(domain_fill)
 
         advanced = broker_fill.cumulative_quantity > record.filled_quantity
         if advanced:
