@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 
 psycopg = pytest.importorskip("psycopg")
+DSN = os.environ.get("ASTRA_TEST_POSTGRES_DSN")
+if not DSN:
+    pytest.skip(
+        "PostgreSQL OMS integration tests require ASTRA_TEST_POSTGRES_DSN",
+        allow_module_level=True,
+    )
 
 from app.application.order_lifecycle import PaperOrderLifecycle
 from app.domain.trading import OrderIntent, Side
@@ -15,12 +21,7 @@ from app.oms.postgres import PostgresOmsStore
 from app.oms.store import OrderState
 from app.risk.pretrade import RiskDecision
 
-UTC = timezone.utc
 NOW = datetime(2026, 8, 7, 14, 0, tzinfo=UTC)
-DSN = os.environ.get(
-    "ASTRA_TEST_POSTGRES_DSN",
-    "postgresql://astra:astra@127.0.0.1:5432/astra",
-)
 
 
 def intent() -> OrderIntent:
@@ -57,7 +58,7 @@ def store() -> PostgresOmsStore:
 
 
 def test_postgres_order_lifecycle_is_durable_and_idempotent(store: PostgresOmsStore) -> None:
-    lifecycle = PaperOrderLifecycle(store)  # type: ignore[arg-type]
+    lifecycle = PaperOrderLifecycle(store)
     prepared = lifecycle.prepare(intent(), decision(), occurred_at=NOW)
     assert prepared.record.state is OrderState.OUTBOXED
     assert len(store.pending_outbox()) == 1
@@ -99,10 +100,17 @@ def test_postgres_order_lifecycle_is_durable_and_idempotent(store: PostgresOmsSt
     assert persisted.broker_order_id == "pg-broker-1"
 
 
-def test_postgres_row_lock_and_event_key_make_duplicate_fill_at_most_once(store: PostgresOmsStore) -> None:
-    lifecycle = PaperOrderLifecycle(store)  # type: ignore[arg-type]
+def test_postgres_row_lock_and_event_key_make_duplicate_fill_at_most_once(
+    store: PostgresOmsStore,
+) -> None:
+    lifecycle = PaperOrderLifecycle(store)
     lifecycle.prepare(intent(), decision(), occurred_at=NOW)
-    store.transition("pg-intent-1", OrderState.SUBMIT_STARTED, event_id="submit", occurred_at=NOW)
+    store.transition(
+        "pg-intent-1",
+        OrderState.SUBMIT_STARTED,
+        event_id="submit",
+        occurred_at=NOW,
+    )
     store.transition(
         "pg-intent-1",
         OrderState.ACKNOWLEDGED,
@@ -123,14 +131,18 @@ def test_postgres_row_lock_and_event_key_make_duplicate_fill_at_most_once(store:
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(lambda _: apply_once(), range(2)))
     assert all(result.filled_quantity == Decimal("5") for result in results)
-    events = [event for event in store.events("pg-intent-1") if event["event_id"] == "shared-broker-event"]
+    events = [
+        event
+        for event in store.events("pg-intent-1")
+        if event["event_id"] == "shared-broker-event"
+    ]
     assert len(events) == 1
     persisted = store.get("pg-intent-1")
     assert persisted is not None and persisted.version == 6
 
 
 def test_postgres_event_journal_is_append_only(store: PostgresOmsStore) -> None:
-    PaperOrderLifecycle(store).prepare(intent(), decision(), occurred_at=NOW)  # type: ignore[arg-type]
+    PaperOrderLifecycle(store).prepare(intent(), decision(), occurred_at=NOW)
     with psycopg.connect(DSN) as connection:
         with pytest.raises(psycopg.errors.RaiseException):
             connection.execute(
