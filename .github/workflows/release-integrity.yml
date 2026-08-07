@@ -7,14 +7,18 @@ on:
       - 'pyproject.toml'
       - 'requirements.lock'
       - 'tools/release_integrity.py'
+      - 'tools/verify_lock_freshness.py'
       - 'tests/test_release_integrity.py'
+      - 'tests/test_lock_freshness.py'
       - '.github/workflows/release-integrity.yml'
   pull_request:
     paths:
       - 'pyproject.toml'
       - 'requirements.lock'
       - 'tools/release_integrity.py'
+      - 'tools/verify_lock_freshness.py'
       - 'tests/test_release_integrity.py'
+      - 'tests/test_lock_freshness.py'
       - '.github/workflows/release-integrity.yml'
 
 permissions:
@@ -54,11 +58,12 @@ jobs:
             --extra dev \
             pyproject.toml \
             --output-file requirements.generated.lock
-          diff -u requirements.lock requirements.generated.lock
+          python -m tools.verify_lock_freshness \
+            requirements.lock requirements.generated.lock
       - name: Audit locked dependencies
         run: pip-audit --strict -r requirements.lock
-      - name: Release evidence unit tests
-        run: pytest -q tests/test_release_integrity.py
+      - name: Release evidence and lock freshness unit tests
+        run: pytest -q tests/test_release_integrity.py tests/test_lock_freshness.py
       - name: Full deterministic regression
         run: pytest -q
       - name: Build wheel and source distribution from locked toolchain
