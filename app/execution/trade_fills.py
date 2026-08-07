@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -112,6 +113,34 @@ def _timestamp(value: object) -> datetime:
     return result.astimezone(UTC)
 
 
+def _canonical_decimal(value: Decimal) -> str:
+    return format(value.normalize(), "f")
+
+
+def canonical_broker_fill_id(fill: ExactBrokerFill) -> str:
+    """Build a source-independent economic execution identity.
+
+    Alpaca's websocket execution id and account-activity id are separate source ids. A
+    deterministic fingerprint over broker order identity and exact execution economics
+    lets stream delivery and GET-only activity recovery converge on one portfolio event.
+    """
+
+    fill.validate()
+    occurred_at = fill.occurred_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    canonical = "|".join(
+        (
+            fill.broker_order_id,
+            fill.symbol,
+            fill.side.value,
+            _canonical_decimal(fill.quantity),
+            _canonical_decimal(fill.price),
+            _canonical_decimal(fill.cumulative_quantity),
+            occurred_at,
+        )
+    )
+    return "broker-fill:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def parse_alpaca_trade_fill(raw_frame: bytes | str) -> ExactBrokerFill | None:
     """Parse exact fill economics from one Alpaca ``trade_updates`` frame.
 
@@ -163,10 +192,10 @@ def parse_alpaca_trade_fill(raw_frame: bytes | str) -> ExactBrokerFill | None:
 class PaperTradeFillAccounting:
     """Apply exact broker fill events to durable portfolio state and OMS quantity.
 
-    Portfolio persistence happens first. Its event id is the broker execution id, so a
-    retry after a crash is idempotent. When a runtime ledger is supplied, a newly
-    persisted event is applied to that same replayed ledger exactly once so strategy and
-    risk see the broker fill immediately without waiting for a process restart.
+    Portfolio persistence happens first. Its event id is a source-independent economic
+    fingerprint, so websocket delivery and account-activity recovery converge on the
+    same durable fill. When a runtime ledger is supplied, a newly persisted event is
+    applied to that same replayed ledger exactly once.
     """
 
     _DIRECT_STATES = frozenset(
@@ -228,7 +257,7 @@ class PaperTradeFillAccounting:
         if not fee.is_finite() or fee < 0:
             raise ValueError("fill fee must be finite and non-negative")
         domain_fill = Fill(
-            fill_id=f"broker:{broker_fill.execution_id}",
+            fill_id=canonical_broker_fill_id(broker_fill),
             order_intent_id=intent_id,
             symbol=broker_fill.symbol,
             side=broker_fill.side,
