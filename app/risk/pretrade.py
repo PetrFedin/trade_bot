@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from app.domain.trading import OrderIntent
+from app.domain.trading import OrderIntent, Side
 
 
 @dataclass(frozen=True)
@@ -52,8 +52,20 @@ class PreTradeRiskEngine:
             if not value.is_finite() or value < 0:
                 raise ValueError(f"{name} must be finite and non-negative")
         order_notional = intent.quantity * intent.limit_price
-        projected_symbol = current_symbol_notional + order_notional
-        projected_gross = current_gross_notional + order_notional
+        if intent.side is Side.BUY:
+            projected_symbol = current_symbol_notional + order_notional
+            projected_gross = current_gross_notional + order_notional
+        else:
+            if order_notional > current_symbol_notional:
+                return RiskDecision(
+                    approved=False,
+                    reasons=("SELL_EXCEEDS_CURRENT_LONG_EXPOSURE",),
+                    order_notional=order_notional,
+                    projected_symbol_notional=current_symbol_notional,
+                    projected_gross_notional=current_gross_notional,
+                )
+            projected_symbol = current_symbol_notional - order_notional
+            projected_gross = max(Decimal("0"), current_gross_notional - order_notional)
         reasons: list[str] = []
         if kill_switch_engaged:
             reasons.append("KILL_SWITCH_ENGAGED")
