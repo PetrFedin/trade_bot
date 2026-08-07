@@ -11,8 +11,16 @@ def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def write_product_identity(tmp_path: Path, *, version: str = "7.37.0") -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        f'[project]\nname = "astra-trade-bot"\nversion = "{version}"\n',
+        encoding="utf-8",
+    )
+
+
 def test_platform_v107_verifies_temp_release(tmp_path):
     (tmp_path / "a.txt").write_text("a", encoding="utf-8")
+    write_product_identity(tmp_path)
     (tmp_path / "RELEASE_IDENTITY_V107.json").write_text(
         json.dumps({"version": "7.37.0", "files": {"a.txt": sha(tmp_path / "a.txt")}}),
         encoding="utf-8",
@@ -35,10 +43,7 @@ def test_platform_v107_handles_missing_invalid_identity_and_status(tmp_path):
 def test_schema106_successor_verifier_ignores_only_shared_files(tmp_path):
     (tmp_path / "immutable.txt").write_text("immutable", encoding="utf-8")
     (tmp_path / "README.md").write_text("old", encoding="utf-8")
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "astra-schema107-production-rollout-actuator"\nversion = "7.37.0"\n',
-        encoding="utf-8",
-    )
+    write_product_identity(tmp_path)
     identity = {
         "files": {
             "immutable.txt": sha(tmp_path / "immutable.txt"),
@@ -58,10 +63,7 @@ def test_schema106_successor_verifier_ignores_only_shared_files(tmp_path):
 
 
 def test_schema106_successor_still_requires_shared_file(tmp_path):
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "astra-schema107-production-rollout-actuator"\nversion = "7.37.0"\n',
-        encoding="utf-8",
-    )
+    write_product_identity(tmp_path)
     (tmp_path / "RELEASE_IDENTITY_V106.json").write_text(
         json.dumps({"files": {"README.md": "0" * 64}}), encoding="utf-8"
     )
