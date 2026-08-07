@@ -55,9 +55,14 @@ def reset_product_tables() -> None:
         )
 
 
-def test_postgres_composition_uses_shared_durable_backends() -> None:
-    runtime = build_postgres_product(config=config(), dsn=DSN, migrate=True)
+def clean_runtime():
+    build_postgres_product(config=config(), dsn=DSN, migrate=True)
     reset_product_tables()
+    return build_postgres_product(config=config(), dsn=DSN)
+
+
+def test_postgres_composition_uses_shared_durable_backends() -> None:
+    runtime = clean_runtime()
 
     _, intent, decision = runtime.paper_pipeline.plan(bars())
     assert intent is not None and decision is not None and decision.approved
@@ -67,6 +72,7 @@ def test_postgres_composition_uses_shared_durable_backends() -> None:
     prepared = runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
     assert prepared.record.state is OrderState.OUTBOXED
     assert len(runtime.oms_store.pending_outbox()) == 1
+    assert runtime.oms_store.get_by_client_order_id(prepared.client_order_id) == prepared.record
 
     fill = Fill(
         fill_id="pg-composition-fill",
@@ -84,15 +90,30 @@ def test_postgres_composition_uses_shared_durable_backends() -> None:
     assert replayed.position("AAPL").quantity == Decimal("1")
 
 
-def test_postgres_composition_restart_reopens_same_product_truth() -> None:
-    runtime = build_postgres_product(config=config(), dsn=DSN, migrate=True)
-    reset_product_tables()
+def test_postgres_composition_restart_reopens_oms_risk_and_portfolio_truth() -> None:
+    runtime = clean_runtime()
     _, intent, decision = runtime.paper_pipeline.plan(bars())
     assert intent is not None and decision is not None
-    runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
+    prepared = runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
+    fill = Fill(
+        fill_id="pg-restart-fill",
+        order_intent_id=intent.intent_id,
+        symbol="AAPL",
+        side=Side.BUY,
+        quantity=Decimal("1"),
+        price=Decimal("100"),
+        occurred_at=NOW,
+        fee=Decimal("1"),
+    )
+    assert runtime.portfolio_store.append_fill(fill)
 
     restarted = build_postgres_product(config=config(), dsn=DSN)
     order = restarted.oms_store.get(intent.intent_id)
     assert order is not None and order.state is OrderState.OUTBOXED
+    assert restarted.oms_store.get_by_client_order_id(prepared.client_order_id) == order
     records = restarted.risk_admission.journal.verify()
     assert len(records) == 1 and records[0].intent_id == intent.intent_id
+    assert restarted.portfolio.cash == Decimal("9899")
+    assert restarted.portfolio.position("AAPL").quantity == Decimal("1")
+    assert restarted.portfolio.position("AAPL").average_cost == Decimal("101")
+    assert restarted.paper_pipeline.ledger is restarted.portfolio
