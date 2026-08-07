@@ -61,6 +61,8 @@ class OmsStore(Protocol):
         cumulative_filled: Decimal,
         occurred_at: datetime,
         broker_order_id: str | None = None,
+        cumulative_notional: Decimal | None = None,
+        cumulative_fee: Decimal | None = None,
     ) -> OrderRecord: ...
 
     def events(self, intent_id: str) -> tuple[Mapping[str, object], ...]: ...
