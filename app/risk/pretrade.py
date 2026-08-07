@@ -65,6 +65,7 @@ class RiskContext:
     portfolio_equity: Decimal | None = None
     sector_notional: Decimal | None = None
     annualized_volatility: Decimal | None = None
+    available_cash: Decimal | None = None
 
     def validate(self) -> None:
         for name, value in (
@@ -94,6 +95,7 @@ class RiskContext:
         for name, value in (
             ("sector_notional", self.sector_notional),
             ("annualized_volatility", self.annualized_volatility),
+            ("available_cash", self.available_cash),
         ):
             if value is not None and (not value.is_finite() or value < 0):
                 raise ValueError(f"{name} must be finite and non-negative when supplied")
@@ -175,6 +177,12 @@ class PreTradeRiskEngine:
                 reasons.append("DRAWDOWN_LIMIT_REACHED")
             if context.turnover_notional + order_notional > self.limits.maximum_turnover_notional:
                 reasons.append("TURNOVER_LIMIT_EXCEEDED")
+            if (
+                intent.side is Side.BUY
+                and context.available_cash is not None
+                and order_notional > context.available_cash
+            ):
+                reasons.append("INSUFFICIENT_AVAILABLE_CASH")
             if context.average_daily_dollar_volume is not None:
                 participation = order_notional / context.average_daily_dollar_volume
                 if participation > self.limits.maximum_liquidity_participation_fraction:
