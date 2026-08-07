@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "astra-schema108-asymmetric-signing-authority"
 version = "7.38.0"
-description = "ASTRA Ed25519 KMS/HSM signing authority for production rollout admission"
+description = "ASTRA trading product with Schema 108 signing authority compatibility"
 requires-python = ">=3.11"
 dependencies = ["cryptography>=46,<50"]
 
@@ -26,6 +26,7 @@ dev = [
 ]
 
 [project.scripts]
+astra-external-paper-readonly = "tools.external_paper_readonly:main"
 astra-platform-v105 = "tools.platform_v105:main"
 astra-architecture-audit-v105 = "tools.architecture_audit_v105:main"
 astra-static-audit-v105 = "tools.static_audit_v105:main"
