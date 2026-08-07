@@ -3,8 +3,9 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-import re
 from typing import Sequence
+
+from tools.product_identity import stable_identity_findings
 
 REQUIRED = (
     "app/runtime/signing_authority_v108.py",
@@ -48,24 +49,7 @@ def audit(root: Path) -> dict[str, object]:
         return path.read_text(encoding="utf-8") if path.is_file() else ""
 
     pyproject = read("pyproject.toml")
-    package_name = re.search(r'^name\s*=\s*"(?P<name>[^"]+)"$', pyproject, re.MULTILINE)
-    version = re.search(
-        r'^version\s*=\s*"(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"$',
-        pyproject,
-        re.MULTILINE,
-    )
-    # Schema 108 remains a historical signing compatibility layer inside the stable
-    # ASTRA product. The distribution name must not change again for future schemas.
-    if not package_name or package_name.group("name") != "astra-trade-bot":
-        findings.append("package_identity")
-    if not version or tuple(int(version.group(part)) for part in ("major", "minor", "patch")) != (
-        7,
-        38,
-        0,
-    ):
-        findings.append("package_version")
-    # PYSEC-2026-3552 affects the prior 49.x line. Schema 108 must now use
-    # the patched cryptography 50.x release line while preserving Ed25519 behavior.
+    findings.extend(stable_identity_findings(pyproject, exact_version=(7, 38, 0)))
     if '"cryptography>=50,<51"' not in pyproject:
         findings.append("ed25519_dependency")
 
