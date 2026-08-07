@@ -1,0 +1,49 @@
+name: paper-core-foundation
+
+on:
+  push:
+    branches: [agent/schema108-paper-core-foundation]
+  pull_request:
+    paths:
+      - 'app/runtime/paper_execution_guard.py'
+      - 'app/runtime/paper_broker_roundtrip_v99.py'
+      - 'app/runtime/alpaca_paper_adapter_v100.py'
+      - 'tests/test_paper_execution_guard.py'
+      - 'tests/test_paper_roundtrip_safety_regression.py'
+      - 'tests/test_alpaca_paper_safety_regression.py'
+      - 'tests/test_roundtrip_v99.py'
+      - 'tests/test_alpaca_paper_adapter_v100.py'
+      - 'pyproject.toml'
+      - '.github/workflows/paper-core-foundation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install package and paper dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[test,marketdata]'
+          python -m pip check
+      - name: Focused paper safety regression
+        run: |
+          pytest -q \
+            tests/test_paper_execution_guard.py \
+            tests/test_paper_roundtrip_safety_regression.py \
+            tests/test_alpaca_paper_safety_regression.py \
+            tests/test_roundtrip_v99.py \
+            tests/test_alpaca_paper_adapter_v100.py
+      - name: Full stacked regression
+        run: pytest -q
+      - name: Compile
+        run: python -m compileall -q app tools tests
+      - name: Verify marketdata extra
+        run: python -c 'from websockets.sync.client import connect; assert connect is not None'
