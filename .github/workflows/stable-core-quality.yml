@@ -2,7 +2,19 @@ name: stable-core-quality
 
 on:
   push:
-    branches: [agent/schema108-paper-core-foundation]
+    branches: [main]
+    paths:
+      - 'app/domain/**'
+      - 'app/marketdata/**'
+      - 'app/strategy/**'
+      - 'app/risk/**'
+      - 'app/portfolio/**'
+      - 'app/oms/**'
+      - 'app/application/**'
+      - 'app/execution/**'
+      - 'app/observability/**'
+      - 'pyproject.toml'
+      - '.github/workflows/stable-core-quality.yml'
   pull_request:
     paths:
       - 'app/domain/**'
@@ -21,7 +33,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: stable-core-quality-${{ github.ref }}
+  group: stable-core-quality-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
