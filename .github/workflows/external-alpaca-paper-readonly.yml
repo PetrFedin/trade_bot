@@ -2,6 +2,12 @@ name: external-alpaca-paper-readonly
 
 on:
   workflow_dispatch:
+  push:
+    branches: [agent/schema108-paper-core-foundation]
+    paths:
+      - 'tools/external_paper_readonly.py'
+      - '.github/workflows/external-alpaca-paper-readonly.yml'
+      - 'pyproject.toml'
   schedule:
     - cron: '17 2 * * 1-5'
 
