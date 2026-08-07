@@ -13,6 +13,7 @@ on:
       - 'app/oms/**'
       - 'app/application/**'
       - 'app/execution/**'
+      - 'app/observability/**'
       - 'pyproject.toml'
       - '.github/workflows/stable-core-quality.yml'
 
@@ -38,12 +39,12 @@ jobs:
           python -m pip install --disable-pip-version-check '.[dev]'
           python -m pip check
       - name: Ruff stable product core
-        run: ruff check app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution
+        run: ruff check app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution app/observability
       - name: Bandit stable product core
-        run: bandit -q -r app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution
+        run: bandit -q -r app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution app/observability
       - name: Audit third-party Python dependencies
         run: |
           python -m pip freeze --exclude astra-schema108-asymmetric-signing-authority > audit-requirements.txt
           pip-audit --strict -r audit-requirements.txt
       - name: Compile stable product core
-        run: python -m compileall -q app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution
+        run: python -m compileall -q app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution app/observability
