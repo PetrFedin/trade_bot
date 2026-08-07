@@ -81,6 +81,7 @@ class Fill:
     quantity: Decimal
     price: Decimal
     occurred_at: datetime
+    fee: Decimal = Decimal("0")
 
     def validate(self) -> None:
         if not self.fill_id.strip() or not self.order_intent_id.strip():
@@ -91,5 +92,7 @@ class Fill:
             raise ValueError("fill quantity must be positive and finite")
         if not self.price.is_finite() or self.price <= 0:
             raise ValueError("fill price must be positive and finite")
+        if not self.fee.is_finite() or self.fee < 0:
+            raise ValueError("fill fee must be finite and non-negative")
         if self.occurred_at.tzinfo is None or self.occurred_at.utcoffset() is None:
             raise ValueError("occurred_at must be timezone-aware")
