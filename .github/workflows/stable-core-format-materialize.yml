@@ -22,7 +22,7 @@ jobs:
           cache: pip
       - name: Install formatting dependencies
         run: python -m pip install --disable-pip-version-check 'ruff>=0.12,<1'
-      - name: Normalize immutable default objects
+      - name: Normalize immutable defaults and long literals
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -52,6 +52,26 @@ jobs:
               1,
           )
           backtest.write_text(text, encoding='utf-8')
+
+          pipeline = Path('app/application/paper_pipeline.py')
+          text = pipeline.read_text(encoding='utf-8')
+          text = text.replace(
+              '        raw_id = f"{target.strategy_id}|{target.symbol}|{target.generated_at.isoformat()}|{side.value}|{quantity}|{target.reference_price}"\n',
+              '        raw_id = (\n'
+              '            f"{target.strategy_id}|{target.symbol}|{target.generated_at.isoformat()}|"\n'
+              '            f"{side.value}|{quantity}|{target.reference_price}"\n'
+              '        )\n',
+          )
+          pipeline.write_text(text, encoding='utf-8')
+
+          store = Path('app/oms/store.py')
+          text = store.read_text(encoding='utf-8')
+          text = text.replace(
+              '                "SELECT event_id, event_type, payload, occurred_at FROM oms_events WHERE intent_id=? ORDER BY rowid",\n',
+              '                "SELECT event_id, event_type, payload, occurred_at "\n'
+              '                "FROM oms_events WHERE intent_id=? ORDER BY rowid",\n',
+          )
+          store.write_text(text, encoding='utf-8')
           PY
       - name: Ruff safe and modernizing fixes
         run: ruff check --fix --unsafe-fixes app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution || true
