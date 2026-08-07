@@ -2,7 +2,13 @@ name: risk-marketdata
 
 on:
   push:
-    branches: [agent/schema108-paper-core-foundation]
+    branches: [main]
+    paths:
+      - 'app/marketdata/**'
+      - 'app/risk/**'
+      - 'app/domain/**'
+      - 'tests/test_risk_marketdata.py'
+      - '.github/workflows/risk-marketdata.yml'
   pull_request:
     paths:
       - 'app/marketdata/**'
@@ -15,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: risk-marketdata-${{ github.ref }}
+  group: risk-marketdata-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
