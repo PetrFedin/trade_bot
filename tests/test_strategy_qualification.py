@@ -20,16 +20,17 @@ def series(values: list[int]) -> list[Bar]:
 
 
 def qualifier(**policy_changes) -> WalkForwardQualifier:
-    policy = WalkForwardPolicy(
-        training_bars=6,
-        testing_bars=3,
-        step_bars=3,
-        minimum_windows=3,
-        maximum_drawdown_fraction=Decimal("0.10"),
-        minimum_mean_oos_return=Decimal("-1"),
-        minimum_mean_excess_return=Decimal("-1"),
-        **policy_changes,
-    )
+    policy_values = {
+        "training_bars": 6,
+        "testing_bars": 3,
+        "step_bars": 3,
+        "minimum_windows": 3,
+        "maximum_drawdown_fraction": Decimal("0.10"),
+        "minimum_mean_oos_return": Decimal("-1"),
+        "minimum_mean_excess_return": Decimal("-1"),
+    }
+    policy_values.update(policy_changes)
+    policy = WalkForwardPolicy(**policy_values)
     return WalkForwardQualifier(
         strategy=LongOnlyMomentumStrategy(target_quantity=Decimal("1")),
         backtest_config=BacktestConfig(
