@@ -29,7 +29,8 @@ def _normalize(value: object) -> object:
     if is_dataclass(value) and not isinstance(value, type):
         return _normalize(asdict(value))
     if isinstance(value, Mapping):
-        return {str(key): _normalize(item) for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))}
+        ordered = sorted(value.items(), key=lambda pair: str(pair[0]))
+        return {str(key): _normalize(item) for key, item in ordered}
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return [_normalize(item) for item in value]
     if value is None or isinstance(value, (str, int, float, bool)):
@@ -38,7 +39,12 @@ def _normalize(value: object) -> object:
 
 
 def canonical_json(value: object) -> str:
-    return json.dumps(_normalize(value), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return json.dumps(
+        _normalize(value),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
 
 
 def sha256(value: object) -> str:
@@ -159,7 +165,9 @@ class SQLiteRiskEvidenceJournal:
             ).fetchone()
             if existing is not None:
                 record = self._row(existing)
-                if record.decision_id != decision_id or dict(record.payload) != dict(normalized_payload):
+                same_identity = record.decision_id == decision_id
+                same_payload = dict(record.payload) == dict(normalized_payload)
+                if not same_identity or not same_payload:
                     raise ValueError("RISK_DECISION_CONFLICT")
                 connection.execute("COMMIT")
                 return record
