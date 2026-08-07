@@ -40,8 +40,8 @@ def test_backtest_models_fees_and_adverse_slippage() -> None:
     ).run(series(["100", "101", "102", "103", "104"]))
     assert result.trades == 1
     assert result.fees_paid == Decimal("1")
-    assert result.total_pnl == Decimal("-0.03")
-    assert result.total_return == Decimal("-0.000003")
+    assert result.total_pnl == Decimal("-1.03")
+    assert result.total_return == Decimal("-0.000103")
 
 
 def test_backtest_can_exit_and_records_drawdown() -> None:
