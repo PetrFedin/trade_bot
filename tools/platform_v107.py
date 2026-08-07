@@ -6,6 +6,23 @@ import json
 from pathlib import Path
 from typing import Sequence
 
+from tools.product_identity import (
+    STABLE_PACKAGE_NAME,
+    compatible_schema_for_version,
+    parse_product_identity,
+    stable_identity_findings,
+)
+
+_SUCCESSOR_MUTABLE_FILES = frozenset(
+    {
+        "README.md",
+        "pyproject.toml",
+        "tools/architecture_audit_v107.py",
+        "tools/platform_v106.py",
+        "tools/platform_v107.py",
+    }
+)
+
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -15,15 +32,43 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _package_identity(root: Path) -> tuple[int, tuple[int, int, int]]:
+    path = root / "pyproject.toml"
+    if not path.is_file():
+        return 0, (0, 0, 0)
+    identity = parse_product_identity(path.read_text(encoding="utf-8"))
+    if identity is None or identity.name != STABLE_PACKAGE_NAME:
+        return 0, (0, 0, 0)
+    return compatible_schema_for_version(identity.version), identity.version
+
+
 def verify_release(root: Path) -> dict[str, object]:
     identity_path = root / "RELEASE_IDENTITY_V107.json"
     if not identity_path.is_file():
-        return {"schema": 107, "status": "FAIL", "files_verified": 0, "findings": ["missing:RELEASE_IDENTITY_V107.json"]}
+        return {
+            "schema": 107,
+            "status": "FAIL",
+            "mode": "unknown",
+            "files_verified": 0,
+            "findings": ["missing:RELEASE_IDENTITY_V107.json"],
+        }
     try:
         identity = json.loads(identity_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        return {"schema": 107, "status": "FAIL", "files_verified": 0, "findings": ["invalid:RELEASE_IDENTITY_V107.json"]}
-    findings: list[str] = []
+        return {
+            "schema": 107,
+            "status": "FAIL",
+            "mode": "unknown",
+            "files_verified": 0,
+            "findings": ["invalid:RELEASE_IDENTITY_V107.json"],
+        }
+
+    pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+    current_schema, current_version = _package_identity(root)
+    findings = list(stable_identity_findings(pyproject, minimum_version=(7, 37, 0)))
+    successor = current_schema > 107
+    ignored: list[str] = []
+    verified = 0
     files = identity.get("files")
     if not isinstance(files, dict) or not files:
         findings.append("identity:files")
@@ -32,13 +77,22 @@ def verify_release(root: Path) -> dict[str, object]:
         path = root / relative
         if not path.is_file():
             findings.append(f"missing:{relative}")
-        elif not isinstance(expected, str) or _sha256(path) != expected:
+            continue
+        if successor and relative in _SUCCESSOR_MUTABLE_FILES:
+            ignored.append(relative)
+            continue
+        verified += 1
+        if not isinstance(expected, str) or _sha256(path) != expected:
             findings.append(f"digest:{relative}")
     return {
         "schema": 107,
         "version": identity.get("version"),
         "status": "PASS" if not findings else "FAIL",
-        "files_verified": len(files),
+        "mode": "successor" if successor else "release",
+        "current_schema": current_schema,
+        "current_version": ".".join(str(part) for part in current_version),
+        "files_verified": verified,
+        "files_ignored": ignored,
         "findings": findings,
     }
 
