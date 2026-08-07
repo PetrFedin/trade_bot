@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 
@@ -13,6 +13,7 @@ from app.oms.reconciliation import OmsReconciler
 from app.oms.store import DurableOmsStore
 from app.portfolio.ledger import PortfolioLedger
 from app.portfolio.postgres import PostgresPortfolioEventStore
+from app.portfolio.protocols import PortfolioStore
 from app.portfolio.store import PortfolioEventStore
 from app.risk.evidence import RiskAdmissionService, RiskEvidenceJournal, SQLiteRiskEvidenceJournal
 from app.risk.postgres import PostgresRiskEvidenceJournal
@@ -25,7 +26,7 @@ class ProductConfig:
     opening_cash: Decimal
     target_quantity: Decimal
     risk_limits: RiskLimits
-    operational_slo: OperationalSloPolicy = OperationalSloPolicy()
+    operational_slo: OperationalSloPolicy = field(default_factory=OperationalSloPolicy)
 
     def validate(self) -> None:
         if not self.opening_cash.is_finite() or self.opening_cash <= 0:
@@ -45,7 +46,7 @@ class ProductRuntime:
     risk_engine: PreTradeRiskEngine
     risk_admission: RiskAdmissionService
     portfolio: PortfolioLedger
-    portfolio_store: object
+    portfolio_store: PortfolioStore
     oms_store: OmsStore
     order_lifecycle: PaperOrderLifecycle
     reconciler: OmsReconciler
@@ -53,13 +54,12 @@ class ProductRuntime:
     operational_readiness: OperationalReadinessEvaluator
 
 
-
 def _compose(
     *,
     config: ProductConfig,
     oms_store: OmsStore,
     risk_journal: RiskEvidenceJournal,
-    portfolio_store: object,
+    portfolio_store: PortfolioStore,
 ) -> ProductRuntime:
     config.validate()
     strategy = LongOnlyMomentumStrategy(target_quantity=config.target_quantity)
