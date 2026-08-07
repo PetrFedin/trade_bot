@@ -44,7 +44,7 @@ jobs:
         run: bandit -q -r app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution app/observability
       - name: Audit third-party Python dependencies
         run: |
-          python -m pip freeze --exclude astra-schema108-asymmetric-signing-authority > audit-requirements.txt
+          python -m pip freeze --exclude astra-trade-bot > audit-requirements.txt
           pip-audit --strict -r audit-requirements.txt
       - name: Compile stable product core
         run: python -m compileall -q app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution app/observability
