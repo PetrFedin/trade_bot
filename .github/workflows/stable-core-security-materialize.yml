@@ -61,7 +61,9 @@ jobs:
       - name: Bandit verify
         run: bandit -q -r app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution
       - name: Dependency audit
-        run: pip-audit --strict
+        run: |
+          python -m pip freeze --exclude astra-schema108-asymmetric-signing-authority > audit-requirements.txt
+          pip-audit --strict -r audit-requirements.txt
       - name: Full regression
         run: pytest -q
       - name: Compile stable core
