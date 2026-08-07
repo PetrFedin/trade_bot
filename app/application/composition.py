@@ -11,9 +11,8 @@ from app.observability.readiness import OperationalReadinessEvaluator, Operation
 from app.oms.indexed import IndexedDurableOmsStore, IndexedOmsStore, IndexedPostgresOmsStore
 from app.oms.reconciliation import OmsReconciler
 from app.portfolio.ledger import PortfolioLedger
-from app.portfolio.postgres import PostgresPortfolioEventStore
 from app.portfolio.protocols import PortfolioStore
-from app.portfolio.store import PortfolioEventStore
+from app.portfolio.strict import StrictPortfolioEventStore, StrictPostgresPortfolioEventStore
 from app.risk.evidence import RiskAdmissionService, RiskEvidenceJournal, SQLiteRiskEvidenceJournal
 from app.risk.postgres import PostgresRiskEvidenceJournal
 from app.risk.pretrade import PreTradeRiskEngine, RiskLimits
@@ -120,7 +119,7 @@ def build_local_product(
         config=config,
         oms_store=IndexedDurableOmsStore(directory / "oms.sqlite"),
         risk_journal=SQLiteRiskEvidenceJournal(directory / "risk.sqlite"),
-        portfolio_store=PortfolioEventStore(directory / "portfolio.sqlite"),
+        portfolio_store=StrictPortfolioEventStore(directory / "portfolio.sqlite"),
         fee_provider=fee_provider,
     )
 
@@ -136,7 +135,7 @@ def build_postgres_product(
 
     oms_store = IndexedPostgresOmsStore(dsn)
     risk_journal = PostgresRiskEvidenceJournal(dsn)
-    portfolio_store = PostgresPortfolioEventStore(dsn)
+    portfolio_store = StrictPostgresPortfolioEventStore(dsn)
     if migrate:
         oms_store.migrate()
         risk_journal.migrate()
