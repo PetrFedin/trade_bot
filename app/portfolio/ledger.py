@@ -22,12 +22,13 @@ class PortfolioSnapshot:
     equity: Decimal
     realized_pnl: Decimal
     unrealized_pnl: Decimal
+    cash_income: Decimal
     total_pnl: Decimal
     fees_paid: Decimal
 
 
 class PortfolioLedger:
-    """Deterministic long-only portfolio ledger with fee-aware P&L accounting."""
+    """Deterministic long-only ledger with fee, P&L and corporate-action accounting."""
 
     def __init__(self, *, opening_cash: Decimal) -> None:
         if not opening_cash.is_finite() or opening_cash < 0:
@@ -35,9 +36,11 @@ class PortfolioLedger:
         self.opening_cash = opening_cash
         self.cash = opening_cash
         self.realized_pnl = Decimal("0")
+        self.cash_income = Decimal("0")
         self.fees_paid = Decimal("0")
         self._positions: dict[str, Position] = {}
         self._fill_ids: set[str] = set()
+        self._corporate_action_ids: set[str] = set()
 
     def position(self, symbol: str) -> Position:
         normalized = symbol.strip().upper()
@@ -83,6 +86,47 @@ class PortfolioLedger:
         self.fees_paid += fill.fee
         self._fill_ids.add(fill.fill_id)
 
+    def apply_split(self, *, action_id: str, symbol: str, ratio: Decimal) -> None:
+        if not action_id.strip():
+            raise ValueError("action_id is required")
+        if action_id in self._corporate_action_ids:
+            return
+        normalized = symbol.strip().upper()
+        if not normalized or normalized != symbol:
+            raise ValueError("symbol must be normalized uppercase")
+        if not ratio.is_finite() or ratio <= 0:
+            raise ValueError("split ratio must be positive and finite")
+        prior = self.position(normalized)
+        if prior.quantity > 0:
+            self._positions[normalized] = Position(
+                normalized,
+                prior.quantity * ratio,
+                prior.average_cost / ratio,
+            )
+        self._corporate_action_ids.add(action_id)
+
+    def apply_cash_dividend(
+        self,
+        *,
+        action_id: str,
+        symbol: str,
+        amount_per_share: Decimal,
+    ) -> Decimal:
+        if not action_id.strip():
+            raise ValueError("action_id is required")
+        if action_id in self._corporate_action_ids:
+            return Decimal("0")
+        normalized = symbol.strip().upper()
+        if not normalized or normalized != symbol:
+            raise ValueError("symbol must be normalized uppercase")
+        if not amount_per_share.is_finite() or amount_per_share < 0:
+            raise ValueError("amount_per_share must be finite and non-negative")
+        amount = self.position(normalized).quantity * amount_per_share
+        self.cash += amount
+        self.cash_income += amount
+        self._corporate_action_ids.add(action_id)
+        return amount
+
     @staticmethod
     def _valid_price(symbol: str, prices: Mapping[str, Decimal]) -> Decimal:
         price = prices.get(symbol)
@@ -121,6 +165,7 @@ class PortfolioLedger:
             equity=equity,
             realized_pnl=self.realized_pnl,
             unrealized_pnl=unrealized,
+            cash_income=self.cash_income,
             total_pnl=equity - self.opening_cash,
             fees_paid=self.fees_paid,
         )
