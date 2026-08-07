@@ -1,4 +1,4 @@
-# Qualification retry after targeted Ruff corrections.
+# Qualification retry after Ruff, V108 audit, and PostgreSQL test-gating corrections.
 name: stable-core-security-fix
 
 on:
