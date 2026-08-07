@@ -49,7 +49,6 @@ class HistoricalDataset:
         return self.bars[-1].timestamp
 
 
-
 def _canonical_decimal(value: Decimal) -> str:
     normalized = value.normalize()
     return format(normalized, "f")
@@ -91,7 +90,10 @@ def validate_historical_bars(
         if previous is not None:
             if bar.timestamp <= previous.timestamp:
                 raise HistoricalDataError("NON_MONOTONIC_HISTORICAL_TIME")
-            if policy.maximum_gap is not None and bar.timestamp - previous.timestamp > policy.maximum_gap:
+            if (
+                policy.maximum_gap is not None
+                and bar.timestamp - previous.timestamp > policy.maximum_gap
+            ):
                 raise HistoricalDataError("HISTORICAL_GAP_EXCEEDED")
             if policy.maximum_jump_fraction is not None:
                 jump = abs(bar.close - previous.close) / previous.close
@@ -154,7 +156,10 @@ class CsvHistoricalBarSource:
         if self.expected_symbol is not None and symbol != self.expected_symbol:
             raise HistoricalDataError("HISTORICAL_SYMBOL_MISMATCH")
         fingerprint = canonical_dataset_sha256(frozen)
-        dataset_id = f"{symbol}:{frozen[0].timestamp.date()}:{frozen[-1].timestamp.date()}:{fingerprint[:16]}"
+        dataset_id = (
+            f"{symbol}:{frozen[0].timestamp.date()}:"
+            f"{frozen[-1].timestamp.date()}:{fingerprint[:16]}"
+        )
         return HistoricalDataset(
             dataset_id=dataset_id,
             symbol=symbol,
