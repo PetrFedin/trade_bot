@@ -1,3 +1,4 @@
+# Qualification retry after targeted Ruff corrections.
 name: stable-core-security-fix
 
 on:
