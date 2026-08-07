@@ -8,6 +8,12 @@ from app.application.composition import ProductRuntime
 from app.application.order_lifecycle import PreparedPaperOrder
 from app.application.trade_updates import PaperTradeUpdateProcessor, TradeUpdateProcessingResult
 from app.domain.trading import Bar, OrderIntent, TargetPosition
+from app.execution.alpaca_fill_backfill import (
+    FillActivitySource,
+    FillBackfillPolicy,
+    FillBackfillResult,
+    PaperFillBackfillService,
+)
 from app.execution.paper_executor import ExecutionResult, PaperSubmitExecutor
 from app.oms.reconciliation import (
     BrokerOrderTruth,
@@ -39,7 +45,8 @@ class PaperCycleService:
     It intentionally exposes one durable external mutation per ``execute_next_submit``
     call. There is no hidden retry loop or daemon. Planning persists immutable risk and
     outbox state, submit execution uses the at-most-one executor, trade updates route by
-    durable client-order identity, and reconciliation remains read-only.
+    durable client-order identity, missed fills can be repaired through a GET-only
+    activity source, and reconciliation remains read-only.
     """
 
     def __init__(
@@ -49,6 +56,8 @@ class PaperCycleService:
         broker: PaperBrokerV99,
         trade_stream: AlpacaTradeUpdateStreamV100,
         stream_generation: int,
+        fill_activity_source: FillActivitySource | None = None,
+        fill_backfill_policy: FillBackfillPolicy | None = None,
     ) -> None:
         if stream_generation < 1:
             raise ValueError("stream_generation must be positive")
@@ -57,10 +66,21 @@ class PaperCycleService:
         self.trade_stream = trade_stream
         self.stream_generation = stream_generation
         self.executor = PaperSubmitExecutor(store=runtime.oms_store, broker=broker)
+        accounting = runtime.require_fill_accounting()
         self.trade_updates = PaperTradeUpdateProcessor(
             stream=trade_stream,
             oms=runtime.oms_store,
-            fill_accounting=runtime.require_fill_accounting(),
+            fill_accounting=accounting,
+        )
+        self.fill_backfill = (
+            None
+            if fill_activity_source is None
+            else PaperFillBackfillService(
+                source=fill_activity_source,
+                oms=runtime.oms_store,
+                accounting=accounting,
+                policy=fill_backfill_policy,
+            )
         )
 
     def plan_and_prepare(
@@ -106,6 +126,16 @@ class PaperCycleService:
             received_at=received_at,
             expected_generation=self.stream_generation,
         )
+
+    def recover_missing_fills(
+        self,
+        *,
+        after: datetime,
+        until: datetime,
+    ) -> FillBackfillResult:
+        if self.fill_backfill is None:
+            raise RuntimeError("GET-only fill activity recovery source is not configured")
+        return self.fill_backfill.recover(after=after, until=until)
 
     def reconcile_order(
         self,
