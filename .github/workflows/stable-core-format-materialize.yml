@@ -54,7 +54,7 @@ jobs:
           backtest.write_text(text, encoding='utf-8')
           PY
       - name: Ruff safe and modernizing fixes
-        run: ruff check --fix --unsafe-fixes app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution
+        run: ruff check --fix --unsafe-fixes app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution || true
       - name: Ruff format
         run: ruff format app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution
       - name: Ruff verify
