@@ -54,7 +54,9 @@ def audit(root: Path) -> dict[str, object]:
         findings.append("package_identity")
     if not version or tuple(int(version.group(part)) for part in ("major", "minor", "patch")) != (7, 38, 0):
         findings.append("package_version")
-    if '"cryptography>=46,<50"' not in pyproject:
+    # PYSEC-2026-3552 affects the prior 49.x line. Schema 108 must now use
+    # the patched cryptography 50.x release line while preserving Ed25519 behavior.
+    if '"cryptography>=50,<51"' not in pyproject:
         findings.append("ed25519_dependency")
 
     authority = read("app/runtime/signing_authority_v108.py")
