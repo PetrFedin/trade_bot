@@ -4,6 +4,17 @@ from dataclasses import dataclass
 import re
 
 STABLE_PACKAGE_NAME = "astra-trade-bot"
+KNOWN_SCHEMA_MINIMUM_VERSIONS: dict[int, tuple[int, int, int]] = {
+    100: (7, 30, 0),
+    101: (7, 31, 0),
+    102: (7, 32, 0),
+    103: (7, 33, 0),
+    104: (7, 34, 0),
+    105: (7, 35, 0),
+    106: (7, 36, 0),
+    107: (7, 37, 0),
+    108: (7, 38, 0),
+}
 _VERSION_RE = re.compile(
     r'^version\s*=\s*"(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"\s*$',
     re.MULTILINE,
@@ -34,6 +45,17 @@ def parse_product_identity(pyproject: str) -> ProductIdentity | None:
             int(version_match.group(part)) for part in ("major", "minor", "patch")
         ),
     )
+
+
+def compatible_schema_for_version(version: tuple[int, int, int]) -> int:
+    """Return the highest known historical Schema contained by a product version."""
+
+    compatible = [
+        schema
+        for schema, minimum in KNOWN_SCHEMA_MINIMUM_VERSIONS.items()
+        if version >= minimum
+    ]
+    return max(compatible, default=0)
 
 
 def stable_identity_findings(
