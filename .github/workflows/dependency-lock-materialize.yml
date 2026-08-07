@@ -33,6 +33,7 @@ jobs:
           python -m piptools compile \
             --resolver=backtracking \
             --generate-hashes \
+            --allow-unsafe \
             --no-header \
             --strip-extras \
             --extra test \
