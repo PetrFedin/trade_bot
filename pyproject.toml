@@ -7,7 +7,7 @@ name = "astra-schema108-asymmetric-signing-authority"
 version = "7.38.0"
 description = "ASTRA trading product with Schema 108 signing authority compatibility"
 requires-python = ">=3.11"
-dependencies = ["cryptography>=46,<50"]
+dependencies = ["cryptography>=50,<51"]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10", "coverage>=7,<8"]
