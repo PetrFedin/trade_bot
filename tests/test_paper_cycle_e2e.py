@@ -6,7 +6,8 @@ from decimal import Decimal
 
 from app.application.composition import ProductConfig, build_local_product
 from app.application.paper_cycle import PaperCycleService
-from app.domain.trading import Bar
+from app.domain.trading import Bar, Side
+from app.execution.alpaca_fill_backfill import AlpacaFillActivity, FillActivityPage
 from app.execution.trade_fills import ExplicitZeroPaperFeeModel
 from app.oms.reconciliation import BrokerPortfolioTruth, BrokerPositionTruth
 from app.oms.store import OrderState
@@ -15,10 +16,7 @@ from app.runtime.alpaca_paper_adapter_v100 import (
     AlpacaPaperCredentialsV100,
     AlpacaTradeUpdateStreamV100,
 )
-from app.runtime.paper_broker_contract_v99 import (
-    BrokerOrder,
-    BrokerOrderStatus,
-)
+from app.runtime.paper_broker_contract_v99 import BrokerOrder, BrokerOrderStatus
 
 NOW = datetime(2026, 8, 7, 18, 45, tzinfo=UTC)
 
@@ -44,7 +42,10 @@ def bars() -> list[Bar]:
 
 
 def listening_stream() -> AlpacaTradeUpdateStreamV100:
-    credentials = AlpacaPaperCredentialsV100(key_id="paper-key", secret_key="paper-secret")
+    credentials = AlpacaPaperCredentialsV100(
+        key_id="paper-key",
+        secret_key="paper-secret",
+    )
     stream = AlpacaTradeUpdateStreamV100(generation=1, credentials=credentials)
     stream.authentication_frame()
     stream.ingest(
@@ -87,6 +88,16 @@ class FakeCycleBroker:
         return self.orders.get(client_order_id)
 
 
+class OnePageFillActivitySource:
+    def __init__(self, activity: AlpacaFillActivity) -> None:
+        self.activity = activity
+        self.calls = 0
+
+    def page(self, *, after, until, page_size, page_token):
+        self.calls += 1
+        return FillActivityPage((self.activity,), None)
+
+
 def fill_frame(*, client_order_id: str) -> str:
     return json.dumps(
         {
@@ -113,7 +124,21 @@ def fill_frame(*, client_order_id: str) -> str:
     )
 
 
-def build_cycle(tmp_path, broker: FakeCycleBroker):
+def recovered_activity() -> AlpacaFillActivity:
+    return AlpacaFillActivity(
+        activity_id="paper-activity-1",
+        broker_order_id="broker-cycle-1",
+        symbol="AAPL",
+        side=Side.BUY,
+        cumulative_quantity=Decimal("1"),
+        quantity=Decimal("1"),
+        price=Decimal("101"),
+        occurred_at=NOW + timedelta(seconds=1),
+        activity_kind="fill",
+    )
+
+
+def build_cycle(tmp_path, broker: FakeCycleBroker, *, fill_activity_source=None):
     runtime = build_local_product(
         config=config(),
         state_directory=tmp_path,
@@ -124,6 +149,7 @@ def build_cycle(tmp_path, broker: FakeCycleBroker):
         broker=broker,
         trade_stream=listening_stream(),
         stream_generation=1,
+        fill_activity_source=fill_activity_source,
     )
     return runtime, cycle
 
@@ -173,6 +199,48 @@ def test_bounded_paper_cycle_reaches_fill_portfolio_reconcile_and_restart(tmp_pa
     assert restarted_runtime.portfolio.position("AAPL").quantity == Decimal("1")
     after_restart = restarted_cycle.plan_and_prepare(bars())
     assert after_restart.intent is None
+    assert broker.submit_calls == 1
+
+
+def test_missed_stream_fill_is_recovered_get_only_after_restart(tmp_path) -> None:
+    broker = FakeCycleBroker()
+    runtime, cycle = build_cycle(tmp_path, broker)
+    planning = cycle.plan_and_prepare(bars())
+    assert planning.prepared is not None
+    execution = cycle.execute_next_submit(occurred_at=NOW)
+    assert execution is not None and execution.record.state is OrderState.ACKNOWLEDGED
+    assert runtime.portfolio.position("AAPL").quantity == 0
+    assert broker.submit_calls == 1
+
+    source = OnePageFillActivitySource(recovered_activity())
+    restarted_runtime, restarted_cycle = build_cycle(
+        tmp_path,
+        broker,
+        fill_activity_source=source,
+    )
+    assert restarted_runtime.portfolio.position("AAPL").quantity == 0
+    recovery = restarted_cycle.recover_missing_fills(
+        after=NOW,
+        until=NOW + timedelta(minutes=1),
+    )
+    assert recovery.complete
+    assert recovery.portfolio_events_appended == 1
+    assert recovery.oms_advances == 1
+    assert source.calls == 1
+    assert broker.submit_calls == 1
+    assert restarted_cycle.execute_next_submit(occurred_at=NOW) is None
+    assert restarted_runtime.portfolio.position("AAPL").quantity == Decimal("1")
+    assert restarted_runtime.portfolio.cash == Decimal("9899")
+    assert restarted_runtime.oms_store.get(planning.intent.intent_id).state is OrderState.FILLED
+
+    websocket_late = restarted_cycle.process_trade_update(
+        fill_frame(client_order_id=planning.prepared.client_order_id),
+        received_at=NOW + timedelta(seconds=2),
+    )
+    assert websocket_late.fill_accounting is not None
+    assert websocket_late.fill_accounting.portfolio_event_appended is False
+    assert restarted_runtime.portfolio.position("AAPL").quantity == Decimal("1")
+    assert restarted_runtime.portfolio.cash == Decimal("9899")
     assert broker.submit_calls == 1
 
 
