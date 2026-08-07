@@ -1,5 +1,8 @@
+import pytest
+
 from tools.product_identity import (
     STABLE_PACKAGE_NAME,
+    compatible_schema_for_version,
     parse_product_identity,
     stable_identity_findings,
 )
@@ -34,6 +37,14 @@ def test_stable_identity_supports_exact_release_contract() -> None:
     )
 
 
+def test_schema_compatibility_mapping_is_monotonic_for_known_releases() -> None:
+    assert compatible_schema_for_version((7, 29, 99)) == 0
+    assert compatible_schema_for_version((7, 30, 0)) == 100
+    assert compatible_schema_for_version((7, 35, 0)) == 105
+    assert compatible_schema_for_version((7, 38, 0)) == 108
+    assert compatible_schema_for_version((7, 99, 0)) == 108
+
+
 def test_malformed_identity_fails_closed() -> None:
     assert parse_product_identity("[project]\nname='wrong-quotes'\n") is None
     assert stable_identity_findings("[project]\n") == (
@@ -43,13 +54,9 @@ def test_malformed_identity_fails_closed() -> None:
 
 
 def test_version_modes_are_mutually_exclusive() -> None:
-    try:
+    with pytest.raises(ValueError, match="mutually exclusive"):
         stable_identity_findings(
             project(),
             minimum_version=(7, 30, 0),
             exact_version=(7, 38, 0),
         )
-    except ValueError as exc:
-        assert "mutually exclusive" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
