@@ -87,6 +87,7 @@ def _compose(
             oms=oms_store,
             portfolio=portfolio_store,
             fee_provider=fee_provider,
+            runtime_ledger=portfolio,
         )
     )
     return ProductRuntime(
