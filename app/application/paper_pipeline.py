@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
+from dataclasses import replace
 
 from app.domain.trading import Bar, OrderIntent, Side, TargetPosition
 from app.portfolio.ledger import PortfolioLedger
@@ -60,6 +61,7 @@ class PaperTradingPipeline:
         prices = {target.symbol: target.reference_price}
         current_symbol_notional = current.quantity * target.reference_price
         current_gross_notional = self.ledger.gross_notional(prices)
+        effective_context = self._risk_context(target, risk_context)
         if self.risk_admission is None:
             self.last_recorded_risk = None
             decision = self.risk.evaluate(
@@ -67,7 +69,7 @@ class PaperTradingPipeline:
                 current_symbol_notional=current_symbol_notional,
                 current_gross_notional=current_gross_notional,
                 kill_switch_engaged=kill_switch_engaged,
-                context=risk_context,
+                context=effective_context,
             )
         else:
             recorded = self.risk_admission.evaluate_and_record(
@@ -75,9 +77,26 @@ class PaperTradingPipeline:
                 current_symbol_notional=current_symbol_notional,
                 current_gross_notional=current_gross_notional,
                 kill_switch_engaged=kill_switch_engaged,
-                context=risk_context,
+                context=effective_context,
                 evaluated_at=target.generated_at,
             )
             self.last_recorded_risk = recorded
             decision = recorded.decision
         return target, intent, decision
+
+    def _risk_context(
+        self,
+        target: TargetPosition,
+        supplied: RiskContext | None,
+    ) -> RiskContext:
+        if supplied is None:
+            return RiskContext(
+                price_timestamp=target.generated_at,
+                decision_time=target.generated_at,
+                available_cash=self.ledger.cash,
+            )
+        if supplied.available_cash is None:
+            return replace(supplied, available_cash=self.ledger.cash)
+        if supplied.available_cash != self.ledger.cash:
+            raise ValueError("risk_context available_cash disagrees with durable portfolio cash")
+        return supplied
