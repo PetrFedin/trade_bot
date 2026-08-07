@@ -56,7 +56,7 @@ def qualifier() -> MultiRegimeQualifier:
             strategy=LongOnlyMomentumStrategy(target_quantity=Decimal("1")),
             backtest_config=BacktestConfig(
                 opening_cash=Decimal("10000"),
-                commission_per_fill=Decimal("0"),
+                fee_per_fill=Decimal("0"),
                 slippage_bps=Decimal("0"),
             ),
             policy=WalkForwardPolicy(
@@ -120,7 +120,10 @@ def test_one_price_change_changes_dataset_identity(tmp_path: Path) -> None:
 
 def test_historical_csv_rejects_schema_naive_time_and_duplicate_time(tmp_path: Path) -> None:
     wrong_schema = tmp_path / "wrong.csv"
-    wrong_schema.write_text("symbol,timestamp,close\nAAPL,2026-01-01T00:00:00Z,100\n", encoding="utf-8")
+    wrong_schema.write_text(
+        "symbol,timestamp,close\nAAPL,2026-01-01T00:00:00Z,100\n",
+        encoding="utf-8",
+    )
     with pytest.raises(HistoricalDataError, match="HISTORICAL_CSV_SCHEMA_MISMATCH"):
         source(wrong_schema).load()
 
