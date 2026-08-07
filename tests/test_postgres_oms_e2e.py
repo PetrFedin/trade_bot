@@ -5,8 +5,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from decimal import Decimal
 
-import psycopg
 import pytest
+
+psycopg = pytest.importorskip("psycopg")
 
 from app.application.order_lifecycle import PaperOrderLifecycle
 from app.domain.trading import OrderIntent, Side
@@ -124,7 +125,8 @@ def test_postgres_row_lock_and_event_key_make_duplicate_fill_at_most_once(store:
     assert all(result.filled_quantity == Decimal("5") for result in results)
     events = [event for event in store.events("pg-intent-1") if event["event_id"] == "shared-broker-event"]
     assert len(events) == 1
-    assert store.get("pg-intent-1").version == 6  # type: ignore[union-attr]
+    persisted = store.get("pg-intent-1")
+    assert persisted is not None and persisted.version == 6
 
 
 def test_postgres_event_journal_is_append_only(store: PostgresOmsStore) -> None:
