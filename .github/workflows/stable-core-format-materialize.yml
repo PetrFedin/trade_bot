@@ -1,0 +1,78 @@
+name: stable-core-format-materialize
+
+on:
+  push:
+    branches: [agent/schema108-paper-core-foundation]
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: agent/schema108-paper-core-foundation
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install formatting dependencies
+        run: python -m pip install --disable-pip-version-check 'ruff>=0.12,<1'
+      - name: Normalize immutable default objects
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          market = Path('app/marketdata/validation.py')
+          text = market.read_text(encoding='utf-8')
+          text = text.replace(
+              'policy: MarketDataPolicy = MarketDataPolicy(),',
+              'policy: MarketDataPolicy | None = None,',
+          )
+          text = text.replace(
+              '    policy.validate()\n',
+              '    policy = MarketDataPolicy() if policy is None else policy\n    policy.validate()\n',
+              1,
+          )
+          market.write_text(text, encoding='utf-8')
+
+          backtest = Path('app/strategy/backtest.py')
+          text = backtest.read_text(encoding='utf-8')
+          text = text.replace(
+              'config: BacktestConfig = BacktestConfig(),',
+              'config: BacktestConfig | None = None,',
+          )
+          text = text.replace(
+              '        config.validate()\n        self.strategy = strategy\n        self.config = config\n',
+              '        config = BacktestConfig() if config is None else config\n        config.validate()\n        self.strategy = strategy\n        self.config = config\n',
+              1,
+          )
+          backtest.write_text(text, encoding='utf-8')
+          PY
+      - name: Ruff safe and modernizing fixes
+        run: ruff check --fix --unsafe-fixes app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution
+      - name: Ruff format
+        run: ruff format app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution
+      - name: Ruff verify
+        run: ruff check app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check '.[test]'
+      - name: Full regression
+        run: pytest -q
+      - name: Compile stable product core
+        run: python -m compileall -q app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution
+      - name: Commit qualified formatting fixes
+        run: |
+          if git diff --quiet; then
+            echo 'No formatting changes required'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution
+          git commit -m 'Format stable product core'
+          git push origin HEAD:agent/schema108-paper-core-foundation
