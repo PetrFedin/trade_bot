@@ -1,0 +1,9 @@
+# Default ownership for all production, trading, risk, infrastructure and documentation changes.
+* @PetrFedin
+
+# Safety-critical trading boundaries.
+/app/risk/ @PetrFedin
+/app/oms/ @PetrFedin
+/app/portfolio/ @PetrFedin
+/app/runtime/ @PetrFedin
+/.github/workflows/ @PetrFedin
