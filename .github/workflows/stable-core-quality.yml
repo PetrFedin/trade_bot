@@ -12,6 +12,7 @@ on:
       - 'app/portfolio/**'
       - 'app/oms/**'
       - 'app/application/**'
+      - 'app/execution/**'
       - 'pyproject.toml'
       - '.github/workflows/stable-core-quality.yml'
 
@@ -37,8 +38,10 @@ jobs:
           python -m pip install --disable-pip-version-check '.[dev]'
           python -m pip check
       - name: Ruff stable product core
-        run: ruff check app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application
+        run: ruff check app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution
       - name: Bandit stable product core
-        run: bandit -q -r app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application
+        run: bandit -q -r app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution
+      - name: Audit installed Python dependencies
+        run: pip-audit --strict
       - name: Compile stable product core
-        run: python -m compileall -q app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application
+        run: python -m compileall -q app/domain app/marketdata app/strategy app/risk app/portfolio app/oms app/application app/execution
