@@ -1,0 +1,64 @@
+name: postgres-oms-e2e
+
+on:
+  push:
+    branches: [agent/schema108-paper-core-foundation]
+    paths:
+      - 'app/oms/**'
+      - 'app/application/order_lifecycle.py'
+      - 'migrations/product/**'
+      - 'tests/test_postgres_oms_e2e.py'
+      - 'pyproject.toml'
+      - '.github/workflows/postgres-oms-e2e.yml'
+  pull_request:
+    paths:
+      - 'app/oms/**'
+      - 'app/application/order_lifecycle.py'
+      - 'migrations/product/**'
+      - 'tests/test_postgres_oms_e2e.py'
+      - 'pyproject.toml'
+      - '.github/workflows/postgres-oms-e2e.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postgres-oms-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.4-alpine
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra
+          POSTGRES_DB: astra
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ASTRA_TEST_POSTGRES_DSN: postgresql://astra:astra@127.0.0.1:5432/astra
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install PostgreSQL test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[test,postgresql]'
+          python -m pip check
+      - name: PostgreSQL durable OMS E2E
+        run: pytest -q tests/test_postgres_oms_e2e.py
+      - name: SQLite OMS parity regression
+        run: pytest -q tests/test_durable_oms_e2e.py
+      - name: Compile OMS boundary
+        run: python -m compileall -q app/oms app/application
