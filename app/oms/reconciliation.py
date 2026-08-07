@@ -6,7 +6,8 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from app.oms.store import DurableOmsStore, OrderRecord, OrderState
+from app.oms.protocols import OmsStore
+from app.oms.store import OrderRecord, OrderState
 from app.portfolio.ledger import PortfolioLedger
 
 
@@ -71,7 +72,7 @@ class PortfolioReconciliationResult:
 class OmsReconciler:
     """Read-only broker truth reconciler; it never retries or sends broker mutations."""
 
-    def __init__(self, store: DurableOmsStore) -> None:
+    def __init__(self, store: OmsStore) -> None:
         self.store = store
 
     def reconcile_order(
