@@ -2,9 +2,10 @@ name: product-composition
 
 on:
   push:
-    branches: [agent/schema108-paper-core-foundation]
+    branches: [main]
     paths:
-      - 'app/application/composition.py'
+      - 'app/application/**'
+      - 'app/execution/**'
       - 'app/oms/**'
       - 'app/risk/**'
       - 'app/portfolio/**'
@@ -12,10 +13,13 @@ on:
       - 'app/strategy/**'
       - 'tests/test_composition_root.py'
       - 'tests/test_postgres_composition_root.py'
+      - 'tests/test_trade_fill_accounting.py'
+      - 'tests/test_trade_update_processor.py'
       - '.github/workflows/product-composition.yml'
   pull_request:
     paths:
-      - 'app/application/composition.py'
+      - 'app/application/**'
+      - 'app/execution/**'
       - 'app/oms/**'
       - 'app/risk/**'
       - 'app/portfolio/**'
@@ -23,13 +27,15 @@ on:
       - 'app/strategy/**'
       - 'tests/test_composition_root.py'
       - 'tests/test_postgres_composition_root.py'
+      - 'tests/test_trade_fill_accounting.py'
+      - 'tests/test_trade_update_processor.py'
       - '.github/workflows/product-composition.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: product-composition-${{ github.ref }}
+  group: product-composition-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -62,8 +68,12 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[test,postgresql]'
           python -m pip check
-      - name: Local composition root
-        run: pytest -q tests/test_composition_root.py
+      - name: Local composition root and exact fill accounting
+        run: >-
+          pytest -q
+          tests/test_composition_root.py
+          tests/test_trade_fill_accounting.py
+          tests/test_trade_update_processor.py
       - name: PostgreSQL composition root and restart
         run: pytest -q tests/test_postgres_composition_root.py
       - name: Core persistence parity regression
@@ -73,4 +83,7 @@ jobs:
           tests/test_risk_evidence.py
           tests/test_portfolio_durability.py
       - name: Compile product graph
-        run: python -m compileall -q app/application app/oms app/risk app/portfolio app/observability app/strategy
+        run: >-
+          python -m compileall -q
+          app/application app/execution app/oms app/risk app/portfolio
+          app/observability app/strategy
