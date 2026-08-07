@@ -166,7 +166,9 @@ class WalkForwardQualifier:
             reasons.add("MEAN_EXCESS_RETURN_BELOW_THRESHOLD")
         if worst_drawdown > self.policy.maximum_drawdown_fraction:
             reasons.add("MAX_DRAWDOWN_EXCEEDED")
-        if self.policy.require_trade_in_each_window and any(window.trades == 0 for window in windows):
+        if self.policy.require_trade_in_each_window and any(
+            window.trades == 0 for window in windows
+        ):
             reasons.add("NO_TRADE_WINDOW")
 
         return StrategyQualification(
