@@ -18,6 +18,11 @@ from app.runtime.paper_broker_contract_v99 import (
     PaperBrokerV99,
 )
 from app.runtime.platform_common_v90 import canonical_json, require_aware, sha256_digest
+from app.runtime.paper_execution_guard import (
+    PaperExecutionGuardError,
+    PaperExecutionLimits,
+    validate_paper_order_plan,
+)
 
 _ZERO_DIGEST = "0" * 64
 
@@ -418,10 +423,18 @@ class PaperBrokerRoundTripServiceV99:
             reasons.append("KILL_SWITCH_ENGAGED")
         if not bool(getattr(self.broker, "paper_order_writes_enabled", False)):
             reasons.append("PAPER_ORDER_WRITES_DISABLED")
-        if self.plan.quantity > self.policy.maximum_quantity:
-            reasons.append("QUANTITY_LIMIT_EXCEEDED")
-        if self.plan.quantity * self.plan.limit_price > self.policy.maximum_notional:
-            reasons.append("NOTIONAL_LIMIT_EXCEEDED")
+        try:
+            validate_paper_order_plan(
+                quantity=self.plan.quantity,
+                initial_limit_price=self.plan.limit_price,
+                replacement_limit_price=self.plan.replacement_limit_price,
+                limits=PaperExecutionLimits(
+                    maximum_quantity=self.policy.maximum_quantity,
+                    maximum_notional=self.policy.maximum_notional,
+                ),
+            )
+        except PaperExecutionGuardError as exc:
+            reasons.append(str(exc))
         if self.policy.allowed_instruments and self.plan.instrument not in self.policy.allowed_instruments:
             reasons.append("INSTRUMENT_NOT_ALLOWLISTED")
         try:
