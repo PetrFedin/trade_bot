@@ -3,8 +3,9 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-import re
 from typing import Sequence
+
+from tools.product_identity import stable_identity_findings
 
 REQUIRED = (
     "app/runtime/campaign_control_plane_v103.py",
@@ -30,13 +31,10 @@ def audit(root: Path) -> dict[str, object]:
         if not (root / relative).is_file():
             findings.append(f"missing:{relative}")
     pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
-    name = re.search(r'^name\s*=\s*"astra-schema(?P<schema>\d+)[^"]*"$', pyproject, re.MULTILINE)
-    version = re.search(r'^version\s*=\s*"(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"$', pyproject, re.MULTILINE)
-    if not name or int(name.group("schema")) < 103:
-        findings.append("package_identity")
-    if not version or tuple(int(version.group(part)) for part in ("major", "minor", "patch")) < (7, 33, 0):
-        findings.append("package_version")
-    runtime = (root / "app/runtime/campaign_control_plane_v103.py").read_text(encoding="utf-8")
+    findings.extend(stable_identity_findings(pyproject, minimum_version=(7, 33, 0)))
+    runtime = (root / "app/runtime/campaign_control_plane_v103.py").read_text(
+        encoding="utf-8"
+    )
     for token in (
         "fencing_token",
         "heartbeat_ttl",
@@ -49,11 +47,19 @@ def audit(root: Path) -> dict[str, object]:
     ):
         if token not in runtime:
             findings.append(f"runtime_boundary:{token}")
-    postgres = (root / "app/runtime/postgres_control_plane_v103.py").read_text(encoding="utf-8")
-    for token in ("FOR UPDATE SKIP LOCKED", "claim_campaign_lease", "record_worker_heartbeat"):
+    postgres = (root / "app/runtime/postgres_control_plane_v103.py").read_text(
+        encoding="utf-8"
+    )
+    for token in (
+        "FOR UPDATE SKIP LOCKED",
+        "claim_campaign_lease",
+        "record_worker_heartbeat",
+    ):
         if token not in postgres:
             findings.append(f"postgres_boundary:{token}")
-    migration = (root / "migrations/v103/001_production_campaign_control_plane.sql").read_text(encoding="utf-8")
+    migration = (root / "migrations/v103/001_production_campaign_control_plane.sql").read_text(
+        encoding="utf-8"
+    )
     for token in (
         "control_plane_event_append_only",
         "evidence_chunk_append_only",
