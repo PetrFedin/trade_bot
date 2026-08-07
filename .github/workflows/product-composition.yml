@@ -70,6 +70,10 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+      - name: Install product dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[test,postgresql]'
+          python -m pip check
       - name: Local composition, exact fills, and bounded paper cycle
         run: >-
           pytest -q
