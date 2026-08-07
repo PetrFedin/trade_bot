@@ -254,7 +254,8 @@ class DurableOmsStore:
                 occurred_at=moment,
             )
         created = self.get(intent.intent_id)
-        assert created is not None
+        if created is None:
+            raise RuntimeError("OMS persistence invariant violated")
         return created
 
     @staticmethod
@@ -332,7 +333,8 @@ class DurableOmsStore:
                 occurred_at=moment,
             )
         result = self.get(intent_id)
-        assert result is not None
+        if result is None:
+            raise RuntimeError("OMS persistence invariant violated")
         return result
 
     def approve_risk(self, intent_id: str, *, event_id: str, occurred_at: datetime) -> OrderRecord:
@@ -377,7 +379,8 @@ class DurableOmsStore:
                 occurred_at=moment,
             )
         result = self.get(intent_id)
-        assert result is not None
+        if result is None:
+            raise RuntimeError("OMS persistence invariant violated")
         return result
 
     def pending_outbox(self, *, limit: int = 100) -> tuple[OutboxMessage, ...]:
@@ -460,7 +463,8 @@ class DurableOmsStore:
                 occurred_at=moment,
             )
         result = self.get(intent_id)
-        assert result is not None
+        if result is None:
+            raise RuntimeError("OMS persistence invariant violated")
         return result
 
     def events(self, intent_id: str) -> tuple[dict[str, object], ...]:

@@ -29,7 +29,8 @@ class PostgresOmsStore:
         self.dsn = dsn
 
     def _connect(self):
-        assert psycopg is not None and dict_row is not None
+        if psycopg is None or dict_row is None:
+            raise RuntimeError("PostgreSQL dependency is unavailable")
         return psycopg.connect(self.dsn, row_factory=dict_row, autocommit=False)
 
     def migrate(self, path: str | Path = "migrations/product/001_durable_oms.sql") -> None:
