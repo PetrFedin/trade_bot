@@ -10,7 +10,11 @@ from typing import Protocol
 from urllib.parse import urlencode
 
 from app.domain.trading import Side
-from app.execution.trade_fills import ExactBrokerFill, FillAccountingResult, PaperTradeFillAccounting
+from app.execution.trade_fills import (
+    ExactBrokerFill,
+    FillAccountingResult,
+    PaperTradeFillAccounting,
+)
 from app.oms.indexed import IndexedOmsStore
 from app.runtime.alpaca_paper_adapter_v100 import (
     AlpacaPaperCredentialsV100,
@@ -168,7 +172,9 @@ class AlpacaPaperFillActivityReader:
         if not isinstance(document, list):
             raise AlpacaPaperProtocolError("fill activities response must be a list")
         activities = tuple(self._parse_activity(item) for item in document)
-        self._validate_page_order(activities)
+        activity_ids = [activity.activity_id for activity in activities]
+        if len(activity_ids) != len(set(activity_ids)):
+            raise AlpacaPaperProtocolError("fill activities page contains duplicate ids")
         next_page_token = activities[-1].activity_id if len(activities) == page_size else None
         return FillActivityPage(activities=activities, next_page_token=next_page_token)
 
@@ -197,7 +203,9 @@ class AlpacaPaperFillActivityReader:
                 try:
                     return json.loads(response.body.decode("utf-8")) if response.body else []
                 except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                    raise AlpacaPaperProtocolError("invalid fill activities JSON response") from exc
+                    raise AlpacaPaperProtocolError(
+                        "invalid fill activities JSON response"
+                    ) from exc
             retryable = response.status in {408, 425, 429} or response.status >= 500
             if retryable and attempt < self.policy.maximum_read_attempts:
                 self.sleeper(delay)
@@ -253,7 +261,9 @@ class AlpacaPaperFillActivityReader:
         except ValueError as exc:
             raise AlpacaPaperProtocolError("invalid fill activity transaction_time") from exc
         if result.tzinfo is None or result.utcoffset() is None:
-            raise AlpacaPaperProtocolError("fill activity transaction_time must be timezone-aware")
+            raise AlpacaPaperProtocolError(
+                "fill activity transaction_time must be timezone-aware"
+            )
         return result.astimezone(UTC)
 
     @staticmethod
@@ -261,15 +271,6 @@ class AlpacaPaperFillActivityReader:
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError(f"{field} must be timezone-aware")
         return value.astimezone(UTC)
-
-    @staticmethod
-    def _validate_page_order(activities: tuple[AlpacaFillActivity, ...]) -> None:
-        previous: tuple[datetime, str] | None = None
-        for activity in activities:
-            current = (activity.occurred_at, activity.activity_id)
-            if previous is not None and current <= previous:
-                raise AlpacaPaperProtocolError("fill activities page is not strictly ascending")
-            previous = current
 
 
 class PaperFillBackfillService:
@@ -281,13 +282,13 @@ class PaperFillBackfillService:
         source: FillActivitySource,
         oms: IndexedOmsStore,
         accounting: PaperTradeFillAccounting,
-        policy: FillBackfillPolicy = FillBackfillPolicy(),
+        policy: FillBackfillPolicy | None = None,
     ) -> None:
-        policy.validate()
+        self.policy = FillBackfillPolicy() if policy is None else policy
+        self.policy.validate()
         self.source = source
         self.oms = oms
         self.accounting = accounting
-        self.policy = policy
 
     def recover(self, *, after: datetime, until: datetime) -> FillBackfillResult:
         after = self._aware(after, "after")
@@ -299,13 +300,9 @@ class PaperFillBackfillService:
 
         page_token: str | None = None
         pages_read = 0
-        activities_seen = 0
-        appended = 0
-        duplicates = 0
-        oms_advances = 0
-        unresolved: set[str] = set()
+        collected: list[AlpacaFillActivity] = []
+        seen_activity_ids: set[str] = set()
         reasons: set[str] = set()
-        last_key: tuple[datetime, str] | None = None
 
         while pages_read < self.policy.maximum_pages:
             page = self.source.page(
@@ -316,64 +313,89 @@ class PaperFillBackfillService:
             )
             pages_read += 1
             for activity in page.activities:
-                key = (activity.occurred_at, activity.activity_id)
-                if last_key is not None and key <= last_key:
-                    raise FillActivityRecoveryError("fill activity pagination is not monotonic")
-                last_key = key
-                if activities_seen >= self.policy.maximum_activities:
+                if activity.activity_id in seen_activity_ids:
+                    raise FillActivityRecoveryError("duplicate fill activity across pages")
+                if len(collected) >= self.policy.maximum_activities:
                     reasons.add("ACTIVITY_LIMIT_REACHED")
                     return self._result(
-                        pages_read,
-                        activities_seen,
-                        appended,
-                        duplicates,
-                        oms_advances,
-                        unresolved,
-                        reasons,
+                        pages_read=pages_read,
+                        activities_seen=len(collected),
+                        appended=0,
+                        duplicates=0,
+                        oms_advances=0,
+                        unresolved=set(),
+                        reasons=reasons,
                     )
-                activities_seen += 1
-                record = self.oms.get_by_broker_order_id(activity.broker_order_id)
-                if record is None:
-                    unresolved.add(activity.broker_order_id)
-                    continue
-                exact_fill = ExactBrokerFill(
-                    execution_id=f"activity:{activity.activity_id}",
-                    broker_order_id=activity.broker_order_id,
-                    client_order_id=record.client_order_id,
-                    symbol=activity.symbol,
-                    side=activity.side,
-                    order_quantity=record.quantity,
-                    cumulative_quantity=activity.cumulative_quantity,
-                    quantity=activity.quantity,
-                    price=activity.price,
-                    occurred_at=activity.occurred_at,
-                )
-                result: FillAccountingResult = self.accounting.apply(record.intent_id, exact_fill)
-                if result.portfolio_event_appended:
-                    appended += 1
-                else:
-                    duplicates += 1
-                if result.oms_advanced:
-                    oms_advances += 1
+                seen_activity_ids.add(activity.activity_id)
+                collected.append(activity)
             if page.next_page_token is None:
                 break
             if page.next_page_token == page_token:
-                raise FillActivityRecoveryError("fill activity pagination token did not advance")
+                raise FillActivityRecoveryError(
+                    "fill activity pagination token did not advance"
+                )
             page_token = page.next_page_token
         else:
             if page_token is not None:
                 reasons.add("PAGE_LIMIT_REACHED")
 
+        if reasons:
+            return self._result(
+                pages_read=pages_read,
+                activities_seen=len(collected),
+                appended=0,
+                duplicates=0,
+                oms_advances=0,
+                unresolved=set(),
+                reasons=reasons,
+            )
+
+        appended = 0
+        duplicates = 0
+        oms_advances = 0
+        unresolved: set[str] = set()
+        ordered = sorted(
+            collected,
+            key=lambda activity: (activity.occurred_at, activity.activity_id),
+        )
+        for activity in ordered:
+            record = self.oms.get_by_broker_order_id(activity.broker_order_id)
+            if record is None:
+                unresolved.add(activity.broker_order_id)
+                continue
+            exact_fill = ExactBrokerFill(
+                execution_id=f"activity:{activity.activity_id}",
+                broker_order_id=activity.broker_order_id,
+                client_order_id=record.client_order_id,
+                symbol=activity.symbol,
+                side=activity.side,
+                order_quantity=record.quantity,
+                cumulative_quantity=activity.cumulative_quantity,
+                quantity=activity.quantity,
+                price=activity.price,
+                occurred_at=activity.occurred_at,
+            )
+            result: FillAccountingResult = self.accounting.apply(
+                record.intent_id,
+                exact_fill,
+            )
+            if result.portfolio_event_appended:
+                appended += 1
+            else:
+                duplicates += 1
+            if result.oms_advanced:
+                oms_advances += 1
+
         if unresolved:
             reasons.add("UNRESOLVED_BROKER_ORDERS")
         return self._result(
-            pages_read,
-            activities_seen,
-            appended,
-            duplicates,
-            oms_advances,
-            unresolved,
-            reasons,
+            pages_read=pages_read,
+            activities_seen=len(collected),
+            appended=appended,
+            duplicates=duplicates,
+            oms_advances=oms_advances,
+            unresolved=unresolved,
+            reasons=reasons,
         )
 
     @staticmethod
@@ -384,6 +406,7 @@ class PaperFillBackfillService:
 
     @staticmethod
     def _result(
+        *,
         pages_read: int,
         activities_seen: int,
         appended: int,
