@@ -33,40 +33,62 @@ jobs:
           cache: pip
 
       - name: Inspect, recover and safely extract payload
+        id: payload
         shell: bash
+        env:
+          PAYLOAD_OUTPUT: ${{ github.output }}
         run: |
           python - <<'PY'
           from __future__ import annotations
 
           import base64
+          import binascii
           import gzip
           import hashlib
           import io
           import json
+          import os
           from pathlib import Path, PurePosixPath
           import tarfile
+          import zlib
 
           root = Path.cwd().resolve()
           payload_root = root / "_schema109_payload"
+          report_path = root / "schema109-payload-report.json"
+          output_path = Path(os.environ["PAYLOAD_OUTPUT"])
+
+          def set_recovered(value: bool) -> None:
+              with output_path.open("a", encoding="utf-8") as handle:
+                  handle.write(f"recovered={'true' if value else 'false'}\n")
+
           parts = sorted(payload_root.glob("chunk-*.txt"))
-          if not parts:
-              raise SystemExit("no payload chunks")
           expected_names = [f"chunk-{index:03d}.txt" for index in range(len(parts))]
           actual_names = [path.name for path in parts]
-          if actual_names != expected_names:
-              raise SystemExit(f"non-contiguous payload chunks: {actual_names}")
+          if not parts or actual_names != expected_names:
+              report = {
+                  "status": "FAIL",
+                  "error": "missing or non-contiguous payload chunks",
+                  "actual_names": actual_names,
+                  "expected_names": expected_names,
+              }
+              report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+              set_recovered(False)
+              print(json.dumps(report, indent=2, sort_keys=True))
+              raise SystemExit(0)
 
           encoded_parts: list[str] = []
           chunk_sha256: dict[str, str] = {}
           chunk_lengths: dict[str, int] = {}
+          validation_errors: list[str] = []
           for path in parts:
               data = path.read_bytes()
               try:
                   text = data.decode("ascii")
-              except UnicodeDecodeError as exc:
-                  raise SystemExit(f"non-ASCII payload chunk: {path.name}") from exc
+              except UnicodeDecodeError:
+                  validation_errors.append(f"non-ASCII:{path.name}")
+                  text = ""
               if any(character.isspace() for character in text):
-                  raise SystemExit(f"whitespace in payload chunk: {path.name}")
+                  validation_errors.append(f"whitespace:{path.name}")
               chunk_sha256[path.name] = hashlib.sha256(data).hexdigest()
               chunk_lengths[path.name] = len(text)
               encoded_parts.append(text)
@@ -74,9 +96,130 @@ jobs:
           original_encoded = "".join(encoded_parts)
           original_encoded_sha256 = hashlib.sha256(original_encoded.encode("ascii")).hexdigest()
 
+          def longest_suffix_prefix(left: str, right: str, maximum: int = 2048) -> int:
+              limit = min(len(left), len(right), maximum)
+              for size in range(limit, 0, -1):
+                  if left[-size:] == right[:size]:
+                      return size
+              return 0
+
+          def longest_suffix_suffix(left: str, right: str, maximum: int = 2048) -> int:
+              left_body = left.rstrip("=")
+              right_body = right.rstrip("=")
+              limit = min(len(left_body), len(right_body), maximum)
+              for size in range(limit, 0, -1):
+                  if left_body[-size:] == right_body[-size:]:
+                      return size
+              return 0
+
+          boundary_forensics: list[dict[str, object]] = []
+          for index in range(len(encoded_parts) - 1):
+              left = encoded_parts[index]
+              right = encoded_parts[index + 1]
+              boundary_forensics.append({
+                  "left": parts[index].name,
+                  "right": parts[index + 1].name,
+                  "left_length_mod4": len(left) % 4,
+                  "right_length_mod4": len(right) % 4,
+                  "suffix_prefix_overlap": longest_suffix_prefix(left, right),
+                  "suffix_suffix_overlap": longest_suffix_suffix(left, right),
+              })
+
+          def scan_partial_tar(data: bytes) -> list[dict[str, object]]:
+              members: list[dict[str, object]] = []
+              position = 0
+              while position + 512 <= len(data):
+                  header = data[position : position + 512]
+                  if header == b"\0" * 512:
+                      break
+                  raw_name = header[:100].split(b"\0", 1)[0]
+                  try:
+                      name = raw_name.decode("utf-8")
+                  except UnicodeDecodeError:
+                      break
+                  raw_size = header[124:136].split(b"\0", 1)[0].strip() or b"0"
+                  try:
+                      size = int(raw_size, 8)
+                  except ValueError:
+                      break
+                  if not name or size < 0:
+                      break
+                  data_start = position + 512
+                  data_end = data_start + size
+                  if data_end > len(data):
+                      members.append({"path": name, "size": size, "complete": False})
+                      break
+                  body = data[data_start:data_end]
+                  members.append({
+                      "path": name,
+                      "size": size,
+                      "complete": True,
+                      "sha256": hashlib.sha256(body).hexdigest(),
+                  })
+                  position = data_start + ((size + 511) // 512) * 512
+              return members
+
+          def stream_probe(encoded: str) -> dict[str, object]:
+              # Stop before terminal padding/incomplete quartet; the purpose is to
+              # localize where the gzip stream first becomes invalid, not to accept it.
+              body = encoded.split("=", 1)[0]
+              usable_chars = len(body) - (len(body) % 4)
+              body = body[:usable_chars]
+              result: dict[str, object] = {
+                  "encoded_chars_probed": usable_chars,
+                  "encoded_length_mod4": len(encoded) % 4,
+                  "gzip_header": False,
+                  "gzip_eof": False,
+                  "compressed_bytes_decoded": 0,
+                  "compressed_failure_offset": None,
+                  "approx_encoded_failure_offset": None,
+                  "zlib_error": None,
+                  "partial_tar_members": [],
+                  "uncompressed_bytes_before_failure": 0,
+              }
+              try:
+                  compressed = base64.b64decode(body, validate=True)
+              except binascii.Error as exc:
+                  result["zlib_error"] = f"base64:{exc}"
+                  return result
+              result["compressed_bytes_decoded"] = len(compressed)
+              result["gzip_header"] = compressed.startswith(b"\x1f\x8b")
+              decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
+              output = bytearray()
+              step = 64
+              offset = 0
+              while offset < len(compressed):
+                  block = compressed[offset : offset + step]
+                  try:
+                      output.extend(decompressor.decompress(block))
+                  except zlib.error as exc:
+                      result["compressed_failure_offset"] = offset
+                      result["approx_encoded_failure_offset"] = (offset * 4) // 3
+                      result["zlib_error"] = str(exc)
+                      break
+                  offset += len(block)
+              else:
+                  result["gzip_eof"] = decompressor.eof
+                  if decompressor.eof:
+                      output.extend(decompressor.flush())
+              result["uncompressed_bytes_before_failure"] = len(output)
+              result["partial_tar_members"] = scan_partial_tar(bytes(output))
+              return result
+
+          cumulative_probes: list[dict[str, object]] = []
+          cumulative = ""
+          for index, part in enumerate(encoded_parts):
+              cumulative += part
+              probe = stream_probe(cumulative)
+              probe["through_chunk"] = parts[index].name
+              cumulative_probes.append(probe)
+              # The final chunk is already known to follow padding in chunk 003;
+              # probing beyond that padding adds no useful gzip localization.
+              if "=" in cumulative:
+                  break
+
           def inspect_archive(encoded: str) -> tuple[bytes, list[dict[str, object]]]:
               archive = base64.b64decode(encoded, validate=True)
-              # gzip.decompress validates stream integrity/CRC before the tar is trusted.
               tar_bytes = gzip.decompress(archive)
               members: list[dict[str, object]] = []
               names: set[str] = set()
@@ -103,115 +246,114 @@ jobs:
                   raise ValueError("empty archive")
               return archive, members
 
+          archive: bytes | None = None
+          members: list[dict[str, object]] = []
           recovery: dict[str, object] = {"mode": "none"}
           selected_encoded = original_encoded
-          try:
-              archive, members = inspect_archive(selected_encoded)
-          except Exception as original_exc:
-              # The staged payload has a repair-tail shape: the final chunk repeats a
-              # substantial suffix of the penultimate chunk but supplies a different
-              # prefix. Never guess a splice. Enumerate every cut point and accept a
-              # repair only if exactly one candidate passes strict base64, gzip CRC,
-              # safe tar structure, and non-empty-member validation.
-              if len(encoded_parts) < 2:
-                  raise SystemExit("invalid combined payload and no repair tail") from original_exc
-              penultimate = encoded_parts[-2]
-              repair_tail = encoded_parts[-1]
-              penultimate_body = penultimate.rstrip("=")
-              terminal_padding = penultimate[len(penultimate_body):]
+          recovery_error: str | None = None
 
-              overlap = 0
-              for size in range(min(len(penultimate_body), len(repair_tail)), 0, -1):
-                  if penultimate_body.endswith(repair_tail[-size:]):
-                      overlap = size
-                      break
-              if overlap < 128:
-                  raise SystemExit(
-                      f"invalid combined payload; repair overlap too small: {overlap}"
-                  ) from original_exc
+          if not validation_errors:
+              try:
+                  archive, members = inspect_archive(selected_encoded)
+              except Exception as original_exc:
+                  recovery_error = f"{type(original_exc).__name__}: {original_exc}"
+                  if len(encoded_parts) >= 2:
+                      penultimate = encoded_parts[-2]
+                      repair_tail = encoded_parts[-1]
+                      penultimate_body = penultimate.rstrip("=")
+                      terminal_padding = penultimate[len(penultimate_body):]
+                      overlap = longest_suffix_suffix(penultimate, repair_tail)
+                      fixed_prefix = "".join(encoded_parts[:-2])
+                      tail_variants = [("repair-tail", repair_tail)]
+                      if terminal_padding and not repair_tail.endswith(terminal_padding):
+                          tail_variants.append(("repair-tail-plus-original-padding", repair_tail + terminal_padding))
+                      valid: list[tuple[int, str, str, bytes, list[dict[str, object]]]] = []
+                      if overlap >= 128:
+                          for cut in range(len(penultimate) + 1):
+                              for variant_name, tail in tail_variants:
+                                  candidate = fixed_prefix + penultimate[:cut] + tail
+                                  if len(candidate) % 4:
+                                      continue
+                                  try:
+                                      candidate_archive, candidate_members = inspect_archive(candidate)
+                                  except Exception:
+                                      continue
+                                  valid.append((cut, variant_name, candidate, candidate_archive, candidate_members))
+                      if len(valid) == 1:
+                          cut, variant_name, selected_encoded, archive, members = valid[0]
+                          recovery = {
+                              "mode": "replace-penultimate-suffix-with-final-repair-tail",
+                              "cut": cut,
+                              "repair_variant": variant_name,
+                              "repair_overlap": overlap,
+                              "penultimate_length": len(penultimate),
+                              "repair_tail_length": len(repair_tail),
+                              "original_terminal_padding": terminal_padding,
+                              "original_error": recovery_error,
+                          }
+                      else:
+                          recovery = {
+                              "mode": "unrecovered",
+                              "valid_repair_candidates": len(valid),
+                              "repair_overlap": overlap,
+                              "original_error": recovery_error,
+                          }
 
-              fixed_prefix = "".join(encoded_parts[:-2])
-              tail_variants = [("repair-tail", repair_tail)]
-              if terminal_padding and not repair_tail.endswith(terminal_padding):
-                  tail_variants.append(("repair-tail-plus-original-padding", repair_tail + terminal_padding))
-
-              valid: list[tuple[int, str, str, bytes, list[dict[str, object]]]] = []
-              for cut in range(len(penultimate) + 1):
-                  for variant_name, tail in tail_variants:
-                      candidate = fixed_prefix + penultimate[:cut] + tail
-                      if len(candidate) % 4:
-                          continue
-                      try:
-                          candidate_archive, candidate_members = inspect_archive(candidate)
-                      except Exception:
-                          continue
-                      valid.append((cut, variant_name, candidate, candidate_archive, candidate_members))
-
-              if len(valid) != 1:
-                  raise SystemExit(
-                      "ambiguous or unrecoverable payload: "
-                      f"valid_repair_candidates={len(valid)} overlap={overlap} "
-                      f"chunk_lengths={chunk_lengths}"
-                  ) from original_exc
-
-              cut, variant_name, selected_encoded, archive, members = valid[0]
-              recovery = {
-                  "mode": "replace-penultimate-suffix-with-final-repair-tail",
-                  "cut": cut,
-                  "repair_variant": variant_name,
-                  "repair_overlap": overlap,
-                  "penultimate_length": len(penultimate),
-                  "repair_tail_length": len(repair_tail),
-                  "original_terminal_padding": terminal_padding,
-                  "original_error": type(original_exc).__name__,
-              }
-
-          # Re-open only the uniquely selected validated archive and write regular
-          # files beneath the checkout root. No links, directories or path escapes.
-          with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as handle:
-              for member in handle.getmembers():
-                  path = PurePosixPath(member.name)
-                  source = handle.extractfile(member)
-                  if source is None:
-                      raise SystemExit(f"unreadable validated archive member: {member.name}")
-                  destination = (root / Path(*path.parts)).resolve()
-                  if root not in destination.parents:
-                      raise SystemExit(f"archive path escaped repository: {member.name}")
-                  destination.parent.mkdir(parents=True, exist_ok=True)
-                  destination.write_bytes(source.read())
-
-          encoded_sha256 = hashlib.sha256(selected_encoded.encode("ascii")).hexdigest()
-          archive_sha256 = hashlib.sha256(archive).hexdigest()
-          report = {
-              "status": "PASS",
+          recovered = archive is not None
+          report: dict[str, object] = {
+              "status": "PASS" if recovered else "FAIL",
               "chunk_count": len(parts),
               "chunk_lengths": chunk_lengths,
               "chunk_sha256": chunk_sha256,
+              "combined_length": len(original_encoded),
+              "combined_length_mod4": len(original_encoded) % 4,
               "original_combined_base64_sha256": original_encoded_sha256,
-              "selected_base64_sha256": encoded_sha256,
-              "archive_sha256": archive_sha256,
-              "archive_size": len(archive),
-              "member_count": len(members),
-              "members": members,
+              "validation_errors": validation_errors,
+              "boundary_forensics": boundary_forensics,
+              "cumulative_gzip_probes": cumulative_probes,
               "recovery": recovery,
           }
-          Path("schema109-payload-report.json").write_text(
-              json.dumps(report, indent=2, sort_keys=True) + "\n",
-              encoding="utf-8",
-          )
+
+          if recovered and archive is not None:
+              # Re-open only the uniquely validated archive and write regular files.
+              with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as handle:
+                  for member in handle.getmembers():
+                      path = PurePosixPath(member.name)
+                      source = handle.extractfile(member)
+                      if source is None:
+                          raise SystemExit(f"unreadable validated archive member: {member.name}")
+                      destination = (root / Path(*path.parts)).resolve()
+                      if root not in destination.parents:
+                          raise SystemExit(f"archive path escaped repository: {member.name}")
+                      destination.parent.mkdir(parents=True, exist_ok=True)
+                      destination.write_bytes(source.read())
+              report.update({
+                  "selected_base64_sha256": hashlib.sha256(selected_encoded.encode("ascii")).hexdigest(),
+                  "archive_sha256": hashlib.sha256(archive).hexdigest(),
+                  "archive_size": len(archive),
+                  "member_count": len(members),
+                  "members": members,
+              })
+
+          report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          set_recovered(recovered)
           print(json.dumps(report, indent=2, sort_keys=True))
           PY
 
       - name: Install project dependencies
+        if: steps.payload.outputs.recovered == 'true'
         run: python -m pip install --disable-pip-version-check ".[test,postgresql]"
 
       - name: Compile extracted overlay
+        if: steps.payload.outputs.recovered == 'true'
         run: python -m compileall -q app tools tests
 
       - name: Run focused Schema 109 tests
+        if: steps.payload.outputs.recovered == 'true'
         run: pytest -q tests/*v109.py
 
       - name: Verify migration packaging when present
+        if: steps.payload.outputs.recovered == 'true'
         shell: bash
         run: |
           if [[ -f migrations/v109/001_remote_signer_attestation.sql ]]; then
@@ -219,9 +361,16 @@ jobs:
           fi
 
       - name: Upload diagnostic report
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: schema109-payload-report
           path: schema109-payload-report.json
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
+
+      - name: Fail closed when payload is unrecoverable
+        if: steps.payload.outputs.recovered != 'true'
+        run: |
+          echo "Schema 109 payload remains unrecoverable; see the persisted forensic report." >&2
+          exit 1
