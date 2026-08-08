@@ -3,8 +3,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from tools.product_identity import (
     STABLE_PACKAGE_NAME,
