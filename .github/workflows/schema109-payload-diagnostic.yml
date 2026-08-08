@@ -54,6 +54,7 @@ jobs:
             schema109-payload-report.json
             schema109-salvage/**
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 14
 
       - name: Install project dependencies
