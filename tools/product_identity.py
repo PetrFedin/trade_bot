@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 
 STABLE_PACKAGE_NAME = "astra-trade-bot"
 KNOWN_SCHEMA_MINIMUM_VERSIONS: dict[int, tuple[int, int, int]] = {
