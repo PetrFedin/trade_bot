@@ -32,13 +32,14 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Inspect and safely extract payload
+      - name: Inspect, recover and safely extract payload
         shell: bash
         run: |
           python - <<'PY'
           from __future__ import annotations
 
           import base64
+          import gzip
           import hashlib
           import io
           import json
@@ -57,6 +58,7 @@ jobs:
 
           encoded_parts: list[str] = []
           chunk_sha256: dict[str, str] = {}
+          chunk_lengths: dict[str, int] = {}
           for path in parts:
               data = path.read_bytes()
               try:
@@ -66,52 +68,132 @@ jobs:
               if any(character.isspace() for character in text):
                   raise SystemExit(f"whitespace in payload chunk: {path.name}")
               chunk_sha256[path.name] = hashlib.sha256(data).hexdigest()
+              chunk_lengths[path.name] = len(text)
               encoded_parts.append(text)
 
-          encoded = "".join(encoded_parts)
-          encoded_sha256 = hashlib.sha256(encoded.encode("ascii")).hexdigest()
-          try:
-              archive = base64.b64decode(encoded, validate=True)
-          except Exception as exc:
-              raise SystemExit("invalid combined base64") from exc
-          archive_sha256 = hashlib.sha256(archive).hexdigest()
+          original_encoded = "".join(encoded_parts)
+          original_encoded_sha256 = hashlib.sha256(original_encoded.encode("ascii")).hexdigest()
 
-          members: list[dict[str, object]] = []
-          names: set[str] = set()
+          def inspect_archive(encoded: str) -> tuple[bytes, list[dict[str, object]]]:
+              archive = base64.b64decode(encoded, validate=True)
+              # gzip.decompress validates stream integrity/CRC before the tar is trusted.
+              tar_bytes = gzip.decompress(archive)
+              members: list[dict[str, object]] = []
+              names: set[str] = set()
+              with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:") as handle:
+                  for member in handle.getmembers():
+                      path = PurePosixPath(member.name)
+                      if path.is_absolute() or ".." in path.parts or str(path) != member.name:
+                          raise ValueError(f"unsafe archive path: {member.name}")
+                      if member.name in names:
+                          raise ValueError(f"duplicate archive member: {member.name}")
+                      names.add(member.name)
+                      if not member.isfile() or member.issym() or member.islnk():
+                          raise ValueError(f"unsupported archive member type: {member.name}")
+                      source = handle.extractfile(member)
+                      if source is None:
+                          raise ValueError(f"unreadable archive member: {member.name}")
+                      body = source.read()
+                      members.append({
+                          "path": member.name,
+                          "size": len(body),
+                          "sha256": hashlib.sha256(body).hexdigest(),
+                      })
+              if not members:
+                  raise ValueError("empty archive")
+              return archive, members
+
+          recovery: dict[str, object] = {"mode": "none"}
+          selected_encoded = original_encoded
+          try:
+              archive, members = inspect_archive(selected_encoded)
+          except Exception as original_exc:
+              # The staged payload has a repair-tail shape: the final chunk repeats a
+              # substantial suffix of the penultimate chunk but supplies a different
+              # prefix. Never guess a splice. Enumerate every cut point and accept a
+              # repair only if exactly one candidate passes strict base64, gzip CRC,
+              # safe tar structure, and non-empty-member validation.
+              if len(encoded_parts) < 2:
+                  raise SystemExit("invalid combined payload and no repair tail") from original_exc
+              penultimate = encoded_parts[-2]
+              repair_tail = encoded_parts[-1]
+              penultimate_body = penultimate.rstrip("=")
+              terminal_padding = penultimate[len(penultimate_body):]
+
+              overlap = 0
+              for size in range(min(len(penultimate_body), len(repair_tail)), 0, -1):
+                  if penultimate_body.endswith(repair_tail[-size:]):
+                      overlap = size
+                      break
+              if overlap < 128:
+                  raise SystemExit(
+                      f"invalid combined payload; repair overlap too small: {overlap}"
+                  ) from original_exc
+
+              fixed_prefix = "".join(encoded_parts[:-2])
+              tail_variants = [("repair-tail", repair_tail)]
+              if terminal_padding and not repair_tail.endswith(terminal_padding):
+                  tail_variants.append(("repair-tail-plus-original-padding", repair_tail + terminal_padding))
+
+              valid: list[tuple[int, str, str, bytes, list[dict[str, object]]]] = []
+              for cut in range(len(penultimate) + 1):
+                  for variant_name, tail in tail_variants:
+                      candidate = fixed_prefix + penultimate[:cut] + tail
+                      if len(candidate) % 4:
+                          continue
+                      try:
+                          candidate_archive, candidate_members = inspect_archive(candidate)
+                      except Exception:
+                          continue
+                      valid.append((cut, variant_name, candidate, candidate_archive, candidate_members))
+
+              if len(valid) != 1:
+                  raise SystemExit(
+                      "ambiguous or unrecoverable payload: "
+                      f"valid_repair_candidates={len(valid)} overlap={overlap} "
+                      f"chunk_lengths={chunk_lengths}"
+                  ) from original_exc
+
+              cut, variant_name, selected_encoded, archive, members = valid[0]
+              recovery = {
+                  "mode": "replace-penultimate-suffix-with-final-repair-tail",
+                  "cut": cut,
+                  "repair_variant": variant_name,
+                  "repair_overlap": overlap,
+                  "penultimate_length": len(penultimate),
+                  "repair_tail_length": len(repair_tail),
+                  "original_terminal_padding": terminal_padding,
+                  "original_error": type(original_exc).__name__,
+              }
+
+          # Re-open only the uniquely selected validated archive and write regular
+          # files beneath the checkout root. No links, directories or path escapes.
           with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as handle:
               for member in handle.getmembers():
                   path = PurePosixPath(member.name)
-                  if path.is_absolute() or ".." in path.parts or str(path) != member.name:
-                      raise SystemExit(f"unsafe archive path: {member.name}")
-                  if member.name in names:
-                      raise SystemExit(f"duplicate archive member: {member.name}")
-                  names.add(member.name)
-                  if not member.isfile() or member.issym() or member.islnk():
-                      raise SystemExit(f"unsupported archive member type: {member.name}")
                   source = handle.extractfile(member)
                   if source is None:
-                      raise SystemExit(f"unreadable archive member: {member.name}")
-                  body = source.read()
+                      raise SystemExit(f"unreadable validated archive member: {member.name}")
                   destination = (root / Path(*path.parts)).resolve()
                   if root not in destination.parents:
                       raise SystemExit(f"archive path escaped repository: {member.name}")
                   destination.parent.mkdir(parents=True, exist_ok=True)
-                  destination.write_bytes(body)
-                  members.append({
-                      "path": member.name,
-                      "size": len(body),
-                      "sha256": hashlib.sha256(body).hexdigest(),
-                  })
+                  destination.write_bytes(source.read())
 
+          encoded_sha256 = hashlib.sha256(selected_encoded.encode("ascii")).hexdigest()
+          archive_sha256 = hashlib.sha256(archive).hexdigest()
           report = {
               "status": "PASS",
               "chunk_count": len(parts),
+              "chunk_lengths": chunk_lengths,
               "chunk_sha256": chunk_sha256,
-              "combined_base64_sha256": encoded_sha256,
+              "original_combined_base64_sha256": original_encoded_sha256,
+              "selected_base64_sha256": encoded_sha256,
               "archive_sha256": archive_sha256,
               "archive_size": len(archive),
               "member_count": len(members),
               "members": members,
+              "recovery": recovery,
           }
           Path("schema109-payload-report.json").write_text(
               json.dumps(report, indent=2, sort_keys=True) + "\n",
