@@ -35,8 +35,6 @@ jobs:
       - name: Inspect, recover and safely extract payload
         id: payload
         shell: bash
-        env:
-          PAYLOAD_OUTPUT: ${{ github.output }}
         run: |
           python - <<'PY'
           from __future__ import annotations
@@ -55,7 +53,7 @@ jobs:
           root = Path.cwd().resolve()
           payload_root = root / "_schema109_payload"
           report_path = root / "schema109-payload-report.json"
-          output_path = Path(os.environ["PAYLOAD_OUTPUT"])
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
 
           def set_recovered(value: bool) -> None:
               with output_path.open("a", encoding="utf-8") as handle:
@@ -160,8 +158,6 @@ jobs:
               return members
 
           def stream_probe(encoded: str) -> dict[str, object]:
-              # Stop before terminal padding/incomplete quartet; the purpose is to
-              # localize where the gzip stream first becomes invalid, not to accept it.
               body = encoded.split("=", 1)[0]
               usable_chars = len(body) - (len(body) % 4)
               body = body[:usable_chars]
@@ -213,8 +209,6 @@ jobs:
               probe = stream_probe(cumulative)
               probe["through_chunk"] = parts[index].name
               cumulative_probes.append(probe)
-              # The final chunk is already known to follow padding in chunk 003;
-              # probing beyond that padding adds no useful gzip localization.
               if "=" in cumulative:
                   break
 
@@ -260,8 +254,7 @@ jobs:
                   if len(encoded_parts) >= 2:
                       penultimate = encoded_parts[-2]
                       repair_tail = encoded_parts[-1]
-                      penultimate_body = penultimate.rstrip("=")
-                      terminal_padding = penultimate[len(penultimate_body):]
+                      terminal_padding = penultimate[len(penultimate.rstrip("=")):]
                       overlap = longest_suffix_suffix(penultimate, repair_tail)
                       fixed_prefix = "".join(encoded_parts[:-2])
                       tail_variants = [("repair-tail", repair_tail)]
@@ -315,7 +308,6 @@ jobs:
           }
 
           if recovered and archive is not None:
-              # Re-open only the uniquely validated archive and write regular files.
               with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as handle:
                   for member in handle.getmembers():
                       path = PurePosixPath(member.name)
