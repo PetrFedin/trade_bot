@@ -15,7 +15,7 @@
     "app/runtime/rollout_crypto_bridge_v108.py": "fdf28f60e5aa70b7e52501fb2af641372222eed2135475e3b6d053c1f3bb5fbf",
     "app/runtime/signing_authority_v108.py": "0f65603a6ce27659204bbac334ebcffc14cdb65a9863b18b8cda6c8091617cda",
     "migrations/v108/001_asymmetric_signing_authority.sql": "88e279658d55cb687b7ee8a5c35d1f35f317f8d0254348c93e91ac7e2725160f",
-    "pyproject.toml": "5b54c19c5115750b50e7178a78c5947cc3676d1d51ae51892dca120428e3346c",
+    "pyproject.toml": "09cd4a6e8c482e363962457cc9779ae7a891f8250677639b0deba67a42e94dc3",
     "tests/helpers_v108.py": "5755e017b8171e026cdb828ed462a9b49e0d6cf682789c474b1e8f04120f3ba4",
     "tests/test_migration_contract_v108.py": "f688cff140be34d34dba7c802d083050adf38502b1a3dc8a47bb623880f7e393",
     "tests/test_postgres_signing_repository_v108.py": "41eef2841e0bb288c9e88efc419f118658c85a640218608be5e7bfd2e62b9622",
