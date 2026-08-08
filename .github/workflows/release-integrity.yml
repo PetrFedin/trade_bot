@@ -46,6 +46,10 @@ jobs:
           python -m pip check
       - name: Prove lock matches pyproject inputs
         run: |
+          # pip-compile reads an existing output file as constraints. Seed the
+          # generated lock from the qualified lock so this check detects stale
+          # pyproject inputs without opportunistically upgrading transitive deps.
+          cp requirements.lock requirements.generated.lock
           python -m piptools compile \
             --resolver=backtracking \
             --generate-hashes \
