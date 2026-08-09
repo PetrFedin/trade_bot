@@ -6,6 +6,7 @@ on:
       - agent/schema109-clean-materialize-20260809
     paths:
       - _schema109_clean_payload/**
+      - _schema109_final_payload/**
       - .github/workflows/schema109-clean-payload-export.yml
   workflow_dispatch:
 
@@ -27,12 +28,13 @@ jobs:
           fetch-depth: 0
       - name: Export exact product base
         run: git archive --format=tar.gz --output=product-base-f9d2f69.tar.gz f9d2f693437b3b8e9994fa02adeb13059ed6f7cb
-      - name: Upload exact staged payload chunks and base
+      - name: Upload exact staged payloads and base
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: schema109-clean-recovery-inputs
+          name: schema109-payload-transport-diagnostic
           path: |
             _schema109_clean_payload/**
+            _schema109_final_payload/**
             product-base-f9d2f69.tar.gz
           if-no-files-found: error
           retention-days: 3
