@@ -168,22 +168,31 @@ jobs:
           DECLARE
             policy_fk integer;
             append_trigger integer;
+            append_events text[];
           BEGIN
             SELECT count(*) INTO policy_fk
             FROM information_schema.table_constraints
             WHERE table_schema = 'public'
               AND table_name = 'astra_remote_sign_request_v109'
+              AND constraint_name = 'astra_remote_sign_request_policy_fk_v109'
               AND constraint_type = 'FOREIGN KEY';
             IF policy_fk <> 1 THEN
               RAISE EXCEPTION 'request policy foreign-key contract mismatch: %', policy_fk;
             END IF;
-            SELECT count(*) INTO append_trigger
+
+            SELECT
+              count(DISTINCT trigger_name),
+              array_agg(DISTINCT event_manipulation::text ORDER BY event_manipulation::text)
+            INTO append_trigger, append_events
             FROM information_schema.triggers
             WHERE event_object_schema = 'public'
               AND event_object_table = 'astra_remote_sign_event_v109'
               AND trigger_name = 'astra_remote_sign_event_append_only_v109';
-            IF append_trigger <> 1 THEN
-              RAISE EXCEPTION 'append-only audit trigger missing';
+            IF append_trigger <> 1 OR append_events <> ARRAY['DELETE', 'UPDATE']::text[] THEN
+              RAISE EXCEPTION
+                'append-only audit trigger contract mismatch: triggers=% events=%',
+                append_trigger,
+                append_events;
             END IF;
           END
           $$;
