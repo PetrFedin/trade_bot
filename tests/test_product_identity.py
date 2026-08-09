@@ -42,7 +42,8 @@ def test_schema_compatibility_mapping_is_monotonic_for_known_releases() -> None:
     assert compatible_schema_for_version((7, 30, 0)) == 100
     assert compatible_schema_for_version((7, 35, 0)) == 105
     assert compatible_schema_for_version((7, 38, 0)) == 108
-    assert compatible_schema_for_version((7, 99, 0)) == 108
+    assert compatible_schema_for_version((7, 39, 0)) == 109
+    assert compatible_schema_for_version((7, 99, 0)) == 109
 
 
 def test_malformed_identity_fails_closed() -> None:

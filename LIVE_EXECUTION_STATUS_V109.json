@@ -1,0 +1,19 @@
+{
+  "schema": 109,
+  "version": "7.39.0",
+  "status": "SOURCE_AND_CI_QUALIFICATION_ONLY",
+  "production_remote_signer_verified": false,
+  "production_signing_authority_verified": false,
+  "production_kubernetes_mutation_authorized": false,
+  "external_order_routing_allowed": false,
+  "live_trading_allowed": false,
+  "automatic_sign_post_retry_allowed": false,
+  "private_key_material_persisted_by_runtime": false,
+  "required_external_qualification": [
+    "production KMS or HSM provider identity and attestation root",
+    "production mTLS workload identity and certificate rotation",
+    "production PostgreSQL roles, isolation and backup recovery",
+    "external audit sink and independent checkpoint observer",
+    "operator rotation, revocation and quarantine procedures"
+  ]
+}

@@ -49,7 +49,7 @@ def audit(root: Path) -> dict[str, object]:
         return path.read_text(encoding="utf-8") if path.is_file() else ""
 
     pyproject = read("pyproject.toml")
-    findings.extend(stable_identity_findings(pyproject, exact_version=(7, 38, 0)))
+    findings.extend(stable_identity_findings(pyproject, minimum_version=(7, 38, 0)))
     if '"cryptography>=50,<51"' not in pyproject:
         findings.append("ed25519_dependency")
 
@@ -86,12 +86,9 @@ def audit(root: Path) -> dict[str, object]:
         "astra_receipt_authorization_v108",
         "reserve_receipt_authorization",
         "RECEIPT_AUTHORIZATION_RESERVED",
-        "ROLLBACK",
+        "connection.rollback()",
     ):
-        if token == "ROLLBACK":
-            if "connection.rollback()" not in repository:
-                findings.append("repository_boundary:rollback")
-        elif token not in repository:
+        if token not in repository:
             findings.append(f"repository_boundary:{token}")
 
     migration = read("migrations/v108/001_asymmetric_signing_authority.sql")
