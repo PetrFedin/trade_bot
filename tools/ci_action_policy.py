@@ -14,6 +14,8 @@ APPROVED_ACTION_REFS = {
     "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",  # v7.0.1, Node 24
     "actions/setup-python": "5fda3b95a4ea91299a34e894583c3862153e4b97",  # v7.0.0, Node 24
     "actions/upload-artifact": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",  # v7.0.1, Node 24
+    "actions/download-artifact": "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",  # v8.0.1, Node 24
+    "actions/attest": "1e69f48acb82d1966a394da916b4c1698aa569d6",  # v4.2.2, Node 24
 }
 
 
