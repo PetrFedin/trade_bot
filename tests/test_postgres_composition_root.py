@@ -16,6 +16,7 @@ if not DSN:
 
 from app.application.composition import ProductConfig, build_postgres_product
 from app.domain.trading import Bar, Fill, Side
+from app.oms.order_mutations import MutationState
 from app.oms.store import OrderState
 from app.risk.pretrade import RiskLimits
 
@@ -45,7 +46,8 @@ def bars() -> list[Bar]:
 def reset_product_tables() -> None:
     with psycopg.connect(DSN, autocommit=True) as connection:
         connection.execute(
-            """TRUNCATE astra_oms_outbox, astra_oms_events, astra_oms_orders,
+            """TRUNCATE astra_order_mutation_outbox, astra_order_mutation_events,
+            astra_order_mutations, astra_oms_outbox, astra_oms_events, astra_oms_orders,
             astra_risk_decisions, astra_portfolio_snapshots, astra_portfolio_events
             RESTART IDENTITY CASCADE"""
         )
@@ -61,6 +63,22 @@ def clean_runtime():
     return build_postgres_product(config=config(), dsn=DSN)
 
 
+def acknowledge(runtime, intent_id: str, broker_order_id: str) -> None:
+    runtime.oms_store.transition(
+        intent_id,
+        OrderState.SUBMIT_STARTED,
+        event_id=f"{intent_id}:submit-started",
+        occurred_at=NOW,
+    )
+    runtime.oms_store.transition(
+        intent_id,
+        OrderState.ACKNOWLEDGED,
+        event_id=f"{intent_id}:acknowledged",
+        occurred_at=NOW,
+        broker_order_id=broker_order_id,
+    )
+
+
 def test_postgres_composition_uses_shared_durable_backends() -> None:
     runtime = clean_runtime()
 
@@ -73,20 +91,22 @@ def test_postgres_composition_uses_shared_durable_backends() -> None:
     assert prepared.record.state is OrderState.OUTBOXED
     assert len(runtime.oms_store.pending_outbox()) == 1
     assert runtime.oms_store.get_by_client_order_id(prepared.client_order_id) == prepared.record
-    runtime.oms_store.transition(
-        intent.intent_id,
-        OrderState.SUBMIT_STARTED,
-        event_id="pg-submit-start",
-        occurred_at=NOW,
-    )
-    acknowledged = runtime.oms_store.transition(
-        intent.intent_id,
-        OrderState.ACKNOWLEDGED,
-        event_id="pg-ack",
-        occurred_at=NOW,
-        broker_order_id="pg-broker-order-1",
-    )
+    acknowledge(runtime, intent.intent_id, "pg-broker-order-1")
+    acknowledged = runtime.oms_store.get(intent.intent_id)
+    assert acknowledged is not None and acknowledged.state is OrderState.ACKNOWLEDGED
     assert runtime.oms_store.get_by_broker_order_id("pg-broker-order-1") == acknowledged
+
+    mutation = runtime.order_mutation_lifecycle.request_replace(
+        intent.intent_id,
+        mutation_id="pg-composition-replace",
+        target_limit_price=Decimal("103"),
+        occurred_at=NOW,
+    )
+    assert mutation.state is MutationState.REQUESTED
+    assert mutation.broker_order_id == "pg-broker-order-1"
+    pending_mutations = runtime.order_mutations.pending_outbox()
+    assert len(pending_mutations) == 1
+    assert pending_mutations[0].mutation_id == mutation.mutation_id
 
     fill = Fill(
         fill_id="pg-composition-fill",
@@ -104,11 +124,17 @@ def test_postgres_composition_uses_shared_durable_backends() -> None:
     assert replayed.position("AAPL").quantity == Decimal("1")
 
 
-def test_postgres_composition_restart_reopens_oms_risk_and_portfolio_truth() -> None:
+def test_postgres_composition_restart_reopens_all_durable_truth() -> None:
     runtime = clean_runtime()
     _, intent, decision = runtime.paper_pipeline.plan(bars())
     assert intent is not None and decision is not None
     prepared = runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
+    acknowledge(runtime, intent.intent_id, "pg-restart-broker-order")
+    mutation = runtime.order_mutation_lifecycle.request_cancel(
+        intent.intent_id,
+        mutation_id="pg-restart-cancel",
+        occurred_at=NOW,
+    )
     fill = Fill(
         fill_id="pg-restart-fill",
         order_intent_id=intent.intent_id,
@@ -123,8 +149,12 @@ def test_postgres_composition_restart_reopens_oms_risk_and_portfolio_truth() -> 
 
     restarted = build_postgres_product(config=config(), dsn=DSN)
     order = restarted.oms_store.get(intent.intent_id)
-    assert order is not None and order.state is OrderState.OUTBOXED
+    assert order is not None and order.state is OrderState.ACKNOWLEDGED
     assert restarted.oms_store.get_by_client_order_id(prepared.client_order_id) == order
+    reopened_mutation = restarted.order_mutations.get(mutation.mutation_id)
+    assert reopened_mutation == mutation
+    assert restarted.order_mutation_lifecycle.oms is restarted.oms_store
+    assert restarted.order_mutation_lifecycle.mutations is restarted.order_mutations
     records = restarted.risk_admission.journal.verify()
     assert len(records) == 1 and records[0].intent_id == intent.intent_id
     assert restarted.portfolio.cash == Decimal("9899")
