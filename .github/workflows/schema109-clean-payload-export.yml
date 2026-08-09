@@ -23,11 +23,17 @@ jobs:
     steps:
       - name: Checkout staging revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - name: Upload exact staged payload chunks
+        with:
+          fetch-depth: 0
+      - name: Export exact product base
+        run: git archive --format=tar.gz --output=product-base-f9d2f69.tar.gz f9d2f693437b3b8e9994fa02adeb13059ed6f7cb
+      - name: Upload exact staged payload chunks and base
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: schema109-clean-payload-chunks
-          path: _schema109_clean_payload/**
+          name: schema109-clean-recovery-inputs
+          path: |
+            _schema109_clean_payload/**
+            product-base-f9d2f69.tar.gz
           if-no-files-found: error
           retention-days: 3
           compression-level: 0
