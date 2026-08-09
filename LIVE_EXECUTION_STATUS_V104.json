@@ -1,0 +1,15 @@
+{
+  "schema": 104,
+  "version": "7.34.0",
+  "signed_work_claims_implemented": true,
+  "deployment_attestation_implemented": true,
+  "read_only_alpaca_runner_implemented": true,
+  "evidence_spool_implemented": true,
+  "resumable_multipart_upload_implemented": true,
+  "dead_letter_queue_implemented": true,
+  "external_object_storage_verified": false,
+  "external_alpaca_read_only_worker_verified": false,
+  "production_worker_deployment_verified": false,
+  "external_order_routing_allowed": false,
+  "live_trading_allowed": false
+}
