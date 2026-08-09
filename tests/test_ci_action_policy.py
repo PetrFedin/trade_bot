@@ -19,6 +19,17 @@ class CiActionPolicyTests(unittest.TestCase):
         self.assertTrue(is_operational_workflow(text))
         self.assertEqual(audit_workflow(Path("current.yml"), text), [])
 
+    def test_release_provenance_actions_require_approved_node24_shas(self) -> None:
+        download = APPROVED_ACTION_REFS["actions/download-artifact"]
+        attest = APPROVED_ACTION_REFS["actions/attest"]
+        text = f"""name: provenance\non:\n  push:\n    branches: [main]\njobs:\n  x:\n    steps:\n      - uses: actions/download-artifact@{download}\n      - uses: actions/attest@{attest}\n"""
+        self.assertEqual(audit_workflow(Path("provenance.yml"), text), [])
+
+        wrong = text.replace(attest, "0" * 40)
+        violations = audit_workflow(Path("provenance.yml"), wrong)
+        self.assertEqual(len(violations), 1)
+        self.assertIn("actions/attest must use approved Node 24 SHA", violations[0].message)
+
     def test_unrestricted_pull_request_is_operational_and_floating_ref_fails(self) -> None:
         text = """name: pr\non:\n  pull_request:\njobs:\n  x:\n    steps:\n      - uses: actions/checkout@v4\n"""
         violations = audit_workflow(Path("pr.yml"), text)
