@@ -1,0 +1,85 @@
+name: schema109-transport-repair
+
+on:
+  push:
+    branches:
+      - agent/schema109-clean-materialize-20260809
+    paths:
+      - .github/workflows/schema109-transport-repair.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: schema109-transport-repair
+  cancel-in-progress: true
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout staging revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Repair only diagnosed transport bytes and verify manifest hashes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+
+          root = Path('_schema109_final_payload')
+          manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+          repairs = {
+              'chunk-000.txt': (1075, ord('6'), ord('/')),
+              'chunk-002.txt': (5642, ord('z'), ord('Z')),
+              'chunk-004.txt': (7440, ord('b'), ord('r')),
+          }
+          changed = []
+          for name, expected_hash in manifest['chunks'].items():
+              path = root / name
+              data = bytearray(path.read_bytes())
+              current_hash = hashlib.sha256(data).hexdigest()
+              if current_hash == expected_hash:
+                  print(f'PASS already exact {name}')
+                  continue
+              if name not in repairs:
+                  raise SystemExit(f'unexpected transport mismatch: {name} {current_hash}')
+              offset, bad_byte, good_byte = repairs[name]
+              if offset >= len(data) or data[offset] != bad_byte:
+                  actual = None if offset >= len(data) else data[offset]
+                  raise SystemExit(
+                      f'{name}: diagnosed byte mismatch at {offset + 1}: '
+                      f'expected bad {bad_byte}, found {actual}'
+                  )
+              data[offset] = good_byte
+              repaired_hash = hashlib.sha256(data).hexdigest()
+              if repaired_hash != expected_hash:
+                  raise SystemExit(
+                      f'{name}: one-byte repair did not restore manifest hash: {repaired_hash}'
+                  )
+              path.write_bytes(data)
+              changed.append(name)
+              print(f'REPAIRED {name} byte {offset + 1}: {bad_byte}->{good_byte}')
+
+          for name, expected_hash in manifest['chunks'].items():
+              actual_hash = hashlib.sha256((root / name).read_bytes()).hexdigest()
+              if actual_hash != expected_hash:
+                  raise SystemExit(f'post-repair hash mismatch: {name} {actual_hash}')
+          print(f'PASS all {len(manifest["chunks"])} chunk hashes exact; repaired={changed}')
+          PY
+
+      - name: Commit repaired transport bytes
+        run: |
+          if git diff --quiet -- _schema109_final_payload; then
+            echo 'No repair commit needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add _schema109_final_payload/chunk-*.txt
+          git commit -m 'Repair exact Schema 109 transport bytes'
+          git push origin HEAD:refs/heads/agent/schema109-clean-materialize-20260809
