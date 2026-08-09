@@ -20,7 +20,7 @@
     "tests/test_s3_evidence_adapter_v105.py": "690a03a3c0d1fb8456a621bec2c2c199c63f38cff701f2fd9cf3491e846c8d56",
     "tests/test_tools_v105.py": "0ae3f04d0c453b50f006eb96bd0ccaf9693f3eb30dc00ad974d3ee005de7c011",
     "tools/architecture_audit_v105.py": "bb5f399164c0633df5b6d5c9faa6e89e7bb5cf37015724f8cfb7d84641b95cb8",
-    "tools/platform_v105.py": "d8cde6ac6d81cafb137d576f1967533ce7fff5206527a6843e7153764209eb65",
+    "tools/platform_v105.py": "3c672002dbf98ccfef193a4377d10800e42862f7403534adb56bb199f44ec854",
     "tools/static_audit_v105.py": "147e10067b34d63f1271efd043f6550dc7b23c090e325fd672df32745474e911",
     "tools/stress_v105.py": "a74a74ca3afb7c2b97aaf23221e2760a240e14555b5c8cdb170ed60de7ccaf32"
   },

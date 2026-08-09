@@ -3,48 +3,32 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "astra-schema105-production-worker-fleet-operations"
-version = "7.35.0"
-description = "ASTRA production worker fleet enrollment, autoscaling, containment, and evidence operations"
+name = "astra-schema106-production-fleet-deployment-qualification"
+version = "7.36.0"
+description = "ASTRA signed read-only production fleet deployment qualification"
 requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10", "coverage>=7,<8"]
-marketdata = ["websockets>=13,<17"]
 postgresql = ["psycopg[binary]>=3.2,<4"]
 
 [project.scripts]
-astra-platform-v101 = "tools.platform_v101:main"
-astra-architecture-audit-v101 = "tools.architecture_audit_v101:main"
-astra-static-audit-v101 = "tools.static_audit_v101:main"
-astra-stress-v101 = "tools.stress_v101:main"
-astra-platform-v102 = "tools.platform_v102:main"
-astra-architecture-audit-v102 = "tools.architecture_audit_v102:main"
-astra-static-audit-v102 = "tools.static_audit_v102:main"
-astra-stress-v102 = "tools.stress_v102:main"
-astra-platform-v103 = "tools.platform_v103:main"
-astra-architecture-audit-v103 = "tools.architecture_audit_v103:main"
-astra-static-audit-v103 = "tools.static_audit_v103:main"
-astra-stress-v103 = "tools.stress_v103:main"
-astra-platform-v104 = "tools.platform_v104:main"
-astra-architecture-audit-v104 = "tools.architecture_audit_v104:main"
-astra-static-audit-v104 = "tools.static_audit_v104:main"
-astra-stress-v104 = "tools.stress_v104:main"
 astra-platform-v105 = "tools.platform_v105:main"
 astra-architecture-audit-v105 = "tools.architecture_audit_v105:main"
 astra-static-audit-v105 = "tools.static_audit_v105:main"
 astra-stress-v105 = "tools.stress_v105:main"
+astra-platform-v106 = "tools.platform_v106:main"
+astra-architecture-audit-v106 = "tools.architecture_audit_v106:main"
+astra-static-audit-v106 = "tools.static_audit_v106:main"
+astra-stress-v106 = "tools.stress_v106:main"
 
 [tool.setuptools.packages.find]
 include = ["app*", "tools*"]
 
 [tool.setuptools.package-data]
-"app.platform_assets.v101" = ["migrations/*.sql"]
-"app.platform_assets.v102" = ["migrations/*.sql"]
-"app.platform_assets.v103" = ["migrations/*.sql"]
-"app.platform_assets.v104" = ["migrations/*.sql"]
 "app.platform_assets.v105" = ["migrations/*.sql"]
+"app.platform_assets.v106" = ["migrations/*.sql"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"
