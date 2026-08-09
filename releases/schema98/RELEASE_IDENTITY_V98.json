@@ -1,0 +1,14 @@
+{
+  "bundle_sha256": "49216eaf6d88fa498a063dfb4c7124cab4ea6f96f6554ab16cbc25cbf6bb3991",
+  "external_order_routing_allowed": false,
+  "final_release_commit": "71a705895a51573b8897c8e48543089366e61c0f",
+  "final_release_tree": "4faa170db703a3b27caa94060384c13ceda30e22",
+  "live_trading_allowed": false,
+  "manifest_digest": "dcfca53c6b66f8b62ea8c549515c867b93c828ba12ec170b4ffe2ff6993ce15d",
+  "package_version": "7.28.0",
+  "qualification_evidence_commit": "ac0d01df43faf60ab6be6dc772448aedba9d4f19",
+  "schema97_base_commit": "ff90670b50b5436cababef9e5f14dd60cec86852",
+  "schema_version": 98,
+  "source_commit": "2c0a03460ad9c1e35fada461f4ef91f3e49f35cd",
+  "source_tree": "bdf03ba7f85d9e7b8fc70d4d78df1315bf40dd98"
+}

@@ -3,9 +3,9 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "astra-schema91-durable-paper-service"
-version = "7.21.0"
-description = "ASTRA schema 91 durable market capture, supervised paper service and qualification controls"
+name = "astra-schema99-external-paper-roundtrip"
+version = "7.29.0"
+description = "ASTRA paper-only broker round trip, recovery and supervised deployment"
 requires-python = ">=3.11"
 dependencies = []
 
@@ -13,11 +13,11 @@ dependencies = []
 test = ["pytest>=8,<10", "coverage>=7,<8"]
 
 [project.scripts]
-astra-platform-v91 = "tools.platform_v91:main"
-astra-architecture-audit-v91 = "tools.architecture_audit_v91:main"
+astra-platform-v99 = "tools.platform_v99:main"
 
 [tool.setuptools.packages.find]
 include = ["app*", "tools*"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"
+testpaths = ["tests"]
