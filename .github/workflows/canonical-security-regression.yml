@@ -105,9 +105,9 @@ jobs:
             done
           done
 
-      - name: Lint, focused tests and full regression
+      - name: Lint qualified Schema 109 surface and run lineage regressions
         run: |
-          ruff check app/runtime/*_v10[789].py tools/*v10[789].py tools/product_identity.py tests/*v10[789].py tests/test_product_identity.py
+          ruff check app/runtime/*_v109.py tools/*v109.py tools/platform_v108.py tools/architecture_audit_v108.py tools/product_identity.py tests/*v109.py tests/test_product_identity.py
           pytest -q tests/*v107.py tests/*v108.py tests/*v109.py tests/test_product_identity.py
           pytest -q
 
