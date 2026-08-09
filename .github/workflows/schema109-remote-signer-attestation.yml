@@ -1,8 +1,10 @@
 name: schema109-remote-signer-attestation
 
 on:
+  workflow_dispatch:
   push:
     branches:
+      - main
       - agent/schema109-remote-signer-attestation-clean
     paths:
       - app/runtime/**v109.py
@@ -26,6 +28,7 @@ on:
       - .github/workflows/schema109-remote-signer-attestation.yml
   pull_request:
     branches:
+      - main
       - agent/schema108-paper-core-foundation
     types: [opened, reopened, synchronize]
     paths:
