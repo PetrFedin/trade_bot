@@ -1,5 +1,6 @@
 {
   "files": {
+    ".github/workflows/canonical-deployment-regression.yml": "b8036fb45e2c0d19204fdc3c49f3760c4db96b4d2e804660973f74362ef6efdd",
     ".github/workflows/canonical-security-regression.yml": "27da30b78c93c7bd59ad88b3d96642fdab9949df66873f26b54354dc12a4ac91",
     ".github/workflows/schema109-remote-signer-attestation.yml": "80cdbb91927fd33249a99399e68acca36abb24a3fb20dd472b164c8a7cd00f84",
     "ENGINEERING_REPORT_V109.md": "0c33b2187b011f0d309b35c0eb51b4ac1b27247e955dc2cc48c5264315267c92",
@@ -15,6 +16,7 @@
     "app/runtime/remote_signer_attestation_v109.py": "28c6c5b7dea742f02dfa3f7ec8b276f913973242af10f5f6ac57cf387b999ba9",
     "migrations/v109/001_remote_signer_attestation.sql": "01a445e7b76f3f7f7efbe6c1bca8dc122f9a0dfb5a43190688def9c80142f57c",
     "pyproject.toml": "09c1518610d29766dd33b41c247a8c77747cc48d380c74a07020a62d19b4aa46",
+    "tests/test_postgres_fleet_deployment_integration_v105_v106.py": "62fdeb2beebdff53ddbb2a7fc820ce2fac7246f54cc952382f50055301992f13",
     "tests/test_postgres_remote_signer_repository_unit_v109.py": "a0f0b3d7eaf77e7191edeb24d7807982dabf01484dd89d6e7e258f1686d8f16b",
     "tests/test_postgres_remote_signer_repository_v109.py": "9f506b359948aef3f776b406a7cf20d4326479e47f29f642166321d7ff969d27",
     "tests/test_product_identity.py": "491ff8b7550bbd7ece139149976aa747e72c8ca928071dc92685653678f20cc7",
