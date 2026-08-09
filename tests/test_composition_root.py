@@ -9,10 +9,15 @@ from app.application.composition import ProductConfig, build_local_product
 from app.domain.trading import Bar, Fill, Side
 from app.execution.trade_fills import ExplicitZeroPaperFeeModel
 from app.observability.readiness import OperationalSnapshot
+from app.oms.order_mutations import MutationState
 from app.oms.store import OrderState
 from app.risk.pretrade import RiskLimits
 
 NOW = datetime(2026, 8, 7, 20, 0, tzinfo=UTC)
+
+
+class DisabledBroker:
+    paper_order_writes_enabled = False
 
 
 def config() -> ProductConfig:
@@ -35,12 +40,30 @@ def bars() -> list[Bar]:
     ]
 
 
+def acknowledge(runtime, intent_id: str, broker_order_id: str) -> None:
+    runtime.oms_store.transition(
+        intent_id,
+        OrderState.SUBMIT_STARTED,
+        event_id=f"{intent_id}:submit-started",
+        occurred_at=NOW,
+    )
+    runtime.oms_store.transition(
+        intent_id,
+        OrderState.ACKNOWLEDGED,
+        event_id=f"{intent_id}:acknowledged",
+        occurred_at=NOW,
+        broker_order_id=broker_order_id,
+    )
+
+
 def test_local_composition_wires_one_coherent_product_graph(tmp_path) -> None:
     runtime = build_local_product(config=config(), state_directory=tmp_path)
     assert runtime.paper_pipeline.risk is runtime.risk_engine
     assert runtime.paper_pipeline.risk_admission is runtime.risk_admission
     assert runtime.paper_pipeline.ledger is runtime.portfolio
     assert runtime.order_lifecycle.store is runtime.oms_store
+    assert runtime.order_mutation_lifecycle.oms is runtime.oms_store
+    assert runtime.order_mutation_lifecycle.mutations is runtime.order_mutations
     assert runtime.reconciler.store is runtime.oms_store
 
     _, intent, decision = runtime.paper_pipeline.plan(bars())
@@ -52,6 +75,44 @@ def test_local_composition_wires_one_coherent_product_graph(tmp_path) -> None:
     assert prepared.record.state is OrderState.OUTBOXED
     assert len(runtime.oms_store.pending_outbox()) == 1
     assert runtime.oms_store.get_by_client_order_id(prepared.client_order_id) == prepared.record
+
+    acknowledge(runtime, intent.intent_id, "composition-broker-1")
+    mutation = runtime.order_mutation_lifecycle.request_replace(
+        intent.intent_id,
+        mutation_id="composition-replace-1",
+        target_limit_price=Decimal("103"),
+        occurred_at=NOW,
+    )
+    assert mutation.state is MutationState.REQUESTED
+    assert mutation.broker_order_id == "composition-broker-1"
+    message = runtime.order_mutations.pending_outbox()[0]
+
+    executor = runtime.build_order_mutation_executor(DisabledBroker())
+    assert executor.oms is runtime.oms_store
+    assert executor.mutations is runtime.order_mutations
+    with pytest.raises(ValueError, match="PAPER_ORDER_WRITES_DISABLED"):
+        executor.execute(message, occurred_at=NOW)
+    assert runtime.order_mutations.get(mutation.mutation_id).state is MutationState.REQUESTED
+
+
+def test_local_composition_reopens_mutation_journal_after_restart(tmp_path) -> None:
+    runtime = build_local_product(config=config(), state_directory=tmp_path)
+    _, intent, decision = runtime.paper_pipeline.plan(bars())
+    assert intent is not None and decision is not None and decision.approved
+    runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
+    acknowledge(runtime, intent.intent_id, "composition-broker-restart")
+    requested = runtime.order_mutation_lifecycle.request_cancel(
+        intent.intent_id,
+        mutation_id="composition-cancel-restart",
+        occurred_at=NOW,
+    )
+
+    restarted = build_local_product(config=config(), state_directory=tmp_path)
+    assert restarted.order_mutations.get(requested.mutation_id) == requested
+    assert restarted.order_mutation_lifecycle.oms is restarted.oms_store
+    assert restarted.order_mutation_lifecycle.mutations is restarted.order_mutations
+    pending = restarted.order_mutations.pending_outbox()
+    assert len(pending) == 1 and pending[0].mutation_id == requested.mutation_id
 
 
 def test_local_composition_replays_portfolio_into_runtime_after_restart(tmp_path) -> None:
@@ -71,7 +132,7 @@ def test_local_composition_replays_portfolio_into_runtime_after_restart(tmp_path
 
     restarted = build_local_product(config=config(), state_directory=tmp_path)
     assert restarted.portfolio.cash == Decimal("9899")
-    assert restarted.portfolio.position("AAPL").quantity == Decimal("1")
+    assert restarted.portfolio.position("AAAL").quantity == Decimal("1")
     assert restarted.portfolio.position("AAPL").average_cost == Decimal("101")
     assert restarted.paper_pipeline.ledger is restarted.portfolio
 

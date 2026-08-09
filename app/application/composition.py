@@ -6,9 +6,16 @@ from pathlib import Path
 
 from app.application.order_lifecycle import PaperOrderLifecycle
 from app.application.paper_pipeline import PaperTradingPipeline
+from app.execution.order_mutation_executor import PaperOrderMutationExecutor
 from app.execution.trade_fills import PaperFillFeeProvider, PaperTradeFillAccounting
 from app.observability.readiness import OperationalReadinessEvaluator, OperationalSloPolicy
 from app.oms.indexed import IndexedDurableOmsStore, IndexedOmsStore, IndexedPostgresOmsStore
+from app.oms.order_mutations import (
+    DurableOrderMutationStore,
+    MutationStore,
+    OrderMutationLifecycle,
+)
+from app.oms.order_mutations_postgres import PostgresOrderMutationStore
 from app.oms.reconciliation import OmsReconciler
 from app.portfolio.ledger import PortfolioLedger
 from app.portfolio.protocols import PortfolioStore
@@ -16,6 +23,7 @@ from app.portfolio.strict import StrictPortfolioEventStore, StrictPostgresPortfo
 from app.risk.evidence import RiskAdmissionService, RiskEvidenceJournal, SQLiteRiskEvidenceJournal
 from app.risk.postgres import PostgresRiskEvidenceJournal
 from app.risk.pretrade import PreTradeRiskEngine, RiskLimits
+from app.runtime.paper_broker_contract_v99 import PaperBrokerV99
 from app.strategy.momentum import LongOnlyMomentumStrategy
 
 
@@ -46,7 +54,9 @@ class ProductRuntime:
     portfolio: PortfolioLedger
     portfolio_store: PortfolioStore
     oms_store: IndexedOmsStore
+    order_mutations: MutationStore
     order_lifecycle: PaperOrderLifecycle
+    order_mutation_lifecycle: OrderMutationLifecycle
     reconciler: OmsReconciler
     paper_pipeline: PaperTradingPipeline
     operational_readiness: OperationalReadinessEvaluator
@@ -57,11 +67,21 @@ class ProductRuntime:
             raise RuntimeError("paper fill fee provider is not configured")
         return self.fill_accounting
 
+    def build_order_mutation_executor(self, broker: PaperBrokerV99) -> PaperOrderMutationExecutor:
+        """Bind a broker to the already-composed durable OMS/mutation stores."""
+
+        return PaperOrderMutationExecutor(
+            oms=self.oms_store,
+            mutations=self.order_mutations,
+            broker=broker,
+        )
+
 
 def _compose(
     *,
     config: ProductConfig,
     oms_store: IndexedOmsStore,
+    mutation_store: MutationStore,
     risk_journal: RiskEvidenceJournal,
     portfolio_store: PortfolioStore,
     fee_provider: PaperFillFeeProvider | None,
@@ -72,6 +92,7 @@ def _compose(
     risk_admission = RiskAdmissionService(engine=risk_engine, journal=risk_journal)
     portfolio = portfolio_store.replay(opening_cash=config.opening_cash)
     lifecycle = PaperOrderLifecycle(oms_store)
+    mutation_lifecycle = OrderMutationLifecycle(oms=oms_store, mutations=mutation_store)
     reconciler = OmsReconciler(oms_store)
     pipeline = PaperTradingPipeline(
         strategy=strategy,
@@ -98,7 +119,9 @@ def _compose(
         portfolio=portfolio,
         portfolio_store=portfolio_store,
         oms_store=oms_store,
+        order_mutations=mutation_store,
         order_lifecycle=lifecycle,
+        order_mutation_lifecycle=mutation_lifecycle,
         reconciler=reconciler,
         paper_pipeline=pipeline,
         operational_readiness=readiness,
@@ -116,9 +139,13 @@ def build_local_product(
 
     directory = Path(state_directory)
     directory.mkdir(parents=True, exist_ok=True)
+    oms_path = directory / "oms.sqlite"
+    oms_store = IndexedDurableOmsStore(oms_path)
+    mutation_store = DurableOrderMutationStore(oms_path)
     return _compose(
         config=config,
-        oms_store=IndexedDurableOmsStore(directory / "oms.sqlite"),
+        oms_store=oms_store,
+        mutation_store=mutation_store,
         risk_journal=SQLiteRiskEvidenceJournal(directory / "risk.sqlite"),
         portfolio_store=StrictPortfolioEventStore(directory / "portfolio.sqlite"),
         fee_provider=fee_provider,
@@ -135,15 +162,18 @@ def build_postgres_product(
     """Build the production-style product graph on a shared PostgreSQL database."""
 
     oms_store = IndexedPostgresOmsStore(dsn)
+    mutation_store = PostgresOrderMutationStore(dsn)
     risk_journal = PostgresRiskEvidenceJournal(dsn)
     portfolio_store = StrictPostgresPortfolioEventStore(dsn)
     if migrate:
         oms_store.migrate()
+        mutation_store.migrate()
         risk_journal.migrate()
         portfolio_store.migrate()
     return _compose(
         config=config,
         oms_store=oms_store,
+        mutation_store=mutation_store,
         risk_journal=risk_journal,
         portfolio_store=portfolio_store,
         fee_provider=fee_provider,
