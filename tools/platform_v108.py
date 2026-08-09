@@ -15,6 +15,7 @@ from tools.product_identity import (
 
 _SUCCESSOR_MUTABLE_FILES = frozenset(
     {
+        ".github/workflows/schema99-external-paper-roundtrip.yml",
         "pyproject.toml",
         "tools/architecture_audit_v108.py",
         "tools/platform_v108.py",
