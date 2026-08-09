@@ -1,0 +1,33 @@
+name: schema109-clean-payload-export
+
+on:
+  push:
+    branches:
+      - agent/schema109-clean-materialize-20260809
+    paths:
+      - _schema109_clean_payload/**
+      - .github/workflows/schema109-clean-payload-export.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schema109-clean-payload-export
+  cancel-in-progress: true
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout staging revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Upload exact staged payload chunks
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: schema109-clean-payload-chunks
+          path: _schema109_clean_payload/**
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
