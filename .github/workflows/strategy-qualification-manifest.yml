@@ -1,0 +1,111 @@
+name: strategy-qualification-manifest
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/marketdata/historical.py'
+      - 'app/strategy/backtest.py'
+      - 'app/strategy/momentum.py'
+      - 'app/strategy/qualification.py'
+      - 'app/strategy/qualification_manifest.py'
+      - 'app/strategy/regimes.py'
+      - 'tools/strategy_qualification.py'
+      - 'tests/test_strategy_qualification_manifest.py'
+      - 'tests/fixtures/strategy_qualification/**'
+      - 'requirements.lock'
+      - '.github/workflows/strategy-qualification-manifest.yml'
+  pull_request:
+    paths:
+      - 'app/marketdata/historical.py'
+      - 'app/strategy/backtest.py'
+      - 'app/strategy/momentum.py'
+      - 'app/strategy/qualification.py'
+      - 'app/strategy/qualification_manifest.py'
+      - 'app/strategy/regimes.py'
+      - 'tools/strategy_qualification.py'
+      - 'tests/test_strategy_qualification_manifest.py'
+      - 'tests/fixtures/strategy_qualification/**'
+      - 'requirements.lock'
+      - '.github/workflows/strategy-qualification-manifest.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: strategy-qualification-manifest-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked qualification graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Ruff, Bandit, and focused tests
+        run: |
+          ruff check \
+            app/strategy/qualification_manifest.py \
+            tools/strategy_qualification.py \
+            tests/test_strategy_qualification_manifest.py
+          bandit -q -r app/strategy/qualification_manifest.py tools/strategy_qualification.py
+          pytest -q tests/test_strategy_qualification_manifest.py
+
+      - name: Generate deterministic synthetic qualification manifest twice
+        run: |
+          mkdir -p strategy-qualification-evidence
+          python -m tools.strategy_qualification run \
+            --dataset tests/fixtures/strategy_qualification/synthetic_regimes.csv \
+            --spec tests/fixtures/strategy_qualification/synthetic_spec.json \
+            --output strategy-qualification-evidence/manifest-a.json
+          python -m tools.strategy_qualification run \
+            --dataset tests/fixtures/strategy_qualification/synthetic_regimes.csv \
+            --spec tests/fixtures/strategy_qualification/synthetic_spec.json \
+            --output strategy-qualification-evidence/manifest-b.json
+          cmp strategy-qualification-evidence/manifest-a.json strategy-qualification-evidence/manifest-b.json
+          python -m tools.strategy_qualification verify strategy-qualification-evidence/manifest-a.json
+
+      - name: Verify evidence classification and cryptographic bindings
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(
+              Path('strategy-qualification-evidence/manifest-a.json').read_text(encoding='utf-8')
+          )
+          assert manifest['schema_version'] == 'strategy-qualification-manifest-v1'
+          assert manifest['dataset']['provenance']['classification'] == 'synthetic_fixture'
+          assert len(manifest['dataset']['canonical_sha256']) == 64
+          assert len(manifest['strategy']['implementation_sha256']) == 64
+          assert len(manifest['qualification_id']) == 64
+          assert len(manifest['result_sha256']) == 64
+          assert len(manifest['manifest_sha256']) == 64
+          assert len(manifest['result']['regimes']) == 3
+          PY
+
+      - name: Complete deterministic regression
+        run: pytest -q
+
+      - name: Upload qualification manifest evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: strategy-qualification-manifest-${{ github.run_id }}
+          path: strategy-qualification-evidence/manifest-a.json
+          if-no-files-found: error
+          retention-days: 30
