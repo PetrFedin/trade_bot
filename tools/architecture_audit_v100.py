@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import re
 from typing import Sequence
 
 REQUIRED = (
@@ -17,12 +18,34 @@ REQUIRED = (
 )
 
 
+def _successor_identity_is_valid(pyproject: str) -> tuple[bool, bool]:
+    name_match = re.search(
+        r'^name\s*=\s*"astra-schema(?P<schema>\d+)[^"]*"\s*$',
+        pyproject,
+        flags=re.MULTILINE,
+    )
+    version_match = re.search(
+        r'^version\s*=\s*"(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"\s*$',
+        pyproject,
+        flags=re.MULTILINE,
+    )
+    identity_valid = bool(name_match and int(name_match.group("schema")) >= 100)
+    version_valid = bool(
+        version_match
+        and tuple(int(version_match.group(part)) for part in ("major", "minor", "patch"))
+        >= (7, 30, 0)
+    )
+    return identity_valid, version_valid
+
+
 def audit(root: Path) -> tuple[str, ...]:
     failures: list[str] = []
     for relative in REQUIRED:
         if not (root / relative).is_file():
             failures.append(f"missing:{relative}")
-    runtime = (root / "app/runtime/alpaca_paper_adapter_v100.py").read_text(encoding="utf-8")
+    runtime = (root / "app/runtime/alpaca_paper_adapter_v100.py").read_text(
+        encoding="utf-8"
+    )
     for required in (
         "https://paper-api.alpaca.markets",
         "wss://paper-api.alpaca.markets/stream",
@@ -35,9 +58,10 @@ def audit(root: Path) -> tuple[str, ...]:
         if required not in runtime:
             failures.append(f"runtime-control-missing:{required}")
     pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
-    if 'name = "astra-schema100-alpaca-paper-sandbox"' not in pyproject:
+    identity_valid, version_valid = _successor_identity_is_valid(pyproject)
+    if not identity_valid:
         failures.append("package-identity")
-    if 'version = "7.30.0"' not in pyproject:
+    if not version_valid:
         failures.append("package-version")
     return tuple(failures)
 

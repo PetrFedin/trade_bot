@@ -1,0 +1,12 @@
+{
+  "schema": 101,
+  "alpaca_paper_credentials_configured": false,
+  "external_account_read_verified": false,
+  "external_trade_updates_stream_verified": false,
+  "external_submit_replace_cancel_verified": false,
+  "external_cleanup_verified": false,
+  "external_network_chaos_verified": false,
+  "local_deterministic_chaos_verified": true,
+  "external_order_routing_allowed": false,
+  "live_trading_allowed": false
+}
