@@ -11,6 +11,7 @@ on:
       - 'tools/*v102.py'
       - 'tests/*v102.py'
       - 'pyproject.toml'
+      - 'requirements.lock'
       - '.github/workflows/schema102-sandbox-soak-orchestrator.yml'
 
 jobs:
@@ -18,12 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
         with:
           python-version: '3.12'
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install 'pytest>=8,<10' 'coverage>=7,<8'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install hash-locked qualification dependency graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
       - run: python -m pytest -q tests/test_sandbox_soak_orchestrator_v102.py tests/test_tools_v102.py
       - run: coverage run --branch -m pytest -q tests/test_sandbox_soak_orchestrator_v102.py tests/test_tools_v102.py
       - run: coverage report --include='app/runtime/*v102.py' --fail-under=80
