@@ -1,0 +1,204 @@
+name: schema109-remote-signer-attestation
+
+on:
+  push:
+    branches:
+      - agent/schema109-remote-signer-attestation-clean
+    paths:
+      - app/runtime/**v109.py
+      - app/platform_assets/v109/**
+      - migrations/v109/**
+      - tests/**v109.py
+      - tests/test_product_identity.py
+      - tools/**v109.py
+      - tools/platform_v108.py
+      - tools/architecture_audit_v108.py
+      - tools/product_identity.py
+      - RELEASE_IDENTITY_V108.json
+      - RELEASE_IDENTITY_V109.json
+      - pyproject.toml
+      - ENGINEERING_REPORT_V109.md
+      - OPERATOR_RUNBOOK_V109.md
+      - INTEGRATION_V109.md
+      - LIVE_EXECUTION_STATUS_V109.json
+      - QUALIFICATION_SUMMARY_V109.md
+      - RELEASE_NOTES_V109.md
+      - .github/workflows/schema109-remote-signer-attestation.yml
+  pull_request:
+    branches:
+      - agent/schema108-paper-core-foundation
+    types: [opened, reopened, synchronize]
+    paths:
+      - app/runtime/**v109.py
+      - app/platform_assets/v109/**
+      - migrations/v109/**
+      - tests/**v109.py
+      - tests/test_product_identity.py
+      - tools/**v109.py
+      - tools/platform_v108.py
+      - tools/architecture_audit_v108.py
+      - tools/product_identity.py
+      - RELEASE_IDENTITY_V108.json
+      - RELEASE_IDENTITY_V109.json
+      - pyproject.toml
+      - ENGINEERING_REPORT_V109.md
+      - OPERATOR_RUNBOOK_V109.md
+      - INTEGRATION_V109.md
+      - LIVE_EXECUTION_STATUS_V109.json
+      - QUALIFICATION_SUMMARY_V109.md
+      - RELEASE_NOTES_V109.md
+      - .github/workflows/schema109-remote-signer-attestation.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schema109-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deterministic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra-ci
+          POSTGRES_DB: astra
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ASTRA_TEST_POSTGRES_DSN: postgresql://astra:astra-ci@127.0.0.1:5432/astra
+      PGPASSWORD: astra-ci
+    steps:
+      - name: Checkout exact branch or PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check ".[test,postgresql,dev]"
+          python -m pip check
+
+      - name: Install PostgreSQL client
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+
+      - name: Apply canonical migration twice
+        run: |
+          for pass in 1 2; do
+            psql --host=127.0.0.1 --port=5432 --username=astra --dbname=astra \
+              --set=ON_ERROR_STOP=1 --file=migrations/v109/001_remote_signer_attestation.sql
+          done
+
+      - name: Ruff qualification for Schema 109 surface
+        run: ruff check app/runtime/*_v109.py tools/*v109.py tools/platform_v108.py tools/architecture_audit_v108.py tools/product_identity.py tests/*v109.py tests/test_product_identity.py
+
+      - name: Focused Schema 109 tests with real PostgreSQL
+        run: python -m pytest -q tests/*v109.py
+
+      - name: Complete stacked test suite
+        run: python -m pytest -q
+
+      - name: Exact branch-aware Schema 109 coverage
+        run: |
+          coverage erase
+          coverage run --branch --include='app/runtime/*_v109.py' -m pytest -q tests/*v109.py
+          coverage json -o coverage-v109.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('coverage-v109.json').read_text(encoding='utf-8'))
+          total = float(report['totals']['percent_covered'])
+          print(f'exact V109 branch-aware coverage: {total:.6f}%')
+          if total < 90.0:
+              raise SystemExit(f'coverage {total:.6f}% is below 90.0%')
+          PY
+
+      - name: Architecture and static security audits
+        run: |
+          python -m tools.architecture_audit_v109 .
+          python -m tools.static_audit_v109 .
+
+      - name: Compile all Python sources
+        run: python -m compileall -q app tools tests
+
+      - name: Verify predecessor and current release identities
+        run: |
+          python -m tools.platform_v108 --root . verify-release
+          python -m tools.platform_v109 --root . verify-release
+
+      - name: Concurrent claim, replay and policy-equivocation stress
+        run: python -m tools.stress_v109 --iterations 1000 --workers 8
+
+      - name: Verify migration packaging and database contract
+        run: |
+          cmp migrations/v109/001_remote_signer_attestation.sql app/platform_assets/v109/migrations/001_remote_signer_attestation.sql
+          psql --host=127.0.0.1 --port=5432 --username=astra --dbname=astra \
+            --set=ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            policy_fk integer;
+            append_trigger integer;
+            append_events text[];
+          BEGIN
+            SELECT count(*) INTO policy_fk
+            FROM information_schema.table_constraints
+            WHERE table_schema = 'public'
+              AND table_name = 'astra_remote_sign_request_v109'
+              AND constraint_name = 'astra_remote_sign_request_policy_fk_v109'
+              AND constraint_type = 'FOREIGN KEY';
+            IF policy_fk <> 1 THEN
+              RAISE EXCEPTION 'request policy foreign-key contract mismatch: %', policy_fk;
+            END IF;
+            SELECT
+              count(DISTINCT trigger_name),
+              array_agg(DISTINCT event_manipulation::text ORDER BY event_manipulation::text)
+            INTO append_trigger, append_events
+            FROM information_schema.triggers
+            WHERE event_object_schema = 'public'
+              AND event_object_table = 'astra_remote_sign_event_v109'
+              AND trigger_name = 'astra_remote_sign_event_append_only_v109';
+            IF append_trigger <> 1 OR append_events <> ARRAY['DELETE', 'UPDATE']::text[] THEN
+              RAISE EXCEPTION
+                'append-only audit trigger contract mismatch: triggers=% events=%',
+                append_trigger,
+                append_events;
+            END IF;
+          END
+          $$;
+          SQL
+
+      - name: Verify production safety remains fail-closed
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          state = json.loads(Path('LIVE_EXECUTION_STATUS_V109.json').read_text(encoding='utf-8'))
+          assert state['schema'] == 109
+          for key in (
+              'production_remote_signer_verified',
+              'production_signing_authority_verified',
+              'production_kubernetes_mutation_authorized',
+              'external_order_routing_allowed',
+              'live_trading_allowed',
+              'automatic_sign_post_retry_allowed',
+              'private_key_material_persisted_by_runtime',
+          ):
+              assert state[key] is False, key
+          PY
