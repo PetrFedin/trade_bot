@@ -3,9 +3,9 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "astra-schema99-external-paper-roundtrip"
-version = "7.29.0"
-description = "ASTRA paper-only broker round trip, recovery and supervised deployment"
+name = "astra-schema100-alpaca-paper-sandbox"
+version = "7.30.0"
+description = "ASTRA concrete Alpaca paper sandbox adapter, authenticated trade updates and fail-closed controls"
 requires-python = ">=3.11"
 dependencies = []
 
@@ -14,9 +14,16 @@ test = ["pytest>=8,<10", "coverage>=7,<8"]
 
 [project.scripts]
 astra-platform-v99 = "tools.platform_v99:main"
+astra-platform-v100 = "tools.platform_v100:main"
+astra-architecture-audit-v100 = "tools.architecture_audit_v100:main"
+astra-static-audit-v100 = "tools.static_audit_v100:main"
+astra-stress-v100 = "tools.stress_v100:main"
 
 [tool.setuptools.packages.find]
 include = ["app*", "tools*"]
+
+[tool.setuptools.package-data]
+"app.platform_assets.v100" = ["migrations/*.sql", "operations/*.md"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"

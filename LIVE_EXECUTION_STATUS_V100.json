@@ -1,0 +1,12 @@
+{
+  "schema": 100,
+  "version": "7.30.0",
+  "alpaca_paper_adapter_implemented": true,
+  "alpaca_paper_credentials_configured": false,
+  "alpaca_paper_account_read_verified": false,
+  "alpaca_trade_updates_authenticated_verified": false,
+  "alpaca_submit_replace_cancel_verified": false,
+  "network_chaos_external_verified": false,
+  "external_order_routing_allowed": false,
+  "live_trading_allowed": false
+}
