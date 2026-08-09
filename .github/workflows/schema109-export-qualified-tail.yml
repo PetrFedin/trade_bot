@@ -1,0 +1,108 @@
+name: schema109-export-qualified-tail
+
+on:
+  push:
+    branches:
+      - agent/schema109-clean-materialize-20260809
+    paths:
+      - .github/workflows/schema109-export-qualified-tail.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-qualified-tail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout staging revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Reconstruct hash-locked qualified overlay
+        run: |
+          python tools/schema109_qualified_materializer.py extract \
+            --payload-dir _schema109_final_payload \
+            --overlay schema109-tail-overlay
+          git worktree add --detach /tmp/schema109-tail f9d2f693437b3b8e9994fa02adeb13059ed6f7cb
+          cp -a schema109-tail-overlay/. /tmp/schema109-tail/
+
+      - name: Reproduce qualified normalization exactly
+        working-directory: /tmp/schema109-tail
+        run: |
+          python -m pip install --disable-pip-version-check ruff==0.16.1
+          paths=(
+            app/runtime/postgres_remote_signer_repository_v109.py
+            app/runtime/remote_signer_attestation_v109.py
+            tools/architecture_audit_v109.py
+            tools/platform_v109.py
+            tools/static_audit_v109.py
+            tools/stress_v109.py
+            tools/platform_v108.py
+            tools/architecture_audit_v108.py
+            tools/product_identity.py
+            tests/test_postgres_remote_signer_repository_unit_v109.py
+            tests/test_postgres_remote_signer_repository_v109.py
+            tests/test_remote_signer_attestation_v109.py
+            tests/test_tools_v109.py
+            tests/test_product_identity.py
+          )
+          ruff check --fix "${paths[@]}" || true
+          ruff format "${paths[@]}"
+          python "$GITHUB_WORKSPACE/tools/schema109_qualified_materializer.py" normalize --root .
+          python "$GITHUB_WORKSPACE/tools/schema109_qualified_materializer.py" sync-identity --root .
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('RELEASE_IDENTITY_V109.json')
+          identity = json.loads(path.read_text(encoding='utf-8'))
+          identity.setdefault('qualification', {})['ci_branch_aware_runtime_coverage_percent'] = 98.23321554770318
+          path.write_text(json.dumps(identity, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          PY
+          ruff check "${paths[@]}"
+          git diff --check
+
+      - name: Verify exact qualified evidence and export tail
+        working-directory: /tmp/schema109-tail
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path.cwd()
+          evidence = json.loads((Path(os.environ['GITHUB_WORKSPACE']) / '_schema109_final_payload/qualified-final-hashes.json').read_text(encoding='utf-8'))
+          assert evidence['qualified_run_id'] == 31288333337
+          assert len(evidence['files']) == 27
+          for relative, expected in sorted(evidence['files'].items()):
+              path = root / relative
+              actual = hashlib.sha256(path.read_bytes()).hexdigest()
+              if actual != expected:
+                  raise SystemExit(f'qualified hash mismatch: {relative}: {actual} != {expected}')
+          export = Path(os.environ['GITHUB_WORKSPACE']) / 'schema109-qualified-tail'
+          (export / '.github/workflows').mkdir(parents=True, exist_ok=True)
+          (export / '.github/workflows/schema109-remote-signer-attestation.yml').write_bytes(
+              (root / '.github/workflows/schema109-remote-signer-attestation.yml').read_bytes()
+          )
+          (export / 'RELEASE_IDENTITY_V109.json').write_bytes(
+              (root / 'RELEASE_IDENTITY_V109.json').read_bytes()
+          )
+          print('PASS qualified tail export: 27/27 evidence matched')
+          PY
+
+      - name: Upload qualified tail
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: schema109-qualified-tail-${{ github.run_id }}
+          path: schema109-qualified-tail
+          if-no-files-found: error
+          retention-days: 14
