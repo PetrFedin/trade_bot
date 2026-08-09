@@ -1,0 +1,32 @@
+{
+  "external_order_routing_allowed": false,
+  "files": {
+    ".github/workflows/schema105-production-worker-fleet-operations.yml": "f865c8d117dfad419803717be4743773710d6f4778f5553a3e9d9e4f8550e3fb",
+    "ENGINEERING_REPORT_V105.md": "ec7bd9b1aace9ffa0f1300d20c42d38bbbe40bff36c3af6cd38f0a474d89f4b6",
+    "INTEGRATION_V105.md": "11647b645e0abca2834809fbb7ff3fa705ba2c589b3c5ceb95becc463393a418",
+    "LIVE_EXECUTION_STATUS_V105.json": "a1cc41202a5262a972cca0408c509c7cce6f310f2a4f84fd7c8013fdb29eba80",
+    "OPERATOR_RUNBOOK_V105.md": "2efc6e914fca039b98e197ad55f85a4a4f38e0cdc41958117e2d416a32edb6d5",
+    "QUALIFICATION_SUMMARY_V105.md": "d682dc73f4ba75b701f4f7ea598ecca6001ea37ce842df46c17403f157f1cb0f",
+    "README.md": "c4208dc91ce587112d9c77abac7cd36711fb77a897c3739333dd336c8e38fbe8",
+    "RELEASE_NOTES_V105.md": "9fe679daa8c8eef05750559087ad2d556d1ce128e8091f8f7b2cccef98615770",
+    "app/platform_assets/v105/migrations/001_production_worker_fleet_operations.sql": "65e218e5a99070fa02900b259b12ab345a9c095bfa48b98d4127d57c58dcb5af",
+    "app/runtime/fleet_operations_v105.py": "21d15c090f00e71d3332b4e0c2bdb3a19f7b014a0300e195cab7b7f8cb1e6f1f",
+    "app/runtime/postgres_fleet_operations_v105.py": "86f76865694269423aaa5820c814295cb714a7da5682b103c1a963679ba3b0bf",
+    "app/runtime/s3_evidence_adapter_v105.py": "0c961482bd8f79d40fe89ab8cd249631ca8c80533edd9a3d971fdd8f2542bfc8",
+    "migrations/v105/001_production_worker_fleet_operations.sql": "65e218e5a99070fa02900b259b12ab345a9c095bfa48b98d4127d57c58dcb5af",
+    "pyproject.toml": "95464c4f6f62c6fd8e127d07cb5d561d5484147a8c0ca9d8a1b363097738dae3",
+    "tests/test_fleet_operations_v105.py": "ced0250814d2cfe10a80dfbaea46b57772706abef72787eb6ec94dd03aa0ee58",
+    "tests/test_postgres_fleet_operations_v105.py": "f44ab629f3831d2022f8d95d7cfa3ae05906bc97f8b946d4d85ad574f1d7897d",
+    "tests/test_s3_evidence_adapter_v105.py": "690a03a3c0d1fb8456a621bec2c2c199c63f38cff701f2fd9cf3491e846c8d56",
+    "tests/test_tools_v105.py": "0ae3f04d0c453b50f006eb96bd0ccaf9693f3eb30dc00ad974d3ee005de7c011",
+    "tools/architecture_audit_v105.py": "bb5f399164c0633df5b6d5c9faa6e89e7bb5cf37015724f8cfb7d84641b95cb8",
+    "tools/platform_v105.py": "d8cde6ac6d81cafb137d576f1967533ce7fff5206527a6843e7153764209eb65",
+    "tools/static_audit_v105.py": "147e10067b34d63f1271efd043f6550dc7b23c090e325fd672df32745474e911",
+    "tools/stress_v105.py": "a74a74ca3afb7c2b97aaf23221e2760a240e14555b5c8cdb170ed60de7ccaf32"
+  },
+  "live_trading_allowed": false,
+  "package": "astra-schema105-production-worker-fleet-operations",
+  "release": "7.35.0",
+  "schema": 105,
+  "wheel_sha256": "ac67fcdad26142d13293961e44a69ed46262ae730a46acdb25cc5403a57240b6"
+}

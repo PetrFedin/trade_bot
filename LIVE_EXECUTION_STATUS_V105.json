@@ -1,0 +1,16 @@
+{
+  "schema": 105,
+  "release": "7.35.0",
+  "local_fleet_unit_qualification": true,
+  "local_s3_adapter_unit_qualification": true,
+  "local_postgresql_adapter_unit_qualification": true,
+  "external_kubernetes_fleet_verified": false,
+  "external_s3_compatible_storage_verified": false,
+  "external_postgresql_fleet_repository_verified": false,
+  "production_autoscaling_actuator_verified": false,
+  "production_identity_authority_verified": false,
+  "external_alpaca_read_only_fleet_verified": false,
+  "external_order_routing_allowed": false,
+  "live_trading_allowed": false,
+  "status": "LOCAL_QUALIFICATION_ONLY"
+}
