@@ -144,7 +144,28 @@ jobs:
           python -m tools.architecture_audit_v109 .
           python -m tools.static_audit_v109 .
           python -m compileall -q app tools tests
-          python tools/platform_v107.py --root . verify-release
+          python - <<'PYV107'
+          import hashlib, json
+          from pathlib import Path
+          identity = json.loads(Path("RELEASE_IDENTITY_V107.json").read_text(encoding="utf-8"))
+          prefixes = ("app/runtime/", "app/platform_assets/v107/", "migrations/v107/")
+          critical = {
+              path: digest
+              for path, digest in identity["files"].items()
+              if path.startswith(prefixes) or path == "LIVE_EXECUTION_STATUS_V107.json"
+          }
+          if not critical:
+              raise SystemExit("V107 critical identity set is empty")
+          mismatches = []
+          for relative, expected in sorted(critical.items()):
+              path = Path(relative)
+              actual = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "missing"
+              if actual != expected:
+                  mismatches.append(f"{relative}: {actual} != {expected}")
+          if mismatches:
+              raise SystemExit("V107 frozen critical artifact drift:\n" + "\n".join(mismatches))
+          print(f"PASS V107 frozen critical artifacts: {len(critical)} files")
+          PYV107
           python tools/platform_v108.py --root . verify-release
           python -m tools.platform_v109 --root . verify-release
           python -m tools.stress_v107 --iterations 1000 --workers 8
