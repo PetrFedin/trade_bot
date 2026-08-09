@@ -1,31 +1,35 @@
-# ASTRA 7.31.0 — Schema 101 external sandbox qualification
+# ASTRA 7.32.0 — Schema 102 sandbox soak orchestrator
 
-Schema 101 adds a fail-closed qualification boundary for an external paper broker sandbox. It does **not** enable live trading.
-
-## Control flow
+Schema 102 adds a durable scheduler for repeated Schema 101 paper-sandbox qualifications.
 
 ```text
-sealed plan
-  -> read-only account and open-order probe
-  -> authenticated paper stream evidence
-  -> signed, scoped, one-time operator approval
-  -> single-attempt submit / replace / cancel
-  -> read-only resolution of ambiguous mutations
-  -> bounded cleanup proof
-  -> verified or blocked / recovering / quarantined
+sealed campaign plan
+  -> fenced lease
+  -> due run claim
+  -> Schema 101 qualification
+  -> sealed evidence archive
+  -> verified / failed / blocked / quarantined
+  -> next slot or completed paper-soak eligibility
 ```
 
-Safety controls include generation fencing, HMAC approval sealing, replay protection, sticky kill switch, allowlisted symbols, quantity/notional caps, hash-chain/fsync evidence and fail-closed recovery.
+Key controls:
+
+- one active run per campaign;
+- monotonic fencing tokens;
+- total and consecutive failure budgets;
+- strict evidence freshness and identity;
+- immediate block for recovery-required or residual exposure;
+- append-only fsync/hash-chain journal;
+- chained evidence manifest and retention deadline;
+- restart replay without automatic unblock.
 
 ```bash
 python -m pip install -e '.[test]'
 python -m pytest -q
-python -m tools.architecture_audit_v101 .
-python -m tools.static_audit_v101 .
-python -m tools.stress_v101 --iterations 1000 --workers 8
+python -m tools.architecture_audit_v102 .
+python -m tools.static_audit_v102 .
+python -m tools.stress_v102 --iterations 1000 --workers 8
 ```
-
-External probes require paper credentials in environment variables and the optional market-data dependency. Paper mutations remain disabled until a separately signed approval is accepted by the qualification service.
 
 ```text
 external_order_routing_allowed = false

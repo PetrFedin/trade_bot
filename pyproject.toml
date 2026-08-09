@@ -3,9 +3,9 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "astra-schema101-external-sandbox-qualification"
-version = "7.31.0"
-description = "ASTRA managed external paper-sandbox qualification and cleanup proof"
+name = "astra-schema102-sandbox-soak-orchestrator"
+version = "7.32.0"
+description = "ASTRA durable repeated paper-sandbox qualification campaigns"
 requires-python = ">=3.11"
 dependencies = []
 
@@ -14,22 +14,21 @@ test = ["pytest>=8,<10", "coverage>=7,<8"]
 marketdata = ["websockets>=13,<17"]
 
 [project.scripts]
-astra-platform-v99 = "tools.platform_v99:main"
-astra-platform-v100 = "tools.platform_v100:main"
 astra-platform-v101 = "tools.platform_v101:main"
-astra-architecture-audit-v100 = "tools.architecture_audit_v100:main"
-astra-static-audit-v100 = "tools.static_audit_v100:main"
-astra-stress-v100 = "tools.stress_v100:main"
 astra-architecture-audit-v101 = "tools.architecture_audit_v101:main"
 astra-static-audit-v101 = "tools.static_audit_v101:main"
 astra-stress-v101 = "tools.stress_v101:main"
+astra-platform-v102 = "tools.platform_v102:main"
+astra-architecture-audit-v102 = "tools.architecture_audit_v102:main"
+astra-static-audit-v102 = "tools.static_audit_v102:main"
+astra-stress-v102 = "tools.stress_v102:main"
 
 [tool.setuptools.packages.find]
 include = ["app*", "tools*"]
 
 [tool.setuptools.package-data]
-"app.platform_assets.v100" = ["migrations/*.sql", "operations/*.md"]
 "app.platform_assets.v101" = ["migrations/*.sql"]
+"app.platform_assets.v102" = ["migrations/*.sql"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"

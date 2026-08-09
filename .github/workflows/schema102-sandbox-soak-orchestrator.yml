@@ -1,0 +1,32 @@
+name: schema102-sandbox-soak-orchestrator
+
+on:
+  push:
+    branches: [agent/schema102-sandbox-soak-orchestrator]
+  pull_request:
+    paths:
+      - 'app/runtime/*v102.py'
+      - 'app/platform_assets/v102/**'
+      - 'migrations/v102/**'
+      - 'tools/*v102.py'
+      - 'tests/*v102.py'
+      - 'pyproject.toml'
+      - '.github/workflows/schema102-sandbox-soak-orchestrator.yml'
+
+jobs:
+  deterministic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install 'pytest>=8,<10' 'coverage>=7,<8'
+      - run: python -m pytest -q tests/test_sandbox_soak_orchestrator_v102.py tests/test_tools_v102.py
+      - run: coverage run --branch -m pytest -q tests/test_sandbox_soak_orchestrator_v102.py tests/test_tools_v102.py
+      - run: coverage report --include='app/runtime/*v102.py' --fail-under=80
+      - run: python -m tools.architecture_audit_v102 .
+      - run: python -m tools.static_audit_v102 .
+      - run: python -m tools.stress_v102 --iterations 1000 --workers 8
