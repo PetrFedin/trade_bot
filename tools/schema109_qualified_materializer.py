@@ -217,11 +217,18 @@ def record_coverage(root: Path, coverage_json: Path) -> None:
 def verify_final(root: Path, base: str, source_manifest: Path, output: Path) -> None:
     manifest = json.loads(source_manifest.read_text(encoding="utf-8"))
     expected_files = manifest["files"]
-    changed = set(
+    tracked = set(
         subprocess.check_output(
-            ["git", "-C", str(root), "diff", "--name-only", base], text=True
+            ["git", "-C", str(root), "diff", "--name-only", base, "--"], text=True
         ).splitlines()
     )
+    untracked = set(
+        subprocess.check_output(
+            ["git", "-C", str(root), "ls-files", "--others", "--exclude-standard"],
+            text=True,
+        ).splitlines()
+    )
+    changed = tracked | untracked
     expected_names = set(expected_files)
     if changed != expected_names:
         raise SystemExit(
