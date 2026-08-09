@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Sequence
 from pathlib import Path
-import re
-from typing import Sequence
+
+from tools.product_identity import stable_identity_findings
 
 REQUIRED = (
     "app/runtime/rollout_execution_v107.py",
@@ -52,12 +53,7 @@ def audit(root: Path) -> dict[str, object]:
         return path.read_text(encoding="utf-8") if path.is_file() else ""
 
     pyproject = read("pyproject.toml")
-    name = re.search(r'^name\s*=\s*"astra-schema(?P<schema>\d+)[^"]*"$', pyproject, re.MULTILINE)
-    version = re.search(r'^version\s*=\s*"(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"$', pyproject, re.MULTILINE)
-    if not name or int(name.group("schema")) < 107:
-        findings.append("package_identity")
-    if not version or tuple(int(version.group(part)) for part in ("major", "minor", "patch")) < (7, 37, 0):
-        findings.append("package_version")
+    findings.extend(stable_identity_findings(pyproject, minimum_version=(7, 37, 0)))
 
     execution = read("app/runtime/rollout_execution_v107.py")
     for token in (
@@ -78,8 +74,8 @@ def audit(root: Path) -> dict[str, object]:
         'method="PATCH"',
         "tls_verify=True",
         "allow_redirects=False",
-        'application/json-patch+json',
-        'KUBERNETES_MUTATION_ATTEMPTS_V107 = 1',
+        "application/json-patch+json",
+        "KUBERNETES_MUTATION_ATTEMPTS_V107 = 1",
     ):
         if token not in adapter:
             findings.append(f"kubernetes_boundary:{token}")

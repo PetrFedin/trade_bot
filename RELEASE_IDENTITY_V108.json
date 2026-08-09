@@ -15,17 +15,17 @@
     "app/runtime/rollout_crypto_bridge_v108.py": "fdf28f60e5aa70b7e52501fb2af641372222eed2135475e3b6d053c1f3bb5fbf",
     "app/runtime/signing_authority_v108.py": "0f65603a6ce27659204bbac334ebcffc14cdb65a9863b18b8cda6c8091617cda",
     "migrations/v108/001_asymmetric_signing_authority.sql": "88e279658d55cb687b7ee8a5c35d1f35f317f8d0254348c93e91ac7e2725160f",
-    "pyproject.toml": "5b54c19c5115750b50e7178a78c5947cc3676d1d51ae51892dca120428e3346c",
+    "pyproject.toml": "09cd4a6e8c482e363962457cc9779ae7a891f8250677639b0deba67a42e94dc3",
     "tests/helpers_v108.py": "5755e017b8171e026cdb828ed462a9b49e0d6cf682789c474b1e8f04120f3ba4",
     "tests/test_migration_contract_v108.py": "f688cff140be34d34dba7c802d083050adf38502b1a3dc8a47bb623880f7e393",
     "tests/test_postgres_signing_repository_v108.py": "41eef2841e0bb288c9e88efc419f118658c85a640218608be5e7bfd2e62b9622",
     "tests/test_rollout_crypto_bridge_v108.py": "7f7689d453b26ad069058e3f06c1878d490511b0003dff8c19efa1871b33342c",
     "tests/test_signing_authority_v108.py": "e7bc3fe94bbc489c321c6bc0654ac8f563690a03f9bbea736add196082432e40",
     "tests/test_tools_v108.py": "b12b149c35b43716954da453ba45941aa2c5ed6258dc061479b24c74f2f63429",
-    "tools/architecture_audit_v108.py": "5c1ff557ed064b816da5a131672c7f3ff66c6fc94c0740ffaf05b53479b31d0d",
+    "tools/architecture_audit_v108.py": "ccea6918dd6f86b0f12fbe314cff2dc7b365da681e921f97da61b9ef87bfb2b3",
     "tools/platform_v108.py": "e716ce6879f55ccde3d21234619a8dc85b9818cc6667cb79dd511569629905b3",
     "tools/static_audit_v108.py": "3519b1208bb42c15c7eb25de9d649301dcc8dbf6e7e0bd0b20956c60165856d9",
-    "tools/stress_v108.py": "1a32ee22ba96228a10a580f015a597a0d921df67e232f0cb583f0f07c26b3a1e"
+    "tools/stress_v108.py": "1a32ee22ba96228a10a580f015a597a0d921df67e232f0f07c26b3a1e"
   },
   "package": "astra-schema108-asymmetric-signing-authority",
   "qualification": {

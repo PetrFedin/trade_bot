@@ -9,6 +9,7 @@ import json
 import os
 import threading
 import time
+from urllib.parse import quote
 from typing import Any, Protocol
 
 from app.runtime.paper_broker_contract_v99 import (
@@ -134,6 +135,7 @@ class AlpacaPaperPolicyV100:
     mutation_capacity: int = 20
     mutation_refill_per_second: float = 20 / 60
     timeout_seconds: float = 10.0
+    maximum_response_bytes: int = 1_048_576
 
     def validate(self) -> None:
         if self.maximum_read_attempts < 1:
@@ -148,6 +150,8 @@ class AlpacaPaperPolicyV100:
             raise ValueError("rate-limit refill rates must be positive")
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
+        if self.maximum_response_bytes < 1:
+            raise ValueError("maximum_response_bytes must be positive")
 
 
 class TokenBucketV100:
@@ -247,7 +251,7 @@ class AlpacaPaperAdapterV100:
     def get_order_by_client_order_id(self, client_order_id: str) -> BrokerOrder | None:
         try:
             raw = self._read(
-                "GET", f"/v2/orders:by_client_order_id?client_order_id={client_order_id}"
+                "GET", f"/v2/orders:by_client_order_id?client_order_id={quote(client_order_id, safe='')}"
             )
         except BrokerMutationError as exc:
             if exc.code == "404":
@@ -280,20 +284,20 @@ class AlpacaPaperAdapterV100:
     ) -> BrokerOrder:
         return self._parse_order(
             self._mutate(
-                "PATCH", f"/v2/orders/{broker_order_id}", {"limit_price": str(limit_price)}
+                "PATCH", f"/v2/orders/{quote(broker_order_id, safe='')}", {"limit_price": str(limit_price)}
             )
         )
 
     def cancel_order(self, *, broker_order_id: str) -> BrokerOrder:
-        self._mutate("DELETE", f"/v2/orders/{broker_order_id}", None, allow_empty=True)
-        raw = self._read("GET", f"/v2/orders/{broker_order_id}")
+        self._mutate("DELETE", f"/v2/orders/{quote(broker_order_id, safe='')}", None, allow_empty=True)
+        raw = self._read("GET", f"/v2/orders/{quote(broker_order_id, safe='')}")
         return self._parse_order(raw)
 
     def _read(self, method: str, path: str) -> object:
-        if not self._read_limiter.try_acquire():
-            raise AlpacaPaperRateLimitExceeded("local paper read rate limit exceeded")
         delay = self.policy.initial_backoff_seconds
         for attempt in range(1, self.policy.maximum_read_attempts + 1):
+            if not self._read_limiter.try_acquire():
+                raise AlpacaPaperRateLimitExceeded("local paper read rate limit exceeded")
             try:
                 return self._request(method, path, None)
             except BrokerMutationError as exc:
@@ -336,6 +340,8 @@ class AlpacaPaperAdapterV100:
             )
         except (TimeoutError, OSError) as exc:
             raise BrokerMutationError("TRANSPORT", str(exc), ambiguous=True) from exc
+        if len(response.body) > self.policy.maximum_response_bytes:
+            raise AlpacaPaperProtocolError("broker response exceeds configured size limit")
         if response.status == 204 and allow_empty:
             return {}
         try:

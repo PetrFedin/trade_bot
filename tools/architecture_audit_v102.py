@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Sequence
 from pathlib import Path
-import re
-from typing import Sequence
+
+from tools.product_identity import stable_identity_findings
 
 REQUIRED = (
     "app/runtime/sandbox_soak_orchestrator_v102.py",
@@ -28,13 +29,10 @@ def audit(root: Path) -> dict[str, object]:
         if not (root / relative).is_file():
             findings.append(f"missing:{relative}")
     pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
-    name = re.search(r'^name\s*=\s*"astra-schema(?P<schema>\d+)[^"]*"$', pyproject, re.MULTILINE)
-    version = re.search(r'^version\s*=\s*"(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"$', pyproject, re.MULTILINE)
-    if not name or int(name.group("schema")) < 102:
-        findings.append("package_identity")
-    if not version or tuple(int(version.group(part)) for part in ("major", "minor", "patch")) < (7, 32, 0):
-        findings.append("package_version")
-    runtime = (root / "app/runtime/sandbox_soak_orchestrator_v102.py").read_text(encoding="utf-8")
+    findings.extend(stable_identity_findings(pyproject, minimum_version=(7, 32, 0)))
+    runtime = (root / "app/runtime/sandbox_soak_orchestrator_v102.py").read_text(
+        encoding="utf-8"
+    )
     for token in (
         "fencing_token",
         "evidence_retention",
@@ -47,8 +45,14 @@ def audit(root: Path) -> dict[str, object]:
     ):
         if token not in runtime:
             findings.append(f"runtime_boundary:{token}")
-    migration = (root / "migrations/v102/001_sandbox_soak_orchestrator.sql").read_text(encoding="utf-8")
-    for token in ("soak_campaign_event_append_only", "soak_run_evidence_append_only", "REVOKE ALL"):
+    migration = (root / "migrations/v102/001_sandbox_soak_orchestrator.sql").read_text(
+        encoding="utf-8"
+    )
+    for token in (
+        "soak_campaign_event_append_only",
+        "soak_run_evidence_append_only",
+        "REVOKE ALL",
+    ):
         if token not in migration:
             findings.append(f"migration_boundary:{token}")
     return {

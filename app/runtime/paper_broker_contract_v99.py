@@ -58,6 +58,7 @@ class BrokerOrder:
     status: BrokerOrderStatus
     filled_quantity: Decimal
     updated_at: datetime
+    filled_avg_price: Decimal | None = None
 
     def validate(self) -> None:
         require_aware(self.updated_at, field_name="updated_at")
@@ -74,8 +75,16 @@ class BrokerOrder:
             raise ValueError("quantity must be positive and finite")
         if self.limit_price <= 0 or not self.limit_price.is_finite():
             raise ValueError("limit_price must be positive and finite")
-        if self.filled_quantity < 0 or self.filled_quantity > self.quantity:
+        if (
+            not self.filled_quantity.is_finite()
+            or self.filled_quantity < 0
+            or self.filled_quantity > self.quantity
+        ):
             raise ValueError("filled_quantity is outside order quantity")
+        if self.filled_avg_price is not None and (
+            not self.filled_avg_price.is_finite() or self.filled_avg_price <= 0
+        ):
+            raise ValueError("filled_avg_price must be positive and finite when present")
 
 
 class PaperBrokerV99(Protocol):

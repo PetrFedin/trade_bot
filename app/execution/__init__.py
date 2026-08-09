@@ -1,0 +1,1 @@
+"""Stable paper execution boundary."""

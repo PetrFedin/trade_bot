@@ -3,11 +3,24 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from collections.abc import Sequence
 from pathlib import Path
-import re
-from typing import Sequence
 
-_SUCCESSOR_MUTABLE_FILES = frozenset({"README.md", "pyproject.toml"})
+from tools.product_identity import (
+    STABLE_PACKAGE_NAME,
+    compatible_schema_for_version,
+    parse_product_identity,
+    stable_identity_findings,
+)
+
+_SUCCESSOR_MUTABLE_FILES = frozenset(
+    {
+        "README.md",
+        "pyproject.toml",
+        "tools/architecture_audit_v106.py",
+        "tools/platform_v106.py",
+    }
+)
 
 
 def _sha256(path: Path) -> str:
@@ -22,16 +35,10 @@ def _package_identity(root: Path) -> tuple[int, tuple[int, int, int]]:
     path = root / "pyproject.toml"
     if not path.is_file():
         return 0, (0, 0, 0)
-    content = path.read_text(encoding="utf-8")
-    name = re.search(r'^name\s*=\s*"astra-schema(?P<schema>\d+)[^"]*"$', content, re.MULTILINE)
-    version = re.search(
-        r'^version\s*=\s*"(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"$',
-        content,
-        re.MULTILINE,
-    )
-    if not name or not version:
+    identity = parse_product_identity(path.read_text(encoding="utf-8"))
+    if identity is None or identity.name != STABLE_PACKAGE_NAME:
         return 0, (0, 0, 0)
-    return int(name.group("schema")), tuple(int(version.group(part)) for part in ("major", "minor", "patch"))
+    return compatible_schema_for_version(identity.version), identity.version
 
 
 def verify_release(root: Path) -> dict[str, object]:
@@ -59,10 +66,9 @@ def verify_release(root: Path) -> dict[str, object]:
             "findings": ["invalid:RELEASE_IDENTITY_V106.json"],
         }
 
+    pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
     current_schema, current_version = _package_identity(root)
-    findings: list[str] = []
-    if current_schema < 106 or current_version < (7, 36, 0):
-        findings.append("package_identity")
+    findings = list(stable_identity_findings(pyproject, minimum_version=(7, 36, 0)))
     successor = current_schema > 106
     ignored: list[str] = []
     checked = 0

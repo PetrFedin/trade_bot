@@ -3,15 +3,23 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from collections.abc import Sequence
 from pathlib import Path
-import re
-from typing import Sequence
+
+from tools.product_identity import (
+    STABLE_PACKAGE_NAME,
+    compatible_schema_for_version,
+    parse_product_identity,
+    stable_identity_findings,
+)
 
 _SUCCESSOR_MUTABLE_FILES = frozenset(
     {
         ".github/workflows/schema105-production-worker-fleet-operations.yml",
         "README.md",
         "pyproject.toml",
+        "tools/architecture_audit_v105.py",
+        "tools/platform_v105.py",
     }
 )
 
@@ -20,18 +28,10 @@ def _package_identity(root: Path) -> tuple[int, tuple[int, int, int]]:
     pyproject_path = root / "pyproject.toml"
     if not pyproject_path.is_file():
         return 0, (0, 0, 0)
-    content = pyproject_path.read_text(encoding="utf-8")
-    name = re.search(r'^name\s*=\s*"astra-schema(?P<schema>\d+)[^"]*"$', content, re.MULTILINE)
-    version = re.search(
-        r'^version\s*=\s*"(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"$',
-        content,
-        re.MULTILINE,
-    )
-    if not name or not version:
+    identity = parse_product_identity(pyproject_path.read_text(encoding="utf-8"))
+    if identity is None or identity.name != STABLE_PACKAGE_NAME:
         return 0, (0, 0, 0)
-    return int(name.group("schema")), tuple(
-        int(version.group(part)) for part in ("major", "minor", "patch")
-    )
+    return compatible_schema_for_version(identity.version), identity.version
 
 
 def verify_release(root: Path) -> dict[str, object]:
@@ -47,10 +47,9 @@ def verify_release(root: Path) -> dict[str, object]:
         }
 
     identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
     current_schema, current_version = _package_identity(root)
-    findings: list[str] = []
-    if current_schema < 105 or current_version < (7, 35, 0):
-        findings.append("package_identity")
+    findings = list(stable_identity_findings(pyproject, minimum_version=(7, 35, 0)))
 
     successor = current_schema > 105
     ignored: list[str] = []
