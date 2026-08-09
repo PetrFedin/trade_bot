@@ -1,5 +1,6 @@
 {
   "files": {
+    ".github/workflows/canonical-security-regression.yml": "27da30b78c93c7bd59ad88b3d96642fdab9949df66873f26b54354dc12a4ac91",
     ".github/workflows/schema109-remote-signer-attestation.yml": "80cdbb91927fd33249a99399e68acca36abb24a3fb20dd472b164c8a7cd00f84",
     "ENGINEERING_REPORT_V109.md": "0c33b2187b011f0d309b35c0eb51b4ac1b27247e955dc2cc48c5264315267c92",
     "INTEGRATION_V109.md": "d676ff80bf2f6f15e6af50b748be8798f8b788394bee99f4a2a8ec9b8c1b93a3",
