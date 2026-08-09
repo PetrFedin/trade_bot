@@ -132,18 +132,20 @@ jobs:
         run: |
           coverage erase
           coverage run --branch --include='app/runtime/*_v109.py' -m pytest -q tests/*v109.py
-          coverage json -o coverage-v109.json
+          coverage json -o "$GITHUB_WORKSPACE/coverage-v109.json"
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
-          report = json.loads(Path('coverage-v109.json').read_text(encoding='utf-8'))
+          report_path = Path(os.environ['GITHUB_WORKSPACE']) / 'coverage-v109.json'
+          report = json.loads(report_path.read_text(encoding='utf-8'))
           total = float(report['totals']['percent_covered'])
           print(f'exact V109 branch-aware coverage: {total:.6f}%')
           if total < 90.0:
               raise SystemExit(f'coverage {total:.6f}% is below 90.0%')
           PY
           python "$GITHUB_WORKSPACE/tools/schema109_qualified_materializer.py" record-coverage \
-            --root . --coverage-json coverage-v109.json
+            --root . --coverage-json "$GITHUB_WORKSPACE/coverage-v109.json"
 
       - name: Architecture, static, predecessor and release verification
         working-directory: /tmp/schema109-qualified-target
@@ -225,6 +227,6 @@ jobs:
           path: |
             _schema109_final_payload/manifest.json
             schema109-final-hashes.json
-            /tmp/schema109-qualified-target/coverage-v109.json
+            coverage-v109.json
           if-no-files-found: warn
           retention-days: 14
