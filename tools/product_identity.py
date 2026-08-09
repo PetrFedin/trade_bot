@@ -14,6 +14,7 @@ KNOWN_SCHEMA_MINIMUM_VERSIONS: dict[int, tuple[int, int, int]] = {
     106: (7, 36, 0),
     107: (7, 37, 0),
     108: (7, 38, 0),
+    109: (7, 39, 0),
 }
 _VERSION_RE = re.compile(
     r'^version\s*=\s*"(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"\s*$',
@@ -29,11 +30,7 @@ class ProductIdentity:
 
 
 def parse_product_identity(pyproject: str) -> ProductIdentity | None:
-    """Parse the distribution identity from ``pyproject.toml`` text.
-
-    The parser is intentionally strict: an absent or malformed name/version is not
-    guessed because architecture qualification must fail closed.
-    """
+    """Parse the stable distribution identity from ``pyproject.toml`` text."""
 
     name_match = _NAME_RE.search(pyproject)
     version_match = _VERSION_RE.search(pyproject)
@@ -41,9 +38,7 @@ def parse_product_identity(pyproject: str) -> ProductIdentity | None:
         return None
     return ProductIdentity(
         name=name_match.group("name"),
-        version=tuple(
-            int(version_match.group(part)) for part in ("major", "minor", "patch")
-        ),
+        version=tuple(int(version_match.group(part)) for part in ("major", "minor", "patch")),
     )
 
 
@@ -51,9 +46,7 @@ def compatible_schema_for_version(version: tuple[int, int, int]) -> int:
     """Return the highest known historical Schema contained by a product version."""
 
     compatible = [
-        schema
-        for schema, minimum in KNOWN_SCHEMA_MINIMUM_VERSIONS.items()
-        if version >= minimum
+        schema for schema, minimum in KNOWN_SCHEMA_MINIMUM_VERSIONS.items() if version >= minimum
     ]
     return max(compatible, default=0)
 
@@ -64,13 +57,7 @@ def stable_identity_findings(
     minimum_version: tuple[int, int, int] | None = None,
     exact_version: tuple[int, int, int] | None = None,
 ) -> tuple[str, ...]:
-    """Return fail-closed product identity findings for compatibility audits.
-
-    Historical Schema audits validate that the current stable product still contains
-    their compatibility layer. They therefore require the one stable distribution
-    name and a product version new enough to contain the schema, rather than requiring
-    the distribution itself to be renamed for every schema generation.
-    """
+    """Return fail-closed findings for the stable product distribution identity."""
 
     if minimum_version is not None and exact_version is not None:
         raise ValueError("minimum_version and exact_version are mutually exclusive")

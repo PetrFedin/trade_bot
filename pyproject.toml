@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "astra-trade-bot"
-version = "7.38.0"
-description = "ASTRA paper-trading product with Schema 108 signing compatibility"
+version = "7.39.0"
+description = "ASTRA paper-trading product with Schema 109 remote signer attestation compatibility"
 requires-python = ">=3.11"
 dependencies = ["cryptography>=50,<51"]
 
@@ -46,6 +46,10 @@ astra-platform-v108 = "tools.platform_v108:main"
 astra-architecture-audit-v108 = "tools.architecture_audit_v108:main"
 astra-static-audit-v108 = "tools.static_audit_v108:main"
 astra-stress-v108 = "tools.stress_v108:main"
+astra-platform-v109 = "tools.platform_v109:main"
+astra-architecture-audit-v109 = "tools.architecture_audit_v109:main"
+astra-static-audit-v109 = "tools.static_audit_v109:main"
+astra-stress-v109 = "tools.stress_v109:main"
 
 [tool.setuptools.packages.find]
 include = ["app*", "tools*"]
@@ -55,6 +59,7 @@ include = ["app*", "tools*"]
 "app.platform_assets.v106" = ["migrations/*.sql"]
 "app.platform_assets.v107" = ["migrations/*.sql"]
 "app.platform_assets.v108" = ["migrations/*.sql"]
+"app.platform_assets.v109" = ["migrations/*.sql"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"

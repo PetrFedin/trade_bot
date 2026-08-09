@@ -25,7 +25,7 @@
     "tools/architecture_audit_v108.py": "ccea6918dd6f86b0f12fbe314cff2dc7b365da681e921f97da61b9ef87bfb2b3",
     "tools/platform_v108.py": "e716ce6879f55ccde3d21234619a8dc85b9818cc6667cb79dd511569629905b3",
     "tools/static_audit_v108.py": "3519b1208bb42c15c7eb25de9d649301dcc8dbf6e7e0bd0b20956c60165856d9",
-    "tools/stress_v108.py": "1a32ee22ba96228a10a580f015a597a0d921df67e232f0f07c26b3a1e"
+    "tools/stress_v108.py": "1a32ee22ba96228a10a580f015a597a0d921df67e232f0cb583f0f07c26b3a1e"
   },
   "package": "astra-schema108-asymmetric-signing-authority",
   "qualification": {
