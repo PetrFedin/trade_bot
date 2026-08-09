@@ -1,0 +1,17 @@
+{
+  "schema": 103,
+  "version": "7.33.0",
+  "production_control_plane_implemented": true,
+  "postgresql_adapter_implemented": true,
+  "postgresql_migration_implemented": true,
+  "read_only_probe_boundary_implemented": true,
+  "resumable_evidence_upload_implemented": true,
+  "incident_escalation_implemented": true,
+  "retention_worker_implemented": true,
+  "external_postgresql_cluster_verified": false,
+  "external_alpaca_read_only_campaign_verified": false,
+  "production_scheduler_deployed": false,
+  "production_distributed_lease_verified": false,
+  "external_order_routing_allowed": false,
+  "live_trading_allowed": false
+}

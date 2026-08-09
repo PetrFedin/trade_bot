@@ -3,15 +3,16 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "astra-schema102-sandbox-soak-orchestrator"
-version = "7.32.0"
-description = "ASTRA durable repeated paper-sandbox qualification campaigns"
+name = "astra-schema103-production-control-plane"
+version = "7.33.0"
+description = "ASTRA production campaign control plane for read-only paper-sandbox qualification"
 requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10", "coverage>=7,<8"]
 marketdata = ["websockets>=13,<17"]
+postgresql = ["psycopg[binary]>=3.2,<4"]
 
 [project.scripts]
 astra-platform-v101 = "tools.platform_v101:main"
@@ -22,6 +23,10 @@ astra-platform-v102 = "tools.platform_v102:main"
 astra-architecture-audit-v102 = "tools.architecture_audit_v102:main"
 astra-static-audit-v102 = "tools.static_audit_v102:main"
 astra-stress-v102 = "tools.stress_v102:main"
+astra-platform-v103 = "tools.platform_v103:main"
+astra-architecture-audit-v103 = "tools.architecture_audit_v103:main"
+astra-static-audit-v103 = "tools.static_audit_v103:main"
+astra-stress-v103 = "tools.stress_v103:main"
 
 [tool.setuptools.packages.find]
 include = ["app*", "tools*"]
@@ -29,6 +34,7 @@ include = ["app*", "tools*"]
 [tool.setuptools.package-data]
 "app.platform_assets.v101" = ["migrations/*.sql"]
 "app.platform_assets.v102" = ["migrations/*.sql"]
+"app.platform_assets.v103" = ["migrations/*.sql"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"
