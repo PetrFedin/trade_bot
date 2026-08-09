@@ -1,0 +1,189 @@
+name: order-mutation-e2e
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/oms/order_mutations.py'
+      - 'app/oms/order_mutations_postgres.py'
+      - 'app/execution/order_mutation_executor.py'
+      - 'app/oms/store.py'
+      - 'app/oms/postgres.py'
+      - 'app/runtime/paper_broker_contract_v99.py'
+      - 'migrations/product/004_order_mutations.sql'
+      - 'tests/test_order_mutation_e2e.py'
+      - 'tests/test_postgres_order_mutation_e2e.py'
+      - '.github/workflows/order-mutation-e2e.yml'
+  pull_request:
+    paths:
+      - 'app/oms/order_mutations.py'
+      - 'app/oms/order_mutations_postgres.py'
+      - 'app/execution/order_mutation_executor.py'
+      - 'app/oms/store.py'
+      - 'app/oms/postgres.py'
+      - 'app/runtime/paper_broker_contract_v99.py'
+      - 'migrations/product/004_order_mutations.sql'
+      - 'tests/test_order_mutation_e2e.py'
+      - 'tests/test_postgres_order_mutation_e2e.py'
+      - '.github/workflows/order-mutation-e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: order-mutation-e2e-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  deterministic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra-ci
+          POSTGRES_DB: astra
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ASTRA_TEST_POSTGRES_DSN: postgresql://astra:astra-ci@127.0.0.1:5432/astra
+      PGPASSWORD: astra-ci
+
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked qualification graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Install PostgreSQL client
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+
+      - name: Apply OMS and mutation migrations twice
+        run: |
+          for pass in 1 2; do
+            psql --host=127.0.0.1 --port=5432 --username=astra --dbname=astra \
+              --set=ON_ERROR_STOP=1 --file=migrations/product/001_durable_oms.sql
+            psql --host=127.0.0.1 --port=5432 --username=astra --dbname=astra \
+              --set=ON_ERROR_STOP=1 --file=migrations/product/004_order_mutations.sql
+          done
+
+      - name: Ruff focused mutation surface
+        run: |
+          ruff check \
+            app/oms/order_mutations.py \
+            app/oms/order_mutations_postgres.py \
+            app/execution/order_mutation_executor.py \
+            tests/test_order_mutation_e2e.py \
+            tests/test_postgres_order_mutation_e2e.py
+
+      - name: SQLite and real PostgreSQL mutation qualification
+        run: |
+          pytest -q \
+            tests/test_order_mutation_e2e.py \
+            tests/test_postgres_order_mutation_e2e.py
+
+      - name: Branch-aware focused coverage
+        run: |
+          coverage erase
+          coverage run --branch \
+            --source=app.oms.order_mutations,app.oms.order_mutations_postgres,app.execution.order_mutation_executor \
+            -m pytest -q \
+            tests/test_order_mutation_e2e.py \
+            tests/test_postgres_order_mutation_e2e.py
+          coverage report --fail-under=75
+
+      - name: Complete deterministic regression without shared PostgreSQL state
+        env:
+          ASTRA_TEST_POSTGRES_DSN: ''
+        run: pytest -q
+
+      - name: Security audit and compile
+        run: |
+          bandit -q -r \
+            app/oms/order_mutations.py \
+            app/oms/order_mutations_postgres.py \
+            app/execution/order_mutation_executor.py
+          python -m compileall -q \
+            app/oms/order_mutations.py \
+            app/oms/order_mutations_postgres.py \
+            app/execution/order_mutation_executor.py
+
+      - name: Verify PostgreSQL fencing and append-only contracts
+        run: |
+          psql --host=127.0.0.1 --port=5432 --username=astra --dbname=astra \
+            --set=ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            active_index integer;
+            event_trigger integer;
+            trigger_events text[];
+          BEGIN
+            SELECT count(*) INTO active_index
+            FROM pg_indexes
+            WHERE schemaname = 'public'
+              AND tablename = 'astra_order_mutations'
+              AND indexname = 'idx_astra_order_mutations_one_active'
+              AND indexdef LIKE '%UNIQUE INDEX%'
+              AND indexdef LIKE '%REQUESTED%'
+              AND indexdef LIKE '%STARTED%'
+              AND indexdef LIKE '%UNCERTAIN%';
+            IF active_index <> 1 THEN
+              RAISE EXCEPTION 'active mutation fencing index mismatch: %', active_index;
+            END IF;
+
+            SELECT
+              count(DISTINCT trigger_name),
+              array_agg(DISTINCT event_manipulation::text ORDER BY event_manipulation::text)
+            INTO event_trigger, trigger_events
+            FROM information_schema.triggers
+            WHERE event_object_schema = 'public'
+              AND event_object_table = 'astra_order_mutation_events'
+              AND trigger_name = 'astra_order_mutation_events_no_update_delete';
+            IF event_trigger <> 1 OR trigger_events <> ARRAY['DELETE', 'UPDATE']::text[] THEN
+              RAISE EXCEPTION
+                'mutation append-only trigger mismatch: triggers=% events=%',
+                event_trigger,
+                trigger_events;
+            END IF;
+          END
+          $$;
+          SQL
+
+      - name: Verify production and live execution stay fail-closed
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          state = json.loads(Path('LIVE_EXECUTION_STATUS_V109.json').read_text(encoding='utf-8'))
+          for key in (
+              'external_order_routing_allowed',
+              'live_trading_allowed',
+              'production_remote_signer_verified',
+              'production_signing_authority_verified',
+              'production_kubernetes_mutation_authorized',
+          ):
+              assert state[key] is False, key
+          PY
