@@ -132,7 +132,7 @@ def test_local_composition_replays_portfolio_into_runtime_after_restart(tmp_path
 
     restarted = build_local_product(config=config(), state_directory=tmp_path)
     assert restarted.portfolio.cash == Decimal("9899")
-    assert restarted.portfolio.position("AAAL").quantity == Decimal("1")
+    assert restarted.portfolio.position("AAPL").quantity == Decimal("1")
     assert restarted.portfolio.position("AAPL").average_cost == Decimal("101")
     assert restarted.paper_pipeline.ledger is restarted.portfolio
 
