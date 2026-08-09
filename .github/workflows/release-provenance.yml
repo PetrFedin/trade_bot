@@ -1,0 +1,213 @@
+name: release-provenance
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+    paths:
+      - 'pyproject.toml'
+      - 'requirements.lock'
+      - 'tools/release_integrity.py'
+      - 'tools/verify_lock_freshness.py'
+      - 'tests/test_release_integrity.py'
+      - 'tests/test_lock_freshness.py'
+      - 'tools/ci_action_policy.py'
+      - 'tests/test_ci_action_policy.py'
+      - '.github/workflows/release-provenance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-provenance-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install exact hash-locked dependency graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Verify release tag matches package version and main ancestry
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          project = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))['project']
+          print(project['version'])
+          PY
+          )"
+          test "$GITHUB_REF_NAME" = "v${VERSION}"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Prove lock matches pyproject inputs
+        run: |
+          cp requirements.lock requirements.generated.lock
+          python -m piptools compile \
+            --resolver=backtracking \
+            --generate-hashes \
+            --allow-unsafe \
+            --no-header \
+            --strip-extras \
+            --extra test \
+            --extra postgresql \
+            --extra marketdata \
+            --extra dev \
+            pyproject.toml \
+            --output-file requirements.generated.lock
+          python -m tools.verify_lock_freshness requirements.lock requirements.generated.lock
+
+      - name: Audit locked dependencies
+        run: pip-audit --strict -r requirements.lock
+
+      - name: Release evidence unit tests and full regression
+        run: |
+          pytest -q tests/test_release_integrity.py tests/test_lock_freshness.py
+          pytest -q
+
+      - name: Build wheel and source distribution
+        run: python -m build --no-isolation --wheel --sdist
+
+      - name: Generate and validate release evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          CREATED_AT="$(git show -s --format=%cI "$GITHUB_SHA")"
+          python -m tools.release_integrity \
+            --root . \
+            --lock requirements.lock \
+            --dist dist \
+            --output release-evidence \
+            --commit-sha "$GITHUB_SHA" \
+            --created-at "$CREATED_AT"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('release-evidence/release-manifest.json').read_text(encoding='utf-8'))
+          sbom = json.loads(Path('release-evidence/sbom.spdx.json').read_text(encoding='utf-8'))
+          assert manifest['package']['name'] == 'astra-trade-bot'
+          assert manifest['commit_sha'] == '${{ github.sha }}'
+          assert manifest['external_order_routing_allowed'] is False
+          assert manifest['live_trading_allowed'] is False
+          assert manifest['artifacts']
+          assert sbom['spdxVersion'] == 'SPDX-2.3'
+          assert sbom['packages']
+          PY
+          sha256sum \
+            dist/* \
+            requirements.lock \
+            release-evidence/release-manifest.json \
+            release-evidence/sbom.spdx.json \
+            > release-evidence/checksums.sha256
+
+      - name: Upload qualified provenance inputs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-provenance-inputs-${{ github.run_id }}
+          path: |
+            dist/*
+            requirements.lock
+            release-evidence/release-manifest.json
+            release-evidence/sbom.spdx.json
+            release-evidence/checksums.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  attest:
+    needs: qualify
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Download exact qualified provenance inputs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-provenance-inputs-${{ github.run_id }}
+          path: provenance-inputs
+
+      - name: Verify transferred checksums before signing
+        working-directory: provenance-inputs
+        run: sha256sum -c release-evidence/checksums.sha256
+
+      - name: Generate signed SLSA build provenance
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: provenance-inputs/dist/*
+
+      - name: Generate signed SBOM attestation
+        id: sbom
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: provenance-inputs/dist/*
+          sbom-path: provenance-inputs/release-evidence/sbom.spdx.json
+
+      - name: Record attestation evidence
+        env:
+          PROVENANCE_ID: ${{ steps.provenance.outputs.attestation-id }}
+          PROVENANCE_URL: ${{ steps.provenance.outputs.attestation-url }}
+          SBOM_ID: ${{ steps.sbom.outputs.attestation-id }}
+          SBOM_URL: ${{ steps.sbom.outputs.attestation-url }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          evidence = {
+              'commit_sha': '${{ github.sha }}',
+              'ref': '${{ github.ref }}',
+              'provenance_attestation_id': os.environ['PROVENANCE_ID'],
+              'provenance_attestation_url': os.environ['PROVENANCE_URL'],
+              'sbom_attestation_id': os.environ['SBOM_ID'],
+              'sbom_attestation_url': os.environ['SBOM_URL'],
+          }
+          assert evidence['provenance_attestation_id']
+          assert evidence['provenance_attestation_url'].startswith('https://github.com/')
+          assert evidence['sbom_attestation_id']
+          assert evidence['sbom_attestation_url'].startswith('https://github.com/')
+          Path('release-provenance-summary.json').write_text(
+              json.dumps(evidence, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Upload signed provenance evidence summary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-provenance-${{ github.run_id }}
+          path: |
+            release-provenance-summary.json
+            provenance-inputs/release-evidence/release-manifest.json
+            provenance-inputs/release-evidence/sbom.spdx.json
+            provenance-inputs/release-evidence/checksums.sha256
+          if-no-files-found: error
+          retention-days: 30
