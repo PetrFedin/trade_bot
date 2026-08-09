@@ -1,0 +1,263 @@
+name: schema109-clean-materializer
+
+on:
+  push:
+    branches:
+      - agent/schema109-clean-materialize-20260809
+    paths:
+      - _schema109_final_payload/**
+      - .github/workflows/schema109-clean-materializer.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: schema109-clean-materializer
+  cancel-in-progress: true
+
+env:
+  TARGET_BRANCH: agent/schema109-remote-signer-attestation-clean
+  EXPECTED_BASE: f9d2f693437b3b8e9994fa02adeb13059ed6f7cb
+  ASTRA_TEST_POSTGRES_DSN: postgresql://astra:astra-ci@127.0.0.1:5432/astra
+  PGPASSWORD: astra-ci
+
+jobs:
+  validate-test-materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra-ci
+          POSTGRES_DB: astra
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout exact staging revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Verify payload integrity and safe archive
+        run: |
+          python - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import base64, gzip, hashlib, io, json, tarfile
+
+          root = Path.cwd()
+          payload = root / "_schema109_final_payload"
+          manifest = json.loads((payload / "manifest.json").read_text(encoding="utf-8"))
+          assert manifest["schema"] == 109
+          assert manifest["version"] == "7.39.0"
+          assert manifest["expected_base"] == "${{ env.EXPECTED_BASE }}"
+          assert manifest["target_branch"] == "${{ env.TARGET_BRANCH }}"
+          chunk_names = list(manifest["chunks"])
+          actual_names = sorted(path.name for path in payload.glob("chunk-*.txt"))
+          assert actual_names == chunk_names, (actual_names, chunk_names)
+          encoded_parts = []
+          for name in chunk_names:
+              data = (payload / name).read_bytes()
+              assert hashlib.sha256(data).hexdigest() == manifest["chunks"][name], name
+              text = data.decode("ascii")
+              assert not any(ch.isspace() for ch in text), name
+              encoded_parts.append(text)
+          encoded = "".join(encoded_parts)
+          assert len(encoded) == manifest["combined_base64_length"]
+          assert hashlib.sha256(encoded.encode("ascii")).hexdigest() == manifest["combined_base64_sha256"]
+          archive = base64.b64decode(encoded, validate=True)
+          assert len(archive) == manifest["archive_size"]
+          assert hashlib.sha256(archive).hexdigest() == manifest["archive_sha256"]
+          tar_bytes = gzip.decompress(archive)
+          expected_files = manifest["files"]
+          seen = {}
+          overlay = root / "schema109-final-overlay"
+          overlay.mkdir()
+          with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:") as tf:
+              for member in tf.getmembers():
+                  path = PurePosixPath(member.name)
+                  assert member.isfile() and not member.issym() and not member.islnk(), member.name
+                  assert not path.is_absolute() and ".." not in path.parts and str(path) == member.name
+                  assert member.name not in seen
+                  source = tf.extractfile(member)
+                  assert source is not None
+                  body = source.read()
+                  digest = hashlib.sha256(body).hexdigest()
+                  assert expected_files.get(member.name) == digest, member.name
+                  seen[member.name] = digest
+                  destination = overlay / Path(*path.parts)
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  destination.write_bytes(body)
+          assert seen == expected_files
+          print(f"validated {len(seen)} files; archive sha256={manifest['archive_sha256']}")
+          PY
+
+      - name: Verify clean target base and create isolated worktree
+        run: |
+          git fetch origin "$TARGET_BRANCH"
+          ACTUAL_BASE="$(git rev-parse "origin/$TARGET_BRANCH")"
+          test "$ACTUAL_BASE" = "$EXPECTED_BASE" || {
+            echo "target branch moved: expected $EXPECTED_BASE actual $ACTUAL_BASE" >&2
+            exit 1
+          }
+          git worktree add --detach /tmp/schema109-target "$EXPECTED_BASE"
+          cp -a schema109-final-overlay/. /tmp/schema109-target/
+
+      - name: Install exact qualification surface
+        working-directory: /tmp/schema109-target
+        run: |
+          python -m pip install --disable-pip-version-check ".[test,postgresql,dev]"
+          python -m pip check
+
+      - name: Ensure PostgreSQL client
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+
+      - name: Apply Schema 109 migration twice
+        working-directory: /tmp/schema109-target
+        run: |
+          for pass in 1 2; do
+            psql --host=127.0.0.1 --port=5432 --username=astra --dbname=astra \
+              --set=ON_ERROR_STOP=1 --file=migrations/v109/001_remote_signer_attestation.sql
+          done
+
+      - name: Ruff changed and Schema 109 surfaces
+        working-directory: /tmp/schema109-target
+        run: |
+          ruff check \
+            app/runtime/*_v109.py \
+            tools/*v109.py \
+            tools/platform_v108.py \
+            tools/architecture_audit_v108.py \
+            tools/product_identity.py \
+            tests/*v109.py \
+            tests/test_product_identity.py
+
+      - name: Focused and complete regression
+        working-directory: /tmp/schema109-target
+        run: |
+          pytest -q tests/*v109.py tests/test_product_identity.py
+          pytest -q
+
+      - name: Exact branch-aware Schema 109 coverage
+        working-directory: /tmp/schema109-target
+        run: |
+          coverage erase
+          coverage run --branch --include='app/runtime/*_v109.py' -m pytest -q tests/*v109.py
+          coverage json -o coverage-v109.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("coverage-v109.json").read_text(encoding="utf-8"))
+          total = float(report["totals"]["percent_covered"])
+          print(f"exact V109 branch-aware coverage: {total:.6f}%")
+          if total < 90.0:
+              raise SystemExit(f"coverage {total:.6f}% is below 90.0%")
+          PY
+
+      - name: Architecture, static, predecessor and release verification
+        working-directory: /tmp/schema109-target
+        run: |
+          python -m tools.architecture_audit_v109 .
+          python -m tools.static_audit_v109 .
+          python -m tools.platform_v108 --root . verify-release
+          python -m tools.platform_v109 --root . verify-release
+          python -m compileall -q app tools tests
+
+      - name: Concurrent claim, replay and policy-equivocation stress
+        working-directory: /tmp/schema109-target
+        run: python -m tools.stress_v109 --iterations 1000 --workers 8
+
+      - name: Verify migration packaging and PostgreSQL contract
+        working-directory: /tmp/schema109-target
+        run: |
+          cmp migrations/v109/001_remote_signer_attestation.sql app/platform_assets/v109/migrations/001_remote_signer_attestation.sql
+          psql --host=127.0.0.1 --port=5432 --username=astra --dbname=astra \
+            --set=ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            policy_fk integer;
+            append_trigger integer;
+          BEGIN
+            SELECT count(*) INTO policy_fk
+            FROM information_schema.table_constraints
+            WHERE table_schema = 'public'
+              AND table_name = 'astra_remote_sign_request_v109'
+              AND constraint_type = 'FOREIGN KEY';
+            IF policy_fk <> 1 THEN
+              RAISE EXCEPTION 'request policy foreign-key contract mismatch: %', policy_fk;
+            END IF;
+            SELECT count(*) INTO append_trigger
+            FROM information_schema.triggers
+            WHERE event_object_schema = 'public'
+              AND event_object_table = 'astra_remote_sign_event_v109'
+              AND trigger_name = 'astra_remote_sign_event_append_only_v109';
+            IF append_trigger <> 1 THEN
+              RAISE EXCEPTION 'append-only audit trigger missing';
+            END IF;
+          END
+          $$;
+          SQL
+
+      - name: Verify production safety and exact materialized diff
+        working-directory: /tmp/schema109-target
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json, subprocess
+          state = json.loads(Path("LIVE_EXECUTION_STATUS_V109.json").read_text(encoding="utf-8"))
+          for key in (
+              "production_remote_signer_verified",
+              "production_signing_authority_verified",
+              "production_kubernetes_mutation_authorized",
+              "external_order_routing_allowed",
+              "live_trading_allowed",
+              "automatic_sign_post_retry_allowed",
+              "private_key_material_persisted_by_runtime",
+          ):
+              assert state[key] is False, key
+          manifest = json.loads(Path("${{ github.workspace }}/_schema109_final_payload/manifest.json").read_text(encoding="utf-8"))
+          changed = set(subprocess.check_output(["git", "diff", "--name-only", "${{ env.EXPECTED_BASE }}"], text=True).splitlines())
+          expected = set(manifest["files"])
+          assert changed == expected, {"unexpected": sorted(changed - expected), "missing": sorted(expected - changed)}
+          for relative, digest in manifest["files"].items():
+              assert hashlib.sha256(Path(relative).read_bytes()).hexdigest() == digest, relative
+          print(f"exact diff allowlist verified: {len(expected)} files")
+          PY
+
+      - name: Commit qualified overlay to clean branch
+        working-directory: /tmp/schema109-target
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Schema 109 remote signer attestation"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
+          echo "materialized_commit=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Persist materialization evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: schema109-clean-materialization-${{ github.run_id }}
+          path: |
+            _schema109_final_payload/manifest.json
+            /tmp/schema109-target/coverage-v109.json
+          if-no-files-found: warn
+          retention-days: 14
