@@ -24,7 +24,7 @@
     "tests/test_tools_v109.py": "11a3fb9f403255d78cf5f462b4c43c9060e5bda2ba329ede5eb83c286c52b3c1",
     "tools/architecture_audit_v108.py": "9f164c5d86847c8d570a3971da70e680850e731da79ac934020d759b4e853c6b",
     "tools/architecture_audit_v109.py": "8a0283f015231ca1d10d2762a464fbad0ac6e0b41c776945b46d15367e6e6b30",
-    "tools/platform_v108.py": "154676311b5cf7d8ec010ece2cef12d38baa58ee853b617b48460dab4a5d3c56",
+    "tools/platform_v108.py": "9e924a7804195120f7026aef5116fda4f0c0acd46b74b2e13b114af897865031",
     "tools/platform_v109.py": "145b1acedaf539506950fc207583bc889776ba92fc2b49adb4463fcd9ad888fb",
     "tools/product_identity.py": "f14cb3d76d1f5d33a8e1e5359de97ce7ce3e553cb4c7758200cea76623fb1ac1",
     "tools/static_audit_v109.py": "732c9873e9aedf2769612f28b33714185cc4e7c8129aa44b85880b242bd41b30",
