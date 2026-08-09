@@ -1,0 +1,50 @@
+{
+  "schema_version": "strategy-qualification-spec-v1",
+  "expected_symbol": "AAPL",
+  "dataset_provenance": {
+    "classification": "synthetic_fixture",
+    "provider": "fixture",
+    "source_reference": "tests/fixtures/strategy_qualification/synthetic_regimes.csv"
+  },
+  "dataset_policy": {
+    "minimum_bars": 75
+  },
+  "strategy": {
+    "strategy_id": "paper-momentum-v1",
+    "target_quantity": "1"
+  },
+  "backtest": {
+    "opening_cash": "10000",
+    "fee_per_fill": "0.01",
+    "slippage_bps": "2",
+    "minimum_history_bars": 3
+  },
+  "walk_forward_policy": {
+    "training_bars": 8,
+    "testing_bars": 4,
+    "step_bars": 4,
+    "minimum_windows": 3,
+    "maximum_drawdown_fraction": "0.05",
+    "minimum_mean_oos_return": "-0.02",
+    "minimum_mean_excess_return": "-0.05",
+    "require_trade_in_each_window": false
+  },
+  "minimum_regimes": 3,
+  "regimes": [
+    {
+      "name": "uptrend_fixture",
+      "start": "2024-01-01T00:00:00Z",
+      "end": "2024-01-26T00:00:00Z"
+    },
+    {
+      "name": "downtrend_fixture",
+      "start": "2024-01-26T00:00:00Z",
+      "end": "2024-02-20T00:00:00Z"
+    },
+    {
+      "name": "volatile_fixture",
+      "start": "2024-02-20T00:00:00Z",
+      "end": "2024-03-16T00:00:00Z"
+    }
+  ]
+}
