@@ -1,26 +1,71 @@
 name: schema100-alpaca-paper-sandbox
 
 on:
+  workflow_dispatch:
   push:
-    branches: ["agent/schema100-alpaca-paper-sandbox"]
+    branches: [main, "agent/schema100-alpaca-paper-sandbox"]
+    paths:
+      - app/runtime/alpaca_paper_adapter_v100.py
+      - tests/test_alpaca_paper_adapter_v100.py
+      - tests/test_tools_v100.py
+      - tools/architecture_audit_v100.py
+      - tools/static_audit_v100.py
+      - tools/stress_v100.py
+      - pyproject.toml
+      - requirements.lock
+      - .github/workflows/schema100-alpaca-paper-sandbox.yml
   pull_request:
+    paths:
+      - app/runtime/alpaca_paper_adapter_v100.py
+      - tests/test_alpaca_paper_adapter_v100.py
+      - tests/test_tools_v100.py
+      - tools/architecture_audit_v100.py
+      - tools/static_audit_v100.py
+      - tools/stress_v100.py
+      - pyproject.toml
+      - requirements.lock
+      - .github/workflows/schema100-alpaca-paper-sandbox.yml
 
 permissions:
   contents: read
 
+concurrency:
+  group: schema100-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deterministic:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
         with:
           python-version: "3.12"
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install 'pytest>=8,<10' 'coverage>=7,<8'
-      - run: python -m pytest -q tests/test_alpaca_paper_adapter_v100.py tests/test_tools_v100.py
-      - run: coverage run --branch -m pytest -q tests/test_alpaca_paper_adapter_v100.py tests/test_tools_v100.py
-      - run: coverage report --include='app/runtime/alpaca_paper_adapter_v100.py' --fail-under=80
-      - run: python -m tools.architecture_audit_v100 .
-      - run: python -m tools.static_audit_v100 .
-      - run: python -m tools.stress_v100 --iterations 1000 --workers 8
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked qualification dependency graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Focused Schema 100 tests
+        run: python -m pytest -q tests/test_alpaca_paper_adapter_v100.py tests/test_tools_v100.py
+
+      - name: Branch-aware Schema 100 coverage
+        run: |
+          coverage erase
+          coverage run --branch -m pytest -q tests/test_alpaca_paper_adapter_v100.py tests/test_tools_v100.py
+          coverage report --include='app/runtime/alpaca_paper_adapter_v100.py' --fail-under=80
+
+      - name: Architecture and static audits
+        run: |
+          python -m tools.architecture_audit_v100 .
+          python -m tools.static_audit_v100 .
+
+      - name: Concurrent deterministic stress
+        run: python -m tools.stress_v100 --iterations 1000 --workers 8
