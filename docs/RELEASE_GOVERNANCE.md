@@ -42,14 +42,14 @@ The repository-side ownership contract is machine-readable and fail-closed:
 
 The same person may own artifact release and technical rollback while the product is still paper-only. That assignment is **not** treated as independent live approval. The validator rejects a future live-release claim unless branch protection is verified as enabled and a distinct independent live approver is assigned.
 
-Canonical `main` ownership evidence before the live branch-state verifier was added:
+Canonical `main` ownership and branch-state evidence:
 
-- commit: `b06944d5d96dfefbf7e5ef3f35ea8a3ed3f89128`;
-- workflow run: `31439620849`;
-- retained evidence artifact: `9082340490`;
-- artifact digest: `sha256:9267e69ea4e33cb3cb3b40bc3c02c93bd0eaa517225b1fa570545551b37c26cc`.
+- commit: `9cf92a9993d9fd54896e5696115f673633d3ac2a`;
+- workflow run: `31440945455`;
+- retained evidence artifact: `9082811204`;
+- artifact digest: `sha256:deb125851a0ca2db9486c342b723cb957cde2b87cb759d3d510423a8c1d5f672`.
 
-The strengthened workflow introduced after that evidence snapshot additionally performs a live GitHub branch-summary comparison on every qualifying PR/main run and writes the observed main SHA/protection state into the evidence artifact.
+That run performs the live GitHub branch-summary comparison and writes the observed current `main` SHA, protection state and required-status-check enforcement into the evidence artifact. Future qualifying runs fail if the observed GitHub state drifts from the committed machine contract.
 
 ## Trusted build evidence
 
