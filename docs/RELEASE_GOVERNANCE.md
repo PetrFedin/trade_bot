@@ -1,6 +1,6 @@
 # Release Governance
 
-This document defines the repository-side release contract for ASTRA Trade Bot. It does not claim that GitHub server-side branch protection or required-review settings are enabled unless those settings are independently verified through the GitHub control plane.
+This document defines the repository-side release contract for ASTRA Trade Bot. Repository evidence and GitHub server-side state are treated separately: repository files may describe the expected state, but `release-governance` must also compare that expectation with the GitHub branch summary.
 
 ## Current enforcement boundary
 
@@ -12,16 +12,20 @@ Repository-side controls are implemented and executable:
 - trusted `main`/`v*` builds generate signed GitHub/Sigstore SLSA provenance and signed SBOM attestations.
 - pull-request code does not receive attestation/OIDC write privileges; the privileged attestation job only runs after a trusted push.
 - release/rollback ownership is defined in `release/ownership.json` and validated by the `release-governance` workflow.
+- `release-governance` queries the GitHub `main` branch summary and fails if the observed protection state drifts from the machine-readable ownership contract.
 - live/external routing and production authority remain fail-closed during release qualification.
 
-Server-side controls are **UNVERIFIED** from the current automation integration:
+## Verified server-side branch state
 
-- `main` branch protection / repository ruleset enforcement;
-- required approving reviews / required CODEOWNER review;
-- force-push/deletion restrictions;
-- required status-check selection at the GitHub server layer.
+The GitHub branch summary for `main` currently reports:
 
-The current GitHub integration receives `403 Resource not accessible by integration` from the branch-protection endpoint, so repository files must not be treated as proof of server-side enforcement.
+- `protected=false`;
+- `protection.enabled=false`;
+- required status-check enforcement `off`.
+
+Accordingly, the machine contract records `branch_protection_verification=VERIFIED_DISABLED`. This is stronger evidence than the earlier `UNVERIFIED_INTEGRATION_FORBIDDEN` state: the branch is currently known **not** to be protected.
+
+The dedicated branch-protection detail endpoint remains unavailable to the current integration, so this repository does not claim detailed review/ruleset configuration beyond what the branch summary exposes. In particular, required CODEOWNER review, force-push restrictions and detailed repository-ruleset state are not claimed as enabled.
 
 ## Assigned technical ownership
 
@@ -30,18 +34,22 @@ The repository-side ownership contract is machine-readable and fail-closed:
 - artifact release owner: `@PetrFedin`;
 - rollback owner: `@PetrFedin`;
 - independent live approver: **unassigned**;
-- branch-protection verification: `UNVERIFIED_INTEGRATION_FORBIDDEN`;
+- branch-protection verification: `VERIFIED_DISABLED`;
+- expected `main` protection: disabled;
+- expected required status-check enforcement: `off`;
 - artifact release allowed: `true`;
 - live release allowed: `false`.
 
-The same person may own artifact release and technical rollback while the product is still paper-only. That assignment is **not** treated as independent live approval. The validator rejects a future live-release claim unless branch protection is independently verified as enabled and a distinct independent live approver is assigned.
+The same person may own artifact release and technical rollback while the product is still paper-only. That assignment is **not** treated as independent live approval. The validator rejects a future live-release claim unless branch protection is verified as enabled and a distinct independent live approver is assigned.
 
-First qualified repository-side ownership evidence:
+Canonical `main` ownership evidence before the live branch-state verifier was added:
 
-- branch head: `934830a25413d8303801f7a522965074e03138f8`;
-- workflow run: `31439373574`;
-- retained evidence artifact: `9082248544`;
-- artifact digest: `sha256:d04db773f18d38381424dd52c1690c46065b80863510712ba2aa63ae7cd84173`.
+- commit: `b06944d5d96dfefbf7e5ef3f35ea8a3ed3f89128`;
+- workflow run: `31439620849`;
+- retained evidence artifact: `9082340490`;
+- artifact digest: `sha256:9267e69ea4e33cb3cb3b40bc3c02c93bd0eaa517225b1fa570545551b37c26cc`.
+
+The strengthened workflow introduced after that evidence snapshot additionally performs a live GitHub branch-summary comparison on every qualifying PR/main run and writes the observed main SHA/protection state into the evidence artifact.
 
 ## Trusted build evidence
 
@@ -63,15 +71,18 @@ A release candidate must satisfy all repository-side requirements below before i
 1. The candidate commit is reachable from canonical `main`.
 2. If a `v*` tag is used, the tag is exactly `v<project.version>` from `pyproject.toml`.
 3. `release-governance` validates the ownership contract and artifact-release readiness.
-4. `release-provenance` qualification succeeds from the hash-locked dependency graph.
-5. Lock freshness and `pip-audit` succeed.
-6. Full deterministic regression succeeds.
-7. Wheel/sdist, release manifest and SPDX SBOM are generated from the same candidate commit.
-8. SHA-256 transfer verification succeeds before attestation.
-9. SLSA build provenance and SBOM attestations are generated successfully.
-10. `external_order_routing_allowed` and `live_trading_allowed` remain false unless a separately governed live-release process has explicitly met all live-readiness prerequisites.
-11. Server-side branch protection and required-review state is verified independently before any release process relies on it as an enforcement control.
-12. A live release additionally requires a distinct independent live approver; repository-side artifact ownership alone does not satisfy that requirement.
+4. `release-governance` re-reads the GitHub `main` branch summary and rejects protection-state drift.
+5. `release-provenance` qualification succeeds from the hash-locked dependency graph.
+6. Lock freshness and `pip-audit` succeed.
+7. Full deterministic regression succeeds.
+8. Wheel/sdist, release manifest and SPDX SBOM are generated from the same candidate commit.
+9. SHA-256 transfer verification succeeds before attestation.
+10. SLSA build provenance and SBOM attestations are generated successfully.
+11. `external_order_routing_allowed` and `live_trading_allowed` remain false unless a separately governed live-release process has explicitly met all live-readiness prerequisites.
+12. Server-side branch protection and required-review state must be enabled and independently verified before any release process relies on them as enforcement controls.
+13. A live release additionally requires a distinct independent live approver; repository-side artifact ownership alone does not satisfy that requirement.
+
+At present item 12 is **not satisfied**: the current branch summary reports protection disabled.
 
 ## Tag and artifact immutability
 
@@ -88,4 +99,4 @@ Rollback is a source-control and deployment decision, not an artifact mutation:
 - do not overwrite previously attested distributions;
 - keep live/external execution disabled unless the separate operational approval path explicitly permits it.
 
-Technical release and rollback ownership are now assigned and machine-validated. Independent live approval remains deliberately unassigned, and GitHub server-side enforcement remains unverified; neither gap is hidden by the repository-side ownership contract.
+Technical release and rollback ownership are assigned and machine-validated. Independent live approval remains deliberately unassigned, and `main` server-side protection is currently verified disabled; neither gap is hidden by repository-side governance.

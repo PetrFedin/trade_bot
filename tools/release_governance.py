@@ -10,12 +10,53 @@ _ALLOWED_BRANCH_PROTECTION_STATES = {
     "VERIFIED_DISABLED",
     "VERIFIED_ENABLED",
 }
+_ALLOWED_STATUS_ENFORCEMENT = {"off", "non_admins", "everyone"}
 
 
 def _owner(value: Any, *, field: str) -> str:
     if not isinstance(value, str) or not value.startswith("@") or len(value) < 2:
         raise ValueError(f"{field} must be a GitHub handle beginning with @")
     return value
+
+
+def _required_text(data: dict[str, Any], field: str) -> str:
+    value = data.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} is required")
+    return value.strip()
+
+
+def _validate_branch_protection_evidence(
+    data: dict[str, Any], *, branch_state: str
+) -> dict[str, Any] | None:
+    evidence = data.get("branch_protection_evidence")
+    if branch_state == "UNVERIFIED_INTEGRATION_FORBIDDEN":
+        if evidence is not None:
+            raise ValueError("unverified branch protection must not carry verified evidence")
+        return None
+    if not isinstance(evidence, dict):
+        raise ValueError("verified branch protection requires branch_protection_evidence")
+
+    if _required_text(evidence, "source") != "github_branch_summary":
+        raise ValueError("branch protection evidence source must be github_branch_summary")
+    _required_text(evidence, "repository")
+    if _required_text(evidence, "branch") != "main":
+        raise ValueError("branch protection evidence must describe main")
+
+    protected = evidence.get("protected")
+    enabled = evidence.get("protection_enabled")
+    enforcement = evidence.get("required_status_checks_enforcement")
+    if not isinstance(protected, bool) or not isinstance(enabled, bool):
+        raise ValueError("branch protection evidence booleans are required")
+    if enforcement not in _ALLOWED_STATUS_ENFORCEMENT:
+        raise ValueError("required status-check enforcement is invalid")
+
+    if branch_state == "VERIFIED_DISABLED":
+        if protected or enabled or enforcement != "off":
+            raise ValueError("VERIFIED_DISABLED evidence must prove protection is disabled")
+    if branch_state == "VERIFIED_ENABLED" and (not protected or not enabled):
+        raise ValueError("VERIFIED_ENABLED evidence must prove protection is enabled")
+    return evidence
 
 
 def validate_release_ownership(data: dict[str, Any]) -> None:
@@ -28,6 +69,7 @@ def validate_release_ownership(data: dict[str, Any]) -> None:
     branch_state = data.get("branch_protection_verification")
     if branch_state not in _ALLOWED_BRANCH_PROTECTION_STATES:
         raise ValueError("branch_protection_verification is invalid")
+    _validate_branch_protection_evidence(data, branch_state=branch_state)
 
     artifact_release_allowed = data.get("artifact_release_allowed")
     live_release_allowed = data.get("live_release_allowed")

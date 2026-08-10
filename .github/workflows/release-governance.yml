@@ -54,6 +54,67 @@ jobs:
             release/ownership.json \
             --require-artifact-release-ready
 
+      - name: Verify recorded main protection state against GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p release-governance-evidence
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+
+          ownership = json.loads(Path('release/ownership.json').read_text(encoding='utf-8'))
+          expected = ownership['branch_protection_evidence']
+          url = (
+              'https://api.github.com/repos/'
+              f"{expected['repository']}/branches/{expected['branch']}"
+          )
+          request = urllib.request.Request(
+              url,
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'astra-release-governance',
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              branch = json.load(response)
+
+          protection = branch.get('protection') or {}
+          status_checks = protection.get('required_status_checks') or {}
+          observed = {
+              'source': 'github_branch_summary',
+              'repository': expected['repository'],
+              'branch': expected['branch'],
+              'observed_main_sha': branch['commit']['sha'],
+              'protected': bool(branch.get('protected', False)),
+              'protection_enabled': bool(protection.get('enabled', False)),
+              'required_status_checks_enforcement': status_checks.get(
+                  'enforcement_level', 'off'
+              ),
+          }
+          for field in (
+              'source',
+              'repository',
+              'branch',
+              'protected',
+              'protection_enabled',
+              'required_status_checks_enforcement',
+          ):
+              if observed[field] != expected[field]:
+                  raise SystemExit(
+                      f"branch protection drift: {field}: "
+                      f"expected={expected[field]!r} observed={observed[field]!r}"
+                  )
+          Path('release-governance-evidence/branch-protection.json').write_text(
+              json.dumps(observed, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
       - name: Verify version-matched tag contract
         if: github.ref_type == 'tag'
         shell: bash
@@ -71,7 +132,6 @@ jobs:
 
       - name: Write governance evidence
         run: |
-          mkdir -p release-governance-evidence
           python - <<'PY'
           import hashlib
           import json
@@ -81,6 +141,10 @@ jobs:
 
           ownership_path = Path('release/ownership.json')
           ownership = json.loads(ownership_path.read_text(encoding='utf-8'))
+          observed = json.loads(
+              Path('release-governance-evidence/branch-protection.json')
+              .read_text(encoding='utf-8')
+          )
           project = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))['project']
           evidence = {
               'commit_sha': os.environ['GITHUB_SHA'],
@@ -90,6 +154,7 @@ jobs:
               'artifact_release_owner': ownership['artifact_release_owner'],
               'rollback_owner': ownership['rollback_owner'],
               'branch_protection_verification': ownership['branch_protection_verification'],
+              'branch_protection_observed': observed,
               'artifact_release_allowed': ownership['artifact_release_allowed'],
               'live_release_allowed': ownership['live_release_allowed'],
           }
@@ -105,6 +170,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: release-governance-${{ github.run_id }}
-          path: release-governance-evidence/summary.json
+          path: release-governance-evidence/*.json
           if-no-files-found: error
           retention-days: 30

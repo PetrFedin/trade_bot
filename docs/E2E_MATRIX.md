@@ -1,6 +1,6 @@
 # ASTRA Trade Bot — End-to-End Readiness Matrix
 
-This document is the source of truth for product-readiness claims. A capability is not marked PASS merely because code exists; it must have an executable qualification gate and credible evidence. Scores are deliberately conservative: deterministic CI cannot substitute for external broker evidence, GitHub server-side enforcement or elapsed soak time.
+This document is the source of truth for product-readiness claims. A capability is not marked PASS merely because code exists; it must have an executable qualification gate and credible evidence. Scores are deliberately conservative: deterministic CI cannot substitute for external broker evidence, authoritative historical-data coverage, GitHub server-side enforcement or elapsed soak time.
 
 ## Current product state
 
@@ -8,15 +8,41 @@ This document is the source of truth for product-readiness claims. A capability 
 |---|---|---|---:|---|
 | Architecture cohesion | QUALIFIED DETERMINISTICALLY | stable `domain`, `marketdata`, `strategy`, `risk`, `portfolio`, `oms`, `execution`, `application`, `observability`; one composition root for SQLite and PostgreSQL; shared durable OMS, order-mutation, risk and portfolio stores; consolidated `main`; complete regression green | 8.0 | retain >=8 by retiring duplicated versioned domain/runtime models and keeping broker/deployment adapters behind the stable composition boundary |
 | Real external integration | BLOCKED BY CREDENTIAL EVIDENCE | real Alpaca Paper REST + WebSocket workflow is implemented and was actually invoked; it failed at the explicit credential gate before network access because repository Alpaca secrets are absent | 4.0 | configure protected Paper credentials; repeated successful REST/WebSocket evidence; controlled Paper mutation drill; disconnect/recovery evidence and broker SLO history |
-| Trading logic | STRONG PARTIAL | deterministic long-only validation strategy; no-lookahead next-bar backtester; fees/slippage/drawdown; walk-forward OOS windows; benchmark-relative acceptance framework | 6.0 | real historical market-data adapter; representative multi-regime dataset; parameter/version governance; independent benchmark suite; validated strategy acceptance thresholds |
+| Trading logic | STRONG PARTIAL — MANIFESTED OBSERVED-PRICE SAMPLE | deterministic long-only validation strategy; no-lookahead next-bar backtester; fees/slippage/drawdown; walk-forward OOS windows; benchmark-relative acceptance; hash-locked 60-row AAPL observed-price snapshot across three named regimes; upstream Git blob + snapshot/canonical SHA provenance; predeclared versioned strategy thresholds; retained canonical-main evidence | 6.8 | authoritative/licensed historical source; broader multi-asset and multi-cycle regime coverage; independent benchmark suite; production-calibrated acceptance thresholds; stronger trade-coverage requirements so a qualified regime cannot rely on zero-trade avoidance alone |
 | Portfolio management | QUALIFIED DETERMINISTICALLY | fee-aware cash/positions, realized/unrealized P&L/equity, idempotent fills, broker reconciliation, stock splits/dividends, SQLite replay/snapshots, PostgreSQL 16 append-only event journal, restart replay, snapshots and concurrent duplicate-event idempotency | 8.0 | retain >=8 with real broker corporate-action/reconciliation evidence; add multi-currency/tax lifecycle only when product scope requires it |
 | Risk management | QUALIFIED DETERMINISTICALLY | exposure, kill switch, freshness, execution-quality, loss/drawdown/turnover, liquidity, concentration and volatility guardrails plus immutable SQLite/PostgreSQL risk-decision hash chain wired into the actual paper planning path; PostgreSQL concurrent writers serialize through a locked chain head | 8.0 | retain >=8 through scenario/property testing and production-calibrated thresholds; real Paper evidence remains a separate paper-readiness gate |
 | OMS / execution state | QUALIFIED DETERMINISTICALLY | transactional SQLite + PostgreSQL 16 OMS, row locking, append-only events, deterministic client IDs, durable submit and mutation outboxes, monotonic fills, at-most-one submit, at-most-one cancel/replace attempt, `STARTED` before broker mutation, GET-only ambiguity/restart recovery, active-mutation fencing, broker-ID rotation handling, read-only reconciliation and repeated deterministic fault campaigns on canonical `main` | 8.5 | retain >=8 with real broker cancel/replace fault evidence and operational SLO history; scheduled deterministic campaigns support regression confidence but do not replace external soak evidence |
-| Release process | STRONG PARTIAL — SIGNED PROVENANCE + OWNERSHIP QUALIFIED | canonical `main`, stable package identity, hash-locked `requirements.lock`, lock freshness verification, Ruff/Bandit/dependency audit, exact Node24-native GitHub Action SHA pins, automated CI supply-chain policy, wheel/sdist + release manifest + SPDX SBOM, signed SLSA build provenance and signed SBOM attestation, machine-validated artifact release and rollback ownership | 7.9 | verify/enforce GitHub server-side branch protection and required reviews; execute a signed/version-matched release tag; preserve externally verifiable attestations; keep independent live approval separate from technical artifact ownership |
+| Release process | STRONG PARTIAL — SIGNED PROVENANCE + OWNERSHIP; PROTECTION DISABLED | canonical `main`, stable package identity, hash-locked `requirements.lock`, lock freshness verification, Ruff/Bandit/dependency audit, exact Node24-native GitHub Action SHA pins, CI supply-chain policy, wheel/sdist + release manifest + SPDX SBOM, signed SLSA build provenance and signed SBOM attestation, machine-validated artifact release/rollback ownership; GitHub branch summary currently reports `main` protection disabled and required status checks off | 7.9 | enable and independently verify server-side branch protection/required reviews; execute a signed version-matched release tag; preserve externally verifiable attestations; keep independent live approval separate from technical artifact ownership |
 | Paper-operation readiness | STRONG PARTIAL | paper safety, trading E2E, immutable risk evidence, PostgreSQL portfolio/OMS durability, at-most-once submit, deterministic cancel/replace recovery, operational SLO and composition-root gates pass on `main`; repeated fault campaign also passes on `main` across SQLite and PostgreSQL | 7.8 | credentialed Alpaca Paper read-only PASS; controlled real Paper mutation/recovery drill; 14–30 day external soak with clean reconciliation/SLO evidence |
 | Live trading readiness | BLOCKED | all product qualification paths keep external/live routing disabled; real Paper prerequisites, server-side release governance and independent live-pilot controls are incomplete | 2.0 | every live-critical upstream capability >=8 with external evidence; independent approval; tiny-capital pilot controls; production secrets/KMS; real-time reconciliation; global kill switch |
 
 ## Verified evidence snapshots
+
+### Manifested observed-price strategy qualification
+
+Canonical `main` evidence:
+
+- commit: `a9e6a1a3aa70dd8c728e2d1d466dbc4ac4fdf80e`;
+- workflow run: `31440399621`;
+- status: `success`;
+- dataset: AAPL, 60 daily observations split into three non-overlapping 20-session windows;
+- dataset canonical SHA-256: `4242262f4d5d79352a43ec5cdc81f3a9d52953fd5ca2f230b3fabf890d33a256`;
+- manifest SHA-256: `b5ba54d458413e68d94771cb5c475e33e3834038c2f678e733916107ef8cb0be`;
+- upstream repository/path: `plotly/datasets` / `finance-charts-apple.csv`;
+- upstream Git blob: `7b1bab3953bb5cdf47e84de1048ca04b0c991987`;
+- source classification: `THIRD_PARTY_SAMPLE_NON_AUTHORITATIVE`;
+- retained artifact: `9082620651`;
+- artifact digest: `sha256:1bcef6945a34591693f085466520ccb559720c0918b8d1401306625c9584ad96`.
+
+The acceptance policy was committed before the first qualification run: target quantity 1, opening cash 10,000, $0.50 fee per fill, 5 bps slippage, 10/5/5 train/test/step bars, two windows per regime, 10% maximum drawdown, and -3% floors for mean OOS and mean excess return.
+
+Observed regime results from the canonical evidence:
+
+- `rising_2015_q4`: mean OOS return `-0.000152531749925`, mean excess `0.00744773605694476355577945215`, worst drawdown `0.0005791003`, 2 trades;
+- `drawdown_2016_spring`: mean OOS return `0`, mean excess `0.04182874335654989023420567406`, worst drawdown `0`, **0 trades**;
+- `range_2016_q4`: mean OOS return `-0.00005804210000`, mean excess `-0.01991717079689507644215529458`, worst drawdown `0.00010558650015`, 2 trades.
+
+This is evidence that the qualification machinery is reproducible on observed prices under predeclared costs and thresholds. It is **not** evidence of a profitable production strategy: the strategy is approximately flat in these windows, one regime qualified by avoiding trades, the sample contains one asset and only 60 observations, and the source is intentionally classified as non-authoritative.
 
 ### Deterministic order-lifecycle fault campaign
 
@@ -45,22 +71,21 @@ First qualified signed provenance on canonical `main`:
 
 The attestation job runs only after trusted `main`/tag pushes and verifies SHA-256 checksums after artifact transfer and before signing. Pull-request qualification remains read-only and does not receive OIDC/attestation write privileges.
 
-### Release ownership governance
+### Release ownership and branch-state governance
 
-First qualified repository-side ownership evidence:
+Canonical `main` ownership evidence:
 
-- branch head: `934830a25413d8303801f7a522965074e03138f8`;
-- workflow run: `31439373574`;
+- commit: `b06944d5d96dfefbf7e5ef3f35ea8a3ed3f89128`;
+- workflow run: `31439620849`;
 - status: `success`;
 - technical artifact release owner: `@PetrFedin`;
 - technical rollback owner: `@PetrFedin`;
 - independent live approver: unassigned;
-- branch-protection verification: `UNVERIFIED_INTEGRATION_FORBIDDEN`;
 - live release allowed: `false`;
-- retained evidence artifact: `9082248544`;
-- artifact digest: `sha256:d04db773f18d38381424dd52c1690c46065b80863510712ba2aa63ae7cd84173`.
+- retained evidence artifact: `9082340490`;
+- artifact digest: `sha256:9267e69ea4e33cb3cb3b40bc3c02c93bd0eaa517225b1fa570545551b37c26cc`.
 
-This closes the repository-side technical ownership gap. It does not claim separation-of-duties for live release and does not substitute for verified GitHub server-side protection.
+A later direct GitHub `main` branch summary reports `protected=false`, `protection.enabled=false` and required status-check enforcement `off`; the ownership contract is therefore updated from `UNVERIFIED_INTEGRATION_FORBIDDEN` to `VERIFIED_DISABLED`. The strengthened `release-governance` workflow re-queries this branch summary on every qualifying PR/main run and fails on drift. The dedicated protection-detail endpoint is still not used as evidence, so detailed CODEOWNER/repository-ruleset claims are not inferred.
 
 ## Security qualification
 
@@ -118,7 +143,7 @@ The workflow has been invoked in GitHub Actions, but the repository currently ex
 
 ## Release-governance boundary
 
-Repository-side provenance, lock, dependency, action-pin, release-evidence and technical ownership controls are executable and qualified. GitHub server-side branch protection / ruleset state remains **UNVERIFIED** because the current GitHub integration receives `403 Resource not accessible by integration` from the branch-protection endpoint. Repository files are not treated as proof of server-side review, force-push or required-check enforcement. Independent live approval also remains unassigned. See `docs/RELEASE_GOVERNANCE.md`.
+Repository-side provenance, lock, dependency, action-pin, release-evidence and technical ownership controls are executable and qualified. The GitHub `main` branch summary now provides positive evidence that server-side branch protection is currently **disabled**, rather than merely unverified. The governance workflow continuously compares the recorded expectation with the GitHub branch summary. Required review / CODEOWNER / detailed ruleset state is not claimed from the unavailable protection-detail endpoint. Independent live approval also remains unassigned. See `docs/RELEASE_GOVERNANCE.md`.
 
 ## Hard live blockers
 
@@ -127,8 +152,8 @@ Live routing must remain disabled while any of these are true:
 - external Paper REST/WebSocket qualification has no successful credentialed evidence;
 - no controlled stable-OMS cancel/replace mutation/recovery drill exists against the real Paper broker;
 - no 14–30 day external Paper soak has completed cleanly;
-- there is no representative real historical-data strategy qualification across multiple regimes;
-- GitHub server-side branch protection / required-review enforcement remains unverified;
+- no authoritative, representative multi-asset/multi-cycle historical-data strategy qualification exists; the current 60-row AAPL sample is deliberately non-authoritative and insufficient for production strategy claims;
+- GitHub `main` server-side branch protection is currently disabled and required-review enforcement is not qualified;
 - no version-matched release tag has completed the signed provenance path;
 - independent live approver / live-pilot approval and tiny-capital controls are absent.
 
