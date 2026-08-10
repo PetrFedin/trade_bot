@@ -1,0 +1,18 @@
+{
+  "schema_version": "strategy-qualification-v1",
+  "strategy_id": "paper-momentum-v1",
+  "target_quantity": "1",
+  "opening_cash": "10000",
+  "fee_per_fill": "0.50",
+  "slippage_bps": "5",
+  "walk_forward": {
+    "training_bars": 10,
+    "testing_bars": 5,
+    "step_bars": 5,
+    "minimum_windows": 2,
+    "maximum_drawdown_fraction": "0.10",
+    "minimum_mean_oos_return": "-0.03",
+    "minimum_mean_excess_return": "-0.03",
+    "require_trade_in_each_window": false
+  }
+}

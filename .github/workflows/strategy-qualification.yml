@@ -5,22 +5,30 @@ on:
     branches: [main]
     paths:
       - 'app/strategy/**'
-      - 'app/marketdata/historical.py'
+      - 'app/marketdata/**'
       - 'app/domain/**'
       - 'app/portfolio/**'
+      - 'data/historical/**'
+      - 'tools/qualify_real_historical.py'
       - 'tests/test_strategy_backtest.py'
       - 'tests/test_strategy_qualification.py'
       - 'tests/test_historical_qualification.py'
+      - 'tests/test_real_historical_qualification.py'
+      - 'requirements.lock'
       - '.github/workflows/strategy-qualification.yml'
   pull_request:
     paths:
       - 'app/strategy/**'
-      - 'app/marketdata/historical.py'
+      - 'app/marketdata/**'
       - 'app/domain/**'
       - 'app/portfolio/**'
+      - 'data/historical/**'
+      - 'tools/qualify_real_historical.py'
       - 'tests/test_strategy_backtest.py'
       - 'tests/test_strategy_qualification.py'
       - 'tests/test_historical_qualification.py'
+      - 'tests/test_real_historical_qualification.py'
+      - 'requirements.lock'
       - '.github/workflows/strategy-qualification.yml'
 
 permissions:
@@ -33,22 +41,98 @@ concurrency:
 jobs:
   qualify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
           cache: pip
-      - run: python -m pip install --disable-pip-version-check '.[test]'
-      - name: No-lookahead backtest regression
-        run: pytest -q tests/test_strategy_backtest.py
-      - name: Walk-forward and multi-regime dataset qualification
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked qualification graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint historical qualification surface
+        run: >-
+          ruff check
+          app/marketdata
+          app/strategy
+          tools/qualify_real_historical.py
+          tests/test_historical_qualification.py
+          tests/test_real_historical_qualification.py
+
+      - name: No-lookahead and synthetic qualification regressions
         run: >-
           pytest -q
+          tests/test_strategy_backtest.py
           tests/test_strategy_qualification.py
           tests/test_historical_qualification.py
+
+      - name: Manifested third-party historical sample qualification
+        run: |
+          mkdir -p strategy-qualification-evidence
+          python -m tools.qualify_real_historical \
+            --manifest data/historical/aapl_plotly_multiregime/manifest.json \
+            --policy data/historical/aapl_plotly_multiregime/qualification.json \
+            --output strategy-qualification-evidence/aapl-plotly-multiregime.json
+          pytest -q tests/test_real_historical_qualification.py
+
+      - name: Validate evidence identity and non-authoritative classification
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          evidence = json.loads(
+              Path('strategy-qualification-evidence/aapl-plotly-multiregime.json')
+              .read_text(encoding='utf-8')
+          )
+          assert evidence['qualified'] is True
+          assert evidence['dataset_sha256'] == (
+              '4242262f4d5d79352a43ec5cdc81f3a9d52953fd5ca2f230b3fabf890d33a256'
+          )
+          assert evidence['upstream_git_blob_sha'] == (
+              '7b1bab3953bb5cdf47e84de1048ca04b0c991987'
+          )
+          assert evidence['source_classification'] == (
+              'THIRD_PARTY_SAMPLE_NON_AUTHORITATIVE'
+          )
+          assert len(evidence['regimes']) == 3
+          assert all(item['bars'] == 20 for item in evidence['regimes'])
+          assert all(item['windows'] == 2 for item in evidence['regimes'])
+          PY
+
       - name: Trading vertical regression
         run: pytest -q tests/test_trading_core_e2e.py
+
       - name: Compile strategy and historical data boundary
-        run: python -m compileall -q app/strategy app/marketdata app/domain app/portfolio
+        run: >-
+          python -m compileall -q
+          app/strategy
+          app/marketdata
+          tools/qualify_real_historical.py
+
+      - name: Verify fail-closed live state
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          state = json.loads(Path('LIVE_EXECUTION_STATUS_V109.json').read_text(encoding='utf-8'))
+          assert state['external_order_routing_allowed'] is False
+          assert state['live_trading_allowed'] is False
+          PY
+
+      - name: Upload strategy qualification evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: strategy-qualification-${{ github.run_id }}
+          path: strategy-qualification-evidence/*.json
+          if-no-files-found: error
+          retention-days: 30
