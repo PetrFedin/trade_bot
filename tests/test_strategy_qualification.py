@@ -51,6 +51,7 @@ def test_walk_forward_uses_multiple_strictly_future_execution_windows() -> None:
     assert result.windows[1].execution_start == 9
     assert all(window.execution_end > window.execution_start for window in result.windows)
     assert result.total_trades > 0
+    assert result.active_windows == len(result.windows)
 
 
 def test_window_acceptance_benchmark_is_capital_matched_not_raw_asset_return() -> None:
@@ -80,10 +81,28 @@ def test_benchmark_threshold_can_reject_validation_strategy() -> None:
     assert "MEAN_EXCESS_RETURN_BELOW_THRESHOLD" in result.reasons
 
 
+def test_minimum_active_windows_rejects_no_trade_regime() -> None:
+    descending = list(range(130, 100, -1))
+    result = qualifier(minimum_active_windows=1).qualify(series(descending))
+    assert not result.qualified
+    assert result.active_windows == 0
+    assert result.total_trades == 0
+    assert result.reasons == ("INSUFFICIENT_ACTIVE_WINDOWS",)
+
+
+def test_default_activity_policy_preserves_no_trade_qualification_semantics() -> None:
+    descending = list(range(130, 100, -1))
+    result = qualifier().qualify(series(descending))
+    assert result.qualified
+    assert result.active_windows == 0
+    assert result.total_trades == 0
+
+
 def test_insufficient_history_never_qualifies() -> None:
     result = qualifier().qualify(series([100, 101, 102, 103, 104, 105, 106, 107]))
     assert not result.qualified
     assert result.reasons == ("INSUFFICIENT_WALK_FORWARD_HISTORY",)
+    assert result.active_windows == 0
 
 
 def test_policy_requires_minimum_number_of_independent_windows() -> None:

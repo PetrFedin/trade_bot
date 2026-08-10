@@ -22,6 +22,11 @@ from app.strategy.regimes import (
     RegimeQualificationResult,
 )
 
+_ALLOWED_POLICY_SCHEMAS = {
+    "strategy-qualification-v1",
+    "strategy-qualification-v2",
+}
+
 
 def _decimal(data: dict[str, Any], field: str) -> Decimal:
     value = data.get(field)
@@ -33,12 +38,36 @@ def _decimal(data: dict[str, Any], field: str) -> Decimal:
     return parsed
 
 
+def _policy_int(data: dict[str, Any], field: str, *, default: int | None = None) -> int:
+    value = data.get(field, default)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{field} must be an integer")
+    return value
+
+
 def load_policy(path: Path) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or data.get("schema_version") != "strategy-qualification-v1":
+    if not isinstance(data, dict) or data.get("schema_version") not in _ALLOWED_POLICY_SCHEMAS:
         raise ValueError("strategy qualification policy schema mismatch")
     if data.get("benchmark_mode") != CAPITAL_MATCHED_BUY_HOLD_V1:
         raise ValueError("strategy qualification benchmark mode mismatch")
+    walk = data.get("walk_forward")
+    if not isinstance(walk, dict):
+        raise ValueError("walk_forward policy is required")
+    minimum_active_windows = _policy_int(
+        walk,
+        "minimum_active_windows",
+        default=0,
+    )
+    if minimum_active_windows < 0:
+        raise ValueError("minimum_active_windows must be non-negative")
+    if (
+        data["schema_version"] == "strategy-qualification-v2"
+        and minimum_active_windows < 1
+    ):
+        raise ValueError(
+            "strategy qualification v2 requires minimum_active_windows >= 1"
+        )
     return data
 
 
@@ -78,6 +107,19 @@ def _benchmark_evidence(qualification: StrategyQualification) -> dict[str, objec
     }
 
 
+def _activity_evidence(qualification: StrategyQualification) -> dict[str, object]:
+    window_count = len(qualification.windows)
+    active_fraction = (
+        Decimal(qualification.active_windows) / Decimal(window_count)
+        if window_count
+        else Decimal("0")
+    )
+    return {
+        "active_windows": qualification.active_windows,
+        "active_window_fraction": str(active_fraction),
+    }
+
+
 def _regime_evidence(item: RegimeQualificationResult) -> dict[str, object]:
     qualification = item.qualification
     return {
@@ -90,6 +132,7 @@ def _regime_evidence(item: RegimeQualificationResult) -> dict[str, object]:
         "mean_excess_return": str(qualification.mean_excess_return),
         "worst_drawdown_fraction": str(qualification.worst_drawdown_fraction),
         "total_trades": qualification.total_trades,
+        **_activity_evidence(qualification),
         **_benchmark_evidence(qualification),
     }
 
@@ -120,13 +163,18 @@ def qualify(manifest_path: Path, policy_path: Path) -> dict[str, object]:
         strategy=strategy,
         backtest_config=backtest,
         policy=WalkForwardPolicy(
-            training_bars=int(walk["training_bars"]),
-            testing_bars=int(walk["testing_bars"]),
-            step_bars=int(walk["step_bars"]),
-            minimum_windows=int(walk["minimum_windows"]),
+            training_bars=_policy_int(walk, "training_bars"),
+            testing_bars=_policy_int(walk, "testing_bars"),
+            step_bars=_policy_int(walk, "step_bars"),
+            minimum_windows=_policy_int(walk, "minimum_windows"),
             maximum_drawdown_fraction=_decimal(walk, "maximum_drawdown_fraction"),
             minimum_mean_oos_return=_decimal(walk, "minimum_mean_oos_return"),
             minimum_mean_excess_return=_decimal(walk, "minimum_mean_excess_return"),
+            minimum_active_windows=_policy_int(
+                walk,
+                "minimum_active_windows",
+                default=0,
+            ),
             require_trade_in_each_window=bool(walk["require_trade_in_each_window"]),
         ),
     )

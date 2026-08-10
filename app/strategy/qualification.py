@@ -19,6 +19,7 @@ class WalkForwardPolicy:
     maximum_drawdown_fraction: Decimal = Decimal("0.10")
     minimum_mean_oos_return: Decimal = Decimal("-1")
     minimum_mean_excess_return: Decimal = Decimal("-1")
+    minimum_active_windows: int = 0
     require_trade_in_each_window: bool = False
 
     def validate(self) -> None:
@@ -30,6 +31,8 @@ class WalkForwardPolicy:
             raise ValueError("step_bars must be positive")
         if self.minimum_windows < 1:
             raise ValueError("minimum_windows must be positive")
+        if self.minimum_active_windows < 0:
+            raise ValueError("minimum_active_windows must be non-negative")
         if (
             not self.maximum_drawdown_fraction.is_finite()
             or self.maximum_drawdown_fraction < 0
@@ -74,6 +77,7 @@ class StrategyQualification:
     mean_excess_return: Decimal
     worst_drawdown_fraction: Decimal
     total_trades: int
+    active_windows: int = 0
 
 
 class WalkForwardQualifier:
@@ -84,6 +88,8 @@ class WalkForwardQualifier:
     Excess return is measured against a capital-matched buy-and-hold baseline using the
     same target quantity, opening cash, entry slippage and per-fill fee as the strategy.
     Raw asset return remains available on each window as an informational baseline.
+    Activity coverage is measured separately from return so a strategy cannot hide a
+    no-trade regime behind favorable benchmark movement when a policy requires activity.
     """
 
     def __init__(
@@ -95,7 +101,9 @@ class WalkForwardQualifier:
     ) -> None:
         self.policy = WalkForwardPolicy() if policy is None else policy
         self.policy.validate()
-        self.backtest_config = BacktestConfig() if backtest_config is None else backtest_config
+        self.backtest_config = (
+            BacktestConfig() if backtest_config is None else backtest_config
+        )
         self.backtest_config.validate()
         self.strategy = strategy
 
@@ -110,6 +118,7 @@ class WalkForwardQualifier:
                 mean_excess_return=Decimal("0"),
                 worst_drawdown_fraction=Decimal("0"),
                 total_trades=0,
+                active_windows=0,
             )
         for bar in ordered:
             bar.validate()
@@ -168,16 +177,24 @@ class WalkForwardQualifier:
                 mean_excess_return=Decimal("0"),
                 worst_drawdown_fraction=Decimal("0"),
                 total_trades=0,
+                active_windows=0,
             )
 
         count = Decimal(len(windows))
-        mean_return = sum((window.strategy_return for window in windows), Decimal("0")) / count
-        mean_excess = sum((window.excess_return for window in windows), Decimal("0")) / count
+        mean_return = sum(
+            (window.strategy_return for window in windows), Decimal("0")
+        ) / count
+        mean_excess = sum(
+            (window.excess_return for window in windows), Decimal("0")
+        ) / count
         worst_drawdown = max(window.max_drawdown_fraction for window in windows)
         total_trades = sum(window.trades for window in windows)
+        active_windows = sum(window.trades > 0 for window in windows)
         reasons: set[str] = set()
         if len(windows) < self.policy.minimum_windows:
             reasons.add("INSUFFICIENT_WALK_FORWARD_WINDOWS")
+        if active_windows < self.policy.minimum_active_windows:
+            reasons.add("INSUFFICIENT_ACTIVE_WINDOWS")
         if mean_return < self.policy.minimum_mean_oos_return:
             reasons.add("MEAN_OOS_RETURN_BELOW_THRESHOLD")
         if mean_excess < self.policy.minimum_mean_excess_return:
@@ -197,4 +214,5 @@ class WalkForwardQualifier:
             mean_excess_return=mean_excess,
             worst_drawdown_fraction=worst_drawdown,
             total_trades=total_trades,
+            active_windows=active_windows,
         )
