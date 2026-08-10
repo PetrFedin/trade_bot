@@ -12,7 +12,7 @@ This document is the source of truth for product-readiness claims. A capability 
 | Portfolio management | QUALIFIED DETERMINISTICALLY | fee-aware cash/positions, realized/unrealized P&L/equity, idempotent fills, broker reconciliation, stock splits/dividends, SQLite replay/snapshots, PostgreSQL 16 append-only event journal, restart replay, snapshots and concurrent duplicate-event idempotency | 8.0 | retain >=8 with real broker corporate-action/reconciliation evidence; add multi-currency/tax lifecycle only when product scope requires it |
 | Risk management | QUALIFIED DETERMINISTICALLY | exposure, kill switch, freshness, execution-quality, loss/drawdown/turnover, liquidity, concentration and volatility guardrails plus immutable SQLite/PostgreSQL risk-decision hash chain wired into the actual paper planning path; PostgreSQL concurrent writers serialize through a locked chain head | 8.0 | retain >=8 through scenario/property testing and production-calibrated thresholds; real Paper evidence remains a separate paper-readiness gate |
 | OMS / execution state | QUALIFIED DETERMINISTICALLY | transactional SQLite + PostgreSQL 16 OMS, row locking, append-only events, deterministic client IDs, durable submit and mutation outboxes, monotonic fills, at-most-one submit, at-most-one cancel/replace attempt, `STARTED` before broker mutation, GET-only ambiguity/restart recovery, active-mutation fencing, broker-ID rotation handling, read-only reconciliation and repeated deterministic fault campaigns on canonical `main` | 8.5 | retain >=8 with real broker cancel/replace fault evidence and operational SLO history; scheduled deterministic campaigns support regression confidence but do not replace external soak evidence |
-| Release process | STRONG PARTIAL — SIGNED PROVENANCE QUALIFIED | canonical `main`, stable package identity, hash-locked `requirements.lock`, lock freshness verification, Ruff/Bandit/dependency audit, exact Node24-native GitHub Action SHA pins, automated CI supply-chain policy, wheel/sdist + release manifest + SPDX SBOM, signed SLSA build provenance and signed SBOM attestation on canonical `main` | 7.8 | verify/enforce GitHub server-side branch protection and required reviews; execute a signed/version-matched release tag; assign release/rollback ownership; preserve externally verifiable attestations for releases |
+| Release process | STRONG PARTIAL — SIGNED PROVENANCE + OWNERSHIP QUALIFIED | canonical `main`, stable package identity, hash-locked `requirements.lock`, lock freshness verification, Ruff/Bandit/dependency audit, exact Node24-native GitHub Action SHA pins, automated CI supply-chain policy, wheel/sdist + release manifest + SPDX SBOM, signed SLSA build provenance and signed SBOM attestation, machine-validated artifact release and rollback ownership | 7.9 | verify/enforce GitHub server-side branch protection and required reviews; execute a signed/version-matched release tag; preserve externally verifiable attestations; keep independent live approval separate from technical artifact ownership |
 | Paper-operation readiness | STRONG PARTIAL | paper safety, trading E2E, immutable risk evidence, PostgreSQL portfolio/OMS durability, at-most-once submit, deterministic cancel/replace recovery, operational SLO and composition-root gates pass on `main`; repeated fault campaign also passes on `main` across SQLite and PostgreSQL | 7.8 | credentialed Alpaca Paper read-only PASS; controlled real Paper mutation/recovery drill; 14–30 day external soak with clean reconciliation/SLO evidence |
 | Live trading readiness | BLOCKED | all product qualification paths keep external/live routing disabled; real Paper prerequisites, server-side release governance and independent live-pilot controls are incomplete | 2.0 | every live-critical upstream capability >=8 with external evidence; independent approval; tiny-capital pilot controls; production secrets/KMS; real-time reconciliation; global kill switch |
 
@@ -22,13 +22,13 @@ This document is the source of truth for product-readiness claims. A capability 
 
 Canonical `main` evidence:
 
-- commit: `8dce54a1cf1eccfc7152ef141619f35c8a1e0e81`
-- workflow run: `31335919400`
-- status: `success`
-- PR/push campaign strength: 25 repeated SQLite submit/mutation cycles and 8 repeated PostgreSQL mutation-durability/fencing cycles
-- retained artifact: `9044324636`
-- artifact digest: `sha256:f0731e880fadc75b3333702c4cb72bc60fd683a3b57cfb39c6efe6ead1fa6869`
-- nightly configuration: 100 SQLite cycles and 25 PostgreSQL cycles
+- commit: `8dce54a1cf1eccfc7152ef141619f35c8a1e0e81`;
+- workflow run: `31335919400`;
+- status: `success`;
+- PR/push campaign strength: 25 repeated SQLite submit/mutation cycles and 8 repeated PostgreSQL mutation-durability/fencing cycles;
+- retained artifact: `9044324636`;
+- artifact digest: `sha256:f0731e880fadc75b3333702c4cb72bc60fd683a3b57cfb39c6efe6ead1fa6869`;
+- nightly configuration: 100 SQLite cycles and 25 PostgreSQL cycles.
 
 This evidence increases deterministic confidence in at-most-once submit/cancel/replace behavior, GET-only ambiguity/restart recovery, monotonic fill adoption and durable mutation fencing. It is not a substitute for a credentialed broker mutation drill or elapsed external soak time.
 
@@ -36,18 +36,35 @@ This evidence increases deterministic confidence in at-most-once submit/cancel/r
 
 First qualified signed provenance on canonical `main`:
 
-- commit: `3dc298b4f6d8fba504e560762d101cae6d4070bc`
-- workflow run: `31336212403`
-- SLSA build-provenance attestation ID: `39704670`
-- signed SBOM attestation ID: `39704671`
-- retained evidence artifact: `9044407752`
-- artifact digest: `sha256:50638e11323333a99e46dca19b39a57901986b5bb6392353232b94824136f2c3`
+- commit: `3dc298b4f6d8fba504e560762d101cae6d4070bc`;
+- workflow run: `31336212403`;
+- SLSA build-provenance attestation ID: `39704670`;
+- signed SBOM attestation ID: `39704671`;
+- retained evidence artifact: `9044407752`;
+- artifact digest: `sha256:50638e11323333a99e46dca19b39a57901986b5bb6392353232b94824136f2c3`.
 
 The attestation job runs only after trusted `main`/tag pushes and verifies SHA-256 checksums after artifact transfer and before signing. Pull-request qualification remains read-only and does not receive OIDC/attestation write privileges.
 
+### Release ownership governance
+
+First qualified repository-side ownership evidence:
+
+- branch head: `934830a25413d8303801f7a522965074e03138f8`;
+- workflow run: `31439373574`;
+- status: `success`;
+- technical artifact release owner: `@PetrFedin`;
+- technical rollback owner: `@PetrFedin`;
+- independent live approver: unassigned;
+- branch-protection verification: `UNVERIFIED_INTEGRATION_FORBIDDEN`;
+- live release allowed: `false`;
+- retained evidence artifact: `9082248544`;
+- artifact digest: `sha256:d04db773f18d38381424dd52c1690c46065b80863510712ba2aa63ae7cd84173`.
+
+This closes the repository-side technical ownership gap. It does not claim separation-of-duties for live release and does not substitute for verified GitHub server-side protection.
+
 ## Security qualification
 
-The stable product core is required to pass Ruff, Bandit, dependency auditing, compile checks and the complete deterministic pytest regression. During the hardening cycle, `pip-audit` found `PYSEC-2026-3552` in the installed `cryptography 49.0.0` line. The project dependency contract and V108 architecture audit were upgraded to require `cryptography>=50,<51` instead of suppressing the advisory. Current release and product gates install the hash-locked dependency graph, require exact Node24-native GitHub Action commit SHAs for operational workflows, generate signed build/SBOM attestations on trusted `main`/tag pushes, and keep live/production execution flags fail-closed.
+The stable product core is required to pass Ruff, Bandit, dependency auditing, compile checks and the complete deterministic pytest regression. During the hardening cycle, `pip-audit` found `PYSEC-2026-3552` in the installed `cryptography 49.0.0` line. The project dependency contract and V108 architecture audit were upgraded to require `cryptography>=50,<51` instead of suppressing the advisory. Current release and product gates install the hash-locked dependency graph, require exact Node24-native GitHub Action commit SHAs for operational workflows, generate signed build/SBOM attestations on trusted `main`/tag pushes, validate release ownership, and keep live/production execution flags fail-closed.
 
 ## Current deterministic E2E chain
 
@@ -101,7 +118,7 @@ The workflow has been invoked in GitHub Actions, but the repository currently ex
 
 ## Release-governance boundary
 
-Repository-side provenance, lock, dependency, action-pin and release-evidence controls are executable and qualified. GitHub server-side branch protection / ruleset state remains **UNVERIFIED** because the current GitHub integration receives `403 Resource not accessible by integration` from the branch-protection endpoint. Repository files are not treated as proof of server-side review, force-push or required-check enforcement. See `docs/RELEASE_GOVERNANCE.md`.
+Repository-side provenance, lock, dependency, action-pin, release-evidence and technical ownership controls are executable and qualified. GitHub server-side branch protection / ruleset state remains **UNVERIFIED** because the current GitHub integration receives `403 Resource not accessible by integration` from the branch-protection endpoint. Repository files are not treated as proof of server-side review, force-push or required-check enforcement. Independent live approval also remains unassigned. See `docs/RELEASE_GOVERNANCE.md`.
 
 ## Hard live blockers
 
@@ -111,9 +128,9 @@ Live routing must remain disabled while any of these are true:
 - no controlled stable-OMS cancel/replace mutation/recovery drill exists against the real Paper broker;
 - no 14–30 day external Paper soak has completed cleanly;
 - there is no representative real historical-data strategy qualification across multiple regimes;
-- GitHub server-side branch protection / required-review enforcement and release/rollback ownership remain unverified or incomplete;
+- GitHub server-side branch protection / required-review enforcement remains unverified;
 - no version-matched release tag has completed the signed provenance path;
-- independent live-pilot approval and tiny-capital controls are absent.
+- independent live approver / live-pilot approval and tiny-capital controls are absent.
 
 ## Definition of >=8/10
 

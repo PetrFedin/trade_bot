@@ -1,0 +1,110 @@
+name: release-governance
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+    paths:
+      - 'release/ownership.json'
+      - 'tools/release_governance.py'
+      - 'tests/test_release_governance.py'
+      - 'pyproject.toml'
+      - 'requirements.lock'
+      - 'docs/RELEASE_GOVERNANCE.md'
+      - 'docs/E2E_MATRIX.md'
+      - '.github/workflows/release-governance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-governance-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked qualification graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Validate ownership contract and tests
+        run: |
+          ruff check tools/release_governance.py tests/test_release_governance.py
+          pytest -q tests/test_release_governance.py
+          python -m tools.release_governance \
+            release/ownership.json \
+            --require-artifact-release-ready
+
+      - name: Verify version-matched tag contract
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          project = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))['project']
+          print(project['version'])
+          PY
+          )"
+          test "$GITHUB_REF_NAME" = "v${VERSION}"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Write governance evidence
+        run: |
+          mkdir -p release-governance-evidence
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import tomllib
+          from pathlib import Path
+
+          ownership_path = Path('release/ownership.json')
+          ownership = json.loads(ownership_path.read_text(encoding='utf-8'))
+          project = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))['project']
+          evidence = {
+              'commit_sha': os.environ['GITHUB_SHA'],
+              'ref': os.environ['GITHUB_REF'],
+              'project_version': project['version'],
+              'ownership_sha256': hashlib.sha256(ownership_path.read_bytes()).hexdigest(),
+              'artifact_release_owner': ownership['artifact_release_owner'],
+              'rollback_owner': ownership['rollback_owner'],
+              'branch_protection_verification': ownership['branch_protection_verification'],
+              'artifact_release_allowed': ownership['artifact_release_allowed'],
+              'live_release_allowed': ownership['live_release_allowed'],
+          }
+          assert evidence['artifact_release_allowed'] is True
+          assert evidence['live_release_allowed'] is False
+          Path('release-governance-evidence/summary.json').write_text(
+              json.dumps(evidence, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Upload release governance evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-governance-${{ github.run_id }}
+          path: release-governance-evidence/summary.json
+          if-no-files-found: error
+          retention-days: 30

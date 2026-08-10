@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "artifact_release_owner": "@PetrFedin",
+  "rollback_owner": "@PetrFedin",
+  "independent_live_approver": null,
+  "branch_protection_verification": "UNVERIFIED_INTEGRATION_FORBIDDEN",
+  "artifact_release_allowed": true,
+  "live_release_allowed": false
+}
