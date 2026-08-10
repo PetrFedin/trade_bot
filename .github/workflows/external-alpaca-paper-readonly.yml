@@ -3,11 +3,19 @@ name: external-alpaca-paper-readonly
 on:
   workflow_dispatch:
   push:
-    branches: [agent/schema108-paper-core-foundation]
+    branches: [main]
     paths:
       - 'tools/external_paper_readonly.py'
+      - 'app/runtime/alpaca_external_probe_v101.py'
+      - 'requirements.lock'
       - '.github/workflows/external-alpaca-paper-readonly.yml'
-      - 'pyproject.toml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/external_paper_readonly.py'
+      - 'app/runtime/alpaca_external_probe_v101.py'
+      - 'requirements.lock'
+      - '.github/workflows/external-alpaca-paper-readonly.yml'
   schedule:
     - cron: '17 2 * * 1-5'
 
@@ -15,50 +23,203 @@ permissions:
   contents: read
 
 concurrency:
-  group: external-alpaca-paper-readonly
+  group: external-alpaca-paper-readonly-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
-  qualify:
+  static-boundary:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+
+      - name: Compile secret-free external probe boundary
+        run: >-
+          python -m compileall -q
+          tools/external_paper_readonly.py
+          app/runtime/alpaca_external_probe_v101.py
+
+  qualify:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
     environment: alpaca-paper
     env:
       ASTRA_ALPACA_PAPER_KEY_ID: ${{ secrets.ASTRA_ALPACA_PAPER_KEY_ID }}
       ASTRA_ALPACA_PAPER_SECRET_KEY: ${{ secrets.ASTRA_ALPACA_PAPER_SECRET_KEY }}
       ASTRA_EXTERNAL_PROBE_GENERATION: ${{ github.run_number }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
           cache: pip
-      - name: Require explicit paper credentials
+          cache-dependency-path: requirements.lock
+
+      - name: Resolve credential readiness without exposing secrets
+        id: credentials
         shell: bash
         run: |
-          test -n "$ASTRA_ALPACA_PAPER_KEY_ID"
-          test -n "$ASTRA_ALPACA_PAPER_SECRET_KEY"
-      - name: Install read-only external dependencies
+          set -euo pipefail
+          configured=false
+          if [[ -n "${ASTRA_ALPACA_PAPER_KEY_ID:-}" && -n "${ASTRA_ALPACA_PAPER_SECRET_KEY:-}" ]]; then
+            configured=true
+          fi
+          echo "configured=${configured}" >> "$GITHUB_OUTPUT"
+          if [[ "$configured" != "true" ]]; then
+            python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report = {
+              'provider': 'alpaca',
+              'environment': 'paper',
+              'qualification': 'BLOCKED_CREDENTIALS',
+              'credentials_configured': False,
+              'probe_executed': False,
+              'reason_codes': ['ALPACA_PAPER_CREDENTIALS_MISSING'],
+              'commit_sha': os.environ['GITHUB_SHA'],
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'paper_order_writes_enabled': False,
+              'external_order_routing_allowed': False,
+              'live_trading_allowed': False,
+          }
+          Path('external-paper-readonly.json').write_text(
+              json.dumps(report, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          PY
+          fi
+
+      - name: Compile external probe boundary
+        run: >-
+          python -m compileall -q
+          tools/external_paper_readonly.py
+          app/runtime/alpaca_external_probe_v101.py
+
+      - name: Install hash-locked external qualification graph
+        if: steps.credentials.outputs.configured == 'true'
         run: |
-          python -m pip install --disable-pip-version-check '.[test,marketdata]'
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
           python -m pip check
+
       - name: Run real Alpaca Paper REST and WebSocket probe
-        run: python -m tools.external_paper_readonly | tee external-paper-readonly.json
-      - name: Assert live routing stays disabled
+        id: probe
+        if: steps.credentials.outputs.configured == 'true'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.external_paper_readonly | tee external-paper-readonly.json
+
+      - name: Normalize blocked, passed, or failed probe evidence
+        if: always()
+        env:
+          ASTRA_CREDENTIALS_CONFIGURED: ${{ steps.credentials.outputs.configured }}
+          ASTRA_PROBE_STEP_OUTCOME: ${{ steps.probe.outcome }}
         run: |
           python - <<'PY'
           import json
-          data = json.loads(open('external-paper-readonly.json', encoding='utf-8').read())
-          assert data['environment'] == 'paper'
-          assert data['paper_order_writes_enabled'] is False
-          assert data['external_order_routing_allowed'] is False
-          assert data['live_trading_allowed'] is False
-          assert data['stream_authenticated'] is True
-          assert data['stream_listening'] is True
+          import os
+          from pathlib import Path
+
+          path = Path('external-paper-readonly.json')
+          configured = os.environ.get('ASTRA_CREDENTIALS_CONFIGURED') == 'true'
+          probe_outcome = os.environ.get('ASTRA_PROBE_STEP_OUTCOME') or 'skipped'
+          base = {
+              'provider': 'alpaca',
+              'environment': 'paper',
+              'commit_sha': os.environ['GITHUB_SHA'],
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'paper_order_writes_enabled': False,
+              'external_order_routing_allowed': False,
+              'live_trading_allowed': False,
+          }
+
+          if not configured:
+              report = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+              report.update(base)
+              report.update(
+                  qualification='BLOCKED_CREDENTIALS',
+                  credentials_configured=False,
+                  probe_executed=False,
+                  probe_step_outcome='skipped',
+                  reason_codes=['ALPACA_PAPER_CREDENTIALS_MISSING'],
+              )
+          else:
+              report = {}
+              if path.exists() and path.stat().st_size:
+                  try:
+                      report = json.loads(path.read_text(encoding='utf-8'))
+                  except json.JSONDecodeError:
+                      report = {}
+              report.update(base)
+              report['credentials_configured'] = True
+              report['probe_executed'] = True
+              report['probe_step_outcome'] = probe_outcome
+              passed = (
+                  probe_outcome == 'success'
+                  and report.get('account_status', '').upper() == 'ACTIVE'
+                  and report.get('stream_authenticated') is True
+                  and report.get('stream_listening') is True
+                  and not report.get('reasons')
+              )
+              report['qualification'] = 'PASS' if passed else 'FAIL'
+              if not passed:
+                  report['reason_codes'] = report.get('reason_codes') or [
+                      'ALPACA_PAPER_PROBE_NOT_QUALIFIED'
+                  ]
+          path.write_text(
+              json.dumps(report, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
           PY
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
+
+      - name: Upload external Paper readiness evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: external-alpaca-paper-readonly-${{ github.run_id }}
           path: external-paper-readonly.json
           if-no-files-found: error
           retention-days: 14
+
+      - name: Enforce readiness semantics without false PASS
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('external-paper-readonly.json').read_text(encoding='utf-8'))
+          assert report['provider'] == 'alpaca'
+          assert report['environment'] == 'paper'
+          assert report['paper_order_writes_enabled'] is False
+          assert report['external_order_routing_allowed'] is False
+          assert report['live_trading_allowed'] is False
+
+          if report['qualification'] == 'BLOCKED_CREDENTIALS':
+              assert report['credentials_configured'] is False
+              assert report['probe_executed'] is False
+              assert report['reason_codes'] == ['ALPACA_PAPER_CREDENTIALS_MISSING']
+          else:
+              assert report['credentials_configured'] is True
+              assert report['probe_executed'] is True
+              assert report['qualification'] == 'PASS'
+              assert report['probe_step_outcome'] == 'success'
+              assert report['account_status'].upper() == 'ACTIVE'
+              assert report['stream_authenticated'] is True
+              assert report['stream_listening'] is True
+              assert not report['reasons']
+          PY
