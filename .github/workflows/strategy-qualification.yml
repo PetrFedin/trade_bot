@@ -11,6 +11,7 @@ on:
       - 'data/historical/**'
       - 'tools/qualify_real_historical.py'
       - 'tests/test_strategy_backtest.py'
+      - 'tests/test_strategy_benchmarks.py'
       - 'tests/test_strategy_qualification.py'
       - 'tests/test_historical_qualification.py'
       - 'tests/test_real_historical_qualification.py'
@@ -25,6 +26,7 @@ on:
       - 'data/historical/**'
       - 'tools/qualify_real_historical.py'
       - 'tests/test_strategy_backtest.py'
+      - 'tests/test_strategy_benchmarks.py'
       - 'tests/test_strategy_qualification.py'
       - 'tests/test_historical_qualification.py'
       - 'tests/test_real_historical_qualification.py'
@@ -64,13 +66,15 @@ jobs:
           app/marketdata
           app/strategy
           tools/qualify_real_historical.py
+          tests/test_strategy_benchmarks.py
           tests/test_historical_qualification.py
           tests/test_real_historical_qualification.py
 
-      - name: No-lookahead and synthetic qualification regressions
+      - name: No-lookahead and benchmark semantics regressions
         run: >-
           pytest -q
           tests/test_strategy_backtest.py
+          tests/test_strategy_benchmarks.py
           tests/test_strategy_qualification.py
           tests/test_historical_qualification.py
 
@@ -83,7 +87,7 @@ jobs:
             --output strategy-qualification-evidence/aapl-plotly-multiregime.json
           pytest -q tests/test_real_historical_qualification.py
 
-      - name: Validate evidence identity and non-authoritative classification
+      - name: Validate evidence identity, benchmark mode, and source classification
         run: |
           python - <<'PY'
           import json
@@ -103,9 +107,15 @@ jobs:
           assert evidence['source_classification'] == (
               'THIRD_PARTY_SAMPLE_NON_AUTHORITATIVE'
           )
+          assert evidence['benchmark_mode'] == 'capital_matched_buy_hold_v1'
+          assert evidence['acceptance_policy']['benchmark_mode'] == (
+              'capital_matched_buy_hold_v1'
+          )
           assert len(evidence['regimes']) == 3
           assert all(item['bars'] == 20 for item in evidence['regimes'])
           assert all(item['windows'] == 2 for item in evidence['regimes'])
+          assert all(item['benchmark_mode'] == 'capital_matched_buy_hold_v1' for item in evidence['regimes'])
+          assert all(len(item['window_baselines']) == 2 for item in evidence['regimes'])
           PY
 
       - name: Trading vertical regression
