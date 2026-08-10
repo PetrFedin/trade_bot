@@ -70,7 +70,7 @@ jobs:
           tests/test_historical_qualification.py
           tests/test_real_historical_qualification.py
 
-      - name: No-lookahead and benchmark semantics regressions
+      - name: No-lookahead, benchmark, and activity semantics regressions
         run: >-
           pytest -q
           tests/test_strategy_backtest.py
@@ -78,23 +78,23 @@ jobs:
           tests/test_strategy_qualification.py
           tests/test_historical_qualification.py
 
-      - name: Manifested third-party historical sample qualification
+      - name: Current v1 manifested historical acceptance
         run: |
           mkdir -p strategy-qualification-evidence
           python -m tools.qualify_real_historical \
             --manifest data/historical/aapl_plotly_multiregime/manifest.json \
             --policy data/historical/aapl_plotly_multiregime/qualification.json \
-            --output strategy-qualification-evidence/aapl-plotly-multiregime.json
+            --output strategy-qualification-evidence/aapl-plotly-multiregime-v1.json
           pytest -q tests/test_real_historical_qualification.py
 
-      - name: Validate evidence identity, benchmark mode, and source classification
+      - name: Validate current evidence identity and activity diagnostics
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
 
           evidence = json.loads(
-              Path('strategy-qualification-evidence/aapl-plotly-multiregime.json')
+              Path('strategy-qualification-evidence/aapl-plotly-multiregime-v1.json')
               .read_text(encoding='utf-8')
           )
           assert evidence['qualified'] is True
@@ -108,14 +108,58 @@ jobs:
               'THIRD_PARTY_SAMPLE_NON_AUTHORITATIVE'
           )
           assert evidence['benchmark_mode'] == 'capital_matched_buy_hold_v1'
-          assert evidence['acceptance_policy']['benchmark_mode'] == (
-              'capital_matched_buy_hold_v1'
+          assert evidence['acceptance_policy']['schema_version'] == (
+              'strategy-qualification-v1'
           )
-          assert len(evidence['regimes']) == 3
-          assert all(item['bars'] == 20 for item in evidence['regimes'])
-          assert all(item['windows'] == 2 for item in evidence['regimes'])
-          assert all(item['benchmark_mode'] == 'capital_matched_buy_hold_v1' for item in evidence['regimes'])
-          assert all(len(item['window_baselines']) == 2 for item in evidence['regimes'])
+          assert evidence['acceptance_policy']['walk_forward'][
+              'minimum_active_windows'
+          ] == 0
+          regimes = {item['name']: item for item in evidence['regimes']}
+          assert regimes['rising_2015_q4']['active_windows'] == 2
+          assert regimes['drawdown_2016_spring']['active_windows'] == 0
+          assert regimes['range_2016_q4']['active_windows'] == 2
+          assert all(item['benchmark_mode'] == 'capital_matched_buy_hold_v1' for item in regimes.values())
+          assert all(len(item['window_baselines']) == 2 for item in regimes.values())
+          PY
+
+      - name: Next-cycle v2 shadow activity policy
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from tools.qualify_real_historical import qualify
+
+          evidence = qualify(
+              Path('data/historical/aapl_plotly_multiregime/manifest.json'),
+              Path('data/historical/aapl_plotly_multiregime/qualification_next_cycle.json'),
+          )
+          assert evidence['qualified'] is False
+          assert evidence['reasons'] == [
+              'REGIME_NOT_QUALIFIED:drawdown_2016_spring'
+          ]
+          assert evidence['acceptance_policy']['schema_version'] == (
+              'strategy-qualification-v2'
+          )
+          assert evidence['acceptance_policy']['walk_forward'][
+              'minimum_active_windows'
+          ] == 1
+          regimes = {item['name']: item for item in evidence['regimes']}
+          drawdown = regimes['drawdown_2016_spring']
+          assert drawdown['qualified'] is False
+          assert drawdown['active_windows'] == 0
+          assert drawdown['total_trades'] == 0
+          assert drawdown['reasons'] == ['INSUFFICIENT_ACTIVE_WINDOWS']
+          for name in ('rising_2015_q4', 'range_2016_q4'):
+              assert regimes[name]['qualified'] is True
+              assert regimes[name]['active_windows'] >= 1
+              assert regimes[name]['reasons'] == []
+          Path(
+              'strategy-qualification-evidence/aapl-plotly-next-cycle-shadow-v2.json'
+          ).write_text(
+              json.dumps(evidence, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
           PY
 
       - name: Trading vertical regression

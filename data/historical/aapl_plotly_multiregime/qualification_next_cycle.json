@@ -1,5 +1,5 @@
 {
-  "schema_version": "strategy-qualification-v1",
+  "schema_version": "strategy-qualification-v2",
   "benchmark_mode": "capital_matched_buy_hold_v1",
   "strategy_id": "paper-momentum-v1",
   "target_quantity": "1",
@@ -14,7 +14,7 @@
     "maximum_drawdown_fraction": "0.10",
     "minimum_mean_oos_return": "-0.03",
     "minimum_mean_excess_return": "-0.03",
-    "minimum_active_windows": 0,
+    "minimum_active_windows": 1,
     "require_trade_in_each_window": false
   }
 }

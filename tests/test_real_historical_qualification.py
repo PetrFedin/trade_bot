@@ -13,12 +13,18 @@ from tools.qualify_real_historical import load_policy, qualify
 DATA_DIR = Path("data/historical/aapl_plotly_multiregime")
 MANIFEST = DATA_DIR / "manifest.json"
 POLICY = DATA_DIR / "qualification.json"
+NEXT_POLICY = DATA_DIR / "qualification_next_cycle.json"
 EXPECTED_DATASET_SHA256 = "4242262f4d5d79352a43ec5cdc81f3a9d52953fd5ca2f230b3fabf890d33a256"
 UPSTREAM_BLOB = "7b1bab3953bb5cdf47e84de1048ca04b0c991987"
 EXPECTED_CAPITAL_MATCHED_MEANS = {
     "rising_2015_q4": "-0.000152531749925",
     "drawdown_2016_spring": "-0.000494520050075",
     "range_2016_q4": "0.00015406379995",
+}
+EXPECTED_ACTIVE_WINDOWS = {
+    "rising_2015_q4": 2,
+    "drawdown_2016_spring": 0,
+    "range_2016_q4": 2,
 }
 
 
@@ -39,7 +45,7 @@ def test_manifested_snapshot_is_hash_locked_and_windowed() -> None:
     ]
 
 
-def test_real_sample_qualification_uses_capital_matched_benchmark_policy() -> None:
+def test_real_sample_v1_preserves_current_acceptance_and_reports_activity() -> None:
     evidence = qualify(MANIFEST, POLICY)
     assert evidence["qualified"] is True
     assert evidence["dataset_sha256"] == EXPECTED_DATASET_SHA256
@@ -48,7 +54,9 @@ def test_real_sample_qualification_uses_capital_matched_benchmark_policy() -> No
     assert evidence["benchmark_mode"] == CAPITAL_MATCHED_BUY_HOLD_V1
     acceptance_policy = evidence["acceptance_policy"]
     assert isinstance(acceptance_policy, dict)
+    assert acceptance_policy["schema_version"] == "strategy-qualification-v1"
     assert acceptance_policy["benchmark_mode"] == CAPITAL_MATCHED_BUY_HOLD_V1
+    assert acceptance_policy["walk_forward"]["minimum_active_windows"] == 0
 
     regimes = evidence["regimes"]
     assert isinstance(regimes, list) and len(regimes) == 3
@@ -61,7 +69,38 @@ def test_real_sample_qualification_uses_capital_matched_benchmark_policy() -> No
         assert regime["mean_capital_matched_benchmark_return"] == (
             EXPECTED_CAPITAL_MATCHED_MEANS[regime["name"]]
         )
+        assert regime["active_windows"] == EXPECTED_ACTIVE_WINDOWS[regime["name"]]
         assert len(regime["window_baselines"]) == 2
+
+
+def test_next_cycle_shadow_policy_rejects_only_zero_activity_drawdown_regime() -> None:
+    evidence = qualify(MANIFEST, NEXT_POLICY)
+    assert evidence["qualified"] is False
+    assert evidence["reasons"] == ["REGIME_NOT_QUALIFIED:drawdown_2016_spring"]
+    acceptance_policy = evidence["acceptance_policy"]
+    assert acceptance_policy["schema_version"] == "strategy-qualification-v2"
+    assert acceptance_policy["walk_forward"]["minimum_active_windows"] == 1
+
+    regimes = {item["name"]: item for item in evidence["regimes"]}
+    drawdown = regimes["drawdown_2016_spring"]
+    assert drawdown["qualified"] is False
+    assert drawdown["active_windows"] == 0
+    assert drawdown["total_trades"] == 0
+    assert drawdown["reasons"] == ["INSUFFICIENT_ACTIVE_WINDOWS"]
+
+    for name in ("rising_2015_q4", "range_2016_q4"):
+        assert regimes[name]["qualified"] is True
+        assert regimes[name]["active_windows"] >= 1
+        assert regimes[name]["reasons"] == []
+
+
+def test_v2_policy_cannot_disable_activity_requirement(tmp_path: Path) -> None:
+    policy = json.loads(NEXT_POLICY.read_text(encoding="utf-8"))
+    policy["walk_forward"]["minimum_active_windows"] = 0
+    path = tmp_path / "qualification-v2.json"
+    path.write_text(json.dumps(policy), encoding="utf-8")
+    with pytest.raises(ValueError, match="v2 requires minimum_active_windows >= 1"):
+        load_policy(path)
 
 
 def test_policy_rejects_legacy_unmatched_benchmark_semantics(tmp_path: Path) -> None:
