@@ -53,8 +53,27 @@ def test_walk_forward_uses_multiple_strictly_future_execution_windows() -> None:
     assert result.total_trades > 0
 
 
+def test_window_acceptance_benchmark_is_capital_matched_not_raw_asset_return() -> None:
+    result = qualifier().qualify(series(list(range(100, 130))))
+    window = result.windows[0]
+    first_oos = Decimal("106")
+    last_oos = Decimal("108")
+    expected_capital_matched = (
+        last_oos
+        - first_oos * Decimal("1.0005")
+        - Decimal("0.10")
+    ) / Decimal("10000")
+    expected_asset_return = (last_oos - first_oos) / first_oos
+    assert window.benchmark_return == expected_capital_matched
+    assert window.capital_matched_benchmark_return == expected_capital_matched
+    assert window.asset_benchmark_return == expected_asset_return
+    assert window.cash_benchmark_return == Decimal("0")
+    assert window.asset_benchmark_return > window.benchmark_return
+    assert window.excess_return == window.strategy_return - window.benchmark_return
+
+
 def test_benchmark_threshold_can_reject_validation_strategy() -> None:
-    result = qualifier(minimum_mean_excess_return=Decimal("0")).qualify(
+    result = qualifier(minimum_mean_excess_return=Decimal("0.000001")).qualify(
         series(list(range(100, 130)))
     )
     assert not result.qualified

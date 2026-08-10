@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from app.domain.trading import Bar
 from app.strategy.backtest import BacktestConfig, HistoricalBacktester
+from app.strategy.benchmarks import evaluate_benchmarks
 from app.strategy.momentum import LongOnlyMomentumStrategy
 
 
@@ -51,9 +52,17 @@ class WalkForwardWindow:
     execution_end: int
     strategy_return: Decimal
     benchmark_return: Decimal
+    asset_benchmark_return: Decimal
+    cash_benchmark_return: Decimal
     excess_return: Decimal
     max_drawdown_fraction: Decimal
     trades: int
+
+    @property
+    def capital_matched_benchmark_return(self) -> Decimal:
+        """Backward-compatible explicit name for the acceptance benchmark."""
+
+        return self.benchmark_return
 
 
 @dataclass(frozen=True)
@@ -72,8 +81,9 @@ class WalkForwardQualifier:
 
     This framework deliberately does not optimize parameters. Each window supplies a
     historical warm-up segment, then evaluates only future bars using next-bar fills.
-    It therefore tests repeatability without turning the qualification set into a
-    parameter-search surface.
+    Excess return is measured against a capital-matched buy-and-hold baseline using the
+    same target quantity, opening cash, entry slippage and per-fill fee as the strategy.
+    Raw asset return remains available on each window as an informational baseline.
     """
 
     def __init__(
@@ -123,7 +133,13 @@ class WalkForwardQualifier:
             ).run(fold, first_execution_index=local_execution_start)
             first_oos = fold[local_execution_start]
             last_oos = fold[-1]
-            benchmark_return = (last_oos.close - first_oos.close) / first_oos.close
+            benchmarks = evaluate_benchmarks(
+                first_price=first_oos.close,
+                last_price=last_oos.close,
+                target_quantity=self.strategy.target_quantity,
+                config=self.backtest_config,
+            )
+            benchmark_return = benchmarks.capital_matched_buy_hold_return
             drawdown_fraction = result.max_drawdown / self.backtest_config.opening_cash
             windows.append(
                 WalkForwardWindow(
@@ -133,6 +149,8 @@ class WalkForwardQualifier:
                     execution_end=execution_end,
                     strategy_return=result.total_return,
                     benchmark_return=benchmark_return,
+                    asset_benchmark_return=benchmarks.asset_return,
+                    cash_benchmark_return=benchmarks.cash_return,
                     excess_return=result.total_return - benchmark_return,
                     max_drawdown_fraction=drawdown_fraction,
                     trades=result.trades,

@@ -9,9 +9,18 @@ from typing import Any
 from app.marketdata.historical import HistoricalDataPolicy
 from app.marketdata.manifest import ManifestedCsvHistoricalBarSource
 from app.strategy.backtest import BacktestConfig
+from app.strategy.benchmarks import CAPITAL_MATCHED_BUY_HOLD_V1
 from app.strategy.momentum import LongOnlyMomentumStrategy
-from app.strategy.qualification import WalkForwardPolicy, WalkForwardQualifier
-from app.strategy.regimes import HistoricalRegime, MultiRegimeQualifier
+from app.strategy.qualification import (
+    StrategyQualification,
+    WalkForwardPolicy,
+    WalkForwardQualifier,
+)
+from app.strategy.regimes import (
+    HistoricalRegime,
+    MultiRegimeQualifier,
+    RegimeQualificationResult,
+)
 
 
 def _decimal(data: dict[str, Any], field: str) -> Decimal:
@@ -28,7 +37,61 @@ def load_policy(path: Path) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or data.get("schema_version") != "strategy-qualification-v1":
         raise ValueError("strategy qualification policy schema mismatch")
+    if data.get("benchmark_mode") != CAPITAL_MATCHED_BUY_HOLD_V1:
+        raise ValueError("strategy qualification benchmark mode mismatch")
     return data
+
+
+def _mean(values: list[Decimal]) -> Decimal:
+    if not values:
+        return Decimal("0")
+    return sum(values, Decimal("0")) / Decimal(len(values))
+
+
+def _benchmark_evidence(qualification: StrategyQualification) -> dict[str, object]:
+    windows = qualification.windows
+    return {
+        "benchmark_mode": CAPITAL_MATCHED_BUY_HOLD_V1,
+        "mean_cash_benchmark_return": str(
+            _mean([window.cash_benchmark_return for window in windows])
+        ),
+        "mean_asset_benchmark_return": str(
+            _mean([window.asset_benchmark_return for window in windows])
+        ),
+        "mean_capital_matched_benchmark_return": str(
+            _mean([window.capital_matched_benchmark_return for window in windows])
+        ),
+        "window_baselines": [
+            {
+                "window_number": window.window_number,
+                "strategy_return": str(window.strategy_return),
+                "cash_benchmark_return": str(window.cash_benchmark_return),
+                "asset_benchmark_return": str(window.asset_benchmark_return),
+                "capital_matched_benchmark_return": str(
+                    window.capital_matched_benchmark_return
+                ),
+                "excess_return": str(window.excess_return),
+                "trades": window.trades,
+            }
+            for window in windows
+        ],
+    }
+
+
+def _regime_evidence(item: RegimeQualificationResult) -> dict[str, object]:
+    qualification = item.qualification
+    return {
+        "name": item.regime.name,
+        "bars": item.bars,
+        "qualified": qualification.qualified,
+        "reasons": list(qualification.reasons),
+        "windows": len(qualification.windows),
+        "mean_oos_return": str(qualification.mean_oos_return),
+        "mean_excess_return": str(qualification.mean_excess_return),
+        "worst_drawdown_fraction": str(qualification.worst_drawdown_fraction),
+        "total_trades": qualification.total_trades,
+        **_benchmark_evidence(qualification),
+    }
 
 
 def qualify(manifest_path: Path, policy_path: Path) -> dict[str, object]:
@@ -87,21 +150,9 @@ def qualify(manifest_path: Path, policy_path: Path) -> dict[str, object]:
         "upstream_git_blob_sha": manifested.manifest.upstream_git_blob_sha,
         "strategy_id": strategy.strategy_id,
         "target_quantity": str(strategy.target_quantity),
+        "benchmark_mode": CAPITAL_MATCHED_BUY_HOLD_V1,
         "acceptance_policy": policy_data,
-        "regimes": [
-            {
-                "name": item.regime.name,
-                "bars": item.bars,
-                "qualified": item.qualification.qualified,
-                "reasons": list(item.qualification.reasons),
-                "windows": len(item.qualification.windows),
-                "mean_oos_return": str(item.qualification.mean_oos_return),
-                "mean_excess_return": str(item.qualification.mean_excess_return),
-                "worst_drawdown_fraction": str(item.qualification.worst_drawdown_fraction),
-                "total_trades": item.qualification.total_trades,
-            }
-            for item in result.results
-        ],
+        "regimes": [_regime_evidence(item) for item in result.results],
     }
     return evidence
 
