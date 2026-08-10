@@ -11,9 +11,9 @@ from typing import Any
 
 from app.runtime.alpaca_external_probe_v101 import UrllibTransport
 from app.runtime.alpaca_paper_adapter_v100 import (
-    ALPACA_PAPER_REST_BASE_URL,
     AlpacaPaperAdapterV100,
     AlpacaPaperCredentialsV100,
+    AlpacaPaperEndpointsV100,
 )
 from app.runtime.paper_broker_contract_v99 import OrderSide, PaperBrokerV99
 from app.runtime.paper_broker_roundtrip_v99 import (
@@ -278,7 +278,7 @@ def build_real_broker() -> AlpacaPaperAdapterV100:
     return AlpacaPaperAdapterV100(
         credentials=credentials,
         transport=transport,
-        base_url=ALPACA_PAPER_REST_BASE_URL,
+        endpoints=AlpacaPaperEndpointsV100(),
         paper_order_writes_enabled=True,
     )
 
