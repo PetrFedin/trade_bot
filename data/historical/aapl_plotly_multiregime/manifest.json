@@ -1,0 +1,32 @@
+{
+  "schema_version": "historical-source-manifest-v1",
+  "dataset_file": "bars.csv",
+  "symbol": "AAPL",
+  "source_name": "Plotly sample dataset: finance-charts-apple.csv",
+  "source_classification": "THIRD_PARTY_SAMPLE_NON_AUTHORITATIVE",
+  "upstream_repository": "plotly/datasets",
+  "upstream_path": "finance-charts-apple.csv",
+  "upstream_git_blob_sha": "7b1bab3953bb5cdf47e84de1048ca04b0c991987",
+  "upstream_license": "MIT repository license; upstream market-data origin is not asserted as exchange-authoritative",
+  "transformation": "Selected three non-overlapping 20-session windows; mapped Date to UTC observation date at 00:00:00Z, AAPL.Close to close, and fixed symbol=AAPL.",
+  "row_count": 60,
+  "snapshot_sha256": "2e41d5fdcb555184f2354933fa42af2e54934e6ff5bee18495971483f1dedfbb",
+  "canonical_sha256": "4242262f4d5d79352a43ec5cdc81f3a9d52953fd5ca2f230b3fabf890d33a256",
+  "windows": [
+    {
+      "name": "rising_2015_q4",
+      "start": "2015-10-14T00:00:00Z",
+      "end": "2015-11-11T00:00:00Z"
+    },
+    {
+      "name": "drawdown_2016_spring",
+      "start": "2016-04-07T00:00:00Z",
+      "end": "2016-05-05T00:00:00Z"
+    },
+    {
+      "name": "range_2016_q4",
+      "start": "2016-10-31T00:00:00Z",
+      "end": "2016-11-29T00:00:00Z"
+    }
+  ]
+}
