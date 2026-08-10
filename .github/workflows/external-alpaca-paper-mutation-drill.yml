@@ -70,7 +70,7 @@ jobs:
           pytest -q \
             tests/test_external_paper_mutation_drill.py \
             tests/test_roundtrip_v99.py \
-            tests/test_alpaca_adapter_v100.py
+            tests/test_alpaca_paper_adapter_v100.py
           python -m compileall -q \
             tools/external_paper_mutation_drill.py \
             app/runtime/alpaca_paper_adapter_v100.py \
@@ -190,7 +190,7 @@ jobs:
           pytest -q \
             tests/test_external_paper_mutation_drill.py \
             tests/test_roundtrip_v99.py \
-            tests/test_alpaca_adapter_v100.py
+            tests/test_alpaca_paper_adapter_v100.py
           python - <<'PY'
           import json
           from pathlib import Path
