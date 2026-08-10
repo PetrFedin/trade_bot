@@ -1,0 +1,326 @@
+name: external-alpaca-paper-mutation-drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type RUN_ALPACA_PAPER_MUTATION_DRILL exactly'
+        required: true
+        type: string
+      initial_limit_price:
+        description: 'Passive AAPL Paper BUY limit; must be > replacement and <= 25.00'
+        required: true
+        type: string
+      replacement_limit_price:
+        description: 'Lower AAPL Paper BUY replacement limit; must be < initial and <= 25.00'
+        required: true
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'tools/external_paper_mutation_drill.py'
+      - 'tests/test_external_paper_mutation_drill.py'
+      - 'app/runtime/alpaca_paper_adapter_v100.py'
+      - 'app/runtime/paper_broker_roundtrip_v99.py'
+      - 'app/runtime/paper_execution_guard.py'
+      - 'requirements.lock'
+      - '.github/workflows/external-alpaca-paper-mutation-drill.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/external_paper_mutation_drill.py'
+      - 'tests/test_external_paper_mutation_drill.py'
+      - 'app/runtime/alpaca_paper_adapter_v100.py'
+      - 'app/runtime/paper_broker_roundtrip_v99.py'
+      - 'app/runtime/paper_execution_guard.py'
+      - 'requirements.lock'
+      - '.github/workflows/external-alpaca-paper-mutation-drill.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: external-alpaca-paper-mutation-drill
+  cancel-in-progress: false
+
+jobs:
+  static-contract:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked qualification graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint and test manual mutation boundary
+        run: |
+          ruff check tools/external_paper_mutation_drill.py tests/test_external_paper_mutation_drill.py
+          pytest -q \
+            tests/test_external_paper_mutation_drill.py \
+            tests/test_roundtrip_v99.py \
+            tests/test_alpaca_paper_adapter_v100.py
+          python -m compileall -q \
+            tools/external_paper_mutation_drill.py \
+            app/runtime/alpaca_paper_adapter_v100.py \
+            app/runtime/paper_broker_roundtrip_v99.py
+
+  mutation-drill:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: alpaca-paper
+    env:
+      ASTRA_ALPACA_PAPER_KEY_ID: ${{ secrets.ASTRA_ALPACA_PAPER_KEY_ID }}
+      ASTRA_ALPACA_PAPER_SECRET_KEY: ${{ secrets.ASTRA_ALPACA_PAPER_SECRET_KEY }}
+      ASTRA_ALPACA_PAPER_MUTATION_ENABLED: ${{ secrets.ASTRA_ALPACA_PAPER_MUTATION_ENABLED }}
+      ASTRA_EXTERNAL_PROBE_GENERATION: ${{ github.run_number }}
+    steps:
+      - name: Checkout exact main revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Evaluate manual authorization gate without exposing secrets
+        id: gate
+        shell: bash
+        env:
+          INPUT_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          mkdir -p paper-mutation-drill
+          credentials=false
+          mutation_enabled=false
+          confirmation=false
+          if [[ -n "${ASTRA_ALPACA_PAPER_KEY_ID:-}" && -n "${ASTRA_ALPACA_PAPER_SECRET_KEY:-}" ]]; then
+            credentials=true
+          fi
+          if [[ "${ASTRA_ALPACA_PAPER_MUTATION_ENABLED:-}" == "ENABLED" ]]; then
+            mutation_enabled=true
+          fi
+          if [[ "$INPUT_CONFIRMATION" == "RUN_ALPACA_PAPER_MUTATION_DRILL" ]]; then
+            confirmation=true
+          fi
+          ready=false
+          if [[ "$credentials" == "true" && "$mutation_enabled" == "true" && "$confirmation" == "true" ]]; then
+            ready=true
+          fi
+          echo "ready=${ready}" >> "$GITHUB_OUTPUT"
+          echo "credentials=${credentials}" >> "$GITHUB_OUTPUT"
+          echo "mutation_enabled=${mutation_enabled}" >> "$GITHUB_OUTPUT"
+          echo "confirmation=${confirmation}" >> "$GITHUB_OUTPUT"
+          if [[ "$ready" != "true" ]]; then
+            ASTRA_GATE_CREDENTIALS="$credentials" \
+            ASTRA_GATE_MUTATION_ENABLED="$mutation_enabled" \
+            ASTRA_GATE_CONFIRMATION="$confirmation" \
+            python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          if os.environ['ASTRA_GATE_CREDENTIALS'] != 'true':
+              qualification = 'BLOCKED_CREDENTIALS'
+              reasons = ['ALPACA_PAPER_CREDENTIALS_MISSING']
+          elif os.environ['ASTRA_GATE_MUTATION_ENABLED'] != 'true':
+              qualification = 'BLOCKED_MUTATION_KILL_SWITCH'
+              reasons = ['ASTRA_ALPACA_PAPER_MUTATION_ENABLED_NOT_ENABLED']
+          else:
+              qualification = 'BLOCKED_OPERATOR_CONFIRMATION'
+              reasons = ['OPERATOR_CONFIRMATION_MISMATCH']
+          report = {
+              'qualification': qualification,
+              'provider': 'alpaca',
+              'environment': 'paper',
+              'credentials_configured': os.environ['ASTRA_GATE_CREDENTIALS'] == 'true',
+              'mutation_kill_switch_enabled': (
+                  os.environ['ASTRA_GATE_MUTATION_ENABLED'] == 'true'
+              ),
+              'operator_confirmation_valid': (
+                  os.environ['ASTRA_GATE_CONFIRMATION'] == 'true'
+              ),
+              'probe_executed': False,
+              'mutation_executed': False,
+              'reason_codes': reasons,
+              'paper_order_writes_enabled_for_drill': False,
+              'external_order_routing_allowed': False,
+              'live_trading_allowed': False,
+              'commit_sha': os.environ['GITHUB_SHA'],
+              'run_id': os.environ['GITHUB_RUN_ID'],
+          }
+          Path('paper-mutation-drill/mutation-drill-summary.json').write_text(
+              json.dumps(report, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          PY
+          fi
+
+      - name: Compile mutation boundary before network access
+        run: >-
+          python -m compileall -q
+          tools/external_paper_mutation_drill.py
+          tools/external_paper_readonly.py
+          app/runtime/alpaca_paper_adapter_v100.py
+          app/runtime/paper_broker_roundtrip_v99.py
+
+      - name: Install hash-locked external qualification graph
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Re-qualify deterministic mutation boundary before external writes
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          pytest -q \
+            tests/test_external_paper_mutation_drill.py \
+            tests/test_roundtrip_v99.py \
+            tests/test_alpaca_paper_adapter_v100.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          state = json.loads(Path('LIVE_EXECUTION_STATUS_V109.json').read_text(encoding='utf-8'))
+          assert state['external_order_routing_allowed'] is False
+          assert state['live_trading_allowed'] is False
+          PY
+
+      - name: Run strict read-only REST and WebSocket preflight
+        id: readonly
+        if: steps.gate.outputs.ready == 'true'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.external_paper_readonly \
+            > paper-mutation-drill/readonly-probe.json
+
+      - name: Validate read-only preflight before any mutation
+        id: readonly_gate
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          READONLY_STEP_OUTCOME: ${{ steps.readonly.outcome }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path('paper-mutation-drill/readonly-probe.json')
+          passed = False
+          report = {}
+          if os.environ.get('READONLY_STEP_OUTCOME') == 'success' and path.exists():
+              try:
+                  report = json.loads(path.read_text(encoding='utf-8'))
+              except json.JSONDecodeError:
+                  report = {}
+              passed = (
+                  str(report.get('account_status', '')).upper() == 'ACTIVE'
+                  and report.get('stream_authenticated') is True
+                  and report.get('stream_listening') is True
+                  and not report.get('reasons')
+              )
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as handle:
+              handle.write(f"passed={'true' if passed else 'false'}\n")
+          if not passed:
+              summary = {
+                  'qualification': 'FAIL_READONLY_PREFLIGHT',
+                  'provider': 'alpaca',
+                  'environment': 'paper',
+                  'credentials_configured': True,
+                  'probe_executed': True,
+                  'mutation_executed': False,
+                  'readonly_step_outcome': os.environ.get('READONLY_STEP_OUTCOME'),
+                  'reason_codes': ['ALPACA_PAPER_READONLY_PREFLIGHT_FAILED'],
+                  'paper_order_writes_enabled_for_drill': False,
+                  'external_order_routing_allowed': False,
+                  'live_trading_allowed': False,
+                  'commit_sha': os.environ['GITHUB_SHA'],
+                  'run_id': os.environ['GITHUB_RUN_ID'],
+              }
+              Path('paper-mutation-drill/mutation-drill-summary.json').write_text(
+                  json.dumps(summary, indent=2, sort_keys=True) + '\n',
+                  encoding='utf-8',
+              )
+          PY
+
+      - name: Execute one bounded Paper submit replace cancel drill
+        id: mutation
+        if: steps.gate.outputs.ready == 'true' && steps.readonly_gate.outputs.passed == 'true'
+        continue-on-error: true
+        run: >-
+          python -m tools.external_paper_mutation_drill
+          --confirmation "${{ inputs.confirmation }}"
+          --initial-limit-price "${{ inputs.initial_limit_price }}"
+          --replacement-limit-price "${{ inputs.replacement_limit_price }}"
+          --readonly-evidence paper-mutation-drill/readonly-probe.json
+          --output-directory paper-mutation-drill
+
+      - name: Upload controlled Paper mutation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: external-alpaca-paper-mutation-drill-${{ github.run_id }}
+          path: paper-mutation-drill/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce manual drill result without false PASS
+        if: always()
+        env:
+          MUTATION_STEP_OUTCOME: ${{ steps.mutation.outcome }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          summary = json.loads(
+              Path('paper-mutation-drill/mutation-drill-summary.json')
+              .read_text(encoding='utf-8')
+          )
+          assert summary['provider'] == 'alpaca'
+          assert summary['environment'] == 'paper'
+          assert summary['external_order_routing_allowed'] is False
+          assert summary['live_trading_allowed'] is False
+
+          qualification = summary['qualification']
+          if qualification.startswith('BLOCKED_'):
+              assert summary['mutation_executed'] is False
+              assert summary['paper_order_writes_enabled_for_drill'] is False
+          elif qualification == 'FAIL_READONLY_PREFLIGHT':
+              raise SystemExit('read-only external preflight did not qualify')
+          else:
+              assert os.environ.get('MUTATION_STEP_OUTCOME') == 'success'
+              assert qualification == 'PASS'
+              assert summary['outcome'] == 'CANCELLED_CLEAN'
+              assert summary['paper_broker_mutation_verified'] is True
+              assert summary['filled_quantity'] == '0'
+              assert summary['residual_paper_exposure'] is False
+              assert summary['paper_order_writes_enabled_for_drill'] is True
+              assert summary['probe_executed'] is True
+              assert summary['mutation_executed'] is True
+              assert summary['journal_states'] == [
+                  'PREFLIGHT',
+                  'SUBMITTED',
+                  'REPLACED',
+                  'CANCELLED',
+                  'COMPLETED',
+              ]
+              assert summary['journal_event_count'] == 5
+          PY
