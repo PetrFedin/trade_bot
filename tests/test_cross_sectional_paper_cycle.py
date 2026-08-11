@@ -231,3 +231,46 @@ def test_same_cycle_replay_is_idempotent_at_durable_outbox(tmp_path: Path) -> No
         item.client_order_id for item in second.prepared_orders
     ]
     assert len(lifecycle.store.pending_outbox()) == 2
+
+
+def test_selection_cycle_marks_open_trade_before_exit_quality_attribution(
+    tmp_path: Path,
+) -> None:
+    ledger, quality, _, cycle = build_cycle(tmp_path)
+    seed = seed_nvda(ledger)
+    quality.observe_fill(seed)
+    current_prices = prices()
+    current_prices["NVDA"] = Decimal("105")
+
+    result = cycle.plan_and_prepare(
+        (),
+        reference_prices=current_prices,
+        generated_at=NOW + timedelta(seconds=1),
+    )
+    tracked = quality.store.open_trade(
+        strategy_id=quality.strategy_id,
+        symbol="NVDA",
+    )
+    assert tracked is not None
+    assert tracked.peak_reference_price == Decimal("105")
+    exit_order = result.prepared_orders[0]
+    assert exit_order.record.symbol == "NVDA"
+    assert exit_order.record.limit_price == Decimal("105")
+
+    quality.observe_fill(
+        Fill(
+            fill_id="nvda-exit-after-peak",
+            order_intent_id=exit_order.record.intent_id,
+            symbol="NVDA",
+            side=Side.SELL,
+            quantity=Decimal("10"),
+            price=Decimal("104"),
+            occurred_at=NOW + timedelta(seconds=2),
+        )
+    )
+    closed = quality.store.closed_trades(strategy_id=quality.strategy_id)
+    assert len(closed) == 1
+    assert closed[0].net_pnl == Decimal("40")
+    assert closed[0].maximum_favorable_excursion_fraction == Decimal("0.05")
+    assert closed[0].mfe_capture_ratio == Decimal("0.8")
+    assert closed[0].mfe_giveback_fraction == Decimal("0.2")
