@@ -315,7 +315,15 @@ jobs:
           assert comparison['source_csv_sha256'] == acquisition['csv_sha256']
           assert comparison['symbols'] == acquisition['symbols']
           assert comparison['synchronized_timestamp_count'] >= 250
-          assert comparison['component_attribution_available'] is False
-          assert 'COMBINED_CANDIDATE_REQUIRES_ABLATION' in comparison['promotion_blockers']
+          assert comparison['ablation_evidence_available'] is True
+          assert comparison['component_attribution_complete'] is False
+          assert set(comparison['ablations']) == {
+              'SELECTION_ONLY',
+              'SIZING_ONLY',
+              'PROTECTION_ONLY',
+          }
+          assert set(comparison['ablation_deltas_vs_control']) == set(comparison['ablations'])
+          assert 'CONFIRMED_REENTRY' in comparison['shared_controls']
+          assert 'NO_OUT_OF_SAMPLE_ABLATION_EVIDENCE' in comparison['promotion_blockers']
           assert 'NO_STRATEGY_PROFITABILITY_CLAIM' in comparison['limitations']
           PY
