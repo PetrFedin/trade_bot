@@ -10,6 +10,7 @@ on:
       - 'app/application/paper_pipeline.py'
       - 'app/application/paper_protection.py'
       - 'app/application/paper_protection_cycle.py'
+      - 'app/application/paper_protection_reprice.py'
       - 'app/application/paper_reentry.py'
       - 'app/application/paper_trade_quality.py'
       - 'app/application/portfolio_paper_planner.py'
@@ -36,6 +37,8 @@ on:
       - 'tests/test_paper_cycle_e2e.py'
       - 'tests/test_paper_protection.py'
       - 'tests/test_paper_protection_cycle.py'
+      - 'tests/test_paper_protection_reprice.py'
+      - 'tests/test_paper_protection_reprice_cycle.py'
       - 'tests/test_paper_reentry.py'
       - 'tests/test_paper_reentry_fill_accounting.py'
       - 'tests/test_paper_trade_quality.py'
@@ -67,6 +70,7 @@ on:
       - 'app/application/paper_pipeline.py'
       - 'app/application/paper_protection.py'
       - 'app/application/paper_protection_cycle.py'
+      - 'app/application/paper_protection_reprice.py'
       - 'app/application/paper_reentry.py'
       - 'app/application/paper_trade_quality.py'
       - 'app/application/portfolio_paper_planner.py'
@@ -93,6 +97,8 @@ on:
       - 'tests/test_paper_cycle_e2e.py'
       - 'tests/test_paper_protection.py'
       - 'tests/test_paper_protection_cycle.py'
+      - 'tests/test_paper_protection_reprice.py'
+      - 'tests/test_paper_protection_reprice_cycle.py'
       - 'tests/test_paper_reentry.py'
       - 'tests/test_paper_reentry_fill_accounting.py'
       - 'tests/test_paper_trade_quality.py'
@@ -152,6 +158,7 @@ jobs:
           app/application/paper_pipeline.py
           app/application/paper_protection.py
           app/application/paper_protection_cycle.py
+          app/application/paper_protection_reprice.py
           app/application/paper_reentry.py
           app/application/paper_trade_quality.py
           app/application/portfolio_paper_planner.py
@@ -174,6 +181,8 @@ jobs:
           tests/test_paper_cycle_e2e.py
           tests/test_paper_protection.py
           tests/test_paper_protection_cycle.py
+          tests/test_paper_protection_reprice.py
+          tests/test_paper_protection_reprice_cycle.py
           tests/test_paper_reentry.py
           tests/test_paper_reentry_fill_accounting.py
           tests/test_paper_trade_quality.py
@@ -219,6 +228,8 @@ jobs:
             tests/test_paper_cycle_e2e.py \
             tests/test_paper_protection.py \
             tests/test_paper_protection_cycle.py \
+            tests/test_paper_protection_reprice.py \
+            tests/test_paper_protection_reprice_cycle.py \
             tests/test_paper_reentry.py \
             tests/test_paper_reentry_fill_accounting.py \
             tests/test_paper_trade_quality.py \
