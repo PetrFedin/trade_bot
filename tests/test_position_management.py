@@ -33,10 +33,11 @@ def test_take_profit_harvests_closed_gain() -> None:
 
 
 def test_trailing_stop_requires_prior_profit_activation() -> None:
-    result = decide("101.50", peak="103")
+    result = decide("101.40", peak="103")
     assert result.exit_now
     assert result.reason is ExitReason.TRAILING_STOP
     assert result.peak_reference_price == Decimal("103")
+    assert result.drawdown_from_peak_fraction >= Decimal("0.015")
 
 
 def test_time_stop_prevents_indefinite_position_holding() -> None:
