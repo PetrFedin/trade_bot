@@ -69,6 +69,25 @@ class PaperFillObserver(Protocol):
     def observe_fill(self, fill: Fill) -> None: ...
 
 
+class CompositePaperFillObserver:
+    """Replay-safe fan-out for strategy-scoped durable fill observers.
+
+    Every child observer must be idempotent by ``Fill.fill_id``. If a later observer
+    fails, replay invokes earlier observers again; their idempotency is what makes the
+    fan-out recoverable without a distributed transaction.
+    """
+
+    def __init__(self, *observers: PaperFillObserver) -> None:
+        if not observers:
+            raise ValueError("at least one paper fill observer is required")
+        self.observers = tuple(observers)
+
+    def observe_fill(self, fill: Fill) -> None:
+        fill.validate()
+        for observer in self.observers:
+            observer.observe_fill(fill)
+
+
 class ExplicitZeroPaperFeeModel:
     """Explicit zero-fee model for controlled paper validation only.
 
