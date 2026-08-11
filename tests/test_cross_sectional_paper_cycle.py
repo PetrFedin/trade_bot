@@ -15,7 +15,10 @@ from app.domain.trading import Fill, Side
 from app.oms.store import DurableOmsStore
 from app.portfolio.ledger import PortfolioLedger
 from app.risk.pretrade import PreTradeRiskEngine, RiskLimits
-from app.strategy.cross_sectional_portfolio import CrossSectionalPortfolioPolicy
+from app.strategy.cross_sectional_portfolio import (
+    CrossSectionalPortfolioPolicy,
+    PortfolioEntryBlockReason,
+)
 from app.strategy.cross_sectional_selection import (
     CrossSectionalSelection,
     SelectionCandidate,
@@ -139,9 +142,8 @@ def test_cycle_prepares_exit_before_entry_without_spending_unfilled_exit(
 
     assert result.target_plan.selected_symbols == ("AAPL", "MSFT")
     assert result.target_plan.entry_blocks == (
-        ("MSFT", result.target_plan.entry_blocks[0][1]),
+        ("MSFT", PortfolioEntryBlockReason.GROSS_EXPOSURE_CAP),
     )
-    assert result.target_plan.entry_blocks[0][1].value == "GROSS_EXPOSURE_CAP"
     assert result.prepared_exit_count == 1
     assert result.prepared_entry_count == 1
     assert [order.record.side for order in result.prepared_orders] == [
