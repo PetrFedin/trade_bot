@@ -6,6 +6,7 @@ on:
     paths:
       - 'app/strategy/position_management.py'
       - 'app/strategy/position_sizing.py'
+      - 'app/strategy/quality_monitor.py'
       - 'app/strategy/ohlcv_exit.py'
       - 'app/strategy/cross_sectional_selection.py'
       - 'app/strategy/cross_sectional_portfolio.py'
@@ -17,6 +18,7 @@ on:
       - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
       - 'tests/test_position_management.py'
       - 'tests/test_position_sizing.py'
+      - 'tests/test_quality_monitor.py'
       - 'tests/test_ohlcv_exit.py'
       - 'tests/test_cross_sectional_selection.py'
       - 'tests/test_cross_sectional_portfolio.py'
@@ -31,6 +33,7 @@ on:
     paths:
       - 'app/strategy/position_management.py'
       - 'app/strategy/position_sizing.py'
+      - 'app/strategy/quality_monitor.py'
       - 'app/strategy/ohlcv_exit.py'
       - 'app/strategy/cross_sectional_selection.py'
       - 'app/strategy/cross_sectional_portfolio.py'
@@ -42,6 +45,7 @@ on:
       - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
       - 'tests/test_position_management.py'
       - 'tests/test_position_sizing.py'
+      - 'tests/test_quality_monitor.py'
       - 'tests/test_ohlcv_exit.py'
       - 'tests/test_cross_sectional_selection.py'
       - 'tests/test_cross_sectional_portfolio.py'
@@ -84,6 +88,7 @@ jobs:
           ruff check --output-format=github
           app/strategy/position_management.py
           app/strategy/position_sizing.py
+          app/strategy/quality_monitor.py
           app/strategy/ohlcv_exit.py
           app/strategy/cross_sectional_selection.py
           app/strategy/cross_sectional_portfolio.py
@@ -92,6 +97,7 @@ jobs:
           tools/qualify_cross_sectional_trading_quality_shadow.py
           tests/test_position_management.py
           tests/test_position_sizing.py
+          tests/test_quality_monitor.py
           tests/test_ohlcv_exit.py
           tests/test_cross_sectional_selection.py
           tests/test_cross_sectional_portfolio.py
@@ -115,6 +121,7 @@ jobs:
           pytest -vv \
             tests/test_position_management.py \
             tests/test_position_sizing.py \
+            tests/test_quality_monitor.py \
             tests/test_ohlcv_exit.py \
             tests/test_cross_sectional_selection.py \
             tests/test_cross_sectional_portfolio.py \
