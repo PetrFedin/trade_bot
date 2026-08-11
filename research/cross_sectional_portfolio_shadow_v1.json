@@ -52,6 +52,11 @@
     "reset_streak_on_ineligible_signal": true,
     "apply_after_any_exit": true
   },
+  "required_contract_scenarios": [
+    "TOP_K_BOUNDED_EXPOSURE",
+    "SYMBOL_SPECIFIC_INTRABAR_STOP_REENTRY_DELAY",
+    "NEXT_OPEN_SELECTION_ROTATION"
+  ],
   "required_metrics": [
     "total_return",
     "max_drawdown",
