@@ -4,6 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'app/application/cross_sectional_paper_cycle.py'
       - 'app/application/cross_sectional_target_planner.py'
       - 'app/application/order_intents.py'
       - 'app/application/paper_pipeline.py'
@@ -30,6 +31,7 @@ on:
       - 'tools/qualify_cross_sectional_walk_forward.py'
       - 'tools/qualify_correlation_diversification_shadow.py'
       - 'tools/qualify_correlation_diversification_walk_forward.py'
+      - 'tests/test_cross_sectional_paper_cycle.py'
       - 'tests/test_cross_sectional_target_planner.py'
       - 'tests/test_paper_cycle_e2e.py'
       - 'tests/test_paper_protection.py'
@@ -59,6 +61,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'app/application/cross_sectional_paper_cycle.py'
       - 'app/application/cross_sectional_target_planner.py'
       - 'app/application/order_intents.py'
       - 'app/application/paper_pipeline.py'
@@ -85,6 +88,7 @@ on:
       - 'tools/qualify_cross_sectional_walk_forward.py'
       - 'tools/qualify_correlation_diversification_shadow.py'
       - 'tools/qualify_correlation_diversification_walk_forward.py'
+      - 'tests/test_cross_sectional_paper_cycle.py'
       - 'tests/test_cross_sectional_target_planner.py'
       - 'tests/test_paper_cycle_e2e.py'
       - 'tests/test_paper_protection.py'
@@ -142,6 +146,7 @@ jobs:
       - name: Lint trading-quality surface
         run: >-
           ruff check --output-format=github
+          app/application/cross_sectional_paper_cycle.py
           app/application/cross_sectional_target_planner.py
           app/application/order_intents.py
           app/application/paper_pipeline.py
@@ -164,6 +169,7 @@ jobs:
           tools/qualify_cross_sectional_walk_forward.py
           tools/qualify_correlation_diversification_shadow.py
           tools/qualify_correlation_diversification_walk_forward.py
+          tests/test_cross_sectional_paper_cycle.py
           tests/test_cross_sectional_target_planner.py
           tests/test_paper_cycle_e2e.py
           tests/test_paper_protection.py
@@ -208,6 +214,7 @@ jobs:
         run: |
           set -o pipefail
           pytest -vv \
+            tests/test_cross_sectional_paper_cycle.py \
             tests/test_cross_sectional_target_planner.py \
             tests/test_paper_cycle_e2e.py \
             tests/test_paper_protection.py \
