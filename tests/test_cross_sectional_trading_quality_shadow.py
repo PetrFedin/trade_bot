@@ -96,7 +96,11 @@ def test_combined_trading_quality_config_is_fail_closed() -> None:
     assert config["shadow_only"] is True
     assert config["strategy_promotion_allowed"] is False
     assert "NO_STRATEGY_PROFITABILITY_CLAIM" in config["limitations"]
+    assert "DEGRADATION_THRESHOLDS_NOT_CALIBRATED" in config["limitations"]
+    assert "DEGRADATION_GATE_NOT_AUTO_ACTUATED" in config["limitations"]
     assert "NO_OUT_OF_SAMPLE_ABLATION_EVIDENCE" in config["promotion_blockers"]
+    assert "DEGRADATION_THRESHOLDS_UNCALIBRATED" in config["promotion_blockers"]
+    assert config["degradation_monitor"]["allow_entries_when_insufficient_data"] is False
     assert "CONFIRMED_REENTRY" in config["shared_controls"]
     assert config["candidate_components"] == [
         "RISK_ADJUSTED_SELECTION_SCORE",
@@ -157,3 +161,22 @@ def test_combined_candidate_compares_end_to_end_against_legacy(tmp_path: Path) -
         "profit_preservation_rate_delta",
         "average_mfe_capture_ratio_delta",
     }
+
+    monitor = evidence["degradation_monitor"]
+    assert monitor["auto_actuation_enabled"] is False
+    for side in ("control", "candidate"):
+        decision = monitor[side]
+        assert decision["allow_exits"] is True
+        assert decision["status"] in {
+            "INSUFFICIENT_DATA",
+            "HEALTHY",
+            "PAUSE_ENTRIES",
+        }
+        assert "observation_count" in decision["metrics"]
+        assert "profit_factor" in decision["metrics"]
+        assert "profit_preservation_rate" in decision["metrics"]
+        assert "average_mfe_capture_ratio" in decision["metrics"]
+        assert "hard_stop_fraction" in decision["metrics"]
+        if decision["status"] == "INSUFFICIENT_DATA":
+            assert decision["allow_new_entries"] is False
+            assert decision["reasons"] == ["INSUFFICIENT_OBSERVATIONS"]
