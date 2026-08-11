@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
+from typing import Protocol
 
 from app.application.order_intents import order_intent_for_target
 from app.application.order_lifecycle import PaperOrderLifecycle, PreparedPaperOrder
@@ -23,6 +24,25 @@ from app.domain.trading import Side, TargetPosition
 from app.risk.pretrade import RiskContext
 
 
+class ProtectionQualityRecorder(Protocol):
+    def observe_price(
+        self,
+        *,
+        symbol: str,
+        reference_price: Decimal,
+        observed_at: datetime,
+    ) -> object | None: ...
+
+    def register_exit_intent(
+        self,
+        *,
+        intent_id: str,
+        symbol: str,
+        exit_reason: str,
+        registered_at: datetime,
+    ) -> None: ...
+
+
 @dataclass(frozen=True)
 class PaperProtectionOrderResult:
     protection: PaperProtectionDecision
@@ -39,6 +59,11 @@ class PaperProtectionOrderService:
     strand a SELL at an obsolete limit. Once an OMS record exists, retries reuse the
     original intent even if the portfolio has since partially filled, preventing a
     second protective SELL from being created for the remaining quantity.
+
+    When a strategy-scoped quality recorder is supplied, the same fresh prices update
+    observed MFE/MAE and an approved protective exit reason is durably registered before
+    OMS outbox creation. Registration also runs on an existing-order retry so it can
+    heal an older crash or deployment window without creating another SELL.
     """
 
     def __init__(
@@ -47,12 +72,14 @@ class PaperProtectionOrderService:
         protection: PaperProtectionService,
         planner: PortfolioPaperPlanner,
         lifecycle: PaperOrderLifecycle,
+        quality_recorder: ProtectionQualityRecorder | None = None,
     ) -> None:
         if protection.ledger is not planner.ledger:
             raise ValueError("protection and planner must share one durable ledger")
         self.protection = protection
         self.planner = planner
         self.lifecycle = lifecycle
+        self.quality_recorder = quality_recorder
 
     def observe_and_prepare(
         self,
@@ -66,6 +93,12 @@ class PaperProtectionOrderService:
         kill_switch_engaged: bool = False,
         risk_context: RiskContext | None = None,
     ) -> PaperProtectionOrderResult:
+        if self.quality_recorder is not None:
+            self.quality_recorder.observe_price(
+                symbol=symbol,
+                reference_price=reference_price,
+                observed_at=observed_at,
+            )
         decision = self.protection.observe(
             symbol=symbol,
             reference_price=reference_price,
@@ -90,6 +123,11 @@ class PaperProtectionOrderService:
             raise RuntimeError("paper protection must resolve to a SELL intent")
         existing = self.lifecycle.store.get(stable_intent.intent_id)
         if existing is not None:
+            self._register_exit(
+                intent_id=stable_intent.intent_id,
+                target=decision.exit_target,
+                decision=decision,
+            )
             return PaperProtectionOrderResult(
                 protection=decision,
                 plan_item=None,
@@ -130,6 +168,13 @@ class PaperProtectionOrderService:
                 prepared=None,
                 existing_order_reused=False,
             )
+        if item.intent is None:
+            raise RuntimeError("approved protection item is missing SELL intent")
+        self._register_exit(
+            intent_id=item.intent.intent_id,
+            target=item.target,
+            decision=refreshed,
+        )
         prepared = prepare_approved_paper_orders(
             plan,
             lifecycle=self.lifecycle,
@@ -141,6 +186,24 @@ class PaperProtectionOrderService:
             plan_item=item,
             prepared=prepared[0],
             existing_order_reused=False,
+        )
+
+    def _register_exit(
+        self,
+        *,
+        intent_id: str,
+        target: TargetPosition,
+        decision: PaperProtectionDecision,
+    ) -> None:
+        if self.quality_recorder is None:
+            return
+        if decision.exit_reason is None:
+            raise RuntimeError("pending protection exit is missing reason")
+        self.quality_recorder.register_exit_intent(
+            intent_id=intent_id,
+            symbol=target.symbol,
+            exit_reason=decision.exit_reason.value,
+            registered_at=target.generated_at,
         )
 
     def _refresh_unoutboxed_pending(
