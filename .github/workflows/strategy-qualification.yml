@@ -72,7 +72,7 @@ jobs:
 
       - name: Lint historical qualification surface
         run: >-
-          ruff check
+          ruff check --output-format=github
           app/marketdata
           app/strategy
           tools/qualify_real_historical.py
