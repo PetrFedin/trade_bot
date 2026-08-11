@@ -11,6 +11,7 @@ on:
       - 'app/strategy/cross_sectional_portfolio.py'
       - 'app/strategy/position_management.py'
       - 'app/strategy/position_sizing.py'
+      - 'app/strategy/quality_monitor.py'
       - 'research/multisymbol_ohlcv_selection_v1.json'
       - 'research/cross_sectional_trading_quality_shadow_v2.json'
       - 'tools/external_multisymbol_historical.py'
@@ -20,6 +21,7 @@ on:
       - 'tests/test_cross_sectional_selection.py'
       - 'tests/test_external_multisymbol_historical.py'
       - 'tests/test_cross_sectional_trading_quality_shadow.py'
+      - 'tests/test_quality_monitor.py'
       - 'requirements.lock'
       - 'LIVE_EXECUTION_STATUS_V109.json'
       - '.github/workflows/external-multisymbol-ohlcv-selection.yml'
@@ -32,6 +34,7 @@ on:
       - 'app/strategy/cross_sectional_portfolio.py'
       - 'app/strategy/position_management.py'
       - 'app/strategy/position_sizing.py'
+      - 'app/strategy/quality_monitor.py'
       - 'research/multisymbol_ohlcv_selection_v1.json'
       - 'research/cross_sectional_trading_quality_shadow_v2.json'
       - 'tools/external_multisymbol_historical.py'
@@ -41,6 +44,7 @@ on:
       - 'tests/test_cross_sectional_selection.py'
       - 'tests/test_external_multisymbol_historical.py'
       - 'tests/test_cross_sectional_trading_quality_shadow.py'
+      - 'tests/test_quality_monitor.py'
       - 'requirements.lock'
       - 'LIVE_EXECUTION_STATUS_V109.json'
       - '.github/workflows/external-multisymbol-ohlcv-selection.yml'
@@ -81,6 +85,7 @@ jobs:
           app/strategy/cross_sectional_portfolio.py
           app/strategy/position_management.py
           app/strategy/position_sizing.py
+          app/strategy/quality_monitor.py
           tools/external_multisymbol_historical.py
           tools/qualify_cross_sectional_trading_quality_shadow.py
           tests/test_ohlcv.py
@@ -88,8 +93,9 @@ jobs:
           tests/test_cross_sectional_selection.py
           tests/test_external_multisymbol_historical.py
           tests/test_cross_sectional_trading_quality_shadow.py
+          tests/test_quality_monitor.py
 
-      - name: Validate provider, OHLCV, selector, report, and comparison contracts
+      - name: Validate provider, OHLCV, selector, report, comparison, and monitor contracts
         run: >-
           pytest -q
           tests/test_ohlcv.py
@@ -97,6 +103,7 @@ jobs:
           tests/test_cross_sectional_selection.py
           tests/test_external_multisymbol_historical.py
           tests/test_cross_sectional_trading_quality_shadow.py
+          tests/test_quality_monitor.py
           tests/test_regime_momentum.py
 
       - name: Validate predeclared acquisition configuration
@@ -120,6 +127,7 @@ jobs:
           app/strategy/cross_sectional_portfolio.py
           app/strategy/position_management.py
           app/strategy/position_sizing.py
+          app/strategy/quality_monitor.py
           tools/external_multisymbol_historical.py
           tools/qualify_cross_sectional_trading_quality_shadow.py
 
@@ -324,6 +332,12 @@ jobs:
           }
           assert set(comparison['ablation_deltas_vs_control']) == set(comparison['ablations'])
           assert 'CONFIRMED_REENTRY' in comparison['shared_controls']
-          assert 'NO_OUT_OF_SAMPLE_ABLATION_EVIDENCE' in comparison['promotion_blockers']
+          monitor = comparison['degradation_monitor']
+          assert monitor['auto_actuation_enabled'] is False
+          assert monitor['control']['allow_exits'] is True
+          assert monitor['candidate']['allow_exits'] is True
+          assert 'DEGRADATION_THRESHOLDS_UNCALIBRATED' in comparison['promotion_blockers']
+          assert 'DEGRADATION_THRESHOLDS_NOT_CALIBRATED' in comparison['limitations']
+          assert 'DEGRADATION_GATE_NOT_AUTO_ACTUATED' in comparison['limitations']
           assert 'NO_STRATEGY_PROFITABILITY_CLAIM' in comparison['limitations']
           PY
