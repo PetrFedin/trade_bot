@@ -35,6 +35,29 @@ def test_top_k_scenario_stays_inside_predeclared_position_and_exposure_limits() 
     assert Decimal(scenario["turnover_fraction"]) > Decimal("0.50")
 
 
+def test_portfolio_evidence_retains_profit_preservation_quality_metrics() -> None:
+    evidence = qualify(POLICY)
+    scenario = evidence["scenarios"]["TOP_K_BOUNDED_EXPOSURE"]
+    for field in (
+        "win_rate",
+        "average_maximum_favorable_excursion_fraction",
+        "average_maximum_adverse_excursion_fraction",
+        "average_mfe_capture_ratio",
+        "positive_mfe_trades",
+        "profit_preservation_rate",
+    ):
+        assert field in scenario
+    assert Decimal(scenario["win_rate"]) >= Decimal("0")
+    assert Decimal(scenario["average_maximum_favorable_excursion_fraction"]) >= 0
+    assert Decimal(scenario["average_maximum_adverse_excursion_fraction"]) >= 0
+
+    for trade in scenario["closed_trades"]:
+        assert "maximum_favorable_excursion_fraction" in trade
+        assert "maximum_adverse_excursion_fraction" in trade
+        assert "mfe_capture_ratio" in trade
+        assert "mfe_giveback_fraction" in trade
+
+
 def test_symbol_specific_stop_requires_confirmed_reentry() -> None:
     evidence = qualify(POLICY)
     scenario = evidence["scenarios"][
