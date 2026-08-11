@@ -103,6 +103,7 @@ def test_current_bar_high_cannot_retroactively_arm_same_bar_trailing_stop() -> N
     assert first.exit_now is False
     assert first.trailing_stop_price is None
     assert first.state.peak_completed_price == Decimal("103")
+    assert first.state.trough_completed_price == Decimal("99.5")
 
     second = evaluate_long_intrabar_exit(
         average_cost=Decimal("100"),
@@ -124,3 +125,46 @@ def test_gap_above_take_profit_keeps_conservative_target_price() -> None:
     )
     assert result.reason is IntrabarExitReason.TAKE_PROFIT
     assert result.exit_price_before_costs == Decimal("104.00")
+
+
+def test_prior_completed_peak_can_lock_profit_before_trailing_is_active() -> None:
+    policy = PositionManagementPolicy(
+        trailing_activation_fraction=Decimal("0.03"),
+        profit_protection_activation_fraction=Decimal("0.02"),
+        maximum_profit_giveback_fraction=Decimal("0.50"),
+    )
+    result = evaluate_long_intrabar_exit(
+        average_cost=Decimal("100"),
+        bar=bar(open="101.5", high="101.8", low="101.2", close="101.4"),
+        state=state("102.5"),
+        policy=policy,
+    )
+    assert result.reason is IntrabarExitReason.PROFIT_PROTECTION
+    assert result.profit_protection_stop_price == Decimal("101.25000")
+    assert result.exit_price_before_costs == Decimal("101.25000")
+
+
+def test_current_bar_high_cannot_retroactively_arm_same_bar_profit_lock() -> None:
+    policy = PositionManagementPolicy(
+        trailing_activation_fraction=Decimal("0.03"),
+        profit_protection_activation_fraction=Decimal("0.02"),
+        maximum_profit_giveback_fraction=Decimal("0.50"),
+    )
+    first = evaluate_long_intrabar_exit(
+        average_cost=Decimal("100"),
+        bar=bar(open="100", high="103", low="99.5", close="102.6"),
+        state=state(),
+        policy=policy,
+    )
+    assert first.exit_now is False
+    assert first.profit_protection_stop_price is None
+    assert first.state.peak_completed_price == Decimal("103")
+
+    second = evaluate_long_intrabar_exit(
+        average_cost=Decimal("100"),
+        bar=bar(open="102", high="102.2", low="101.4", close="101.6"),
+        state=first.state,
+        policy=policy,
+    )
+    assert second.reason is IntrabarExitReason.PROFIT_PROTECTION
+    assert second.exit_price_before_costs == Decimal("101.500")
