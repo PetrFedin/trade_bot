@@ -32,8 +32,8 @@ class OpenPaperTradeQuality:
     peak_reference_price: Decimal
     trough_reference_price: Decimal
     last_observed_at: datetime
-    exit_intent_id: str | None = None
-    exit_reason: str | None = None
+    last_exit_intent_id: str | None = None
+    last_exit_reason: str | None = None
 
     def validate(self) -> None:
         if not self.strategy_id.strip() or not self.episode_id.strip():
@@ -68,20 +68,19 @@ class OpenPaperTradeQuality:
             raise ValueError("paper trade reference prices must be positive")
         if self.peak_reference_price < self.trough_reference_price:
             raise ValueError("paper trade peak cannot be below trough")
-        if (self.exit_intent_id is None) != (self.exit_reason is None):
-            raise ValueError("exit intent and exit reason must be supplied together")
-        if self.exit_intent_id is not None and not self.exit_intent_id.strip():
-            raise ValueError("exit_intent_id cannot be empty")
-        if self.exit_reason is not None and not self.exit_reason.strip():
-            raise ValueError("exit_reason cannot be empty")
+        if (self.last_exit_intent_id is None) != (self.last_exit_reason is None):
+            raise ValueError("last exit intent and reason must be supplied together")
+        if self.last_exit_intent_id is not None and not self.last_exit_intent_id.strip():
+            raise ValueError("last_exit_intent_id cannot be empty")
+        if self.last_exit_reason is not None and not self.last_exit_reason.strip():
+            raise ValueError("last_exit_reason cannot be empty")
 
 
 @dataclass(frozen=True)
 class ClosedPaperTradeQuality:
-    trade_id: int
+    episode_id: str
     strategy_id: str
     symbol: str
-    episode_id: str
     opened_at: datetime
     closed_at: datetime
     quantity: Decimal
@@ -114,8 +113,31 @@ class PaperTradeQualityFillResult:
     closed_trade: ClosedPaperTradeQuality | None
 
 
+@dataclass
+class _ReplayEpisode:
+    episode_id: str
+    opened_at: datetime
+    purchased_quantity: Decimal
+    sold_quantity: Decimal
+    open_quantity: Decimal
+    entry_cash_out: Decimal
+    exit_cash_in: Decimal
+    peak_reference_price: Decimal
+    trough_reference_price: Decimal
+    last_observed_at: datetime
+    updated_at: datetime
+    last_exit_intent_id: str | None = None
+    last_exit_reason: str | None = None
+
+
 class SQLitePaperTradeQualityStore:
-    """Atomic paper trade episode, fill journal, exit metadata and close history."""
+    """Event-sourced paper trade quality with deterministic derived episodes.
+
+    Exact fills, fresh-price observations and exit-intent reasons are durable facts.
+    Open and closed trade rows are derived by replaying those facts in broker timestamp
+    order. This deliberately tolerates a later-delivered earlier partial fill, matching
+    the recovery behavior of ``PaperTradeFillAccounting``.
+    """
 
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
@@ -135,6 +157,31 @@ class SQLitePaperTradeQualityStore:
         try:
             connection.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS paper_trade_quality_fills (
+                    fill_id TEXT PRIMARY KEY,
+                    strategy_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    quantity TEXT NOT NULL,
+                    price TEXT NOT NULL,
+                    fee TEXT NOT NULL,
+                    order_intent_id TEXT NOT NULL,
+                    occurred_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS paper_trade_quality_prices (
+                    strategy_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    observed_at TEXT NOT NULL,
+                    reference_price TEXT NOT NULL,
+                    PRIMARY KEY (strategy_id, symbol, observed_at)
+                );
+                CREATE TABLE IF NOT EXISTS paper_trade_quality_exit_intents (
+                    intent_id TEXT PRIMARY KEY,
+                    strategy_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    exit_reason TEXT NOT NULL,
+                    registered_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS paper_trade_quality_open (
                     strategy_id TEXT NOT NULL,
                     symbol TEXT NOT NULL,
@@ -149,33 +196,14 @@ class SQLitePaperTradeQualityStore:
                     peak_reference_price TEXT NOT NULL,
                     trough_reference_price TEXT NOT NULL,
                     last_observed_at TEXT NOT NULL,
-                    exit_intent_id TEXT,
-                    exit_reason TEXT,
+                    last_exit_intent_id TEXT,
+                    last_exit_reason TEXT,
                     PRIMARY KEY (strategy_id, symbol)
                 );
-                CREATE TABLE IF NOT EXISTS paper_trade_quality_fills (
-                    fill_id TEXT PRIMARY KEY,
-                    strategy_id TEXT NOT NULL,
-                    symbol TEXT NOT NULL,
-                    side TEXT NOT NULL,
-                    quantity TEXT NOT NULL,
-                    price TEXT NOT NULL,
-                    fee TEXT NOT NULL,
-                    order_intent_id TEXT NOT NULL,
-                    occurred_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS paper_trade_quality_exit_intents (
-                    intent_id TEXT PRIMARY KEY,
-                    strategy_id TEXT NOT NULL,
-                    symbol TEXT NOT NULL,
-                    exit_reason TEXT NOT NULL,
-                    registered_at TEXT NOT NULL
-                );
                 CREATE TABLE IF NOT EXISTS paper_trade_quality_closed (
-                    trade_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    episode_id TEXT PRIMARY KEY,
                     strategy_id TEXT NOT NULL,
                     symbol TEXT NOT NULL,
-                    episode_id TEXT NOT NULL UNIQUE,
                     opened_at TEXT NOT NULL,
                     closed_at TEXT NOT NULL,
                     quantity TEXT NOT NULL,
@@ -243,26 +271,17 @@ class SQLitePaperTradeQualityStore:
                 )
                 if actual != expected:
                     raise ValueError("PAPER_TRADE_EXIT_INTENT_CONFLICT")
-                connection.execute("COMMIT")
-                return
-            connection.execute(
-                """INSERT INTO paper_trade_quality_exit_intents
-                (intent_id, strategy_id, symbol, exit_reason, registered_at)
-                VALUES (?, ?, ?, ?, ?)""",
-                (intent_id, strategy_id, symbol, exit_reason, moment.isoformat()),
-            )
-            connection.execute(
-                """UPDATE paper_trade_quality_closed
-                SET exit_reason=?
-                WHERE exit_intent_id=? AND strategy_id=? AND symbol=?
-                  AND exit_reason=?""",
-                (
-                    exit_reason,
-                    intent_id,
-                    strategy_id,
-                    symbol,
-                    UNATTRIBUTED_EXIT_REASON,
-                ),
+            else:
+                connection.execute(
+                    """INSERT INTO paper_trade_quality_exit_intents
+                    (intent_id, strategy_id, symbol, exit_reason, registered_at)
+                    VALUES (?, ?, ?, ?, ?)""",
+                    (intent_id, strategy_id, symbol, exit_reason, moment.isoformat()),
+                )
+            self._rebuild_symbol(
+                connection,
+                strategy_id=strategy_id,
+                symbol=symbol,
             )
             connection.execute("COMMIT")
         except Exception:
@@ -283,76 +302,58 @@ class SQLitePaperTradeQualityStore:
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
-            duplicate = connection.execute(
+            existing = connection.execute(
                 "SELECT * FROM paper_trade_quality_fills WHERE fill_id=?",
                 (fill.fill_id,),
             ).fetchone()
-            if duplicate is not None:
+            applied = existing is None
+            if existing is None:
+                connection.execute(
+                    """INSERT INTO paper_trade_quality_fills (
+                        fill_id, strategy_id, symbol, side, quantity, price, fee,
+                        order_intent_id, occurred_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        fill.fill_id,
+                        strategy_id,
+                        fill.symbol,
+                        fill.side.value,
+                        str(fill.quantity),
+                        str(fill.price),
+                        str(fill.fee),
+                        fill.order_intent_id,
+                        fill.occurred_at.astimezone(UTC).isoformat(),
+                    ),
+                )
+            else:
                 self._validate_duplicate_fill(
-                    duplicate,
+                    existing,
                     strategy_id=strategy_id,
                     fill=fill,
                 )
-                current = self._select_open(
-                    connection,
-                    strategy_id=strategy_id,
-                    symbol=fill.symbol,
-                )
-                connection.execute("COMMIT")
-                return PaperTradeQualityFillResult(
-                    applied=False,
-                    open_trade=current,
-                    closed_trade=None,
-                )
-
-            connection.execute(
-                """INSERT INTO paper_trade_quality_fills (
-                    fill_id, strategy_id, symbol, side, quantity, price, fee,
-                    order_intent_id, occurred_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    fill.fill_id,
-                    strategy_id,
-                    fill.symbol,
-                    fill.side.value,
-                    str(fill.quantity),
-                    str(fill.price),
-                    str(fill.fee),
-                    fill.order_intent_id,
-                    fill.occurred_at.astimezone(UTC).isoformat(),
-                ),
+            self._rebuild_symbol(
+                connection,
+                strategy_id=strategy_id,
+                symbol=fill.symbol,
             )
             current = self._select_open(
                 connection,
                 strategy_id=strategy_id,
                 symbol=fill.symbol,
             )
-            if fill.side is Side.BUY:
-                updated = self._apply_buy(
+            closed = None
+            if fill.side is Side.SELL:
+                closed = self._closed_ending_with_fill(
                     connection,
                     strategy_id=strategy_id,
-                    fill=fill,
-                    current=current,
+                    symbol=fill.symbol,
+                    intent_id=fill.order_intent_id,
+                    closed_at=fill.occurred_at.astimezone(UTC),
                 )
-                connection.execute("COMMIT")
-                return PaperTradeQualityFillResult(
-                    applied=True,
-                    open_trade=updated,
-                    closed_trade=None,
-                )
-
-            if current is None:
-                raise ValueError("PAPER_TRADE_QUALITY_SELL_WITHOUT_OPEN_TRADE")
-            updated, closed = self._apply_sell(
-                connection,
-                strategy_id=strategy_id,
-                fill=fill,
-                current=current,
-            )
             connection.execute("COMMIT")
             return PaperTradeQualityFillResult(
-                applied=True,
-                open_trade=updated,
+                applied=applied,
+                open_trade=current,
                 closed_trade=closed,
             )
         except Exception:
@@ -369,52 +370,40 @@ class SQLitePaperTradeQualityStore:
         reference_price: Decimal,
         observed_at: datetime,
     ) -> OpenPaperTradeQuality | None:
+        if not symbol or symbol != symbol.strip().upper():
+            raise ValueError("symbol must be normalized uppercase")
         if not reference_price.is_finite() or reference_price <= 0:
             raise ValueError("reference_price must be positive and finite")
         moment = _aware(observed_at, "observed_at")
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                """SELECT reference_price FROM paper_trade_quality_prices
+                WHERE strategy_id=? AND symbol=? AND observed_at=?""",
+                (strategy_id, symbol, moment.isoformat()),
+            ).fetchone()
+            if existing is None:
+                connection.execute(
+                    """INSERT INTO paper_trade_quality_prices
+                    (strategy_id, symbol, observed_at, reference_price)
+                    VALUES (?, ?, ?, ?)""",
+                    (strategy_id, symbol, moment.isoformat(), str(reference_price)),
+                )
+            elif Decimal(str(existing["reference_price"])) != reference_price:
+                raise ValueError("PAPER_TRADE_QUALITY_PRICE_OBSERVATION_CONFLICT")
+            self._rebuild_symbol(
+                connection,
+                strategy_id=strategy_id,
+                symbol=symbol,
+            )
             current = self._select_open(
                 connection,
                 strategy_id=strategy_id,
                 symbol=symbol,
             )
-            if current is None:
-                connection.execute("COMMIT")
-                return None
-            if moment < current.last_observed_at.astimezone(UTC):
-                raise ValueError("stale paper trade quality price observation")
-            if moment == current.last_observed_at.astimezone(UTC):
-                connection.execute("COMMIT")
-                return current
-            updated = OpenPaperTradeQuality(
-                strategy_id=current.strategy_id,
-                symbol=current.symbol,
-                episode_id=current.episode_id,
-                opened_at=current.opened_at,
-                updated_at=moment,
-                purchased_quantity=current.purchased_quantity,
-                sold_quantity=current.sold_quantity,
-                open_quantity=current.open_quantity,
-                entry_cash_out=current.entry_cash_out,
-                exit_cash_in=current.exit_cash_in,
-                peak_reference_price=max(
-                    current.peak_reference_price,
-                    reference_price,
-                ),
-                trough_reference_price=min(
-                    current.trough_reference_price,
-                    reference_price,
-                ),
-                last_observed_at=moment,
-                exit_intent_id=current.exit_intent_id,
-                exit_reason=current.exit_reason,
-            )
-            updated.validate()
-            self._write_open(connection, updated)
             connection.execute("COMMIT")
-            return updated
+            return current
         except Exception:
             connection.execute("ROLLBACK")
             raise
@@ -431,14 +420,14 @@ class SQLitePaperTradeQualityStore:
             raise ValueError("closed trade limit must be positive")
         query = (
             "SELECT * FROM paper_trade_quality_closed "
-            "WHERE strategy_id=? ORDER BY trade_id"
+            "WHERE strategy_id=? ORDER BY closed_at, episode_id"
         )
         params: tuple[object, ...] = (strategy_id,)
         if limit is not None:
             query = (
                 "SELECT * FROM (SELECT * FROM paper_trade_quality_closed "
-                "WHERE strategy_id=? ORDER BY trade_id DESC LIMIT ?) "
-                "ORDER BY trade_id"
+                "WHERE strategy_id=? ORDER BY closed_at DESC, episode_id DESC LIMIT ?) "
+                "ORDER BY closed_at, episode_id"
             )
             params = (strategy_id, limit)
         connection = self._connect()
@@ -459,138 +448,207 @@ class SQLitePaperTradeQualityStore:
             for trade in self.closed_trades(strategy_id=strategy_id, limit=limit)
         )
 
-    def _apply_buy(
+    def _rebuild_symbol(
         self,
         connection: sqlite3.Connection,
         *,
         strategy_id: str,
-        fill: Fill,
-        current: OpenPaperTradeQuality | None,
-    ) -> OpenPaperTradeQuality:
-        cash_out = fill.quantity * fill.price + fill.fee
-        moment = fill.occurred_at.astimezone(UTC)
-        if current is None:
-            updated = OpenPaperTradeQuality(
-                strategy_id=strategy_id,
-                symbol=fill.symbol,
-                episode_id=fill.fill_id,
-                opened_at=moment,
-                updated_at=moment,
-                purchased_quantity=fill.quantity,
-                sold_quantity=Decimal("0"),
-                open_quantity=fill.quantity,
-                entry_cash_out=cash_out,
-                exit_cash_in=Decimal("0"),
-                peak_reference_price=fill.price,
-                trough_reference_price=fill.price,
-                last_observed_at=moment,
-            )
-        else:
-            if current.sold_quantity > 0:
-                raise ValueError("PAPER_TRADE_QUALITY_SCALE_IN_AFTER_EXIT_NOT_SUPPORTED")
-            updated = OpenPaperTradeQuality(
-                strategy_id=current.strategy_id,
-                symbol=current.symbol,
-                episode_id=current.episode_id,
-                opened_at=current.opened_at,
-                updated_at=moment,
-                purchased_quantity=current.purchased_quantity + fill.quantity,
-                sold_quantity=current.sold_quantity,
-                open_quantity=current.open_quantity + fill.quantity,
-                entry_cash_out=current.entry_cash_out + cash_out,
-                exit_cash_in=current.exit_cash_in,
-                peak_reference_price=max(current.peak_reference_price, fill.price),
-                trough_reference_price=min(current.trough_reference_price, fill.price),
-                last_observed_at=max(current.last_observed_at, moment),
-            )
-        updated.validate()
-        self._write_open(connection, updated)
-        return updated
-
-    def _apply_sell(
-        self,
-        connection: sqlite3.Connection,
-        *,
-        strategy_id: str,
-        fill: Fill,
-        current: OpenPaperTradeQuality,
-    ) -> tuple[OpenPaperTradeQuality | None, ClosedPaperTradeQuality | None]:
-        if fill.quantity > current.open_quantity:
-            raise ValueError("PAPER_TRADE_QUALITY_EXIT_EXCEEDS_OPEN_QUANTITY")
-        reason = self._exit_reason(
-            connection,
-            strategy_id=strategy_id,
-            fill=fill,
-        )
-        if current.exit_intent_id is not None and (
-            current.exit_intent_id != fill.order_intent_id
-            or current.exit_reason != reason
-        ):
-            raise ValueError("PAPER_TRADE_QUALITY_MULTIPLE_EXIT_INTENTS_NOT_SUPPORTED")
-        moment = fill.occurred_at.astimezone(UTC)
-        exit_cash_in = current.exit_cash_in + fill.quantity * fill.price - fill.fee
-        sold_quantity = current.sold_quantity + fill.quantity
-        open_quantity = current.open_quantity - fill.quantity
-        peak = max(current.peak_reference_price, fill.price)
-        trough = min(current.trough_reference_price, fill.price)
-        if open_quantity > 0:
-            updated = OpenPaperTradeQuality(
-                strategy_id=current.strategy_id,
-                symbol=current.symbol,
-                episode_id=current.episode_id,
-                opened_at=current.opened_at,
-                updated_at=moment,
-                purchased_quantity=current.purchased_quantity,
-                sold_quantity=sold_quantity,
-                open_quantity=open_quantity,
-                entry_cash_out=current.entry_cash_out,
-                exit_cash_in=exit_cash_in,
-                peak_reference_price=peak,
-                trough_reference_price=trough,
-                last_observed_at=max(current.last_observed_at, moment),
-                exit_intent_id=fill.order_intent_id,
-                exit_reason=reason,
-            )
-            updated.validate()
-            self._write_open(connection, updated)
-            return updated, None
-
-        closed = self._close_trade(
-            connection,
-            current=current,
-            fill=fill,
-            exit_cash_in=exit_cash_in,
-            peak=peak,
-            trough=trough,
-            exit_reason=reason,
-        )
+        symbol: str,
+    ) -> None:
         connection.execute(
             "DELETE FROM paper_trade_quality_open WHERE strategy_id=? AND symbol=?",
-            (strategy_id, fill.symbol),
+            (strategy_id, symbol),
         )
-        return None, closed
+        connection.execute(
+            "DELETE FROM paper_trade_quality_closed WHERE strategy_id=? AND symbol=?",
+            (strategy_id, symbol),
+        )
+        fill_rows = connection.execute(
+            """SELECT * FROM paper_trade_quality_fills
+            WHERE strategy_id=? AND symbol=?""",
+            (strategy_id, symbol),
+        ).fetchall()
+        price_rows = connection.execute(
+            """SELECT * FROM paper_trade_quality_prices
+            WHERE strategy_id=? AND symbol=?""",
+            (strategy_id, symbol),
+        ).fetchall()
+        reasons = {
+            str(row["intent_id"]): str(row["exit_reason"])
+            for row in connection.execute(
+                """SELECT intent_id, exit_reason
+                FROM paper_trade_quality_exit_intents
+                WHERE strategy_id=? AND symbol=?""",
+                (strategy_id, symbol),
+            ).fetchall()
+        }
+        events: list[tuple[datetime, int, str, str, sqlite3.Row]] = []
+        for row in fill_rows:
+            side = Side(str(row["side"]))
+            priority = 0 if side is Side.BUY else 2
+            events.append(
+                (
+                    datetime.fromisoformat(str(row["occurred_at"])),
+                    priority,
+                    str(row["fill_id"]),
+                    "FILL",
+                    row,
+                )
+            )
+        for row in price_rows:
+            events.append(
+                (
+                    datetime.fromisoformat(str(row["observed_at"])),
+                    1,
+                    str(row["observed_at"]),
+                    "PRICE",
+                    row,
+                )
+            )
+        events.sort(key=lambda item: (item[0], item[1], item[2]))
 
-    def _close_trade(
-        self,
+        episode: _ReplayEpisode | None = None
+        for occurred_at, _, _, kind, row in events:
+            if kind == "PRICE":
+                if episode is None:
+                    continue
+                price = Decimal(str(row["reference_price"]))
+                episode.peak_reference_price = max(
+                    episode.peak_reference_price,
+                    price,
+                )
+                episode.trough_reference_price = min(
+                    episode.trough_reference_price,
+                    price,
+                )
+                episode.last_observed_at = occurred_at
+                episode.updated_at = occurred_at
+                continue
+
+            side = Side(str(row["side"]))
+            quantity = Decimal(str(row["quantity"]))
+            price = Decimal(str(row["price"]))
+            fee = Decimal(str(row["fee"]))
+            intent_id = str(row["order_intent_id"])
+            fill_id = str(row["fill_id"])
+            if side is Side.BUY:
+                if episode is None:
+                    episode = _ReplayEpisode(
+                        episode_id=fill_id,
+                        opened_at=occurred_at,
+                        purchased_quantity=quantity,
+                        sold_quantity=Decimal("0"),
+                        open_quantity=quantity,
+                        entry_cash_out=quantity * price + fee,
+                        exit_cash_in=Decimal("0"),
+                        peak_reference_price=price,
+                        trough_reference_price=price,
+                        last_observed_at=occurred_at,
+                        updated_at=occurred_at,
+                    )
+                    continue
+                if episode.sold_quantity > 0:
+                    raise ValueError(
+                        "PAPER_TRADE_QUALITY_SCALE_IN_AFTER_EXIT_NOT_SUPPORTED"
+                    )
+                episode.purchased_quantity += quantity
+                episode.open_quantity += quantity
+                episode.entry_cash_out += quantity * price + fee
+                episode.peak_reference_price = max(
+                    episode.peak_reference_price,
+                    price,
+                )
+                episode.trough_reference_price = min(
+                    episode.trough_reference_price,
+                    price,
+                )
+                episode.last_observed_at = max(
+                    episode.last_observed_at,
+                    occurred_at,
+                )
+                episode.updated_at = max(episode.updated_at, occurred_at)
+                continue
+
+            if episode is None:
+                raise ValueError("PAPER_TRADE_QUALITY_SELL_WITHOUT_OPEN_TRADE")
+            if quantity > episode.open_quantity:
+                raise ValueError("PAPER_TRADE_QUALITY_EXIT_EXCEEDS_OPEN_QUANTITY")
+            episode.exit_cash_in += quantity * price - fee
+            episode.sold_quantity += quantity
+            episode.open_quantity -= quantity
+            episode.peak_reference_price = max(episode.peak_reference_price, price)
+            episode.trough_reference_price = min(
+                episode.trough_reference_price,
+                price,
+            )
+            episode.last_observed_at = max(
+                episode.last_observed_at,
+                occurred_at,
+            )
+            episode.updated_at = max(episode.updated_at, occurred_at)
+            episode.last_exit_intent_id = intent_id
+            episode.last_exit_reason = reasons.get(
+                intent_id,
+                UNATTRIBUTED_EXIT_REASON,
+            )
+            if episode.open_quantity == 0:
+                self._insert_closed(
+                    connection,
+                    strategy_id=strategy_id,
+                    symbol=symbol,
+                    episode=episode,
+                    closed_at=occurred_at,
+                )
+                episode = None
+
+        if episode is not None:
+            state = OpenPaperTradeQuality(
+                strategy_id=strategy_id,
+                symbol=symbol,
+                episode_id=episode.episode_id,
+                opened_at=episode.opened_at,
+                updated_at=episode.updated_at,
+                purchased_quantity=episode.purchased_quantity,
+                sold_quantity=episode.sold_quantity,
+                open_quantity=episode.open_quantity,
+                entry_cash_out=episode.entry_cash_out,
+                exit_cash_in=episode.exit_cash_in,
+                peak_reference_price=episode.peak_reference_price,
+                trough_reference_price=episode.trough_reference_price,
+                last_observed_at=episode.last_observed_at,
+                last_exit_intent_id=episode.last_exit_intent_id,
+                last_exit_reason=episode.last_exit_reason,
+            )
+            state.validate()
+            self._write_open(connection, state)
+
+    @staticmethod
+    def _insert_closed(
         connection: sqlite3.Connection,
         *,
-        current: OpenPaperTradeQuality,
-        fill: Fill,
-        exit_cash_in: Decimal,
-        peak: Decimal,
-        trough: Decimal,
-        exit_reason: str,
-    ) -> ClosedPaperTradeQuality:
-        quantity = current.purchased_quantity
-        average_entry_cost = current.entry_cash_out / quantity
-        average_exit_proceeds = exit_cash_in / quantity
-        net_pnl = exit_cash_in - current.entry_cash_out
-        return_fraction = net_pnl / current.entry_cash_out
-        mfe = max(Decimal("0"), (peak - average_entry_cost) / average_entry_cost)
-        mae = max(Decimal("0"), (average_entry_cost - trough) / average_entry_cost)
+        strategy_id: str,
+        symbol: str,
+        episode: _ReplayEpisode,
+        closed_at: datetime,
+    ) -> None:
+        if episode.last_exit_intent_id is None or episode.last_exit_reason is None:
+            raise RuntimeError("flat trade is missing final exit identity")
+        quantity = episode.purchased_quantity
+        average_entry_cost = episode.entry_cash_out / quantity
+        average_exit_proceeds = episode.exit_cash_in / quantity
+        net_pnl = episode.exit_cash_in - episode.entry_cash_out
+        return_fraction = net_pnl / episode.entry_cash_out
+        mfe = max(
+            Decimal("0"),
+            (episode.peak_reference_price - average_entry_cost) / average_entry_cost,
+        )
+        mae = max(
+            Decimal("0"),
+            (average_entry_cost - episode.trough_reference_price) / average_entry_cost,
+        )
         maximum_favorable_pnl = max(
             Decimal("0"),
-            (peak - average_entry_cost) * quantity,
+            (episode.peak_reference_price - average_entry_cost) * quantity,
         )
         capture = (
             net_pnl / maximum_favorable_pnl
@@ -602,20 +660,20 @@ class SQLitePaperTradeQualityStore:
             if maximum_favorable_pnl > 0
             else None
         )
-        cursor = connection.execute(
+        connection.execute(
             """INSERT INTO paper_trade_quality_closed (
-                strategy_id, symbol, episode_id, opened_at, closed_at, quantity,
+                episode_id, strategy_id, symbol, opened_at, closed_at, quantity,
                 average_entry_cost, average_exit_proceeds, net_pnl, return_fraction,
                 maximum_favorable_excursion_fraction,
                 maximum_adverse_excursion_fraction, mfe_capture_ratio,
                 mfe_giveback_fraction, exit_intent_id, exit_reason
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                current.strategy_id,
-                current.symbol,
-                current.episode_id,
-                current.opened_at.astimezone(UTC).isoformat(),
-                fill.occurred_at.astimezone(UTC).isoformat(),
+                episode.episode_id,
+                strategy_id,
+                symbol,
+                episode.opened_at.astimezone(UTC).isoformat(),
+                closed_at.astimezone(UTC).isoformat(),
                 str(quantity),
                 str(average_entry_cost),
                 str(average_exit_proceeds),
@@ -625,35 +683,10 @@ class SQLitePaperTradeQualityStore:
                 str(mae),
                 None if capture is None else str(capture),
                 None if giveback is None else str(giveback),
-                fill.order_intent_id,
-                exit_reason,
+                episode.last_exit_intent_id,
+                episode.last_exit_reason,
             ),
         )
-        row = connection.execute(
-            "SELECT * FROM paper_trade_quality_closed WHERE trade_id=?",
-            (int(cursor.lastrowid),),
-        ).fetchone()
-        if row is None:
-            raise RuntimeError("closed paper trade quality row missing after insert")
-        return self._closed_row(row)
-
-    @staticmethod
-    def _exit_reason(
-        connection: sqlite3.Connection,
-        *,
-        strategy_id: str,
-        fill: Fill,
-    ) -> str:
-        row = connection.execute(
-            """SELECT exit_reason, strategy_id, symbol
-            FROM paper_trade_quality_exit_intents WHERE intent_id=?""",
-            (fill.order_intent_id,),
-        ).fetchone()
-        if row is None:
-            return UNATTRIBUTED_EXIT_REASON
-        if str(row["strategy_id"]) != strategy_id or str(row["symbol"]) != fill.symbol:
-            raise ValueError("PAPER_TRADE_EXIT_INTENT_IDENTITY_MISMATCH")
-        return str(row["exit_reason"])
 
     @staticmethod
     def _validate_duplicate_fill(
@@ -700,6 +733,22 @@ class SQLitePaperTradeQualityStore:
         return None if row is None else SQLitePaperTradeQualityStore._open_row(row)
 
     @staticmethod
+    def _closed_ending_with_fill(
+        connection: sqlite3.Connection,
+        *,
+        strategy_id: str,
+        symbol: str,
+        intent_id: str,
+        closed_at: datetime,
+    ) -> ClosedPaperTradeQuality | None:
+        row = connection.execute(
+            """SELECT * FROM paper_trade_quality_closed
+            WHERE strategy_id=? AND symbol=? AND exit_intent_id=? AND closed_at=?""",
+            (strategy_id, symbol, intent_id, closed_at.isoformat()),
+        ).fetchone()
+        return None if row is None else SQLitePaperTradeQualityStore._closed_row(row)
+
+    @staticmethod
     def _write_open(
         connection: sqlite3.Connection,
         state: OpenPaperTradeQuality,
@@ -709,22 +758,8 @@ class SQLitePaperTradeQualityStore:
                 strategy_id, symbol, episode_id, opened_at, updated_at,
                 purchased_quantity, sold_quantity, open_quantity, entry_cash_out,
                 exit_cash_in, peak_reference_price, trough_reference_price,
-                last_observed_at, exit_intent_id, exit_reason
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(strategy_id, symbol) DO UPDATE SET
-                episode_id=excluded.episode_id,
-                opened_at=excluded.opened_at,
-                updated_at=excluded.updated_at,
-                purchased_quantity=excluded.purchased_quantity,
-                sold_quantity=excluded.sold_quantity,
-                open_quantity=excluded.open_quantity,
-                entry_cash_out=excluded.entry_cash_out,
-                exit_cash_in=excluded.exit_cash_in,
-                peak_reference_price=excluded.peak_reference_price,
-                trough_reference_price=excluded.trough_reference_price,
-                last_observed_at=excluded.last_observed_at,
-                exit_intent_id=excluded.exit_intent_id,
-                exit_reason=excluded.exit_reason""",
+                last_observed_at, last_exit_intent_id, last_exit_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 state.strategy_id,
                 state.symbol,
@@ -739,8 +774,8 @@ class SQLitePaperTradeQualityStore:
                 str(state.peak_reference_price),
                 str(state.trough_reference_price),
                 state.last_observed_at.astimezone(UTC).isoformat(),
-                state.exit_intent_id,
-                state.exit_reason,
+                state.last_exit_intent_id,
+                state.last_exit_reason,
             ),
         )
 
@@ -760,11 +795,15 @@ class SQLitePaperTradeQualityStore:
             peak_reference_price=Decimal(str(row["peak_reference_price"])),
             trough_reference_price=Decimal(str(row["trough_reference_price"])),
             last_observed_at=datetime.fromisoformat(str(row["last_observed_at"])),
-            exit_intent_id=(
-                None if row["exit_intent_id"] is None else str(row["exit_intent_id"])
+            last_exit_intent_id=(
+                None
+                if row["last_exit_intent_id"] is None
+                else str(row["last_exit_intent_id"])
             ),
-            exit_reason=(
-                None if row["exit_reason"] is None else str(row["exit_reason"])
+            last_exit_reason=(
+                None
+                if row["last_exit_reason"] is None
+                else str(row["last_exit_reason"])
             ),
         )
         state.validate()
@@ -773,10 +812,9 @@ class SQLitePaperTradeQualityStore:
     @staticmethod
     def _closed_row(row: sqlite3.Row) -> ClosedPaperTradeQuality:
         return ClosedPaperTradeQuality(
-            trade_id=int(row["trade_id"]),
+            episode_id=str(row["episode_id"]),
             strategy_id=str(row["strategy_id"]),
             symbol=str(row["symbol"]),
-            episode_id=str(row["episode_id"]),
             opened_at=datetime.fromisoformat(str(row["opened_at"])),
             closed_at=datetime.fromisoformat(str(row["closed_at"])),
             quantity=Decimal(str(row["quantity"])),
@@ -806,7 +844,11 @@ class SQLitePaperTradeQualityStore:
 
 
 class PaperTradeQualityTracker:
-    """Strategy-scoped exact-fill observer plus fresh-price MFE/MAE tracker."""
+    """Strategy-scoped exact-fill observer plus observed-price MFE/MAE tracker.
+
+    MFE/MAE are based on prices actually supplied to ``observe_price`` and exact fill
+    prices. They are not a claim about unobserved market highs/lows between samples.
+    """
 
     def __init__(
         self,
