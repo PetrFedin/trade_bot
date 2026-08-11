@@ -8,12 +8,18 @@ on:
       - 'app/marketdata/ohlcv.py'
       - 'app/marketdata/alpaca_historical.py'
       - 'app/strategy/cross_sectional_selection.py'
+      - 'app/strategy/cross_sectional_portfolio.py'
+      - 'app/strategy/position_management.py'
+      - 'app/strategy/position_sizing.py'
       - 'research/multisymbol_ohlcv_selection_v1.json'
+      - 'research/cross_sectional_trading_quality_shadow_v2.json'
       - 'tools/external_multisymbol_historical.py'
+      - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
       - 'tests/test_ohlcv.py'
       - 'tests/test_alpaca_historical.py'
       - 'tests/test_cross_sectional_selection.py'
       - 'tests/test_external_multisymbol_historical.py'
+      - 'tests/test_cross_sectional_trading_quality_shadow.py'
       - 'requirements.lock'
       - 'LIVE_EXECUTION_STATUS_V109.json'
       - '.github/workflows/external-multisymbol-ohlcv-selection.yml'
@@ -23,12 +29,18 @@ on:
       - 'app/marketdata/ohlcv.py'
       - 'app/marketdata/alpaca_historical.py'
       - 'app/strategy/cross_sectional_selection.py'
+      - 'app/strategy/cross_sectional_portfolio.py'
+      - 'app/strategy/position_management.py'
+      - 'app/strategy/position_sizing.py'
       - 'research/multisymbol_ohlcv_selection_v1.json'
+      - 'research/cross_sectional_trading_quality_shadow_v2.json'
       - 'tools/external_multisymbol_historical.py'
+      - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
       - 'tests/test_ohlcv.py'
       - 'tests/test_alpaca_historical.py'
       - 'tests/test_cross_sectional_selection.py'
       - 'tests/test_external_multisymbol_historical.py'
+      - 'tests/test_cross_sectional_trading_quality_shadow.py'
       - 'requirements.lock'
       - 'LIVE_EXECUTION_STATUS_V109.json'
       - '.github/workflows/external-multisymbol-ohlcv-selection.yml'
@@ -60,31 +72,43 @@ jobs:
           python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
           python -m pip check
 
-      - name: Lint OHLCV and selection research surface
+      - name: Lint OHLCV, selection, and trading-quality research surface
         run: >-
           ruff check --output-format=github
           app/marketdata/ohlcv.py
           app/marketdata/alpaca_historical.py
           app/strategy/cross_sectional_selection.py
+          app/strategy/cross_sectional_portfolio.py
+          app/strategy/position_management.py
+          app/strategy/position_sizing.py
           tools/external_multisymbol_historical.py
+          tools/qualify_cross_sectional_trading_quality_shadow.py
           tests/test_ohlcv.py
           tests/test_alpaca_historical.py
           tests/test_cross_sectional_selection.py
           tests/test_external_multisymbol_historical.py
+          tests/test_cross_sectional_trading_quality_shadow.py
 
-      - name: Validate provider, OHLCV, selector, and report contracts
+      - name: Validate provider, OHLCV, selector, report, and comparison contracts
         run: >-
           pytest -q
           tests/test_ohlcv.py
           tests/test_alpaca_historical.py
           tests/test_cross_sectional_selection.py
           tests/test_external_multisymbol_historical.py
+          tests/test_cross_sectional_trading_quality_shadow.py
           tests/test_regime_momentum.py
 
-      - name: Validate predeclared research configuration
+      - name: Validate predeclared acquisition configuration
         run: >-
           python -m tools.external_multisymbol_historical
           --config research/multisymbol_ohlcv_selection_v1.json
+          --validate-config-only
+
+      - name: Validate predeclared trading-quality configuration
+        run: >-
+          python -m tools.qualify_cross_sectional_trading_quality_shadow
+          --config research/cross_sectional_trading_quality_shadow_v2.json
           --validate-config-only
 
       - name: Compile read-only research boundary
@@ -93,7 +117,11 @@ jobs:
           app/marketdata/ohlcv.py
           app/marketdata/alpaca_historical.py
           app/strategy/cross_sectional_selection.py
+          app/strategy/cross_sectional_portfolio.py
+          app/strategy/position_management.py
+          app/strategy/position_sizing.py
           tools/external_multisymbol_historical.py
+          tools/qualify_cross_sectional_trading_quality_shadow.py
 
       - name: Verify fail-closed execution state
         run: |
@@ -110,7 +138,7 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: contract
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     environment: alpaca-paper
     env:
       ASTRA_ALPACA_PAPER_KEY_ID: ${{ secrets.ASTRA_ALPACA_PAPER_KEY_ID }}
@@ -181,6 +209,15 @@ jobs:
             --csv-output multisymbol-research-evidence/bars.csv \
             --report-output multisymbol-research-evidence/report.json
 
+      - name: Compare trading-quality shadow against legacy on acquired bars
+        id: comparison
+        if: steps.credentials.outputs.configured == 'true' && steps.acquisition.outcome == 'success'
+        run: |
+          python -m tools.qualify_cross_sectional_trading_quality_shadow \
+            --csv multisymbol-research-evidence/bars.csv \
+            --config research/cross_sectional_trading_quality_shadow_v2.json \
+            --output multisymbol-research-evidence/trading-quality-report.json
+
       - name: Normalize credentialed acquisition failure evidence
         if: always() && steps.credentials.outputs.configured == 'true' && steps.acquisition.outcome != 'success'
         env:
@@ -220,7 +257,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Enforce evidence semantics without false strategy promotion
+      - name: Enforce acquisition evidence semantics without false strategy promotion
         if: always()
         run: |
           python - <<'PY'
@@ -255,4 +292,30 @@ jobs:
                   isinstance(candidate['quality_score'], str)
                   for candidate in report['selection']['candidates']
               )
+          PY
+
+      - name: Enforce comparative trading-quality evidence semantics
+        if: steps.credentials.outputs.configured == 'true' && steps.acquisition.outcome == 'success'
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          acquisition = json.loads(
+              Path('multisymbol-research-evidence/report.json').read_text(encoding='utf-8')
+          )
+          comparison = json.loads(
+              Path('multisymbol-research-evidence/trading-quality-report.json').read_text(encoding='utf-8')
+          )
+          assert comparison['qualification'] == 'PASS_COMPARATIVE_RESEARCH'
+          assert comparison['shadow_only'] is True
+          assert comparison['strategy_promotion_allowed'] is False
+          assert comparison['external_order_routing_allowed'] is False
+          assert comparison['live_trading_allowed'] is False
+          assert comparison['source_csv_sha256'] == acquisition['csv_sha256']
+          assert comparison['symbols'] == acquisition['symbols']
+          assert comparison['synchronized_timestamp_count'] >= 250
+          assert comparison['component_attribution_available'] is False
+          assert 'COMBINED_CANDIDATE_REQUIRES_ABLATION' in comparison['promotion_blockers']
+          assert 'NO_STRATEGY_PROFITABILITY_CLAIM' in comparison['limitations']
           PY
