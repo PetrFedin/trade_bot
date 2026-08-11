@@ -10,6 +10,7 @@ from app.strategy.cross_sectional_portfolio import (
 )
 from app.strategy.cross_sectional_selection import CrossSectionalSelector
 from app.strategy.position_management import PositionManagementPolicy
+from app.strategy.position_sizing import RiskAwareSizingPolicy
 from app.strategy.reentry_confirmation import ReentryConfirmationPolicy
 
 START = datetime(2026, 1, 2, tzinfo=UTC)
@@ -169,3 +170,68 @@ def test_ranking_rotation_exits_old_symbol_before_entering_new_symbol() -> None:
     )
     assert trade.exit_time == second.execution_time
     assert result.fill_count >= 3
+
+
+def test_portfolio_profit_protection_preserves_confirmed_intrabar_gain() -> None:
+    universe = [
+        *series(
+            "AAPL",
+            ["100", "101", "102", "103", "104", "105", "106", "107", "110", "109.5", "109"],
+            overrides={
+                8: ("108", "110.5", "107.8", "110"),
+                9: ("110", "110.2", "109", "109.5"),
+            },
+        ),
+        *series(
+            "MSFT",
+            ["107", "106", "105", "104", "103", "102", "101", "100", "99", "98", "97"],
+        ),
+    ]
+    result = CrossSectionalPortfolioBacktester(
+        selector=CrossSectionalSelector(top_k=1),
+        portfolio_policy=policy(),
+        position_policy=PositionManagementPolicy(
+            trailing_activation_fraction=Decimal("0.03"),
+            break_even_activation_fraction=Decimal("0.01"),
+            break_even_buffer_fraction=Decimal("0.001"),
+            profit_protection_activation_fraction=Decimal("0.015"),
+            maximum_profit_giveback_fraction=Decimal("0.50"),
+        ),
+    ).run(universe)
+
+    trade = next(trade for trade in result.closed_trades if trade.symbol == "AAPL")
+    assert trade.exit_reason is PortfolioExitReason.INTRABAR_PROFIT_PROTECTION
+    assert trade.net_pnl > 0
+    assert trade.maximum_favorable_excursion_fraction > 0
+    assert trade.mfe_capture_ratio is not None
+    assert trade.mfe_capture_ratio > 0
+    assert result.positive_mfe_closed_profitable >= 1
+    assert result.profit_preservation_rate is not None
+    assert result.profit_preservation_rate > 0
+
+
+def test_risk_aware_sizing_reduces_notional_for_high_volatility_candidate() -> None:
+    universe = [
+        *series(
+            "AAPL",
+            ["100", "99", "101", "100", "102", "101", "104", "108", "109"],
+        ),
+        *series(
+            "MSFT",
+            ["108", "107", "106", "105", "104", "103", "102", "101", "100"],
+        ),
+    ]
+    result = CrossSectionalPortfolioBacktester(
+        selector=CrossSectionalSelector(top_k=1),
+        portfolio_policy=policy(),
+        position_policy=PositionManagementPolicy(),
+        sizing_policy=RiskAwareSizingPolicy(
+            target_realized_volatility=Decimal("0.01")
+        ),
+    ).run(universe)
+
+    first = result.decision_trace[0]
+    assert first.selected_symbols == ("AAPL",)
+    assert first.entered_symbols == ("AAPL",)
+    assert Decimal("0") < first.closing_gross_exposure_fraction < Decimal("0.20")
+    assert result.final_quantities["AAPL"] > 0
