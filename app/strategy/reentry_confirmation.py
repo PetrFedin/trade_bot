@@ -42,6 +42,7 @@ class ReentryConfirmationState:
 class ReentryConfirmationDecision:
     allow_entry: bool
     reason: EntryBlockReason | None
+    confirmation_streak: int
     state: ReentryConfirmationState
 
 
@@ -68,12 +69,14 @@ def evaluate_reentry_confirmation(
         return ReentryConfirmationDecision(
             allow_entry=signal_eligible,
             reason=None,
+            confirmation_streak=0,
             state=state,
         )
     if not signal_eligible:
         return ReentryConfirmationDecision(
             allow_entry=False,
             reason=None,
+            confirmation_streak=0,
             state=ReentryConfirmationState(
                 blocked_after_exit=True,
                 consecutive_eligible_bars=0,
@@ -85,6 +88,7 @@ def evaluate_reentry_confirmation(
         return ReentryConfirmationDecision(
             allow_entry=False,
             reason=EntryBlockReason.REENTRY_CONFIRMATION_PENDING,
+            confirmation_streak=streak,
             state=ReentryConfirmationState(
                 blocked_after_exit=True,
                 consecutive_eligible_bars=streak,
@@ -93,5 +97,6 @@ def evaluate_reentry_confirmation(
     return ReentryConfirmationDecision(
         allow_entry=True,
         reason=None,
+        confirmation_streak=streak,
         state=clear_after_entry(),
     )
