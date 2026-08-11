@@ -11,14 +11,17 @@ on:
       - 'app/strategy/cross_sectional_portfolio.py'
       - 'app/strategy/managed_backtest.py'
       - 'data/historical/aapl_plotly_multiregime/qualification_profit_protection_shadow.json'
+      - 'research/cross_sectional_trading_quality_shadow_v2.json'
       - 'tools/qualify_strategy_quality_shadow.py'
       - 'tools/qualify_cross_sectional_portfolio_shadow.py'
+      - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
       - 'tests/test_position_management.py'
       - 'tests/test_position_sizing.py'
       - 'tests/test_ohlcv_exit.py'
       - 'tests/test_cross_sectional_selection.py'
       - 'tests/test_cross_sectional_portfolio.py'
       - 'tests/test_cross_sectional_portfolio_contract.py'
+      - 'tests/test_cross_sectional_trading_quality_shadow.py'
       - 'tests/test_exit_quality_trace.py'
       - 'tests/test_strategy_quality_shadow.py'
       - 'tests/test_profit_protection_shadow.py'
@@ -33,14 +36,17 @@ on:
       - 'app/strategy/cross_sectional_portfolio.py'
       - 'app/strategy/managed_backtest.py'
       - 'data/historical/aapl_plotly_multiregime/qualification_profit_protection_shadow.json'
+      - 'research/cross_sectional_trading_quality_shadow_v2.json'
       - 'tools/qualify_strategy_quality_shadow.py'
       - 'tools/qualify_cross_sectional_portfolio_shadow.py'
+      - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
       - 'tests/test_position_management.py'
       - 'tests/test_position_sizing.py'
       - 'tests/test_ohlcv_exit.py'
       - 'tests/test_cross_sectional_selection.py'
       - 'tests/test_cross_sectional_portfolio.py'
       - 'tests/test_cross_sectional_portfolio_contract.py'
+      - 'tests/test_cross_sectional_trading_quality_shadow.py'
       - 'tests/test_exit_quality_trace.py'
       - 'tests/test_strategy_quality_shadow.py'
       - 'tests/test_profit_protection_shadow.py'
@@ -83,15 +89,23 @@ jobs:
           app/strategy/cross_sectional_portfolio.py
           tools/qualify_strategy_quality_shadow.py
           tools/qualify_cross_sectional_portfolio_shadow.py
+          tools/qualify_cross_sectional_trading_quality_shadow.py
           tests/test_position_management.py
           tests/test_position_sizing.py
           tests/test_ohlcv_exit.py
           tests/test_cross_sectional_selection.py
           tests/test_cross_sectional_portfolio.py
           tests/test_cross_sectional_portfolio_contract.py
+          tests/test_cross_sectional_trading_quality_shadow.py
           tests/test_exit_quality_trace.py
           tests/test_strategy_quality_shadow.py
           tests/test_profit_protection_shadow.py
+
+      - name: Validate combined shadow configuration
+        run: >-
+          python -m tools.qualify_cross_sectional_trading_quality_shadow
+          --config research/cross_sectional_trading_quality_shadow_v2.json
+          --validate-config-only
 
       - name: Trading-quality regressions with retained log
         id: regressions
@@ -105,6 +119,7 @@ jobs:
             tests/test_cross_sectional_selection.py \
             tests/test_cross_sectional_portfolio.py \
             tests/test_cross_sectional_portfolio_contract.py \
+            tests/test_cross_sectional_trading_quality_shadow.py \
             tests/test_exit_quality_trace.py \
             tests/test_strategy_quality_shadow.py \
             tests/test_profit_protection_shadow.py \
