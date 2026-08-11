@@ -5,13 +5,14 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
+from http.client import HTTPSConnection
 from typing import Any
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode, urlsplit
 
 from app.marketdata.ohlcv import MultiSymbolOhlcvDataset, OhlcvBar, normalize_bars
 
 ALPACA_STOCK_BARS_URL = "https://data.alpaca.markets/v2/stocks/bars"
+_ALPACA_DATA_HOST = "data.alpaca.markets"
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,7 @@ class AlpacaHistoricalBarsClient:
             "APCA-API-SECRET-KEY": secret_key,
             "Accept": "application/json",
         }
-        self._transport = _urllib_transport if transport is None else transport
+        self._transport = _https_transport if transport is None else transport
 
     def fetch(self, request: AlpacaHistoricalBarsRequest) -> HistoricalAcquisition:
         request.validate()
@@ -238,14 +239,29 @@ def _non_negative_int(row: Mapping[str, Any], field: str) -> int:
     return value
 
 
-def _urllib_transport(url: str, headers: Mapping[str, str]) -> HttpJsonPage:
-    request = Request(url, headers=dict(headers), method="GET")
-    with urlopen(request, timeout=30) as response:  # noqa: S310
+def _https_transport(url: str, headers: Mapping[str, str]) -> HttpJsonPage:
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or parsed.hostname != _ALPACA_DATA_HOST:
+        raise ValueError("Alpaca historical transport rejected non-allowlisted endpoint")
+    if parsed.username is not None or parsed.password is not None or parsed.fragment:
+        raise ValueError("Alpaca historical transport rejected ambiguous URL authority")
+    if parsed.port not in (None, 443):
+        raise ValueError("Alpaca historical transport requires HTTPS port 443")
+    target = parsed.path
+    if parsed.query:
+        target = f"{target}?{parsed.query}"
+
+    connection = HTTPSConnection(_ALPACA_DATA_HOST, 443, timeout=30)
+    try:
+        connection.request("GET", target, headers=dict(headers))
+        response = connection.getresponse()
         payload = json.loads(response.read().decode("utf-8"))
         if not isinstance(payload, dict):
             raise ValueError("Alpaca historical response must be a JSON object")
         return HttpJsonPage(
             status_code=response.status,
-            headers=dict(response.headers.items()),
+            headers=dict(response.getheaders()),
             payload=payload,
         )
+    finally:
+        connection.close()
