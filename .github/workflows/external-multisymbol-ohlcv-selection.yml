@@ -1,0 +1,250 @@
+name: external-multisymbol-ohlcv-selection
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'app/marketdata/ohlcv.py'
+      - 'app/marketdata/alpaca_historical.py'
+      - 'app/strategy/cross_sectional_selection.py'
+      - 'research/multisymbol_ohlcv_selection_v1.json'
+      - 'tools/external_multisymbol_historical.py'
+      - 'tests/test_ohlcv.py'
+      - 'tests/test_alpaca_historical.py'
+      - 'tests/test_cross_sectional_selection.py'
+      - 'requirements.lock'
+      - 'LIVE_EXECUTION_STATUS_V109.json'
+      - '.github/workflows/external-multisymbol-ohlcv-selection.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/marketdata/ohlcv.py'
+      - 'app/marketdata/alpaca_historical.py'
+      - 'app/strategy/cross_sectional_selection.py'
+      - 'research/multisymbol_ohlcv_selection_v1.json'
+      - 'tools/external_multisymbol_historical.py'
+      - 'tests/test_ohlcv.py'
+      - 'tests/test_alpaca_historical.py'
+      - 'tests/test_cross_sectional_selection.py'
+      - 'requirements.lock'
+      - 'LIVE_EXECUTION_STATUS_V109.json'
+      - '.github/workflows/external-multisymbol-ohlcv-selection.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: external-multisymbol-ohlcv-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked research graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint OHLCV and selection research surface
+        run: >-
+          ruff check --output-format=github
+          app/marketdata/ohlcv.py
+          app/marketdata/alpaca_historical.py
+          app/strategy/cross_sectional_selection.py
+          tools/external_multisymbol_historical.py
+          tests/test_ohlcv.py
+          tests/test_alpaca_historical.py
+          tests/test_cross_sectional_selection.py
+
+      - name: Validate provider, OHLCV, and selector contracts
+        run: >-
+          pytest -q
+          tests/test_ohlcv.py
+          tests/test_alpaca_historical.py
+          tests/test_cross_sectional_selection.py
+          tests/test_regime_momentum.py
+
+      - name: Validate predeclared research configuration
+        run: >-
+          python -m tools.external_multisymbol_historical
+          --config research/multisymbol_ohlcv_selection_v1.json
+          --validate-config-only
+
+      - name: Compile read-only research boundary
+        run: >-
+          python -m compileall -q
+          app/marketdata/ohlcv.py
+          app/marketdata/alpaca_historical.py
+          app/strategy/cross_sectional_selection.py
+          tools/external_multisymbol_historical.py
+
+      - name: Verify fail-closed execution state
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          state = json.loads(Path('LIVE_EXECUTION_STATUS_V109.json').read_text(encoding='utf-8'))
+          assert state['external_order_routing_allowed'] is False
+          assert state['live_trading_allowed'] is False
+          PY
+
+  acquire:
+    if: github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: alpaca-paper
+    env:
+      ASTRA_ALPACA_PAPER_KEY_ID: ${{ secrets.ASTRA_ALPACA_PAPER_KEY_ID }}
+      ASTRA_ALPACA_PAPER_SECRET_KEY: ${{ secrets.ASTRA_ALPACA_PAPER_SECRET_KEY }}
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Resolve market-data credential readiness
+        id: credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p multisymbol-research-evidence
+          configured=false
+          if [[ -n "${ASTRA_ALPACA_PAPER_KEY_ID:-}" && -n "${ASTRA_ALPACA_PAPER_SECRET_KEY:-}" ]]; then
+            configured=true
+          fi
+          echo "configured=${configured}" >> "$GITHUB_OUTPUT"
+          if [[ "$configured" != "true" ]]; then
+            python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report = {
+              'schema_version': 'multisymbol-ohlcv-selection-research-v1',
+              'qualification': 'BLOCKED_CREDENTIALS',
+              'provider': 'alpaca',
+              'credentials_configured': False,
+              'acquisition_executed': False,
+              'reason_codes': ['ALPACA_MARKET_DATA_CREDENTIALS_MISSING'],
+              'commit_sha': os.environ['GITHUB_SHA'],
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'research_only': True,
+              'strategy_promotion_allowed': False,
+              'paper_order_writes_enabled': False,
+              'external_order_routing_allowed': False,
+              'live_trading_allowed': False,
+          }
+          Path('multisymbol-research-evidence/report.json').write_text(
+              json.dumps(report, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          PY
+          fi
+
+      - name: Install hash-locked acquisition graph
+        if: steps.credentials.outputs.configured == 'true'
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Acquire real multi-symbol Alpaca OHLCV and rank candidates
+        id: acquisition
+        if: steps.credentials.outputs.configured == 'true'
+        continue-on-error: true
+        run: |
+          python -m tools.external_multisymbol_historical \
+            --config research/multisymbol_ohlcv_selection_v1.json \
+            --csv-output multisymbol-research-evidence/bars.csv \
+            --report-output multisymbol-research-evidence/report.json
+
+      - name: Normalize credentialed acquisition failure evidence
+        if: always() && steps.credentials.outputs.configured == 'true' && steps.acquisition.outcome != 'success'
+        env:
+          ASTRA_ACQUISITION_OUTCOME: ${{ steps.acquisition.outcome }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path('multisymbol-research-evidence/report.json')
+          report = {
+              'schema_version': 'multisymbol-ohlcv-selection-research-v1',
+              'qualification': 'FAIL',
+              'provider': 'alpaca',
+              'credentials_configured': True,
+              'acquisition_executed': True,
+              'acquisition_step_outcome': os.environ.get('ASTRA_ACQUISITION_OUTCOME'),
+              'reason_codes': ['ALPACA_MULTISYMBOL_RESEARCH_ACQUISITION_FAILED'],
+              'commit_sha': os.environ['GITHUB_SHA'],
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'research_only': True,
+              'strategy_promotion_allowed': False,
+              'paper_order_writes_enabled': False,
+              'external_order_routing_allowed': False,
+              'live_trading_allowed': False,
+          }
+          path.write_text(json.dumps(report, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          PY
+
+      - name: Upload multi-symbol research evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: external-multisymbol-ohlcv-${{ github.run_id }}
+          path: multisymbol-research-evidence/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce evidence semantics without false strategy promotion
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(
+              Path('multisymbol-research-evidence/report.json').read_text(encoding='utf-8')
+          )
+          assert report['provider'] == 'alpaca'
+          assert report['research_only'] is True
+          assert report['strategy_promotion_allowed'] is False
+          assert report['paper_order_writes_enabled'] is False
+          assert report['external_order_routing_allowed'] is False
+          assert report['live_trading_allowed'] is False
+
+          if report['qualification'] == 'BLOCKED_CREDENTIALS':
+              assert report['credentials_configured'] is False
+              assert report['acquisition_executed'] is False
+              assert report['reason_codes'] == ['ALPACA_MARKET_DATA_CREDENTIALS_MISSING']
+          else:
+              assert report['qualification'] == 'PASS_RESEARCH_DATA'
+              assert len(report['symbols']) == 6
+              assert all(count >= 250 for count in report['bars_by_symbol'].values())
+              assert report['total_bars'] >= 1500
+              assert report['feed'] == 'iex'
+              assert report['timeframe'] == '1Day'
+              assert report['adjustment'] == 'all'
+              assert len(report['csv_sha256']) == 64
+              assert len(report['selection']['candidates']) == 6
+          PY

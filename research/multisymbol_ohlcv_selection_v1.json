@@ -1,0 +1,35 @@
+{
+  "schema_version": "multisymbol-ohlcv-selection-research-v1",
+  "research_only": true,
+  "strategy_promotion_allowed": false,
+  "provider": "alpaca",
+  "symbols": ["AAPL", "AMZN", "GOOGL", "META", "MSFT", "NVDA"],
+  "timeframe": "1Day",
+  "start": "2025-01-02T00:00:00Z",
+  "end": "2026-07-31T23:59:59Z",
+  "feed": "iex",
+  "adjustment": "all",
+  "currency": "USD",
+  "limit": 10000,
+  "maximum_pages": 20,
+  "minimum_bars_per_symbol": 250,
+  "selection": {
+    "top_k": 2,
+    "ranking": ["momentum_desc", "trend_strength_desc", "realized_volatility_asc", "symbol_asc"],
+    "signal": {
+      "fast_bars": 3,
+      "slow_bars": 8,
+      "momentum_lookback_bars": 3,
+      "volatility_bars": 5,
+      "minimum_momentum_return": "0.002",
+      "minimum_trend_strength": "0.001",
+      "maximum_realized_volatility": "0.03"
+    }
+  },
+  "limitations": [
+    "RESEARCH_UNIVERSE_NOT_PRODUCTION_UNIVERSE",
+    "IEX_SINGLE_EXCHANGE_FEED",
+    "NO_EXECUTION_OR_ORDER_ROUTING",
+    "NO_STRATEGY_PROFITABILITY_CLAIM"
+  ]
+}
