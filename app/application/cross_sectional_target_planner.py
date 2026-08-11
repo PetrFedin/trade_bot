@@ -25,6 +25,13 @@ class CrossSectionalSelectionProvider(Protocol):
     def select(self, bars: Iterable[OhlcvBar]) -> CrossSectionalSelection: ...
 
 
+class EntryBlockProvider(Protocol):
+    def blocks_for_selection(
+        self,
+        selection: CrossSectionalSelection,
+    ) -> Mapping[str, PortfolioEntryBlockReason]: ...
+
+
 @dataclass(frozen=True)
 class CrossSectionalTargetPlan:
     decision_time: datetime
@@ -48,7 +55,8 @@ class CrossSectionalTargetPlanner:
     strategy primitives as the shadow backtester. Existing selected positions are not
     mechanically rebalanced. Deselects and explicit protective exits become zero
     targets; exits are never credited toward same-cycle entry capacity because their
-    fills are not yet known.
+    fills are not yet known. An optional durable entry-block provider can enforce
+    restart-safe re-entry confirmation before target generation.
     """
 
     def __init__(
@@ -58,6 +66,7 @@ class CrossSectionalTargetPlanner:
         portfolio_policy: CrossSectionalPortfolioPolicy,
         position_policy: PositionManagementPolicy,
         sizing_policy: RiskAwareSizingPolicy | None = None,
+        entry_block_provider: EntryBlockProvider | None = None,
         strategy_id: str = "cross-sectional-quality-v2-paper-shadow",
     ) -> None:
         portfolio_policy.validate(top_k=selector.top_k)
@@ -70,6 +79,7 @@ class CrossSectionalTargetPlanner:
         self.portfolio_policy = portfolio_policy
         self.position_policy = position_policy
         self.sizing_policy = sizing_policy
+        self.entry_block_provider = entry_block_provider
         self.strategy_id = strategy_id.strip()
 
     def plan(
@@ -97,8 +107,19 @@ class CrossSectionalTargetPlanner:
                 raise ValueError(f"valid reference price required for {symbol}")
 
         external_blocks = {} if blocked_entries is None else dict(blocked_entries)
+        durable_blocks = (
+            {}
+            if self.entry_block_provider is None
+            else dict(self.entry_block_provider.blocks_for_selection(selection))
+        )
+        combined_blocks = dict(durable_blocks)
+        for symbol, reason in external_blocks.items():
+            prior = combined_blocks.get(symbol)
+            if prior is not None and prior is not reason:
+                raise ValueError(f"conflicting entry block reason for {symbol}")
+            combined_blocks[symbol] = reason
         protection = {} if protective_exits is None else dict(protective_exits)
-        unknown_blocks = set(external_blocks) - managed_symbols
+        unknown_blocks = set(combined_blocks) - managed_symbols
         if unknown_blocks:
             raise ValueError(
                 "entry blocks reference unmanaged symbols:"
@@ -150,7 +171,7 @@ class CrossSectionalTargetPlanner:
         for symbol in selection.selected_symbols:
             if ledger.position(symbol).quantity > 0:
                 continue
-            block = external_blocks.get(symbol)
+            block = combined_blocks.get(symbol)
             if block is not None:
                 entry_blocks.append((symbol, block))
                 continue
