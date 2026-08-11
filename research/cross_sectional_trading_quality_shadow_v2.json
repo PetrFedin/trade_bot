@@ -69,6 +69,15 @@
     "maximum_consecutive_losses": 4,
     "allow_entries_when_insufficient_data": false
   },
+  "walk_forward": {
+    "training_bars": 60,
+    "holdout_bars": 40,
+    "step_bars": 40,
+    "minimum_folds": 3,
+    "parameter_fitting_allowed": false,
+    "reset_portfolio_each_fold": true,
+    "non_overlapping_holdouts": true
+  },
   "shared_controls": [
     "CONFIRMED_REENTRY",
     "CONSERVATIVE_INTRABAR_PATH",
