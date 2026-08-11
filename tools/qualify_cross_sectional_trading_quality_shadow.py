@@ -26,6 +26,7 @@ from app.strategy.reentry_confirmation import ReentryConfirmationPolicy
 from app.strategy.regime_momentum import RegimeAwareMomentumConfig
 
 _SCHEMA = "cross-sectional-trading-quality-shadow-v2"
+_ABLATIONS = ("SELECTION_ONLY", "SIZING_ONLY", "PROTECTION_ONLY", "COMBINED")
 
 
 def _object(data: dict[str, Any], field: str) -> dict[str, Any]:
@@ -49,6 +50,13 @@ def _positive_int(data: dict[str, Any], field: str) -> int:
     value = data.get(field)
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise ValueError(f"{field} must be a positive integer")
+    return value
+
+
+def _string_list(data: dict[str, Any], field: str) -> list[str]:
+    value = data.get(field)
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f"{field} must be a list of strings")
     return value
 
 
@@ -141,21 +149,12 @@ def load_config(path: Path) -> dict[str, Any]:
     if reentry.get("apply_after_any_exit") is not True:
         raise ValueError("reentry application policy changed")
 
-    components = data.get("candidate_components")
-    if not isinstance(components, list) or not all(
-        isinstance(item, str) for item in components
-    ):
-        raise ValueError("candidate_components must be a list of strings")
-    blockers = data.get("promotion_blockers")
-    if not isinstance(blockers, list) or not all(
-        isinstance(item, str) for item in blockers
-    ):
-        raise ValueError("promotion_blockers must be a list of strings")
-    limitations = data.get("limitations")
-    if not isinstance(limitations, list) or not all(
-        isinstance(item, str) for item in limitations
-    ):
-        raise ValueError("limitations must be a list of strings")
+    _string_list(data, "shared_controls")
+    _string_list(data, "candidate_components")
+    if tuple(_string_list(data, "ablation_variants")) != _ABLATIONS:
+        raise ValueError("trading-quality ablation set changed")
+    _string_list(data, "promotion_blockers")
+    _string_list(data, "limitations")
     return data
 
 
@@ -199,12 +198,10 @@ def _portfolio_policy(config: dict[str, Any]) -> CrossSectionalPortfolioPolicy:
 
 
 def _position_policy(
-    config: dict[str, Any], *, candidate: bool
+    config: dict[str, Any], *, protection: bool
 ) -> PositionManagementPolicy:
     section = (
-        "candidate_position_management"
-        if candidate
-        else "legacy_position_management"
+        "candidate_position_management" if protection else "legacy_position_management"
     )
     position = _object(config, section)
     kwargs: dict[str, Any] = {
@@ -216,7 +213,7 @@ def _position_policy(
         "trailing_stop_fraction": _decimal(position, "trailing_stop_fraction"),
         "maximum_holding_bars": _positive_int(position, "maximum_holding_bars"),
     }
-    if candidate:
+    if protection:
         kwargs.update(
             break_even_activation_fraction=_decimal(
                 position, "break_even_activation_fraction"
@@ -366,6 +363,56 @@ def _delta(candidate: str | None, control: str | None) -> str | None:
     return str(Decimal(candidate) - Decimal(control))
 
 
+def _comparison(
+    candidate: dict[str, object], control: dict[str, object]
+) -> dict[str, str | None]:
+    return {
+        "total_return_delta": _delta(
+            candidate["total_return"], control["total_return"]
+        ),
+        "max_drawdown_fraction_delta": _delta(
+            candidate["max_drawdown_fraction"], control["max_drawdown_fraction"]
+        ),
+        "win_rate_delta": _delta(candidate["win_rate"], control["win_rate"]),
+        "profit_factor_delta": _delta(
+            candidate["profit_factor"], control["profit_factor"]
+        ),
+        "profit_preservation_rate_delta": _delta(
+            candidate["profit_preservation_rate"],
+            control["profit_preservation_rate"],
+        ),
+        "average_mfe_capture_ratio_delta": _delta(
+            candidate["average_mfe_capture_ratio"],
+            control["average_mfe_capture_ratio"],
+        ),
+    }
+
+
+def _run_variant(
+    *,
+    bars: tuple[OhlcvBar, ...],
+    config: dict[str, Any],
+    use_quality_selection: bool,
+    use_risk_sizing: bool,
+    use_profit_protection: bool,
+) -> CrossSectionalPortfolioResult:
+    selection = _object(config, "selection")
+    selector = CrossSectionalSelector(
+        top_k=_positive_int(selection, "top_k"),
+        signal_config=_signal_config(config),
+        quality_policy=_quality_policy(config) if use_quality_selection else None,
+    )
+    return CrossSectionalPortfolioBacktester(
+        selector=selector,
+        portfolio_policy=_portfolio_policy(config),
+        position_policy=_position_policy(
+            config, protection=use_profit_protection
+        ),
+        reentry_policy=_reentry_policy(config),
+        sizing_policy=_sizing_policy(config) if use_risk_sizing else None,
+    ).run(bars)
+
+
 def qualify(csv_path: Path, config_path: Path) -> dict[str, object]:
     config = load_config(config_path)
     raw_bars = read_csv(csv_path)
@@ -374,40 +421,58 @@ def qualify(csv_path: Path, config_path: Path) -> dict[str, object]:
     symbols = sorted({bar.symbol for bar in bars})
     common_timestamps = sorted({bar.timestamp for bar in bars})
 
-    selection = _object(config, "selection")
-    top_k = _positive_int(selection, "top_k")
     signal_config = _signal_config(config)
     if len(common_timestamps) <= signal_config.minimum_history_bars:
         raise ValueError("insufficient synchronized history for portfolio comparison")
 
-    portfolio_policy = _portfolio_policy(config)
-    reentry_policy = _reentry_policy(config)
-    control = CrossSectionalPortfolioBacktester(
-        selector=CrossSectionalSelector(
-            top_k=top_k,
-            signal_config=signal_config,
+    variants = {
+        "CONTROL": _run_variant(
+            bars=bars,
+            config=config,
+            use_quality_selection=False,
+            use_risk_sizing=False,
+            use_profit_protection=False,
         ),
-        portfolio_policy=portfolio_policy,
-        position_policy=_position_policy(config, candidate=False),
-        reentry_policy=reentry_policy,
-    ).run(bars)
-    candidate = CrossSectionalPortfolioBacktester(
-        selector=CrossSectionalSelector(
-            top_k=top_k,
-            signal_config=signal_config,
-            quality_policy=_quality_policy(config),
+        "SELECTION_ONLY": _run_variant(
+            bars=bars,
+            config=config,
+            use_quality_selection=True,
+            use_risk_sizing=False,
+            use_profit_protection=False,
         ),
-        portfolio_policy=portfolio_policy,
-        position_policy=_position_policy(config, candidate=True),
-        reentry_policy=reentry_policy,
-        sizing_policy=_sizing_policy(config),
-    ).run(bars)
-
-    control_metrics = _result_metrics(control)
-    candidate_metrics = _result_metrics(candidate)
+        "SIZING_ONLY": _run_variant(
+            bars=bars,
+            config=config,
+            use_quality_selection=False,
+            use_risk_sizing=True,
+            use_profit_protection=False,
+        ),
+        "PROTECTION_ONLY": _run_variant(
+            bars=bars,
+            config=config,
+            use_quality_selection=False,
+            use_risk_sizing=False,
+            use_profit_protection=True,
+        ),
+        "COMBINED": _run_variant(
+            bars=bars,
+            config=config,
+            use_quality_selection=True,
+            use_risk_sizing=True,
+            use_profit_protection=True,
+        ),
+    }
+    metrics = {name: _result_metrics(result) for name, result in variants.items()}
+    control = metrics["CONTROL"]
+    candidate = metrics["COMBINED"]
+    ablations = {name: metrics[name] for name in _ABLATIONS[:-1]}
+    ablation_deltas = {
+        name: _comparison(metrics[name], control) for name in _ABLATIONS[:-1]
+    }
     admission_cap = _decimal(
         _object(config, "portfolio"), "maximum_gross_exposure_fraction"
     )
+
     return {
         "schema_version": _SCHEMA,
         "qualification": "PASS_COMPARATIVE_RESEARCH",
@@ -422,33 +487,15 @@ def qualify(csv_path: Path, config_path: Path) -> dict[str, object]:
         "last_timestamp": common_timestamps[-1].isoformat(),
         "admission_gross_exposure_cap_fraction": str(admission_cap),
         "observed_gross_may_drift_above_admission_cap": True,
+        "shared_controls": list(config["shared_controls"]),
         "candidate_components": list(config["candidate_components"]),
-        "component_attribution_available": False,
-        "control": control_metrics,
-        "candidate": candidate_metrics,
-        "comparison": {
-            "total_return_delta": _delta(
-                candidate_metrics["total_return"], control_metrics["total_return"]
-            ),
-            "max_drawdown_fraction_delta": _delta(
-                candidate_metrics["max_drawdown_fraction"],
-                control_metrics["max_drawdown_fraction"],
-            ),
-            "win_rate_delta": _delta(
-                candidate_metrics["win_rate"], control_metrics["win_rate"]
-            ),
-            "profit_factor_delta": _delta(
-                candidate_metrics["profit_factor"], control_metrics["profit_factor"]
-            ),
-            "profit_preservation_rate_delta": _delta(
-                candidate_metrics["profit_preservation_rate"],
-                control_metrics["profit_preservation_rate"],
-            ),
-            "average_mfe_capture_ratio_delta": _delta(
-                candidate_metrics["average_mfe_capture_ratio"],
-                control_metrics["average_mfe_capture_ratio"],
-            ),
-        },
+        "ablation_evidence_available": True,
+        "component_attribution_complete": False,
+        "control": control,
+        "candidate": candidate,
+        "ablations": ablations,
+        "comparison": _comparison(candidate, control),
+        "ablation_deltas_vs_control": ablation_deltas,
         "limitations": list(config["limitations"]),
         "promotion_blockers": list(config["promotion_blockers"]),
     }
@@ -456,7 +503,7 @@ def qualify(csv_path: Path, config_path: Path) -> dict[str, object]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Compare the combined trading-quality shadow against legacy portfolio"
+        description="Compare trading-quality components and combined shadow vs legacy"
     )
     parser.add_argument("--csv", type=Path)
     parser.add_argument("--config", type=Path, required=True)
@@ -478,6 +525,7 @@ def main() -> int:
                     "strategy_promotion_allowed": config[
                         "strategy_promotion_allowed"
                     ],
+                    "ablation_variants": config["ablation_variants"],
                 },
                 sort_keys=True,
             )
