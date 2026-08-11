@@ -1,0 +1,21 @@
+{
+  "schema_version": "correlation-diversification-shadow-v1",
+  "shadow_only": true,
+  "strategy_promotion_allowed": false,
+  "lookback_bars": 7,
+  "minimum_return_observations": 7,
+  "maximum_pairwise_correlation": "0.85",
+  "comparison_basis": "COMBINED_V2_WITHOUT_VS_WITH_DIVERSIFICATION",
+  "limitations": [
+    "SHORT_CORRELATION_LOOKBACK_FOR_SIGNAL_WARMUP_COMPATIBILITY",
+    "CORRELATION_IS_HISTORICAL_NOT_FORWARD_STABLE",
+    "NO_WALK_FORWARD_DIVERSIFICATION_EVIDENCE",
+    "NO_EXTERNAL_PAPER_PORTFOLIO_EXECUTION",
+    "NO_STRATEGY_PROFITABILITY_CLAIM"
+  ],
+  "promotion_blockers": [
+    "SHADOW_ONLY_POLICY",
+    "NO_WALK_FORWARD_DIVERSIFICATION_EVIDENCE",
+    "NO_EXTERNAL_PAPER_PORTFOLIO_EXECUTION"
+  ]
+}
