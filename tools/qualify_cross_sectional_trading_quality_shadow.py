@@ -66,7 +66,7 @@ def load_config(path: Path) -> dict[str, Any]:
         _decimal(data, field)
 
     selection = _object(data, "selection")
-    _positive_int(selection, "top_k")
+    top_k = _positive_int(selection, "top_k")
     quality = _object(selection, "quality")
     for field in (
         "momentum_weight",
@@ -90,11 +90,12 @@ def load_config(path: Path) -> dict[str, Any]:
         _decimal(signal, field)
 
     portfolio = _object(data, "portfolio")
-    for field in (
-        "maximum_gross_exposure_fraction",
-        "legacy_new_position_target_equity_fraction",
-    ):
-        _decimal(portfolio, field)
+    maximum_gross = _decimal(portfolio, "maximum_gross_exposure_fraction")
+    legacy_target = _decimal(
+        portfolio, "legacy_new_position_target_equity_fraction"
+    )
+    if legacy_target * Decimal(top_k) > maximum_gross:
+        raise ValueError("legacy target allocation exceeds admission gross cap")
     if portfolio.get("allow_leverage") is not False:
         raise ValueError("trading-quality research must keep leverage disabled")
     if portfolio.get("rebalance_existing_positions") is not False:
@@ -402,16 +403,11 @@ def qualify(csv_path: Path, config_path: Path) -> dict[str, object]:
         sizing_policy=_sizing_policy(config),
     ).run(bars)
 
-    hard_cap = _decimal(
-        _object(config, "portfolio"), "maximum_gross_exposure_fraction"
-    )
-    if control.maximum_gross_exposure_fraction_observed > hard_cap:
-        raise ValueError("legacy comparison exceeded hard gross exposure cap")
-    if candidate.maximum_gross_exposure_fraction_observed > hard_cap:
-        raise ValueError("quality candidate exceeded hard gross exposure cap")
-
     control_metrics = _result_metrics(control)
     candidate_metrics = _result_metrics(candidate)
+    admission_cap = _decimal(
+        _object(config, "portfolio"), "maximum_gross_exposure_fraction"
+    )
     return {
         "schema_version": _SCHEMA,
         "qualification": "PASS_COMPARATIVE_RESEARCH",
@@ -424,6 +420,8 @@ def qualify(csv_path: Path, config_path: Path) -> dict[str, object]:
         "synchronized_timestamp_count": len(common_timestamps),
         "first_timestamp": common_timestamps[0].isoformat(),
         "last_timestamp": common_timestamps[-1].isoformat(),
+        "admission_gross_exposure_cap_fraction": str(admission_cap),
+        "observed_gross_may_drift_above_admission_cap": True,
         "candidate_components": list(config["candidate_components"]),
         "component_attribution_available": False,
         "control": control_metrics,
