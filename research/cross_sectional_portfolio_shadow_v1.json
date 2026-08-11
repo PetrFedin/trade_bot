@@ -67,7 +67,14 @@
     "selection_counts",
     "realized_pnl_by_symbol",
     "intrabar_exit_counts",
-    "one_bar_reentry_count"
+    "one_bar_reentry_count",
+    "win_rate",
+    "profit_factor",
+    "average_maximum_favorable_excursion_fraction",
+    "average_maximum_adverse_excursion_fraction",
+    "average_mfe_capture_ratio",
+    "positive_mfe_trades",
+    "profit_preservation_rate"
   ],
   "promotion_blockers": [
     "SYNTHETIC_PORTFOLIO_CONTRACT_ONLY",
