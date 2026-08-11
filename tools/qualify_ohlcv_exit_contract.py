@@ -99,8 +99,16 @@ def _bar(
 ) -> OhlcvBar:
     close_value = Decimal(close)
     open_value = close_value if open is None else Decimal(open)
-    high_value = max(open_value, close_value) + Decimal("0.1") if high is None else Decimal(high)
-    low_value = min(open_value, close_value) - Decimal("0.1") if low is None else Decimal(low)
+    high_value = (
+        max(open_value, close_value) + Decimal("0.1")
+        if high is None
+        else Decimal(high)
+    )
+    low_value = (
+        min(open_value, close_value) - Decimal("0.1")
+        if low is None
+        else Decimal(low)
+    )
     return OhlcvBar(
         symbol="AAPL",
         timestamp=_START + timedelta(days=index),
@@ -181,10 +189,14 @@ def qualify(contract_path: Path) -> dict[str, object]:
     }
     expected = {
         "INTRABAR_TAKE_PROFIT": OhlcvExitReason.INTRABAR_TAKE_PROFIT,
-        "AMBIGUOUS_STOP_AND_TAKE_PROTECTIVE_FIRST": OhlcvExitReason.INTRABAR_HARD_STOP,
+        "AMBIGUOUS_STOP_AND_TAKE_PROTECTIVE_FIRST": (
+            OhlcvExitReason.INTRABAR_HARD_STOP
+        ),
         "GAP_THROUGH_HARD_STOP": OhlcvExitReason.INTRABAR_HARD_STOP,
         "TRAILING_FROM_COMPLETED_PRIOR_PEAK": OhlcvExitReason.INTRABAR_TRAILING_STOP,
-        "CURRENT_BAR_CLOSE_CANNOT_CHANGE_ENTRY_BEFORE_OPEN": OhlcvExitReason.INTRABAR_HARD_STOP,
+        "CURRENT_BAR_CLOSE_CANNOT_CHANGE_ENTRY_BEFORE_OPEN": (
+            OhlcvExitReason.INTRABAR_HARD_STOP
+        ),
     }
     required = set(contract["required_contract_scenarios"])
     if required != set(scenarios):
@@ -198,11 +210,13 @@ def qualify(contract_path: Path) -> dict[str, object]:
             raise ValueError(f"OHLCV contract exit mismatch:{name}")
         evidence[name] = item
 
-    if evidence["AMBIGUOUS_STOP_AND_TAKE_PROTECTIVE_FIRST"]["ambiguous_intrabar_exit"] is not True:
+    ambiguous = evidence["AMBIGUOUS_STOP_AND_TAKE_PROTECTIVE_FIRST"]
+    if ambiguous["ambiguous_intrabar_exit"] is not True:
         raise ValueError("ambiguous OHLCV contract scenario was not marked ambiguous")
     if evidence["GAP_THROUGH_HARD_STOP"]["gap_through_stop"] is not True:
         raise ValueError("gap OHLCV contract scenario did not use gap semantics")
-    if evidence["CURRENT_BAR_CLOSE_CANNOT_CHANGE_ENTRY_BEFORE_OPEN"]["entry_execution_price"] != "108":
+    current_bar = evidence["CURRENT_BAR_CLOSE_CANNOT_CHANGE_ENTRY_BEFORE_OPEN"]
+    if current_bar["entry_execution_price"] != "108":
         raise ValueError("current bar changed entry before next-open execution")
 
     return {
@@ -219,7 +233,9 @@ def qualify(contract_path: Path) -> dict[str, object]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Qualify conservative OHLCV exit semantics")
+    parser = argparse.ArgumentParser(
+        description="Qualify conservative OHLCV exit semantics"
+    )
     parser.add_argument("--contract", type=Path, required=True)
     parser.add_argument("--output", type=Path)
     return parser
