@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from app.domain.trading import Bar
 from app.strategy.managed_backtest import DecisionAction, ManagedHistoricalBacktester
-from app.strategy.position_management import ExitReason
+from app.strategy.position_management import ExitReason, PositionManagementPolicy
 from app.strategy.regime_momentum import RegimeAwareMomentumStrategy
 
 START = datetime(2026, 1, 2, 14, 30, tzinfo=UTC)
@@ -111,6 +111,41 @@ def test_losing_exit_after_positive_excursion_is_visible_as_profit_giveback() ->
     assert result.positive_mfe_trades == 1
     assert result.positive_mfe_closed_losing_or_flat == 1
     assert result.profit_preservation_rate == Decimal("0")
+
+
+def test_profit_protection_can_convert_confirmed_mfe_into_realized_gain() -> None:
+    result = ManagedHistoricalBacktester(
+        strategy=RegimeAwareMomentumStrategy(),
+        position_policy=PositionManagementPolicy(
+            trailing_activation_fraction=Decimal("0.03"),
+            profit_protection_activation_fraction=Decimal("0.01"),
+            maximum_profit_giveback_fraction=Decimal("0.50"),
+        ),
+    ).run(
+        series(
+            [
+                "100",
+                "101",
+                "102",
+                "103",
+                "104",
+                "105",
+                "106",
+                "107",
+                "108",
+                "110",
+                "109",
+                "108.8",
+            ]
+        )
+    )
+    trade = result.closed_trades[0]
+    assert trade.exit_reason is ExitReason.PROFIT_PROTECTION
+    assert trade.net_pnl == Decimal("0.8")
+    assert trade.maximum_favorable_excursion_fraction == Decimal("2") / Decimal("108")
+    assert trade.mfe_capture_ratio == Decimal("0.4")
+    assert result.positive_mfe_closed_profitable == 1
+    assert result.profit_preservation_rate == Decimal("1")
 
 
 def test_flat_decision_trace_preserves_rejection_reasons() -> None:
