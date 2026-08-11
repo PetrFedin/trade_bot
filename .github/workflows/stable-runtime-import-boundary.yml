@@ -1,0 +1,95 @@
+name: stable-runtime-import-boundary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'architecture/stable_runtime_versioned_imports.json'
+      - 'tools/stable_runtime_import_audit.py'
+      - 'tests/test_stable_runtime_import_audit.py'
+      - 'requirements.lock'
+      - '.github/workflows/stable-runtime-import-boundary.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'architecture/stable_runtime_versioned_imports.json'
+      - 'tools/stable_runtime_import_audit.py'
+      - 'tests/test_stable_runtime_import_audit.py'
+      - 'requirements.lock'
+      - '.github/workflows/stable-runtime-import-boundary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stable-runtime-import-boundary-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked qualification graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint and unit-test runtime import auditor
+        run: |
+          ruff check tools/stable_runtime_import_audit.py tests/test_stable_runtime_import_audit.py
+          pytest -q tests/test_stable_runtime_import_audit.py
+
+      - name: Compare stable runtime imports with frozen baseline
+        id: boundary
+        continue-on-error: true
+        run: |
+          mkdir -p stable-runtime-boundary-evidence
+          python -m tools.stable_runtime_import_audit \
+            --baseline architecture/stable_runtime_versioned_imports.json \
+            --report stable-runtime-boundary-evidence/report.json
+
+      - name: Upload stable runtime import evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: stable-runtime-import-boundary-${{ github.run_id }}
+          path: stable-runtime-boundary-evidence/report.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce frozen versioned-runtime dependency surface
+        if: always()
+        env:
+          BOUNDARY_OUTCOME: ${{ steps.boundary.outcome }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report = json.loads(
+              Path('stable-runtime-boundary-evidence/report.json')
+              .read_text(encoding='utf-8')
+          )
+          assert report['schema_version'] == 1
+          if os.environ.get('BOUNDARY_OUTCOME') != 'success':
+              raise SystemExit(
+                  'stable runtime versioned-import boundary drift: '
+                  f"new={report['new_versioned_runtime_imports']} "
+                  f"stale={report['stale_baseline_imports']}"
+              )
+          assert report['status'] == 'PASS'
+          PY
