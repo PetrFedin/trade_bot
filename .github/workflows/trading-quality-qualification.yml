@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - 'app/strategy/position_management.py'
+      - 'app/strategy/position_sizing.py'
       - 'app/strategy/ohlcv_exit.py'
       - 'app/strategy/cross_sectional_selection.py'
       - 'app/strategy/managed_backtest.py'
       - 'tools/qualify_strategy_quality_shadow.py'
       - 'tests/test_position_management.py'
+      - 'tests/test_position_sizing.py'
       - 'tests/test_ohlcv_exit.py'
       - 'tests/test_cross_sectional_selection.py'
       - 'tests/test_exit_quality_trace.py'
@@ -19,11 +21,13 @@ on:
     branches: [main]
     paths:
       - 'app/strategy/position_management.py'
+      - 'app/strategy/position_sizing.py'
       - 'app/strategy/ohlcv_exit.py'
       - 'app/strategy/cross_sectional_selection.py'
       - 'app/strategy/managed_backtest.py'
       - 'tools/qualify_strategy_quality_shadow.py'
       - 'tests/test_position_management.py'
+      - 'tests/test_position_sizing.py'
       - 'tests/test_ohlcv_exit.py'
       - 'tests/test_cross_sectional_selection.py'
       - 'tests/test_exit_quality_trace.py'
@@ -61,10 +65,12 @@ jobs:
         run: >-
           ruff check --output-format=github
           app/strategy/position_management.py
+          app/strategy/position_sizing.py
           app/strategy/ohlcv_exit.py
           app/strategy/cross_sectional_selection.py
           tools/qualify_strategy_quality_shadow.py
           tests/test_position_management.py
+          tests/test_position_sizing.py
           tests/test_ohlcv_exit.py
           tests/test_cross_sectional_selection.py
           tests/test_exit_quality_trace.py
@@ -77,6 +83,7 @@ jobs:
           set -o pipefail
           pytest -vv \
             tests/test_position_management.py \
+            tests/test_position_sizing.py \
             tests/test_ohlcv_exit.py \
             tests/test_cross_sectional_selection.py \
             tests/test_exit_quality_trace.py \
