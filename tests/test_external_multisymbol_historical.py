@@ -1,6 +1,6 @@
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-import json
 from pathlib import Path
 
 from app.marketdata.alpaca_historical import HistoricalAcquisition
