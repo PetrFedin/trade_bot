@@ -6,8 +6,20 @@
       "module": "app.runtime.paper_broker_contract_v99"
     },
     {
-      "path": "application/composition.py",
-      "module": "app.runtime.platform_common_v90"
+      "path": "application/paper_cycle.py",
+      "module": "app.runtime.alpaca_paper_adapter_v100"
+    },
+    {
+      "path": "application/paper_cycle.py",
+      "module": "app.runtime.paper_broker_contract_v99"
+    },
+    {
+      "path": "application/trade_updates.py",
+      "module": "app.runtime.alpaca_paper_adapter_v100"
+    },
+    {
+      "path": "execution/alpaca_fill_backfill.py",
+      "module": "app.runtime.alpaca_paper_adapter_v100"
     },
     {
       "path": "execution/order_mutation_executor.py",
@@ -16,18 +28,6 @@
     {
       "path": "execution/paper_executor.py",
       "module": "app.runtime.paper_broker_contract_v99"
-    },
-    {
-      "path": "execution/trade_updates.py",
-      "module": "app.runtime.paper_broker_contract_v99"
-    },
-    {
-      "path": "marketdata/historical.py",
-      "module": "app.runtime.platform_common_v90"
-    },
-    {
-      "path": "observability/readiness.py",
-      "module": "app.runtime.operational_slo_v105"
     }
   ]
 }
