@@ -9,6 +9,7 @@ on:
       - 'app/application/paper_pipeline.py'
       - 'app/application/paper_protection.py'
       - 'app/application/paper_protection_cycle.py'
+      - 'app/application/paper_reentry.py'
       - 'app/application/portfolio_paper_planner.py'
       - 'app/strategy/position_management.py'
       - 'app/strategy/position_sizing.py'
@@ -31,6 +32,7 @@ on:
       - 'tests/test_paper_cycle_e2e.py'
       - 'tests/test_paper_protection.py'
       - 'tests/test_paper_protection_cycle.py'
+      - 'tests/test_paper_reentry.py'
       - 'tests/test_portfolio_paper_planner.py'
       - 'tests/test_position_management.py'
       - 'tests/test_position_sizing.py'
@@ -56,6 +58,7 @@ on:
       - 'app/application/paper_pipeline.py'
       - 'app/application/paper_protection.py'
       - 'app/application/paper_protection_cycle.py'
+      - 'app/application/paper_reentry.py'
       - 'app/application/portfolio_paper_planner.py'
       - 'app/strategy/position_management.py'
       - 'app/strategy/position_sizing.py'
@@ -78,6 +81,7 @@ on:
       - 'tests/test_paper_cycle_e2e.py'
       - 'tests/test_paper_protection.py'
       - 'tests/test_paper_protection_cycle.py'
+      - 'tests/test_paper_reentry.py'
       - 'tests/test_portfolio_paper_planner.py'
       - 'tests/test_position_management.py'
       - 'tests/test_position_sizing.py'
@@ -131,6 +135,7 @@ jobs:
           app/application/paper_pipeline.py
           app/application/paper_protection.py
           app/application/paper_protection_cycle.py
+          app/application/paper_reentry.py
           app/application/portfolio_paper_planner.py
           app/strategy/position_management.py
           app/strategy/position_sizing.py
@@ -149,6 +154,7 @@ jobs:
           tests/test_paper_cycle_e2e.py
           tests/test_paper_protection.py
           tests/test_paper_protection_cycle.py
+          tests/test_paper_reentry.py
           tests/test_portfolio_paper_planner.py
           tests/test_position_management.py
           tests/test_position_sizing.py
@@ -188,6 +194,7 @@ jobs:
             tests/test_paper_cycle_e2e.py \
             tests/test_paper_protection.py \
             tests/test_paper_protection_cycle.py \
+            tests/test_paper_reentry.py \
             tests/test_portfolio_paper_planner.py \
             tests/test_position_management.py \
             tests/test_position_sizing.py \
