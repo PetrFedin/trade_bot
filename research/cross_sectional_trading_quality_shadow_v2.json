@@ -59,6 +59,16 @@
     "reset_streak_on_ineligible_signal": true,
     "apply_after_any_exit": true
   },
+  "degradation_monitor": {
+    "window_trades": 20,
+    "minimum_observations": 10,
+    "minimum_profit_factor": "1.00",
+    "minimum_profit_preservation_rate": "0.50",
+    "minimum_average_mfe_capture_ratio": "0.10",
+    "maximum_hard_stop_fraction": "0.50",
+    "maximum_consecutive_losses": 4,
+    "allow_entries_when_insufficient_data": false
+  },
   "shared_controls": [
     "CONFIRMED_REENTRY",
     "CONSERVATIVE_INTRABAR_PATH",
@@ -79,6 +89,8 @@
   "limitations": [
     "IN_SAMPLE_ABLATION_ONLY",
     "COMPONENT_INTERACTION_EFFECTS_NOT_SEPARATED",
+    "DEGRADATION_THRESHOLDS_NOT_CALIBRATED",
+    "DEGRADATION_GATE_NOT_AUTO_ACTUATED",
     "NO_WALK_FORWARD_HOLDOUT_EVIDENCE",
     "IEX_SINGLE_EXCHANGE_FEED",
     "NO_EXTERNAL_PAPER_PORTFOLIO_EXECUTION",
@@ -88,6 +100,7 @@
     "SHADOW_ONLY_POLICY",
     "NO_WALK_FORWARD_HOLDOUT_EVIDENCE",
     "NO_EXTERNAL_PAPER_PORTFOLIO_EXECUTION",
-    "NO_OUT_OF_SAMPLE_ABLATION_EVIDENCE"
+    "NO_OUT_OF_SAMPLE_ABLATION_EVIDENCE",
+    "DEGRADATION_THRESHOLDS_UNCALIBRATED"
   ]
 }
