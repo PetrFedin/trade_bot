@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
+from itertools import pairwise
 
 from app.domain.trading import Bar, TargetPosition
 from app.strategy.momentum import LongOnlyMomentumStrategy
@@ -145,8 +146,7 @@ def _mean_close(bars: Sequence[Bar]) -> Decimal:
 
 def _realized_volatility(bars: Sequence[Bar]) -> Decimal:
     returns = [
-        current.close / prior.close - Decimal("1")
-        for prior, current in zip(bars, bars[1:], strict=True)
+        current.close / prior.close - Decimal("1") for prior, current in pairwise(bars)
     ]
     mean = sum(returns, Decimal("0")) / Decimal(len(returns))
     variance = sum(((value - mean) ** 2 for value in returns), Decimal("0")) / Decimal(
