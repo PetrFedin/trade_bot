@@ -29,6 +29,14 @@ from app.strategy.cross_sectional_portfolio import (
 class ExitQualityRecorder(Protocol):
     strategy_id: str
 
+    def observe_price(
+        self,
+        *,
+        symbol: str,
+        reference_price: Decimal,
+        observed_at: datetime,
+    ) -> object | None: ...
+
     def register_exit_intent(
         self,
         *,
@@ -60,9 +68,10 @@ class CrossSectionalPaperCycleService:
     This is intentionally the last boundary before broker submission. It performs no
     external broker mutation. Selection, durable re-entry blocks, sizing and strategy
     gross admission are resolved by the target planner; batch cash/gross/risk controls
-    are resolved by the portfolio paper planner. Approved exit reasons are registered
-    before OMS outbox persistence so exact fills can later produce attributed paper
-    trade-quality observations.
+    are resolved by the portfolio paper planner. Fresh marks update observed MFE/MAE for
+    every currently open position before strategy decisions, and approved exit reasons
+    are registered before OMS outbox persistence so exact fills can later produce
+    attributed paper trade-quality observations.
     """
 
     def __init__(
@@ -97,6 +106,10 @@ class CrossSectionalPaperCycleService:
         blocked_entries: Mapping[str, PortfolioEntryBlockReason] | None = None,
         protective_exits: Mapping[str, PortfolioExitReason] | None = None,
     ) -> CrossSectionalPaperCycleResult:
+        self._observe_open_prices(
+            reference_prices=reference_prices,
+            observed_at=generated_at,
+        )
         target_plan = self.target_planner.plan(
             bars,
             ledger=self.order_planner.ledger,
@@ -125,6 +138,26 @@ class CrossSectionalPaperCycleService:
             order_plan=order_plan,
             prepared_orders=prepared,
         )
+
+    def _observe_open_prices(
+        self,
+        *,
+        reference_prices: Mapping[str, Decimal],
+        observed_at: datetime,
+    ) -> None:
+        if self.quality_recorder is None:
+            return
+        for position in self.order_planner.ledger.positions():
+            if position.quantity <= 0:
+                continue
+            reference_price = reference_prices.get(position.symbol)
+            if reference_price is None:
+                continue
+            self.quality_recorder.observe_price(
+                symbol=position.symbol,
+                reference_price=reference_price,
+                observed_at=observed_at,
+            )
 
     def _register_approved_exit_reasons(
         self,
