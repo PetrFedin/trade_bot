@@ -3,6 +3,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+from app.marketdata import alpaca_historical
 from app.marketdata.alpaca_historical import (
     AlpacaHistoricalBarsClient,
     AlpacaHistoricalBarsRequest,
@@ -127,3 +128,17 @@ def test_request_rejects_duplicate_symbols() -> None:
     )
     with pytest.raises(ValueError, match="unique"):
         invalid.validate()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///etc/passwd",
+        "https://example.com/v2/stocks/bars",
+        "https://data.alpaca.markets:444/v2/stocks/bars",
+        "https://user@example.com@data.alpaca.markets/v2/stocks/bars",
+    ],
+)
+def test_default_https_transport_rejects_non_allowlisted_urls(url: str) -> None:
+    with pytest.raises(ValueError, match="rejected|port 443"):
+        alpaca_historical._https_transport(url, {})
