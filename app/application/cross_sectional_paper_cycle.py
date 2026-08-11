@@ -17,6 +17,7 @@ from app.application.portfolio_paper_planner import (
     PortfolioPaperPlanner,
     prepare_approved_paper_orders,
 )
+from app.domain.trading import Side
 from app.marketdata.ohlcv import OhlcvBar
 from app.risk.pretrade import RiskContext
 from app.strategy.cross_sectional_portfolio import (
@@ -135,7 +136,7 @@ class CrossSectionalPaperCycleService:
             return
         reasons = dict(target_plan.exit_reasons)
         for item in order_plan.approved_items:
-            if item.intent is None or item.intent.side.value != "SELL":
+            if item.intent is None or item.intent.side is not Side.SELL:
                 continue
             reason = reasons.get(item.target.symbol)
             if reason is None:
