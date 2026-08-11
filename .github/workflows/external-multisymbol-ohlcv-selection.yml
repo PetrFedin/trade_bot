@@ -13,6 +13,7 @@ on:
       - 'tests/test_ohlcv.py'
       - 'tests/test_alpaca_historical.py'
       - 'tests/test_cross_sectional_selection.py'
+      - 'tests/test_external_multisymbol_historical.py'
       - 'requirements.lock'
       - 'LIVE_EXECUTION_STATUS_V109.json'
       - '.github/workflows/external-multisymbol-ohlcv-selection.yml'
@@ -27,6 +28,7 @@ on:
       - 'tests/test_ohlcv.py'
       - 'tests/test_alpaca_historical.py'
       - 'tests/test_cross_sectional_selection.py'
+      - 'tests/test_external_multisymbol_historical.py'
       - 'requirements.lock'
       - 'LIVE_EXECUTION_STATUS_V109.json'
       - '.github/workflows/external-multisymbol-ohlcv-selection.yml'
@@ -68,13 +70,15 @@ jobs:
           tests/test_ohlcv.py
           tests/test_alpaca_historical.py
           tests/test_cross_sectional_selection.py
+          tests/test_external_multisymbol_historical.py
 
-      - name: Validate provider, OHLCV, and selector contracts
+      - name: Validate provider, OHLCV, selector, and report contracts
         run: >-
           pytest -q
           tests/test_ohlcv.py
           tests/test_alpaca_historical.py
           tests/test_cross_sectional_selection.py
+          tests/test_external_multisymbol_historical.py
           tests/test_regime_momentum.py
 
       - name: Validate predeclared research configuration
@@ -247,4 +251,8 @@ jobs:
               assert report['adjustment'] == 'all'
               assert len(report['csv_sha256']) == 64
               assert len(report['selection']['candidates']) == 6
+              assert all(
+                  isinstance(candidate['quality_score'], str)
+                  for candidate in report['selection']['candidates']
+              )
           PY
