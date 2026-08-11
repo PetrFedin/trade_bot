@@ -32,17 +32,38 @@ def symbol_bars(symbol: str, closes: list[str]) -> list[OhlcvBar]:
 
 
 def universe() -> tuple[list[OhlcvBar], list[OhlcvBar], list[OhlcvBar]]:
-    aapl = symbol_bars(
-        "AAPL",
-        ["100", "102", "104", "106", "108", "110", "112", "114", "116", "118", "120", "122"],
-    )
-    msft = symbol_bars(
-        "MSFT",
-        ["100", "102", "104", "106", "108", "110", "112", "114", "116", "118", "120", "122"],
-    )
+    strong_trend = [
+        "100",
+        "102",
+        "104",
+        "106",
+        "108",
+        "110",
+        "112",
+        "114",
+        "116",
+        "118",
+        "120",
+        "122",
+    ]
+    aapl = symbol_bars("AAPL", strong_trend)
+    msft = symbol_bars("MSFT", strong_trend)
     nvda = symbol_bars(
         "NVDA",
-        ["100", "101.5", "101", "102.5", "102", "103.5", "103", "104.5", "104", "105.5", "105", "106.5"],
+        [
+            "100",
+            "101.5",
+            "101",
+            "102.5",
+            "102",
+            "103.5",
+            "103",
+            "104.5",
+            "104",
+            "105.5",
+            "105",
+            "106.5",
+        ],
     )
     return aapl, msft, nvda
 
