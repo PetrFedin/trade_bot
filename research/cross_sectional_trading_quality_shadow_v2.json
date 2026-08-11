@@ -59,11 +59,16 @@
     "reset_streak_on_ineligible_signal": true,
     "apply_after_any_exit": true
   },
+  "shared_controls": [
+    "CONFIRMED_REENTRY",
+    "CONSERVATIVE_INTRABAR_PATH",
+    "NO_LEVERAGE",
+    "NO_EXISTING_POSITION_REBALANCING"
+  ],
   "candidate_components": [
     "RISK_ADJUSTED_SELECTION_SCORE",
     "STOP_RISK_INVERSE_VOLATILITY_SIZING",
-    "BREAK_EVEN_AND_PROFIT_PROTECTION",
-    "CONFIRMED_REENTRY"
+    "BREAK_EVEN_AND_PROFIT_PROTECTION"
   ],
   "ablation_variants": [
     "SELECTION_ONLY",
