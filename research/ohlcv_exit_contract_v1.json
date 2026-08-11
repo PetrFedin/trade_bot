@@ -1,0 +1,30 @@
+{
+  "schema_version": "ohlcv-exit-contract-v1",
+  "shadow_only": true,
+  "strategy_promotion_allowed": false,
+  "decision_execution": "PRIOR_COMPLETED_CLOSE_TO_NEXT_OPEN",
+  "intrabar_path_policy": "PROTECTIVE_EXIT_FIRST_ON_AMBIGUITY",
+  "trailing_peak_policy": "COMPLETED_PRIOR_BARS_ONLY",
+  "gap_stop_policy": "OPEN_IF_GAPPED_THROUGH_STOP",
+  "take_profit_gap_policy": "CONSERVATIVE_TARGET_PRICE",
+  "position_management": {
+    "stop_loss_fraction": "0.02",
+    "take_profit_fraction": "0.04",
+    "trailing_activation_fraction": "0.02",
+    "trailing_stop_fraction": "0.015",
+    "maximum_holding_bars": 10
+  },
+  "required_contract_scenarios": [
+    "INTRABAR_TAKE_PROFIT",
+    "AMBIGUOUS_STOP_AND_TAKE_PROTECTIVE_FIRST",
+    "GAP_THROUGH_HARD_STOP",
+    "TRAILING_FROM_COMPLETED_PRIOR_PEAK",
+    "CURRENT_BAR_CLOSE_CANNOT_CHANGE_ENTRY_BEFORE_OPEN"
+  ],
+  "promotion_blockers": [
+    "SYNTHETIC_CONTRACT_ONLY",
+    "NO_REAL_OHLCV_EVIDENCE",
+    "NO_MULTISYMBOL_PORTFOLIO_BACKTEST",
+    "NO_EXTERNAL_PAPER_STRATEGY_EVIDENCE"
+  ]
+}
