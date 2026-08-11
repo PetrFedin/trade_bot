@@ -96,7 +96,13 @@ def test_combined_trading_quality_config_is_fail_closed() -> None:
     assert config["shadow_only"] is True
     assert config["strategy_promotion_allowed"] is False
     assert "NO_STRATEGY_PROFITABILITY_CLAIM" in config["limitations"]
-    assert "COMBINED_CANDIDATE_REQUIRES_ABLATION" in config["promotion_blockers"]
+    assert "NO_OUT_OF_SAMPLE_ABLATION_EVIDENCE" in config["promotion_blockers"]
+    assert "CONFIRMED_REENTRY" in config["shared_controls"]
+    assert config["candidate_components"] == [
+        "RISK_ADJUSTED_SELECTION_SCORE",
+        "STOP_RISK_INVERSE_VOLATILITY_SIZING",
+        "BREAK_EVEN_AND_PROFIT_PROTECTION",
+    ]
 
 
 def test_combined_candidate_compares_end_to_end_against_legacy(tmp_path: Path) -> None:
@@ -114,13 +120,21 @@ def test_combined_candidate_compares_end_to_end_against_legacy(tmp_path: Path) -
     assert evidence["live_trading_allowed"] is False
     assert evidence["symbols"] == ["AAPL", "MSFT", "NVDA"]
     assert evidence["synchronized_timestamp_count"] == 12
-    assert evidence["component_attribution_available"] is False
+    assert evidence["ablation_evidence_available"] is True
+    assert evidence["component_attribution_complete"] is False
     assert evidence["candidate_components"] == [
         "RISK_ADJUSTED_SELECTION_SCORE",
         "STOP_RISK_INVERSE_VOLATILITY_SIZING",
         "BREAK_EVEN_AND_PROFIT_PROTECTION",
-        "CONFIRMED_REENTRY",
     ]
+    assert "CONFIRMED_REENTRY" in evidence["shared_controls"]
+    assert set(evidence["ablations"]) == {
+        "SELECTION_ONLY",
+        "SIZING_ONLY",
+        "PROTECTION_ONLY",
+    }
+    assert set(evidence["ablation_deltas_vs_control"]) == set(evidence["ablations"])
+
     for side in ("control", "candidate"):
         metrics = evidence[side]
         assert "total_return" in metrics
@@ -130,6 +144,11 @@ def test_combined_candidate_compares_end_to_end_against_legacy(tmp_path: Path) -
         assert "profit_preservation_rate" in metrics
         assert "average_mfe_capture_ratio" in metrics
         assert Decimal(metrics["maximum_gross_exposure_fraction_observed"]) >= 0
+    for metrics in evidence["ablations"].values():
+        assert "total_return" in metrics
+        assert "max_drawdown_fraction" in metrics
+        assert "profit_preservation_rate" in metrics
+
     assert set(evidence["comparison"]) == {
         "total_return_delta",
         "max_drawdown_fraction_delta",
