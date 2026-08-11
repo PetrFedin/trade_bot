@@ -16,6 +16,7 @@ on:
       - 'tools/qualify_strategy_quality_shadow.py'
       - 'tools/qualify_cross_sectional_portfolio_shadow.py'
       - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
+      - 'tools/qualify_cross_sectional_walk_forward.py'
       - 'tests/test_position_management.py'
       - 'tests/test_position_sizing.py'
       - 'tests/test_quality_monitor.py'
@@ -24,6 +25,7 @@ on:
       - 'tests/test_cross_sectional_portfolio.py'
       - 'tests/test_cross_sectional_portfolio_contract.py'
       - 'tests/test_cross_sectional_trading_quality_shadow.py'
+      - 'tests/test_cross_sectional_walk_forward.py'
       - 'tests/test_exit_quality_trace.py'
       - 'tests/test_strategy_quality_shadow.py'
       - 'tests/test_profit_protection_shadow.py'
@@ -43,6 +45,7 @@ on:
       - 'tools/qualify_strategy_quality_shadow.py'
       - 'tools/qualify_cross_sectional_portfolio_shadow.py'
       - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
+      - 'tools/qualify_cross_sectional_walk_forward.py'
       - 'tests/test_position_management.py'
       - 'tests/test_position_sizing.py'
       - 'tests/test_quality_monitor.py'
@@ -51,6 +54,7 @@ on:
       - 'tests/test_cross_sectional_portfolio.py'
       - 'tests/test_cross_sectional_portfolio_contract.py'
       - 'tests/test_cross_sectional_trading_quality_shadow.py'
+      - 'tests/test_cross_sectional_walk_forward.py'
       - 'tests/test_exit_quality_trace.py'
       - 'tests/test_strategy_quality_shadow.py'
       - 'tests/test_profit_protection_shadow.py'
@@ -95,6 +99,7 @@ jobs:
           tools/qualify_strategy_quality_shadow.py
           tools/qualify_cross_sectional_portfolio_shadow.py
           tools/qualify_cross_sectional_trading_quality_shadow.py
+          tools/qualify_cross_sectional_walk_forward.py
           tests/test_position_management.py
           tests/test_position_sizing.py
           tests/test_quality_monitor.py
@@ -103,6 +108,7 @@ jobs:
           tests/test_cross_sectional_portfolio.py
           tests/test_cross_sectional_portfolio_contract.py
           tests/test_cross_sectional_trading_quality_shadow.py
+          tests/test_cross_sectional_walk_forward.py
           tests/test_exit_quality_trace.py
           tests/test_strategy_quality_shadow.py
           tests/test_profit_protection_shadow.py
@@ -110,6 +116,12 @@ jobs:
       - name: Validate combined shadow configuration
         run: >-
           python -m tools.qualify_cross_sectional_trading_quality_shadow
+          --config research/cross_sectional_trading_quality_shadow_v2.json
+          --validate-config-only
+
+      - name: Validate walk-forward holdout configuration
+        run: >-
+          python -m tools.qualify_cross_sectional_walk_forward
           --config research/cross_sectional_trading_quality_shadow_v2.json
           --validate-config-only
 
@@ -127,6 +139,7 @@ jobs:
             tests/test_cross_sectional_portfolio.py \
             tests/test_cross_sectional_portfolio_contract.py \
             tests/test_cross_sectional_trading_quality_shadow.py \
+            tests/test_cross_sectional_walk_forward.py \
             tests/test_exit_quality_trace.py \
             tests/test_strategy_quality_shadow.py \
             tests/test_profit_protection_shadow.py \
