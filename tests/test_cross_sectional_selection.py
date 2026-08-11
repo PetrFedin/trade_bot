@@ -4,7 +4,10 @@ from decimal import Decimal
 import pytest
 
 from app.marketdata.ohlcv import OhlcvBar
-from app.strategy.cross_sectional_selection import CrossSectionalSelector
+from app.strategy.cross_sectional_selection import (
+    CrossSectionalSelector,
+    SelectionQualityPolicy,
+)
 
 START = datetime(2026, 1, 2, tzinfo=UTC)
 
@@ -44,6 +47,50 @@ def test_selector_ranks_only_eligible_symbols_by_signal_quality() -> None:
     assert by_symbol["NVDA"].rank is None
     assert by_symbol["NVDA"].eligible is False
     assert "REALIZED_VOLATILITY_ABOVE_LIMIT" in by_symbol["NVDA"].rejection_reasons
+
+
+def test_explicit_quality_score_can_penalize_risk_more_than_raw_momentum_rank() -> None:
+    higher_momentum_higher_risk = symbol_bars(
+        "FAST",
+        ["100", "99.866", "99.228", "99.251", "98.623", "101.549", "101.019", "102.474"],
+    )
+    smoother_compounder = symbol_bars(
+        "SMTH",
+        ["100", "99.661", "100.328", "101.943", "102.838", "103.889", "103.933", "106.071"],
+    )
+
+    legacy = CrossSectionalSelector(top_k=1).select(
+        [*higher_momentum_higher_risk, *smoother_compounder]
+    )
+    scored = CrossSectionalSelector(
+        top_k=1,
+        quality_policy=SelectionQualityPolicy(),
+    ).select([*higher_momentum_higher_risk, *smoother_compounder])
+
+    assert legacy.selected_symbols == ("FAST",)
+    assert scored.selected_symbols == ("SMTH",)
+    by_symbol = {candidate.symbol: candidate for candidate in scored.candidates}
+    assert by_symbol["SMTH"].quality_score > by_symbol["FAST"].quality_score
+    assert by_symbol["SMTH"].realized_volatility < by_symbol["FAST"].realized_volatility
+
+
+def test_quality_floor_can_reject_weak_but_otherwise_eligible_candidate() -> None:
+    aapl = symbol_bars(
+        "AAPL", ["100", "101", "102", "103", "104", "105", "106", "107"]
+    )
+    msft = symbol_bars(
+        "MSFT", ["100", "100.5", "101", "101.5", "102", "102.5", "103", "104"]
+    )
+    result = CrossSectionalSelector(
+        top_k=2,
+        quality_policy=SelectionQualityPolicy(minimum_quality_score=Decimal("0.04")),
+    ).select([*aapl, *msft])
+
+    by_symbol = {candidate.symbol: candidate for candidate in result.candidates}
+    assert by_symbol["AAPL"].eligible is True
+    assert by_symbol["MSFT"].eligible is False
+    assert "QUALITY_SCORE_BELOW_MINIMUM" in by_symbol["MSFT"].rejection_reasons
+    assert result.selected_symbols == ("AAPL",)
 
 
 def test_selector_fails_when_latest_decision_times_are_not_synchronized() -> None:
