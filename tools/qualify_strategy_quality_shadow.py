@@ -31,6 +31,12 @@ def _decimal(data: dict[str, Any], field: str) -> Decimal:
     return parsed
 
 
+def _optional_decimal(data: dict[str, Any], field: str) -> Decimal | None:
+    if field not in data:
+        return None
+    return _decimal(data, field)
+
+
 def _positive_int(data: dict[str, Any], field: str) -> int:
     value = data.get(field)
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
@@ -70,6 +76,12 @@ def _serialize_decimal(value: Decimal | None) -> str | None:
     return None if value is None else str(value)
 
 
+def _mean(values: list[Decimal]) -> Decimal | None:
+    if not values:
+        return None
+    return sum(values, Decimal("0")) / Decimal(len(values))
+
+
 def _closed_trade_evidence(result: ManagedBacktestResult) -> dict[str, object]:
     reasons = Counter(trade.exit_reason.value for trade in result.closed_trades)
     return {
@@ -82,6 +94,17 @@ def _closed_trade_evidence(result: ManagedBacktestResult) -> dict[str, object]:
         "gross_loss": str(result.gross_loss),
         "profit_factor": _serialize_decimal(result.profit_factor),
         "average_closed_trade_pnl": str(result.average_closed_trade_pnl),
+        "average_maximum_favorable_excursion_fraction": str(
+            result.average_maximum_favorable_excursion_fraction
+        ),
+        "average_maximum_adverse_excursion_fraction": str(
+            result.average_maximum_adverse_excursion_fraction
+        ),
+        "average_mfe_capture_ratio": _serialize_decimal(result.average_mfe_capture_ratio),
+        "positive_mfe_trades": result.positive_mfe_trades,
+        "positive_mfe_closed_profitable": result.positive_mfe_closed_profitable,
+        "positive_mfe_closed_losing_or_flat": result.positive_mfe_closed_losing_or_flat,
+        "profit_preservation_rate": _serialize_decimal(result.profit_preservation_rate),
         "exit_reason_counts": dict(sorted(reasons.items())),
         "closed_trades": [
             {
@@ -94,6 +117,14 @@ def _closed_trade_evidence(result: ManagedBacktestResult) -> dict[str, object]:
                 "return_fraction": str(trade.return_fraction),
                 "holding_bars": trade.holding_bars,
                 "exit_reason": trade.exit_reason.value,
+                "maximum_favorable_excursion_fraction": str(
+                    trade.maximum_favorable_excursion_fraction
+                ),
+                "maximum_adverse_excursion_fraction": str(
+                    trade.maximum_adverse_excursion_fraction
+                ),
+                "mfe_capture_ratio": _serialize_decimal(trade.mfe_capture_ratio),
+                "mfe_giveback_fraction": _serialize_decimal(trade.mfe_giveback_fraction),
             }
             for trade in result.closed_trades
         ],
@@ -137,6 +168,22 @@ def qualify(manifest_path: Path, policy_path: Path) -> dict[str, object]:
         trailing_activation_fraction=_decimal(position, "trailing_activation_fraction"),
         trailing_stop_fraction=_decimal(position, "trailing_stop_fraction"),
         maximum_holding_bars=_positive_int(position, "maximum_holding_bars"),
+        break_even_activation_fraction=_optional_decimal(
+            position, "break_even_activation_fraction"
+        ),
+        break_even_buffer_fraction=(
+            _decimal(position, "break_even_buffer_fraction")
+            if "break_even_buffer_fraction" in position
+            else Decimal("0")
+        ),
+        profit_protection_activation_fraction=_optional_decimal(
+            position, "profit_protection_activation_fraction"
+        ),
+        maximum_profit_giveback_fraction=(
+            _decimal(position, "maximum_profit_giveback_fraction")
+            if "maximum_profit_giveback_fraction" in position
+            else Decimal("0.50")
+        ),
     )
     control = LongOnlyMomentumStrategy(
         strategy_id=str(policy["control_strategy_id"]),
@@ -230,6 +277,21 @@ def qualify(manifest_path: Path, policy_path: Path) -> dict[str, object]:
     aggregate_profit_factor = gross_profit / abs(gross_loss) if gross_loss < 0 else None
     closed_count = len(aggregate_trades)
     win_rate = Decimal(wins) / Decimal(closed_count) if closed_count else Decimal("0")
+    positive_mfe_trades = [
+        trade for trade in aggregate_trades if trade.maximum_favorable_excursion_fraction > 0
+    ]
+    preserved_positive_mfe = sum(trade.net_pnl > 0 for trade in positive_mfe_trades)
+    preservation_rate = (
+        Decimal(preserved_positive_mfe) / Decimal(len(positive_mfe_trades))
+        if positive_mfe_trades
+        else None
+    )
+    capture_ratios = [
+        trade.mfe_capture_ratio
+        for trade in aggregate_trades
+        if trade.mfe_capture_ratio is not None
+    ]
+    mean_capture_ratio = _mean([value for value in capture_ratios if value is not None])
 
     blockers = [
         "SHADOW_ONLY_POLICY",
@@ -270,6 +332,13 @@ def qualify(manifest_path: Path, policy_path: Path) -> dict[str, object]:
             "gross_loss": str(gross_loss),
             "net_closed_trade_pnl": str(gross_profit + gross_loss),
             "profit_factor": _serialize_decimal(aggregate_profit_factor),
+            "positive_mfe_trades": len(positive_mfe_trades),
+            "positive_mfe_closed_profitable": preserved_positive_mfe,
+            "positive_mfe_closed_losing_or_flat": (
+                len(positive_mfe_trades) - preserved_positive_mfe
+            ),
+            "profit_preservation_rate": _serialize_decimal(preservation_rate),
+            "average_mfe_capture_ratio": _serialize_decimal(mean_capture_ratio),
             "candidate_mean_return_not_worse": (
                 mean_candidate_return >= mean_control_return
             ),
