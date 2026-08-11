@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import argparse
 import csv
-from dataclasses import asdict
-from datetime import datetime
-from decimal import Decimal
 import hashlib
 import json
 import os
+from dataclasses import asdict
+from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
