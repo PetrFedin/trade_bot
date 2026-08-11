@@ -15,6 +15,14 @@ from app.strategy.position_management import (
     PositionTrackingState,
     evaluate_position_exit,
 )
+from app.strategy.reentry_confirmation import (
+    EntryBlockReason,
+    ReentryConfirmationPolicy,
+    ReentryConfirmationState,
+    arm_after_exit,
+    clear_after_entry,
+    evaluate_reentry_confirmation,
+)
 from app.strategy.regime_momentum import RegimeAwareMomentumStrategy
 
 
@@ -44,6 +52,10 @@ class StrategyDecisionTrace:
     position_profit_fraction: Decimal | None
     drawdown_from_peak_fraction: Decimal | None
     exit_reason: ExitReason | None
+    entry_block_reason: EntryBlockReason | None
+    reentry_blocked_after_exit: bool
+    reentry_confirmation_streak: int
+    reentry_confirmation_required: int | None
 
 
 @dataclass(frozen=True)
@@ -117,14 +129,18 @@ class ManagedHistoricalBacktester:
         *,
         strategy: RegimeAwareMomentumStrategy,
         position_policy: PositionManagementPolicy | None = None,
+        reentry_policy: ReentryConfirmationPolicy | None = None,
         config: BacktestConfig | None = None,
     ) -> None:
         backtest_config = BacktestConfig() if config is None else config
         backtest_config.validate()
         policy = PositionManagementPolicy() if position_policy is None else position_policy
         policy.validate()
+        if reentry_policy is not None:
+            reentry_policy.validate()
         self.strategy = strategy
         self.position_policy = policy
+        self.reentry_policy = reentry_policy
         self.config = backtest_config
 
     def run(
@@ -164,6 +180,7 @@ class ManagedHistoricalBacktester:
         open_trade: _OpenTrade | None = None
         closed_trades: list[ClosedTrade] = []
         decision_trace: list[StrategyDecisionTrace] = []
+        reentry_state = ReentryConfirmationState()
 
         for execution_index in range(first_execution, len(ordered)):
             history = ordered[:execution_index]
@@ -177,8 +194,22 @@ class ManagedHistoricalBacktester:
             )
             desired_quantity = signal_target_quantity
             exit_reason: ExitReason | None = None
+            entry_block_reason: EntryBlockReason | None = None
+            reentry_confirmation_streak = 0
             position_profit_fraction: Decimal | None = None
             drawdown_from_peak_fraction: Decimal | None = None
+
+            if current.quantity == 0 and self.reentry_policy is not None:
+                reentry_decision = evaluate_reentry_confirmation(
+                    signal_eligible=signal.eligible,
+                    state=reentry_state,
+                    policy=self.reentry_policy,
+                )
+                reentry_state = reentry_decision.state
+                reentry_confirmation_streak = reentry_decision.confirmation_streak
+                if signal.eligible and not reentry_decision.allow_entry:
+                    desired_quantity = Decimal("0")
+                    entry_block_reason = reentry_decision.reason
 
             if current.quantity > 0:
                 if open_trade is None:
@@ -237,6 +268,14 @@ class ManagedHistoricalBacktester:
                     position_profit_fraction=position_profit_fraction,
                     drawdown_from_peak_fraction=drawdown_from_peak_fraction,
                     exit_reason=exit_reason,
+                    entry_block_reason=entry_block_reason,
+                    reentry_blocked_after_exit=reentry_state.blocked_after_exit,
+                    reentry_confirmation_streak=reentry_confirmation_streak,
+                    reentry_confirmation_required=(
+                        self.reentry_policy.minimum_consecutive_eligible_bars
+                        if self.reentry_policy is not None
+                        else None
+                    ),
                 )
             )
 
@@ -265,6 +304,8 @@ class ManagedHistoricalBacktester:
                     if current.quantity != 0 or open_trade is not None:
                         raise ValueError("MANAGED_BACKTEST_SCALE_IN_NOT_SUPPORTED")
                     ledger.apply_fill(fill)
+                    if self.reentry_policy is not None:
+                        reentry_state = clear_after_entry()
                     open_trade = _OpenTrade(
                         entry_time=execution_bar.timestamp,
                         entry_price=execution_price,
@@ -337,6 +378,8 @@ class ManagedHistoricalBacktester:
                         )
                     )
                     open_trade = None
+                    if self.reentry_policy is not None:
+                        reentry_state = arm_after_exit(policy=self.reentry_policy)
 
             equity = ledger.equity({execution_bar.symbol: execution_bar.close})
             peak_equity = max(peak_equity, equity)
