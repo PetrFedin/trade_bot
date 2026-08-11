@@ -14,6 +14,10 @@ from app.application.paper_protection import (
     PaperProtectionState,
     PaperProtectionStatus,
 )
+from app.application.paper_protection_reprice import (
+    PaperProtectionRepricePlanner,
+    ProtectiveRepriceDecision,
+)
 from app.application.portfolio_paper_planner import (
     EntryExitGate,
     PortfolioPaperPlanItem,
@@ -21,6 +25,7 @@ from app.application.portfolio_paper_planner import (
     prepare_approved_paper_orders,
 )
 from app.domain.trading import Side, TargetPosition
+from app.oms.store import OrderState
 from app.risk.pretrade import RiskContext
 
 
@@ -49,6 +54,7 @@ class PaperProtectionOrderResult:
     plan_item: PortfolioPaperPlanItem | None
     prepared: PreparedPaperOrder | None
     existing_order_reused: bool
+    reprice: ProtectiveRepriceDecision | None = None
 
 
 class PaperProtectionOrderService:
@@ -56,15 +62,21 @@ class PaperProtectionOrderService:
 
     No broker call occurs here. Before a durable OMS record exists, a pending exit is
     repriced to the latest observed reference price so a prior risk rejection cannot
-    strand a SELL at an obsolete limit. Once an OMS record exists, retries reuse the
-    original intent even if the portfolio has since partially filled, preventing a
-    second protective SELL from being created for the remaining quantity.
+    strand a SELL at an obsolete limit. Once an active broker order exists, an optional
+    reprice planner can write an adverse-only durable REPLACE mutation instead of
+    creating a second SELL. Cancelled/rejected terminal attempts may be reissued for the
+    verified remaining quantity on a newer price observation.
 
     When a strategy-scoped quality recorder is supplied, the same fresh prices update
     observed MFE/MAE and an approved protective exit reason is durably registered before
     OMS outbox creation. Registration also runs on an existing-order retry so it can
     heal an older crash or deployment window without creating another SELL.
     """
+
+    _RECOVERABLE_PREOUTBOX = frozenset(
+        {OrderState.CREATED, OrderState.RISK_APPROVED}
+    )
+    _REISSUABLE_TERMINAL = frozenset({OrderState.CANCELLED, OrderState.REJECTED})
 
     def __init__(
         self,
@@ -73,13 +85,17 @@ class PaperProtectionOrderService:
         planner: PortfolioPaperPlanner,
         lifecycle: PaperOrderLifecycle,
         quality_recorder: ProtectionQualityRecorder | None = None,
+        reprice_planner: PaperProtectionRepricePlanner | None = None,
     ) -> None:
         if protection.ledger is not planner.ledger:
             raise ValueError("protection and planner must share one durable ledger")
+        if reprice_planner is not None and reprice_planner.oms is not lifecycle.store:
+            raise ValueError("reprice planner and order lifecycle must share one OMS")
         self.protection = protection
         self.planner = planner
         self.lifecycle = lifecycle
         self.quality_recorder = quality_recorder
+        self.reprice_planner = reprice_planner
 
     def observe_and_prepare(
         self,
@@ -123,34 +139,120 @@ class PaperProtectionOrderService:
             raise RuntimeError("paper protection must resolve to a SELL intent")
         existing = self.lifecycle.store.get(stable_intent.intent_id)
         if existing is not None:
-            self._register_exit(
-                intent_id=stable_intent.intent_id,
-                target=decision.exit_target,
-                decision=decision,
+            if existing.state is OrderState.FILLED:
+                raise RuntimeError(
+                    "PROTECTION_FILLED_ORDER_AWAITING_LEDGER_RECONCILIATION"
+                )
+            if existing.state in self._RECOVERABLE_PREOUTBOX:
+                current = self.planner.ledger.position(symbol)
+                if current.quantity != decision.trigger_quantity:
+                    raise RuntimeError(
+                        "PROTECTION_POSITION_CHANGED_BEFORE_DURABLE_OUTBOX"
+                    )
+                return self._plan_and_prepare_target(
+                    decision=decision,
+                    target=decision.exit_target,
+                    mark_prices=mark_prices,
+                    quality_gate=quality_gate,
+                    kill_switch_engaged=kill_switch_engaged,
+                    risk_context=risk_context,
+                    existing_order_reused=True,
+                )
+            if existing.state not in self._REISSUABLE_TERMINAL:
+                self._register_exit(
+                    intent_id=stable_intent.intent_id,
+                    target=decision.exit_target,
+                    decision=decision,
+                )
+                reprice = (
+                    None
+                    if self.reprice_planner is None
+                    else self.reprice_planner.consider(
+                        intent_id=stable_intent.intent_id,
+                        reference_price=reference_price,
+                        observed_at=observed_at,
+                    )
+                )
+                return PaperProtectionOrderResult(
+                    protection=decision,
+                    plan_item=None,
+                    prepared=PreparedPaperOrder(
+                        record=existing,
+                        client_order_id=existing.client_order_id,
+                    ),
+                    existing_order_reused=True,
+                    reprice=reprice,
+                )
+
+            current = self.planner.ledger.position(symbol)
+            if current.quantity <= 0:
+                raise RuntimeError("terminal protective order has no remaining position")
+            if current.quantity > decision.trigger_quantity:
+                raise RuntimeError("PROTECTION_POSITION_INCREASED_DURING_EXIT")
+            refreshed = self._refresh_unoutboxed_pending(
+                decision,
+                reference_price=reference_price,
+                observed_at=observed_at,
+                trigger_quantity=current.quantity,
             )
-            return PaperProtectionOrderResult(
-                protection=decision,
-                plan_item=None,
-                prepared=PreparedPaperOrder(
-                    record=existing,
-                    client_order_id=existing.client_order_id,
-                ),
-                existing_order_reused=True,
+            new_target = refreshed.exit_target
+            if new_target is None:
+                raise RuntimeError("refreshed terminal protection lost exit target")
+            replacement_intent = order_intent_for_target(
+                new_target,
+                current_quantity=current.quantity,
+            )
+            if (
+                replacement_intent is None
+                or replacement_intent.intent_id == stable_intent.intent_id
+            ):
+                raise RuntimeError(
+                    "PROTECTION_TERMINAL_ORDER_REQUIRES_NEW_OBSERVATION"
+                )
+            return self._plan_and_prepare_target(
+                decision=refreshed,
+                target=new_target,
+                mark_prices=mark_prices,
+                quality_gate=quality_gate,
+                kill_switch_engaged=kill_switch_engaged,
+                risk_context=risk_context,
+                existing_order_reused=False,
             )
 
         current = self.planner.ledger.position(symbol)
         if current.quantity != decision.trigger_quantity:
             raise RuntimeError("PROTECTION_POSITION_CHANGED_BEFORE_DURABLE_OUTBOX")
-
         refreshed = self._refresh_unoutboxed_pending(
             decision,
             reference_price=reference_price,
             observed_at=observed_at,
+            trigger_quantity=current.quantity,
         )
         target = refreshed.exit_target
         if target is None:
             raise RuntimeError("refreshed protection decision lost exit target")
-        contexts = None if risk_context is None else {symbol: risk_context}
+        return self._plan_and_prepare_target(
+            decision=refreshed,
+            target=target,
+            mark_prices=mark_prices,
+            quality_gate=quality_gate,
+            kill_switch_engaged=kill_switch_engaged,
+            risk_context=risk_context,
+            existing_order_reused=False,
+        )
+
+    def _plan_and_prepare_target(
+        self,
+        *,
+        decision: PaperProtectionDecision,
+        target: TargetPosition,
+        mark_prices: Mapping[str, Decimal],
+        quality_gate: EntryExitGate | None,
+        kill_switch_engaged: bool,
+        risk_context: RiskContext | None,
+        existing_order_reused: bool,
+    ) -> PaperProtectionOrderResult:
+        contexts = None if risk_context is None else {target.symbol: risk_context}
         plan = self.planner.plan(
             (target,),
             mark_prices=mark_prices,
@@ -163,17 +265,17 @@ class PaperProtectionOrderService:
         item = plan.items[0]
         if not item.approved:
             return PaperProtectionOrderResult(
-                protection=refreshed,
+                protection=decision,
                 plan_item=item,
                 prepared=None,
-                existing_order_reused=False,
+                existing_order_reused=existing_order_reused,
             )
         if item.intent is None:
             raise RuntimeError("approved protection item is missing SELL intent")
         self._register_exit(
             intent_id=item.intent.intent_id,
             target=item.target,
-            decision=refreshed,
+            decision=decision,
         )
         prepared = prepare_approved_paper_orders(
             plan,
@@ -182,10 +284,10 @@ class PaperProtectionOrderService:
         if len(prepared) != 1:
             raise RuntimeError("approved protection plan did not produce one paper order")
         return PaperProtectionOrderResult(
-            protection=refreshed,
+            protection=decision,
             plan_item=item,
             prepared=prepared[0],
-            existing_order_reused=False,
+            existing_order_reused=existing_order_reused,
         )
 
     def _register_exit(
@@ -212,6 +314,7 @@ class PaperProtectionOrderService:
         *,
         reference_price: Decimal,
         observed_at: datetime,
+        trigger_quantity: Decimal,
     ) -> PaperProtectionDecision:
         state = decision.state
         if state is None or state.pending_exit_reason is None:
@@ -219,15 +322,17 @@ class PaperProtectionOrderService:
         if (
             state.pending_target_price == reference_price
             and state.pending_target_created_at == observed_at
+            and state.pending_trigger_quantity == trigger_quantity
         ):
             return decision
         refreshed_state = replace(
             state,
-            tracked_quantity=decision.trigger_quantity,
+            tracked_quantity=trigger_quantity,
             average_cost=self.planner.ledger.position(state.symbol).average_cost,
             last_observed_at=observed_at,
             pending_target_price=reference_price,
             pending_target_created_at=observed_at,
+            pending_trigger_quantity=trigger_quantity,
         )
         refreshed_state.validate()
         self.protection.store.upsert(refreshed_state)
