@@ -4,6 +4,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
+from itertools import pairwise
 
 from app.marketdata.ohlcv import OhlcvBar
 from app.strategy.cross_sectional_selection import (
@@ -164,6 +165,9 @@ def pairwise_return_correlation(
         raise ValueError("lookback_bars must be at least two")
     if minimum_return_observations < 2:
         raise ValueError("minimum_return_observations must be at least two")
+    if minimum_return_observations > lookback_bars:
+        raise ValueError("minimum_return_observations cannot exceed lookback_bars")
+
     left_by_time = {bar.timestamp: bar.close for bar in left}
     right_by_time = {bar.timestamp: bar.close for bar in right}
     common = sorted(set(left_by_time) & set(right_by_time))
@@ -176,11 +180,11 @@ def pairwise_return_correlation(
 
     left_returns = [
         left_by_time[current] / left_by_time[prior] - Decimal("1")
-        for prior, current in zip(timestamps, timestamps[1:], strict=True)
+        for prior, current in pairwise(timestamps)
     ]
     right_returns = [
         right_by_time[current] / right_by_time[prior] - Decimal("1")
-        for prior, current in zip(timestamps, timestamps[1:], strict=True)
+        for prior, current in pairwise(timestamps)
     ]
     if len(left_returns) < minimum_return_observations:
         raise ValueError("insufficient paired return observations")
@@ -196,11 +200,22 @@ def _pearson(left: list[Decimal], right: list[Decimal]) -> Decimal:
     left_centered = [value - left_mean for value in left]
     right_centered = [value - right_mean for value in right]
     covariance = sum(
-        (left_value * right_value for left_value, right_value in zip(left_centered, right_centered, strict=True)),
+        (
+            left_value * right_value
+            for left_value, right_value in zip(
+                left_centered,
+                right_centered,
+                strict=True,
+            )
+        ),
         Decimal("0"),
     ) / count
-    left_variance = sum((value * value for value in left_centered), Decimal("0")) / count
-    right_variance = sum((value * value for value in right_centered), Decimal("0")) / count
+    left_variance = (
+        sum((value * value for value in left_centered), Decimal("0")) / count
+    )
+    right_variance = (
+        sum((value * value for value in right_centered), Decimal("0")) / count
+    )
     if left_variance == 0 or right_variance == 0:
         return Decimal("0")
     correlation = covariance / (left_variance.sqrt() * right_variance.sqrt())
