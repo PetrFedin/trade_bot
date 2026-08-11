@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from app.domain.trading import Bar
@@ -6,7 +6,6 @@ from app.strategy.managed_backtest import ManagedHistoricalBacktester
 from app.strategy.position_management import ExitReason, PositionManagementPolicy
 from app.strategy.regime_momentum import RegimeAwareMomentumStrategy
 
-UTC = timezone.utc
 START = datetime(2026, 1, 2, 14, 30, tzinfo=UTC)
 
 
