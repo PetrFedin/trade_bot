@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
+from app.domain.trading import Fill, Side
 from app.strategy.cross_sectional_portfolio import PortfolioEntryBlockReason
 from app.strategy.cross_sectional_selection import CrossSectionalSelection
 from app.strategy.reentry_confirmation import ReentryConfirmationPolicy
@@ -164,11 +165,9 @@ class SQLitePaperReentryStore:
                     WHERE strategy_id=? AND symbol=?""",
                     (strategy_id, symbol),
                 ).fetchone()
+                state = None if state_row is None else self._state_row(state_row)
                 connection.execute("COMMIT")
-                return PaperReentryEventResult(
-                    applied=False,
-                    state=None if state_row is None else self._state_row(state_row),
-                )
+                return PaperReentryEventResult(applied=False, state=state)
 
             connection.execute(
                 """INSERT INTO paper_reentry_events
@@ -205,11 +204,9 @@ class SQLitePaperReentryStore:
                 WHERE strategy_id=? AND symbol=?""",
                 (strategy_id, symbol),
             ).fetchone()
+            state = None if state_row is None else self._state_row(state_row)
             connection.execute("COMMIT")
-            return PaperReentryEventResult(
-                applied=True,
-                state=None if state_row is None else self._state_row(state_row),
-            )
+            return PaperReentryEventResult(applied=True, state=state)
         except Exception:
             connection.execute("ROLLBACK")
             raise
@@ -257,10 +254,11 @@ class SQLitePaperReentryStore:
                 WHERE strategy_id=? AND symbol=?""",
                 (strategy_id, symbol),
             ).fetchone()
-            connection.execute("COMMIT")
             if row is None:
                 raise RuntimeError("paper re-entry state vanished during update")
-            return self._state_row(row)
+            updated = self._state_row(row)
+            connection.execute("COMMIT")
+            return updated
         except Exception:
             connection.execute("ROLLBACK")
             raise
@@ -304,6 +302,23 @@ class PaperReentryController:
         self.store = store
         self.policy = policy
         self.strategy_id = strategy_id.strip()
+
+    def observe_fill(self, fill: Fill) -> None:
+        """Consume one exact durable fill through an idempotent event identity."""
+
+        fill.validate()
+        if fill.side is Side.SELL:
+            self.record_exit_fill(
+                event_id=fill.fill_id,
+                symbol=fill.symbol,
+                occurred_at=fill.occurred_at,
+            )
+            return
+        self.record_entry_fill(
+            event_id=fill.fill_id,
+            symbol=fill.symbol,
+            occurred_at=fill.occurred_at,
+        )
 
     def record_exit_fill(
         self,
