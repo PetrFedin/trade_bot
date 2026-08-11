@@ -10,6 +10,7 @@ on:
       - 'app/strategy/cross_sectional_selection.py'
       - 'app/strategy/cross_sectional_portfolio.py'
       - 'app/strategy/managed_backtest.py'
+      - 'data/historical/aapl_plotly_multiregime/qualification_profit_protection_shadow.json'
       - 'tools/qualify_strategy_quality_shadow.py'
       - 'tools/qualify_cross_sectional_portfolio_shadow.py'
       - 'tests/test_position_management.py'
@@ -20,6 +21,7 @@ on:
       - 'tests/test_cross_sectional_portfolio_contract.py'
       - 'tests/test_exit_quality_trace.py'
       - 'tests/test_strategy_quality_shadow.py'
+      - 'tests/test_profit_protection_shadow.py'
       - '.github/workflows/trading-quality-qualification.yml'
   push:
     branches: [main]
@@ -30,6 +32,7 @@ on:
       - 'app/strategy/cross_sectional_selection.py'
       - 'app/strategy/cross_sectional_portfolio.py'
       - 'app/strategy/managed_backtest.py'
+      - 'data/historical/aapl_plotly_multiregime/qualification_profit_protection_shadow.json'
       - 'tools/qualify_strategy_quality_shadow.py'
       - 'tools/qualify_cross_sectional_portfolio_shadow.py'
       - 'tests/test_position_management.py'
@@ -40,6 +43,7 @@ on:
       - 'tests/test_cross_sectional_portfolio_contract.py'
       - 'tests/test_exit_quality_trace.py'
       - 'tests/test_strategy_quality_shadow.py'
+      - 'tests/test_profit_protection_shadow.py'
       - '.github/workflows/trading-quality-qualification.yml'
 
 permissions:
@@ -87,6 +91,7 @@ jobs:
           tests/test_cross_sectional_portfolio_contract.py
           tests/test_exit_quality_trace.py
           tests/test_strategy_quality_shadow.py
+          tests/test_profit_protection_shadow.py
 
       - name: Trading-quality regressions with retained log
         id: regressions
@@ -102,6 +107,7 @@ jobs:
             tests/test_cross_sectional_portfolio_contract.py \
             tests/test_exit_quality_trace.py \
             tests/test_strategy_quality_shadow.py \
+            tests/test_profit_protection_shadow.py \
             2>&1 | tee trading-quality-pytest.txt
 
       - name: Upload trading-quality diagnostics
