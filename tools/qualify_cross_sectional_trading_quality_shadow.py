@@ -22,6 +22,12 @@ from app.strategy.cross_sectional_selection import (
 )
 from app.strategy.position_management import PositionManagementPolicy
 from app.strategy.position_sizing import RiskAwareSizingPolicy
+from app.strategy.quality_monitor import (
+    StrategyQualityGateDecision,
+    TradeQualityMonitorPolicy,
+    TradeQualityObservation,
+    evaluate_strategy_quality_gate,
+)
 from app.strategy.reentry_confirmation import ReentryConfirmationPolicy
 from app.strategy.regime_momentum import RegimeAwareMomentumConfig
 
@@ -149,6 +155,20 @@ def load_config(path: Path) -> dict[str, Any]:
     if reentry.get("apply_after_any_exit") is not True:
         raise ValueError("reentry application policy changed")
 
+    monitor = _object(data, "degradation_monitor")
+    _positive_int(monitor, "window_trades")
+    _positive_int(monitor, "minimum_observations")
+    _positive_int(monitor, "maximum_consecutive_losses")
+    for field in (
+        "minimum_profit_factor",
+        "minimum_profit_preservation_rate",
+        "minimum_average_mfe_capture_ratio",
+        "maximum_hard_stop_fraction",
+    ):
+        _decimal(monitor, field)
+    if not isinstance(monitor.get("allow_entries_when_insufficient_data"), bool):
+        raise ValueError("allow_entries_when_insufficient_data must be boolean")
+
     _string_list(data, "shared_controls")
     _string_list(data, "candidate_components")
     if tuple(_string_list(data, "ablation_variants")) != _ABLATIONS:
@@ -250,6 +270,30 @@ def _reentry_policy(config: dict[str, Any]) -> ReentryConfirmationPolicy:
         initial_entry_requires_confirmation=False,
         reset_streak_on_ineligible_signal=True,
         apply_after_any_exit=True,
+    )
+
+
+def _monitor_policy(config: dict[str, Any]) -> TradeQualityMonitorPolicy:
+    monitor = _object(config, "degradation_monitor")
+    return TradeQualityMonitorPolicy(
+        window_trades=_positive_int(monitor, "window_trades"),
+        minimum_observations=_positive_int(monitor, "minimum_observations"),
+        minimum_profit_factor=_decimal(monitor, "minimum_profit_factor"),
+        minimum_profit_preservation_rate=_decimal(
+            monitor, "minimum_profit_preservation_rate"
+        ),
+        minimum_average_mfe_capture_ratio=_decimal(
+            monitor, "minimum_average_mfe_capture_ratio"
+        ),
+        maximum_hard_stop_fraction=_decimal(
+            monitor, "maximum_hard_stop_fraction"
+        ),
+        maximum_consecutive_losses=_positive_int(
+            monitor, "maximum_consecutive_losses"
+        ),
+        allow_entries_when_insufficient_data=bool(
+            monitor["allow_entries_when_insufficient_data"]
+        ),
     )
 
 
@@ -413,6 +457,53 @@ def _run_variant(
     ).run(bars)
 
 
+def _observations(result: CrossSectionalPortfolioResult) -> tuple[TradeQualityObservation, ...]:
+    return tuple(
+        TradeQualityObservation(
+            net_pnl=trade.net_pnl,
+            maximum_favorable_excursion_fraction=(
+                trade.maximum_favorable_excursion_fraction
+            ),
+            mfe_capture_ratio=trade.mfe_capture_ratio,
+            exit_reason=trade.exit_reason.value,
+        )
+        for trade in result.closed_trades
+    )
+
+
+def _gate_evidence(decision: StrategyQualityGateDecision) -> dict[str, object]:
+    metrics = decision.metrics
+    return {
+        "status": decision.status.value,
+        "allow_new_entries": decision.allow_new_entries,
+        "allow_exits": decision.allow_exits,
+        "reasons": list(decision.reasons),
+        "metrics": {
+            "observation_count": metrics.observation_count,
+            "winning_trades": metrics.winning_trades,
+            "losing_trades": metrics.losing_trades,
+            "breakeven_trades": metrics.breakeven_trades,
+            "gross_profit": str(metrics.gross_profit),
+            "gross_loss": str(metrics.gross_loss),
+            "total_pnl": str(metrics.total_pnl),
+            "win_rate": str(metrics.win_rate),
+            "profit_factor": _serialize(metrics.profit_factor),
+            "positive_mfe_trades": metrics.positive_mfe_trades,
+            "positive_mfe_closed_profitable": (
+                metrics.positive_mfe_closed_profitable
+            ),
+            "profit_preservation_rate": _serialize(
+                metrics.profit_preservation_rate
+            ),
+            "average_mfe_capture_ratio": _serialize(
+                metrics.average_mfe_capture_ratio
+            ),
+            "hard_stop_fraction": str(metrics.hard_stop_fraction),
+            "current_consecutive_losses": metrics.current_consecutive_losses,
+        },
+    }
+
+
 def qualify(csv_path: Path, config_path: Path) -> dict[str, object]:
     config = load_config(config_path)
     raw_bars = read_csv(csv_path)
@@ -469,6 +560,19 @@ def qualify(csv_path: Path, config_path: Path) -> dict[str, object]:
     ablation_deltas = {
         name: _comparison(metrics[name], control) for name in _ABLATIONS[:-1]
     }
+    monitor_policy = _monitor_policy(config)
+    monitor_evidence = {
+        "control": _gate_evidence(
+            evaluate_strategy_quality_gate(
+                _observations(variants["CONTROL"]), policy=monitor_policy
+            )
+        ),
+        "candidate": _gate_evidence(
+            evaluate_strategy_quality_gate(
+                _observations(variants["COMBINED"]), policy=monitor_policy
+            )
+        ),
+    }
     admission_cap = _decimal(
         _object(config, "portfolio"), "maximum_gross_exposure_fraction"
     )
@@ -496,6 +600,11 @@ def qualify(csv_path: Path, config_path: Path) -> dict[str, object]:
         "ablations": ablations,
         "comparison": _comparison(candidate, control),
         "ablation_deltas_vs_control": ablation_deltas,
+        "degradation_monitor": {
+            "auto_actuation_enabled": False,
+            "policy": config["degradation_monitor"],
+            **monitor_evidence,
+        },
         "limitations": list(config["limitations"]),
         "promotion_blockers": list(config["promotion_blockers"]),
     }
@@ -526,6 +635,7 @@ def main() -> int:
                         "strategy_promotion_allowed"
                     ],
                     "ablation_variants": config["ablation_variants"],
+                    "degradation_monitor": config["degradation_monitor"],
                 },
                 sort_keys=True,
             )
