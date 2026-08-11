@@ -178,6 +178,6 @@ class PaperProtectionRepricePlanner:
     def _mutation_id(*, intent_id: str, target_limit_price: Decimal) -> str:
         canonical = format(target_limit_price.normalize(), "f")
         digest = hashlib.sha256(
-            f"protective-reprice|{intent_id}|{canonical}".encode("utf-8")
+            f"protective-reprice|{intent_id}|{canonical}".encode()
         ).hexdigest()
         return f"protective-reprice:{digest}"
