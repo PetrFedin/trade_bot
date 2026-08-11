@@ -10,11 +10,16 @@ on:
       - 'app/portfolio/**'
       - 'data/historical/**'
       - 'tools/qualify_real_historical.py'
+      - 'tools/qualify_strategy_quality_shadow.py'
       - 'tests/test_strategy_backtest.py'
       - 'tests/test_strategy_benchmarks.py'
       - 'tests/test_strategy_qualification.py'
       - 'tests/test_historical_qualification.py'
       - 'tests/test_real_historical_qualification.py'
+      - 'tests/test_position_management.py'
+      - 'tests/test_regime_momentum.py'
+      - 'tests/test_managed_strategy_backtest.py'
+      - 'tests/test_strategy_quality_shadow.py'
       - 'requirements.lock'
       - '.github/workflows/strategy-qualification.yml'
   pull_request:
@@ -25,11 +30,16 @@ on:
       - 'app/portfolio/**'
       - 'data/historical/**'
       - 'tools/qualify_real_historical.py'
+      - 'tools/qualify_strategy_quality_shadow.py'
       - 'tests/test_strategy_backtest.py'
       - 'tests/test_strategy_benchmarks.py'
       - 'tests/test_strategy_qualification.py'
       - 'tests/test_historical_qualification.py'
       - 'tests/test_real_historical_qualification.py'
+      - 'tests/test_position_management.py'
+      - 'tests/test_regime_momentum.py'
+      - 'tests/test_managed_strategy_backtest.py'
+      - 'tests/test_strategy_quality_shadow.py'
       - 'requirements.lock'
       - '.github/workflows/strategy-qualification.yml'
 
@@ -66,17 +76,25 @@ jobs:
           app/marketdata
           app/strategy
           tools/qualify_real_historical.py
+          tools/qualify_strategy_quality_shadow.py
           tests/test_strategy_benchmarks.py
           tests/test_historical_qualification.py
           tests/test_real_historical_qualification.py
+          tests/test_position_management.py
+          tests/test_regime_momentum.py
+          tests/test_managed_strategy_backtest.py
+          tests/test_strategy_quality_shadow.py
 
-      - name: No-lookahead, benchmark, and activity semantics regressions
+      - name: No-lookahead, benchmark, activity, and position-management regressions
         run: >-
           pytest -q
           tests/test_strategy_backtest.py
           tests/test_strategy_benchmarks.py
           tests/test_strategy_qualification.py
           tests/test_historical_qualification.py
+          tests/test_position_management.py
+          tests/test_regime_momentum.py
+          tests/test_managed_strategy_backtest.py
 
       - name: Current v1 manifested historical acceptance
         run: |
@@ -118,7 +136,10 @@ jobs:
           assert regimes['rising_2015_q4']['active_windows'] == 2
           assert regimes['drawdown_2016_spring']['active_windows'] == 0
           assert regimes['range_2016_q4']['active_windows'] == 2
-          assert all(item['benchmark_mode'] == 'capital_matched_buy_hold_v1' for item in regimes.values())
+          assert all(
+              item['benchmark_mode'] == 'capital_matched_buy_hold_v1'
+              for item in regimes.values()
+          )
           assert all(len(item['window_baselines']) == 2 for item in regimes.values())
           PY
 
@@ -162,6 +183,44 @@ jobs:
           )
           PY
 
+      - name: Strategy-quality shadow candidate with managed exits
+        run: |
+          python -m tools.qualify_strategy_quality_shadow \
+            --manifest data/historical/aapl_plotly_multiregime/manifest.json \
+            --policy data/historical/aapl_plotly_multiregime/qualification_strategy_quality_shadow.json \
+            --output strategy-qualification-evidence/aapl-strategy-quality-shadow-v1.json
+          pytest -q tests/test_strategy_quality_shadow.py
+
+      - name: Verify shadow candidate remains non-promotable
+        run: |
+          python - <<'PY'
+          import json
+          from decimal import Decimal
+          from pathlib import Path
+
+          evidence = json.loads(
+              Path('strategy-qualification-evidence/aapl-strategy-quality-shadow-v1.json')
+              .read_text(encoding='utf-8')
+          )
+          assert evidence['shadow_only'] is True
+          assert evidence['promotion_allowed'] is False
+          assert evidence['strategy_id'] == 'paper-regime-momentum-shadow-v1'
+          assert evidence['source_classification'] == (
+              'THIRD_PARTY_SAMPLE_NON_AUTHORITATIVE'
+          )
+          aggregate = evidence['aggregate']
+          assert aggregate['closed_trade_count'] == 3
+          assert aggregate['winning_trades'] == 2
+          assert aggregate['losing_trades'] == 1
+          assert Decimal(aggregate['profit_factor']) < Decimal('1')
+          assert Decimal(aggregate['net_closed_trade_pnl']) < Decimal('0')
+          assert aggregate['candidate_mean_return_not_worse'] is True
+          assert aggregate['candidate_worst_drawdown_not_worse'] is True
+          blockers = set(evidence['promotion_blockers'])
+          assert 'AGGREGATE_PROFIT_FACTOR_BELOW_ONE' in blockers
+          assert 'AGGREGATE_CLOSED_TRADE_PNL_NOT_POSITIVE' in blockers
+          PY
+
       - name: Trading vertical regression
         run: pytest -q tests/test_trading_core_e2e.py
 
@@ -171,6 +230,7 @@ jobs:
           app/strategy
           app/marketdata
           tools/qualify_real_historical.py
+          tools/qualify_strategy_quality_shadow.py
 
       - name: Verify fail-closed live state
         run: |
