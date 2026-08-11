@@ -107,12 +107,19 @@ def _result_evidence(result: ManagedBacktestResult) -> dict[str, object]:
         for reason in item.signal_reasons
     )
     exit_reason_counts = Counter(trade.exit_reason.value for trade in result.closed_trades)
+    givebacks = [
+        trade.mfe_giveback_fraction
+        for trade in result.closed_trades
+        if trade.mfe_giveback_fraction is not None
+    ]
     override_count = sum(
         item.action.value == "EXIT"
         and item.signal_eligible
         and item.exit_reason not in (None, ExitReason.SIGNAL_EXIT)
         for item in result.decision_trace
     )
+    signal_exit_count = exit_reason_counts.get(ExitReason.SIGNAL_EXIT.value, 0)
+    managed_exit_count = result.closed_trade_count - signal_exit_count
     return {
         "closed_trade_count": result.closed_trade_count,
         "winning_trades": result.winning_trades,
@@ -128,6 +135,14 @@ def _result_evidence(result: ManagedBacktestResult) -> dict[str, object]:
         "average_mfe_capture_ratio": _serialize_decimal(
             result.average_mfe_capture_ratio
         ),
+        "average_mfe_giveback_fraction": (
+            _serialize_decimal(_mean([value for value in givebacks if value is not None]))
+            if givebacks
+            else None
+        ),
+        "trades_with_mfe_giveback": sum(
+            value is not None and value > 0 for value in givebacks
+        ),
         "positive_mfe_trades": result.positive_mfe_trades,
         "positive_mfe_closed_profitable": result.positive_mfe_closed_profitable,
         "positive_mfe_closed_losing_or_flat": (
@@ -136,6 +151,8 @@ def _result_evidence(result: ManagedBacktestResult) -> dict[str, object]:
         "profit_preservation_rate": _serialize_decimal(
             result.profit_preservation_rate
         ),
+        "signal_exit_count": signal_exit_count,
+        "managed_exit_count": managed_exit_count,
         "decision_action_counts": dict(sorted(action_counts.items())),
         "signal_rejection_reason_counts": dict(sorted(rejection_counts.items())),
         "exit_reason_counts": dict(sorted(exit_reason_counts.items())),
@@ -240,17 +257,39 @@ def qualify(manifest_path: Path, policy_path: Path) -> dict[str, object]:
         for trade in all_trades
         if trade.mfe_capture_ratio is not None
     ]
+    giveback_ratios = [
+        trade.mfe_giveback_fraction
+        for trade in all_trades
+        if trade.mfe_giveback_fraction is not None
+    ]
     positive_mfe = [
         trade for trade in all_trades if trade.maximum_favorable_excursion_fraction > 0
     ]
     positive_mfe_profitable = sum(trade.net_pnl > 0 for trade in positive_mfe)
     profitable_opportunity_lost = sum(trade.net_pnl <= 0 for trade in positive_mfe)
+    trades_with_giveback = sum(
+        value is not None and value > 0 for value in giveback_ratios
+    )
+    zero_mfe_losing_trades = sum(
+        trade.net_pnl < 0 and trade.maximum_favorable_excursion_fraction == 0
+        for trade in all_trades
+    )
+    signal_exit_count = exit_reason_counts.get(ExitReason.SIGNAL_EXIT.value, 0)
+    managed_exit_count = len(all_trades) - signal_exit_count
     override_count = sum(
         item.action.value == "EXIT"
         and item.signal_eligible
         and item.exit_reason not in (None, ExitReason.SIGNAL_EXIT)
         for item in all_decisions
     )
+    findings: list[str] = []
+    if managed_exit_count == 0 and all_trades:
+        findings.append("POSITION_MANAGER_NOT_TRIGGERED_IN_SAMPLE")
+    if trades_with_giveback > 0:
+        findings.append("PROFIT_GIVEBACK_OBSERVED")
+    if zero_mfe_losing_trades > 0:
+        findings.append("LOSING_TRADE_WITH_ZERO_POSITIVE_MFE")
+
     return {
         "schema_version": _EVIDENCE_SCHEMA,
         "shadow_only": True,
@@ -266,15 +305,19 @@ def qualify(manifest_path: Path, policy_path: Path) -> dict[str, object]:
             "SINGLE_SYMBOL_HISTORICAL_EVIDENCE",
             "NO_EXTERNAL_PAPER_STRATEGY_EVIDENCE",
         ],
+        "observed_findings": findings,
         "aggregate": {
             "decision_count": len(all_decisions),
             "decision_action_counts": dict(sorted(action_counts.items())),
             "signal_rejection_reason_counts": dict(sorted(rejection_counts.items())),
             "exit_reason_counts": dict(sorted(exit_reason_counts.items())),
             "position_manager_exit_overrides": override_count,
+            "signal_exit_count": signal_exit_count,
+            "managed_exit_count": managed_exit_count,
             "closed_trade_count": len(all_trades),
             "winning_trades": sum(trade.net_pnl > 0 for trade in all_trades),
             "losing_trades": sum(trade.net_pnl < 0 for trade in all_trades),
+            "zero_mfe_losing_trades": zero_mfe_losing_trades,
             "average_maximum_favorable_excursion_fraction": str(
                 _mean(
                     [
@@ -291,6 +334,10 @@ def qualify(manifest_path: Path, policy_path: Path) -> dict[str, object]:
             "average_mfe_capture_ratio": (
                 _serialize_decimal(_mean(capture_ratios)) if capture_ratios else None
             ),
+            "average_mfe_giveback_fraction": (
+                _serialize_decimal(_mean(giveback_ratios)) if giveback_ratios else None
+            ),
+            "trades_with_mfe_giveback": trades_with_giveback,
             "positive_mfe_trades": len(positive_mfe),
             "positive_mfe_closed_profitable": positive_mfe_profitable,
             "positive_mfe_closed_losing_or_flat": profitable_opportunity_lost,
@@ -299,7 +346,7 @@ def qualify(manifest_path: Path, policy_path: Path) -> dict[str, object]:
                 if positive_mfe
                 else None
             ),
-            "profit_giveback_observed": profitable_opportunity_lost > 0,
+            "profit_giveback_observed": trades_with_giveback > 0,
         },
         "regimes": regimes,
     }
