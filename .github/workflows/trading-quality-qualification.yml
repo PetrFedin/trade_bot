@@ -8,12 +8,16 @@ on:
       - 'app/strategy/position_sizing.py'
       - 'app/strategy/ohlcv_exit.py'
       - 'app/strategy/cross_sectional_selection.py'
+      - 'app/strategy/cross_sectional_portfolio.py'
       - 'app/strategy/managed_backtest.py'
       - 'tools/qualify_strategy_quality_shadow.py'
+      - 'tools/qualify_cross_sectional_portfolio_shadow.py'
       - 'tests/test_position_management.py'
       - 'tests/test_position_sizing.py'
       - 'tests/test_ohlcv_exit.py'
       - 'tests/test_cross_sectional_selection.py'
+      - 'tests/test_cross_sectional_portfolio.py'
+      - 'tests/test_cross_sectional_portfolio_contract.py'
       - 'tests/test_exit_quality_trace.py'
       - 'tests/test_strategy_quality_shadow.py'
       - '.github/workflows/trading-quality-qualification.yml'
@@ -24,12 +28,16 @@ on:
       - 'app/strategy/position_sizing.py'
       - 'app/strategy/ohlcv_exit.py'
       - 'app/strategy/cross_sectional_selection.py'
+      - 'app/strategy/cross_sectional_portfolio.py'
       - 'app/strategy/managed_backtest.py'
       - 'tools/qualify_strategy_quality_shadow.py'
+      - 'tools/qualify_cross_sectional_portfolio_shadow.py'
       - 'tests/test_position_management.py'
       - 'tests/test_position_sizing.py'
       - 'tests/test_ohlcv_exit.py'
       - 'tests/test_cross_sectional_selection.py'
+      - 'tests/test_cross_sectional_portfolio.py'
+      - 'tests/test_cross_sectional_portfolio_contract.py'
       - 'tests/test_exit_quality_trace.py'
       - 'tests/test_strategy_quality_shadow.py'
       - '.github/workflows/trading-quality-qualification.yml'
@@ -68,11 +76,15 @@ jobs:
           app/strategy/position_sizing.py
           app/strategy/ohlcv_exit.py
           app/strategy/cross_sectional_selection.py
+          app/strategy/cross_sectional_portfolio.py
           tools/qualify_strategy_quality_shadow.py
+          tools/qualify_cross_sectional_portfolio_shadow.py
           tests/test_position_management.py
           tests/test_position_sizing.py
           tests/test_ohlcv_exit.py
           tests/test_cross_sectional_selection.py
+          tests/test_cross_sectional_portfolio.py
+          tests/test_cross_sectional_portfolio_contract.py
           tests/test_exit_quality_trace.py
           tests/test_strategy_quality_shadow.py
 
@@ -86,6 +98,8 @@ jobs:
             tests/test_position_sizing.py \
             tests/test_ohlcv_exit.py \
             tests/test_cross_sectional_selection.py \
+            tests/test_cross_sectional_portfolio.py \
+            tests/test_cross_sectional_portfolio_contract.py \
             tests/test_exit_quality_trace.py \
             tests/test_strategy_quality_shadow.py \
             2>&1 | tee trading-quality-pytest.txt
