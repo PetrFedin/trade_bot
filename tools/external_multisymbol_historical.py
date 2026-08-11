@@ -225,6 +225,7 @@ def build_report(
                     "momentum_return": str(candidate.momentum_return),
                     "trend_strength": str(candidate.trend_strength),
                     "realized_volatility": str(candidate.realized_volatility),
+                    "quality_score": str(candidate.quality_score),
                     "reference_price": str(candidate.reference_price),
                     "rejection_reasons": list(candidate.rejection_reasons),
                 }
