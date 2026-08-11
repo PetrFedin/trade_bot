@@ -4,19 +4,28 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'app/application/order_intents.py'
+      - 'app/application/paper_pipeline.py'
+      - 'app/application/portfolio_paper_planner.py'
       - 'app/strategy/position_management.py'
       - 'app/strategy/position_sizing.py'
       - 'app/strategy/quality_monitor.py'
       - 'app/strategy/ohlcv_exit.py'
       - 'app/strategy/cross_sectional_selection.py'
       - 'app/strategy/cross_sectional_portfolio.py'
+      - 'app/strategy/correlation_diversification.py'
       - 'app/strategy/managed_backtest.py'
       - 'data/historical/aapl_plotly_multiregime/qualification_profit_protection_shadow.json'
       - 'research/cross_sectional_trading_quality_shadow_v2.json'
+      - 'research/correlation_diversification_shadow_v1.json'
       - 'tools/qualify_strategy_quality_shadow.py'
       - 'tools/qualify_cross_sectional_portfolio_shadow.py'
       - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
       - 'tools/qualify_cross_sectional_walk_forward.py'
+      - 'tools/qualify_correlation_diversification_shadow.py'
+      - 'tools/qualify_correlation_diversification_walk_forward.py'
+      - 'tests/test_paper_cycle_e2e.py'
+      - 'tests/test_portfolio_paper_planner.py'
       - 'tests/test_position_management.py'
       - 'tests/test_position_sizing.py'
       - 'tests/test_quality_monitor.py'
@@ -26,6 +35,9 @@ on:
       - 'tests/test_cross_sectional_portfolio_contract.py'
       - 'tests/test_cross_sectional_trading_quality_shadow.py'
       - 'tests/test_cross_sectional_walk_forward.py'
+      - 'tests/test_correlation_diversification.py'
+      - 'tests/test_correlation_diversification_shadow.py'
+      - 'tests/test_correlation_diversification_walk_forward.py'
       - 'tests/test_exit_quality_trace.py'
       - 'tests/test_strategy_quality_shadow.py'
       - 'tests/test_profit_protection_shadow.py'
@@ -33,19 +45,28 @@ on:
   push:
     branches: [main]
     paths:
+      - 'app/application/order_intents.py'
+      - 'app/application/paper_pipeline.py'
+      - 'app/application/portfolio_paper_planner.py'
       - 'app/strategy/position_management.py'
       - 'app/strategy/position_sizing.py'
       - 'app/strategy/quality_monitor.py'
       - 'app/strategy/ohlcv_exit.py'
       - 'app/strategy/cross_sectional_selection.py'
       - 'app/strategy/cross_sectional_portfolio.py'
+      - 'app/strategy/correlation_diversification.py'
       - 'app/strategy/managed_backtest.py'
       - 'data/historical/aapl_plotly_multiregime/qualification_profit_protection_shadow.json'
       - 'research/cross_sectional_trading_quality_shadow_v2.json'
+      - 'research/correlation_diversification_shadow_v1.json'
       - 'tools/qualify_strategy_quality_shadow.py'
       - 'tools/qualify_cross_sectional_portfolio_shadow.py'
       - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
       - 'tools/qualify_cross_sectional_walk_forward.py'
+      - 'tools/qualify_correlation_diversification_shadow.py'
+      - 'tools/qualify_correlation_diversification_walk_forward.py'
+      - 'tests/test_paper_cycle_e2e.py'
+      - 'tests/test_portfolio_paper_planner.py'
       - 'tests/test_position_management.py'
       - 'tests/test_position_sizing.py'
       - 'tests/test_quality_monitor.py'
@@ -55,6 +76,9 @@ on:
       - 'tests/test_cross_sectional_portfolio_contract.py'
       - 'tests/test_cross_sectional_trading_quality_shadow.py'
       - 'tests/test_cross_sectional_walk_forward.py'
+      - 'tests/test_correlation_diversification.py'
+      - 'tests/test_correlation_diversification_shadow.py'
+      - 'tests/test_correlation_diversification_walk_forward.py'
       - 'tests/test_exit_quality_trace.py'
       - 'tests/test_strategy_quality_shadow.py'
       - 'tests/test_profit_protection_shadow.py'
@@ -90,16 +114,24 @@ jobs:
       - name: Lint trading-quality surface
         run: >-
           ruff check --output-format=github
+          app/application/order_intents.py
+          app/application/paper_pipeline.py
+          app/application/portfolio_paper_planner.py
           app/strategy/position_management.py
           app/strategy/position_sizing.py
           app/strategy/quality_monitor.py
           app/strategy/ohlcv_exit.py
           app/strategy/cross_sectional_selection.py
           app/strategy/cross_sectional_portfolio.py
+          app/strategy/correlation_diversification.py
           tools/qualify_strategy_quality_shadow.py
           tools/qualify_cross_sectional_portfolio_shadow.py
           tools/qualify_cross_sectional_trading_quality_shadow.py
           tools/qualify_cross_sectional_walk_forward.py
+          tools/qualify_correlation_diversification_shadow.py
+          tools/qualify_correlation_diversification_walk_forward.py
+          tests/test_paper_cycle_e2e.py
+          tests/test_portfolio_paper_planner.py
           tests/test_position_management.py
           tests/test_position_sizing.py
           tests/test_quality_monitor.py
@@ -109,6 +141,9 @@ jobs:
           tests/test_cross_sectional_portfolio_contract.py
           tests/test_cross_sectional_trading_quality_shadow.py
           tests/test_cross_sectional_walk_forward.py
+          tests/test_correlation_diversification.py
+          tests/test_correlation_diversification_shadow.py
+          tests/test_correlation_diversification_walk_forward.py
           tests/test_exit_quality_trace.py
           tests/test_strategy_quality_shadow.py
           tests/test_profit_protection_shadow.py
@@ -131,6 +166,8 @@ jobs:
         run: |
           set -o pipefail
           pytest -vv \
+            tests/test_paper_cycle_e2e.py \
+            tests/test_portfolio_paper_planner.py \
             tests/test_position_management.py \
             tests/test_position_sizing.py \
             tests/test_quality_monitor.py \
@@ -140,6 +177,9 @@ jobs:
             tests/test_cross_sectional_portfolio_contract.py \
             tests/test_cross_sectional_trading_quality_shadow.py \
             tests/test_cross_sectional_walk_forward.py \
+            tests/test_correlation_diversification.py \
+            tests/test_correlation_diversification_shadow.py \
+            tests/test_correlation_diversification_walk_forward.py \
             tests/test_exit_quality_trace.py \
             tests/test_strategy_quality_shadow.py \
             tests/test_profit_protection_shadow.py \
