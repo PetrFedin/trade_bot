@@ -1,0 +1,69 @@
+{
+  "schema_version": "cross-sectional-portfolio-shadow-v1",
+  "shadow_only": true,
+  "strategy_promotion_allowed": false,
+  "opening_cash": "10000",
+  "fee_per_fill": "0.50",
+  "slippage_bps": "5",
+  "minimum_universe_symbols": 3,
+  "selection": {
+    "top_k": 2,
+    "ranking": [
+      "momentum_desc",
+      "trend_strength_desc",
+      "realized_volatility_asc",
+      "symbol_asc"
+    ],
+    "signal": {
+      "fast_bars": 3,
+      "slow_bars": 8,
+      "momentum_lookback_bars": 3,
+      "volatility_bars": 5,
+      "minimum_momentum_return": "0.002",
+      "minimum_trend_strength": "0.001",
+      "maximum_realized_volatility": "0.03"
+    }
+  },
+  "portfolio": {
+    "maximum_gross_exposure_fraction": "0.60",
+    "new_position_target_equity_fraction": "0.30",
+    "allow_leverage": false,
+    "rebalance_existing_positions": false,
+    "execute_selection_changes_at_next_open": true,
+    "process_open_exits_before_new_entries": true
+  },
+  "position_management": {
+    "stop_loss_fraction": "0.02",
+    "take_profit_fraction": "0.04",
+    "trailing_activation_fraction": "0.02",
+    "trailing_stop_fraction": "0.015",
+    "maximum_holding_bars": 10,
+    "intrabar_path_policy": "PROTECTIVE_EXIT_FIRST_ON_AMBIGUITY",
+    "trailing_peak_policy": "COMPLETED_PRIOR_BARS_ONLY",
+    "gap_stop_policy": "OPEN_IF_GAPPED_THROUGH_STOP"
+  },
+  "reentry_confirmation": {
+    "minimum_consecutive_eligible_bars": 2,
+    "initial_entry_requires_confirmation": false,
+    "reset_streak_on_ineligible_signal": true,
+    "apply_after_any_exit": true
+  },
+  "required_metrics": [
+    "total_return",
+    "max_drawdown",
+    "turnover_fraction",
+    "fees_paid",
+    "gross_exposure_fraction",
+    "maximum_concurrent_positions",
+    "selection_counts",
+    "realized_pnl_by_symbol",
+    "intrabar_exit_counts",
+    "one_bar_reentry_count"
+  ],
+  "promotion_blockers": [
+    "SYNTHETIC_PORTFOLIO_CONTRACT_ONLY",
+    "NO_REAL_MULTISYMBOL_OHLCV_EVIDENCE",
+    "NO_WALK_FORWARD_PORTFOLIO_BENCHMARK",
+    "NO_EXTERNAL_PAPER_PORTFOLIO_EVIDENCE"
+  ]
+}
