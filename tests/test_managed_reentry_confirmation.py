@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from app.domain.trading import Bar
+from app.strategy.backtest import BacktestConfig
 from app.strategy.managed_backtest import DecisionAction, ManagedHistoricalBacktester
 from app.strategy.reentry_confirmation import (
     EntryBlockReason,
@@ -41,12 +42,21 @@ def rising_sample() -> list[Bar]:
     ]
 
 
+def costed_backtest() -> BacktestConfig:
+    return BacktestConfig(
+        opening_cash=Decimal("10000"),
+        fee_per_fill=Decimal("0.50"),
+        slippage_bps=Decimal("5"),
+    )
+
+
 def test_reentry_confirmation_blocks_one_bar_whipsaw_then_releases() -> None:
     result = ManagedHistoricalBacktester(
         strategy=RegimeAwareMomentumStrategy(),
         reentry_policy=ReentryConfirmationPolicy(
             minimum_consecutive_eligible_bars=2
         ),
+        config=costed_backtest(),
     ).run(rising_sample(), first_execution_index=10)
 
     pending = result.decision_trace[4]
@@ -72,12 +82,14 @@ def test_reentry_confirmation_blocks_one_bar_whipsaw_then_releases() -> None:
 def test_confirmation_reduces_observed_second_trade_loss_without_retuning_exits() -> None:
     baseline = ManagedHistoricalBacktester(
         strategy=RegimeAwareMomentumStrategy(),
+        config=costed_backtest(),
     ).run(rising_sample(), first_execution_index=10)
     candidate = ManagedHistoricalBacktester(
         strategy=RegimeAwareMomentumStrategy(),
         reentry_policy=ReentryConfirmationPolicy(
             minimum_consecutive_eligible_bars=2
         ),
+        config=costed_backtest(),
     ).run(rising_sample(), first_execution_index=10)
 
     assert baseline.closed_trade_count == candidate.closed_trade_count == 2
@@ -94,6 +106,7 @@ def test_confirmation_reduces_observed_second_trade_loss_without_retuning_exits(
 def test_default_backtester_keeps_v1_entry_behavior() -> None:
     result = ManagedHistoricalBacktester(
         strategy=RegimeAwareMomentumStrategy(),
+        config=costed_backtest(),
     ).run(rising_sample(), first_execution_index=10)
     immediate_reentry = result.decision_trace[4]
     assert immediate_reentry.execution_index == 14
