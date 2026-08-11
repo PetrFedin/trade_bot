@@ -84,7 +84,7 @@ def test_gap_below_stop_uses_worse_open_price() -> None:
 def test_prior_completed_peak_activates_trailing_stop() -> None:
     result = evaluate_long_intrabar_exit(
         average_cost=Decimal("100"),
-        bar=bar(open="104", high="106", low="103", close="104"),
+        bar=bar(open="103.8", high="103.9", low="103", close="103.6"),
         state=state("105"),
         policy=POLICY,
     )
@@ -96,7 +96,7 @@ def test_prior_completed_peak_activates_trailing_stop() -> None:
 def test_current_bar_high_cannot_retroactively_arm_same_bar_trailing_stop() -> None:
     first = evaluate_long_intrabar_exit(
         average_cost=Decimal("100"),
-        bar=bar(open="100", high="103", low="101", close="102.5"),
+        bar=bar(open="100", high="103", low="99.5", close="102.5"),
         state=state(),
         policy=POLICY,
     )
