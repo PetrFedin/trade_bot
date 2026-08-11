@@ -11,6 +11,7 @@ on:
       - 'app/application/paper_protection_cycle.py'
       - 'app/application/paper_reentry.py'
       - 'app/application/portfolio_paper_planner.py'
+      - 'app/execution/trade_fills.py'
       - 'app/strategy/position_management.py'
       - 'app/strategy/position_sizing.py'
       - 'app/strategy/quality_monitor.py'
@@ -33,7 +34,9 @@ on:
       - 'tests/test_paper_protection.py'
       - 'tests/test_paper_protection_cycle.py'
       - 'tests/test_paper_reentry.py'
+      - 'tests/test_paper_reentry_fill_accounting.py'
       - 'tests/test_portfolio_paper_planner.py'
+      - 'tests/test_trade_fill_accounting.py'
       - 'tests/test_position_management.py'
       - 'tests/test_position_sizing.py'
       - 'tests/test_quality_monitor.py'
@@ -60,6 +63,7 @@ on:
       - 'app/application/paper_protection_cycle.py'
       - 'app/application/paper_reentry.py'
       - 'app/application/portfolio_paper_planner.py'
+      - 'app/execution/trade_fills.py'
       - 'app/strategy/position_management.py'
       - 'app/strategy/position_sizing.py'
       - 'app/strategy/quality_monitor.py'
@@ -82,7 +86,9 @@ on:
       - 'tests/test_paper_protection.py'
       - 'tests/test_paper_protection_cycle.py'
       - 'tests/test_paper_reentry.py'
+      - 'tests/test_paper_reentry_fill_accounting.py'
       - 'tests/test_portfolio_paper_planner.py'
+      - 'tests/test_trade_fill_accounting.py'
       - 'tests/test_position_management.py'
       - 'tests/test_position_sizing.py'
       - 'tests/test_quality_monitor.py'
@@ -137,6 +143,7 @@ jobs:
           app/application/paper_protection_cycle.py
           app/application/paper_reentry.py
           app/application/portfolio_paper_planner.py
+          app/execution/trade_fills.py
           app/strategy/position_management.py
           app/strategy/position_sizing.py
           app/strategy/quality_monitor.py
@@ -155,7 +162,9 @@ jobs:
           tests/test_paper_protection.py
           tests/test_paper_protection_cycle.py
           tests/test_paper_reentry.py
+          tests/test_paper_reentry_fill_accounting.py
           tests/test_portfolio_paper_planner.py
+          tests/test_trade_fill_accounting.py
           tests/test_position_management.py
           tests/test_position_sizing.py
           tests/test_quality_monitor.py
@@ -195,7 +204,9 @@ jobs:
             tests/test_paper_protection.py \
             tests/test_paper_protection_cycle.py \
             tests/test_paper_reentry.py \
+            tests/test_paper_reentry_fill_accounting.py \
             tests/test_portfolio_paper_planner.py \
+            tests/test_trade_fill_accounting.py \
             tests/test_position_management.py \
             tests/test_position_sizing.py \
             tests/test_quality_monitor.py \
