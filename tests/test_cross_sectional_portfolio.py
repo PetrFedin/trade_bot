@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 from app.marketdata.ohlcv import OhlcvBar
 from app.strategy.cross_sectional_portfolio import (
@@ -8,10 +9,14 @@ from app.strategy.cross_sectional_portfolio import (
     PortfolioEntryBlockReason,
     PortfolioExitReason,
 )
-from app.strategy.cross_sectional_selection import CrossSectionalSelector
+from app.strategy.cross_sectional_selection import (
+    CrossSectionalSelection,
+    CrossSectionalSelector,
+)
 from app.strategy.position_management import PositionManagementPolicy
 from app.strategy.position_sizing import RiskAwareSizingPolicy
 from app.strategy.reentry_confirmation import ReentryConfirmationPolicy
+from app.strategy.selection_exit_confirmation import SelectionExitConfirmationPolicy
 
 START = datetime(2026, 1, 2, tzinfo=UTC)
 
@@ -67,12 +72,36 @@ def stable_universe(*, aapl_stop_on_entry: bool = False) -> list[OhlcvBar]:
     return [
         *series(
             "AAPL",
-            ["100", "101", "102", "103", "104", "105", "106", "108", "108", "109", "110"],
+            [
+                "100",
+                "101",
+                "102",
+                "103",
+                "104",
+                "105",
+                "106",
+                "108",
+                "108",
+                "109",
+                "110",
+            ],
             overrides=aapl_overrides,
         ),
         *series(
             "MSFT",
-            ["100", "100.5", "101", "101.5", "102", "102.5", "103", "104", "104.5", "105", "105.5"],
+            [
+                "100",
+                "100.5",
+                "101",
+                "101.5",
+                "102",
+                "102.5",
+                "103",
+                "104",
+                "104.5",
+                "105",
+                "105.5",
+            ],
         ),
         *series(
             "NVDA",
@@ -99,6 +128,7 @@ def test_top_two_selection_becomes_bounded_portfolio_positions() -> None:
     assert result.turnover_fraction >= Decimal("0.57")
     assert result.maximum_gross_exposure_fraction_observed < Decimal("0.62")
     assert result.one_bar_reentry_count == 0
+    assert result.selection_exit_confirmation_pending_count == 0
 
 
 def test_intrabar_stop_is_symbol_specific_and_reentry_waits_for_confirmation() -> None:
@@ -235,3 +265,120 @@ def test_risk_aware_sizing_reduces_notional_for_high_volatility_candidate() -> N
     assert first.entered_symbols == ("AAPL",)
     assert Decimal("0") < first.closing_gross_exposure_fraction < Decimal("0.20")
     assert result.final_quantities["AAPL"] > 0
+
+
+class ScriptedSelector:
+    top_k = 1
+    signal_config = SimpleNamespace(minimum_history_bars=2)
+
+    def __init__(self, selections_by_time: dict[datetime, tuple[str, ...]]) -> None:
+        self.selections_by_time = selections_by_time
+
+    def select(self, bars) -> CrossSectionalSelection:
+        materialized = tuple(bars)
+        decision_time = max(bar.timestamp for bar in materialized)
+        return CrossSectionalSelection(
+            decision_time=decision_time,
+            selected_symbols=self.selections_by_time[decision_time],
+            candidates=(),
+        )
+
+
+def selection_confirmation_policy() -> SelectionExitConfirmationPolicy:
+    return SelectionExitConfirmationPolicy(
+        minimum_consecutive_deselected_bars=2,
+        exit_profitable_positions_immediately=True,
+        reset_on_reselection=True,
+    )
+
+
+def test_profitable_selection_rotation_still_exits_immediately() -> None:
+    decision_times = {
+        START + timedelta(days=1): ("AAPL",),
+        START + timedelta(days=2): ("MSFT",),
+        START + timedelta(days=3): ("MSFT",),
+    }
+    universe = [
+        *series("AAPL", ["100", "100", "102", "102", "102"]),
+        *series("MSFT", ["100", "100", "100", "101", "102"]),
+    ]
+    result = CrossSectionalPortfolioBacktester(
+        selector=ScriptedSelector(decision_times),
+        portfolio_policy=policy(),
+        position_policy=PositionManagementPolicy(maximum_holding_bars=10),
+        selection_exit_policy=selection_confirmation_policy(),
+    ).run(universe)
+
+    first = result.decision_trace[0]
+    second = result.decision_trace[1]
+    assert first.entered_symbols == ("AAPL",)
+    assert second.open_exit_symbols == ("AAPL",)
+    assert second.pending_selection_exit_symbols == ()
+    aapl_trade = next(trade for trade in result.closed_trades if trade.symbol == "AAPL")
+    assert aapl_trade.exit_reason is PortfolioExitReason.SELECTION_EXIT
+    assert aapl_trade.net_pnl > 0
+
+
+def test_losing_selection_rotation_waits_one_completed_decision_then_exits() -> None:
+    decision_times = {
+        START + timedelta(days=1): ("AAPL",),
+        START + timedelta(days=2): ("MSFT",),
+        START + timedelta(days=3): ("MSFT",),
+        START + timedelta(days=4): ("MSFT",),
+    }
+    universe = [
+        *series("AAPL", ["100", "100", "99.5", "99.4", "99.3", "99.2"]),
+        *series("MSFT", ["100", "100", "100", "101", "102", "103"]),
+    ]
+    result = CrossSectionalPortfolioBacktester(
+        selector=ScriptedSelector(decision_times),
+        portfolio_policy=policy(),
+        position_policy=PositionManagementPolicy(
+            stop_loss_fraction=Decimal("0.10"),
+            maximum_holding_bars=10,
+        ),
+        selection_exit_policy=selection_confirmation_policy(),
+    ).run(universe)
+
+    pending = result.decision_trace[1]
+    confirmed = result.decision_trace[2]
+    assert pending.open_exit_symbols == ()
+    assert pending.pending_selection_exit_symbols == ("AAPL",)
+    assert confirmed.open_exit_symbols == ("AAPL",)
+    assert result.selection_exit_confirmation_pending_count == 1
+    trade = next(trade for trade in result.closed_trades if trade.symbol == "AAPL")
+    assert trade.exit_reason is PortfolioExitReason.SELECTION_EXIT
+    assert trade.holding_bars == 2
+
+
+def test_pending_selection_exit_never_delays_intrabar_hard_stop() -> None:
+    decision_times = {
+        START + timedelta(days=1): ("AAPL",),
+        START + timedelta(days=2): ("MSFT",),
+        START + timedelta(days=3): ("MSFT",),
+    }
+    universe = [
+        *series(
+            "AAPL",
+            ["100", "100", "99.5", "98", "98"],
+            overrides={3: ("99", "99.2", "97", "98")},
+        ),
+        *series("MSFT", ["100", "100", "100", "101", "102"]),
+    ]
+    result = CrossSectionalPortfolioBacktester(
+        selector=ScriptedSelector(decision_times),
+        portfolio_policy=policy(),
+        position_policy=PositionManagementPolicy(
+            stop_loss_fraction=Decimal("0.02"),
+            maximum_holding_bars=10,
+        ),
+        selection_exit_policy=selection_confirmation_policy(),
+    ).run(universe)
+
+    second = result.decision_trace[1]
+    assert second.pending_selection_exit_symbols == ("AAPL",)
+    assert second.open_exit_symbols == ()
+    assert second.intrabar_exit_symbols == ("AAPL",)
+    trade = next(trade for trade in result.closed_trades if trade.symbol == "AAPL")
+    assert trade.exit_reason is PortfolioExitReason.INTRABAR_HARD_STOP
+    assert trade.net_pnl < 0
