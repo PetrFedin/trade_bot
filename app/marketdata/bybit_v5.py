@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -8,6 +7,8 @@ from decimal import Decimal
 from http.client import HTTPSConnection
 from typing import Any
 from urllib.parse import urlencode, urlsplit
+
+from app.marketdata.bybit_http import decode_public_json_response
 
 _BYBIT_MAINNET_HOST = "api.bybit.com"
 BYBIT_KLINE_URL = f"https://{_BYBIT_MAINNET_HOST}/v5/market/kline"
@@ -262,12 +263,16 @@ def _https_transport(url: str, headers: Mapping[str, str]) -> BybitHttpJson:
     try:
         connection.request("GET", target, headers=dict(headers))
         response = connection.getresponse()
-        payload = json.loads(response.read().decode("utf-8"))
-        if not isinstance(payload, dict):
-            raise ValueError("Bybit response must be a JSON object")
+        response_headers = {key: value for key, value in response.getheaders()}
+        body = response.read()
+        payload = decode_public_json_response(
+            status_code=response.status,
+            headers=response_headers,
+            body=body,
+        )
         return BybitHttpJson(
             status_code=response.status,
-            headers={key: value for key, value in response.getheaders()},
+            headers=response_headers,
             payload=payload,
         )
     finally:
