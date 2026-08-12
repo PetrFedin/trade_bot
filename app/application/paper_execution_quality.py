@@ -249,9 +249,14 @@ class PaperExecutionQualityTracker:
                 fill.order_intent_id,
                 fallback=expected,
             )
-        raw_fraction = (fill.price - expected) / expected
+        price_delta = fill.price - expected
+        raw_fraction = price_delta / expected
         signed_fraction = raw_fraction if fill.side is Side.BUY else -raw_fraction
-        signed_notional = signed_fraction * expected * fill.quantity
+        signed_notional = (
+            price_delta * fill.quantity
+            if fill.side is Side.BUY
+            else -price_delta * fill.quantity
+        )
         self.store.append(
             PaperExecutionQualityFill(
                 fill_id=fill.fill_id,
