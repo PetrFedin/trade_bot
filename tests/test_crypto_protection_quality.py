@@ -46,7 +46,7 @@ def test_gap_through_losses_are_separated_from_non_gap_protection() -> None:
     assert quality.gap_loss_share_of_protective_losses == Decimal(1)
 
 
-def test_report_annotation_covers_baseline_and_shadow_candidate() -> None:
+def test_report_annotation_covers_baseline_and_shadow_candidates() -> None:
     report = {
         "variants": {
             "TARGET_15_USD": {
@@ -74,6 +74,17 @@ def test_report_annotation_covers_baseline_and_shadow_candidate() -> None:
                 }
             }
         },
+        "strategy_shadow_candidates": {
+            "MIN_20_NET_EDGE_OPEN_ENDED_RUNNER": {
+                "closed_trades": [
+                    {
+                        "exit_reason": "PROFIT_PROTECTION",
+                        "net_pnl_usdt": 31,
+                        "gap_through": False,
+                    }
+                ]
+            }
+        },
     }
 
     annotated = add_protection_quality_to_report(report)
@@ -84,6 +95,12 @@ def test_report_annotation_covers_baseline_and_shadow_candidate() -> None:
     assert annotated["notional_cap_shadow_candidates"]["MAX_NOTIONAL_3X_EQUITY"][
         "variants"
     ]["TARGET_20_USD"]["protection_quality"]["gap_through_count"] == 0
+    runner = annotated["strategy_shadow_candidates"]["MIN_20_NET_EDGE_OPEN_ENDED_RUNNER"]
+    assert runner["protection_quality"]["protective_exit_count"] == 1
+    assert runner["protection_quality"]["protective_net_pnl_usdt"] == 31.0
     assert annotated["protection_quality_contract"][
         "profit_protection_label_does_not_guarantee_positive_realized_pnl"
+    ] is True
+    assert annotated["protection_quality_contract"][
+        "open_ended_runner_protection_is_not_a_profit_guarantee"
     ] is True
