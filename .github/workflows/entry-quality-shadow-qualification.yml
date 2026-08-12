@@ -54,11 +54,11 @@ jobs:
       - name: Validate shadow configuration JSON
         run: |
           python -m json.tool research/entry_quality_filter_shadow_v1.json > /dev/null
-          python tools/qualify_entry_quality_shadow.py \
+          python -m tools.qualify_entry_quality_shadow \
             --trading-quality-config research/cross_sectional_trading_quality_shadow_v2.json \
             --entry-quality-policy research/entry_quality_filter_shadow_v1.json \
             --validate-config-only
-          python tools/qualify_entry_quality_walk_forward.py \
+          python -m tools.qualify_entry_quality_walk_forward \
             --trading-quality-config research/cross_sectional_trading_quality_shadow_v2.json \
             --entry-quality-policy research/entry_quality_filter_shadow_v1.json \
             --validate-config-only
