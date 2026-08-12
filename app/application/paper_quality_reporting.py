@@ -10,6 +10,16 @@ from app.application.paper_execution_quality import (
     PaperExecutionQualitySummary,
     SQLitePaperExecutionQualityStore,
 )
+from app.application.paper_quality_gate import (
+    ExecutionQualityGatePolicy,
+    PaperQualityGateDecision,
+    ReactionQualityGatePolicy,
+    evaluate_paper_quality_gate,
+)
+from app.application.paper_reaction_quality import (
+    PaperReactionSummary,
+    SQLitePaperReactionQualityStore,
+)
 from app.application.paper_trade_quality import PaperTradeQualityTracker
 from app.domain.trading import Side
 from app.strategy.quality_monitor import (
@@ -44,6 +54,10 @@ class PaperTradingQualityReport:
     execution_all: PaperExecutionQualitySummary | None
     execution_entries: PaperExecutionQualitySummary | None
     execution_exits: PaperExecutionQualitySummary | None
+    reaction_all: PaperReactionSummary | None = None
+    reaction_entries: PaperReactionSummary | None = None
+    reaction_exits: PaperReactionSummary | None = None
+    composite_quality_gate: PaperQualityGateDecision | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return _json_safe(asdict(self))
@@ -55,10 +69,17 @@ def build_paper_trading_quality_report(
     policy: TradeQualityMonitorPolicy,
     generated_at: datetime,
     execution_store: SQLitePaperExecutionQualityStore | None = None,
+    reaction_store: SQLitePaperReactionQualityStore | None = None,
+    execution_gate_policy: ExecutionQualityGatePolicy | None = None,
+    reaction_gate_policy: ReactionQualityGatePolicy | None = None,
 ) -> PaperTradingQualityReport:
     if generated_at.tzinfo is None or generated_at.utcoffset() is None:
         raise ValueError("generated_at must be timezone-aware")
     policy.validate()
+    if execution_gate_policy is not None and execution_store is None:
+        raise ValueError("execution gate policy requires execution store")
+    if reaction_gate_policy is not None and reaction_store is None:
+        raise ValueError("reaction gate policy requires reaction store")
     trades = tracker.store.closed_trades(strategy_id=tracker.strategy_id)
     pnls = tuple(trade.net_pnl for trade in trades)
     returns = tuple(trade.return_fraction for trade in trades)
@@ -87,6 +108,17 @@ def build_paper_trading_quality_report(
     for trade in trades:
         reason_counts[trade.exit_reason] = reason_counts.get(trade.exit_reason, 0) + 1
 
+    trade_gate = tracker.quality_gate(policy=policy)
+    composite_gate = evaluate_paper_quality_gate(
+        trade_gate=trade_gate,
+        execution_store=(
+            execution_store if execution_gate_policy is not None else None
+        ),
+        execution_policy=execution_gate_policy,
+        reaction_store=(reaction_store if reaction_gate_policy is not None else None),
+        reaction_policy=reaction_gate_policy,
+        strategy_id=tracker.strategy_id,
+    )
     return PaperTradingQualityReport(
         strategy_id=tracker.strategy_id,
         generated_at=generated_at,
@@ -94,15 +126,11 @@ def build_paper_trading_quality_report(
         win_count=wins,
         loss_count=losses,
         breakeven_count=breakeven,
-        win_rate=(
-            None if not trades else Decimal(wins) / Decimal(len(trades))
-        ),
+        win_rate=(None if not trades else Decimal(wins) / Decimal(len(trades))),
         total_net_pnl=sum(pnls, start=Decimal("0")),
         gross_profit=gross_profit,
         gross_loss=gross_loss,
-        profit_factor=(
-            None if gross_loss == 0 else gross_profit / gross_loss
-        ),
+        profit_factor=(None if gross_loss == 0 else gross_profit / gross_loss),
         average_return_fraction=_average(returns),
         average_mfe_fraction=_average(mfe),
         average_mae_fraction=_average(mae),
@@ -116,7 +144,7 @@ def build_paper_trading_quality_report(
             else Decimal(preserved) / Decimal(len(positive_mfe_trades))
         ),
         exit_reason_counts=tuple(sorted(reason_counts.items())),
-        quality_gate=tracker.quality_gate(policy=policy),
+        quality_gate=trade_gate,
         execution_all=(
             None if execution_store is None else execution_store.summary()
         ),
@@ -130,6 +158,22 @@ def build_paper_trading_quality_report(
             if execution_store is None
             else execution_store.summary(side=Side.SELL)
         ),
+        reaction_all=(
+            None
+            if reaction_store is None
+            else reaction_store.summary(strategy_id=tracker.strategy_id)
+        ),
+        reaction_entries=(
+            None
+            if reaction_store is None
+            else reaction_store.summary(strategy_id=tracker.strategy_id, side=Side.BUY)
+        ),
+        reaction_exits=(
+            None
+            if reaction_store is None
+            else reaction_store.summary(strategy_id=tracker.strategy_id, side=Side.SELL)
+        ),
+        composite_quality_gate=composite_gate,
     )
 
 
