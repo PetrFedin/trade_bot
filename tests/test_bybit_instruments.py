@@ -1,3 +1,4 @@
+from dataclasses import replace
 from decimal import Decimal
 from urllib.parse import parse_qs, urlsplit
 
@@ -39,12 +40,10 @@ def test_market_quantity_rounds_down_and_never_increases_risk() -> None:
 
 
 def test_market_quantity_rejects_below_minimum_notional_after_rounding() -> None:
-    spec = BybitInstrumentSpec(
-        **{
-            **_spec().__dict__,
-            "min_order_qty": Decimal("0.00001"),
-            "qty_step": Decimal("0.00001"),
-        }
+    spec = replace(
+        _spec(),
+        min_order_qty=Decimal("0.00001"),
+        qty_step=Decimal("0.00001"),
     )
 
     normalized = spec.normalize_market_quantity(
