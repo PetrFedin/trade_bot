@@ -14,6 +14,7 @@ class CryptoExitReason(StrEnum):
     PROFIT_PROTECTION = "PROFIT_PROTECTION"
     NET_TARGET = "NET_TARGET"
     MAX_HOLD = "MAX_HOLD"
+    END_OF_REPLAY = "END_OF_REPLAY"
 
 
 @dataclass(frozen=True)
