@@ -39,7 +39,9 @@ def test_long_runner_activates_at_20_protects_15_and_has_no_profit_cap() -> None
     )
 
     assert Decimal("100000") < levels.protected_price_at_activation < levels.activation_price
-    assert levels.trailing_distance == levels.activation_price - levels.protected_price_at_activation
+    assert levels.trailing_distance == (
+        levels.activation_price - levels.protected_price_at_activation
+    )
     assert levels.activation_net_profit_usd == Decimal("20")
     assert levels.protected_net_profit_usd == Decimal("15")
     assert levels.profit_cap_net_profit_usd is None
@@ -54,7 +56,9 @@ def test_short_runner_is_directionally_inverted_and_uncapped() -> None:
     )
 
     assert levels.activation_price < levels.protected_price_at_activation < Decimal("100000")
-    assert levels.trailing_distance == levels.protected_price_at_activation - levels.activation_price
+    assert levels.trailing_distance == (
+        levels.protected_price_at_activation - levels.activation_price
+    )
     assert levels.profit_cap_net_profit_usd is None
 
 
