@@ -18,6 +18,7 @@ on:
     branches:
       - agent/trading-quality-profit-protection
     paths:
+      - 'app/marketdata/bybit_instruments.py'
       - '.github/workflows/bybit-crypto-historical-replay.yml'
   workflow_dispatch:
     inputs:
