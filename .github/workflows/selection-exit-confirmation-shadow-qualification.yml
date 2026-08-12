@@ -1,0 +1,81 @@
+name: selection-exit-confirmation-shadow-qualification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/strategy/selection_exit_confirmation.py'
+      - 'app/strategy/cross_sectional_portfolio.py'
+      - 'research/selection_exit_confirmation_shadow_v1.json'
+      - 'tests/test_selection_exit_confirmation.py'
+      - 'tests/test_selection_exit_confirmation_shadow_config.py'
+      - 'tests/test_cross_sectional_portfolio.py'
+      - '.github/workflows/selection-exit-confirmation-shadow-qualification.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/strategy/selection_exit_confirmation.py'
+      - 'app/strategy/cross_sectional_portfolio.py'
+      - 'research/selection_exit_confirmation_shadow_v1.json'
+      - 'tests/test_selection_exit_confirmation.py'
+      - 'tests/test_selection_exit_confirmation_shadow_config.py'
+      - 'tests/test_cross_sectional_portfolio.py'
+      - '.github/workflows/selection-exit-confirmation-shadow-qualification.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: selection-exit-confirmation-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked qualification graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Validate shadow policy JSON
+        run: python -m json.tool research/selection_exit_confirmation_shadow_v1.json > /dev/null
+
+      - name: Lint selection-exit confirmation surface
+        run: >-
+          ruff check --output-format=github
+          app/strategy/selection_exit_confirmation.py
+          app/strategy/cross_sectional_portfolio.py
+          tests/test_selection_exit_confirmation.py
+          tests/test_selection_exit_confirmation_shadow_config.py
+          tests/test_cross_sectional_portfolio.py
+
+      - name: Selection-exit confirmation regressions
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -vv \
+            tests/test_selection_exit_confirmation.py \
+            tests/test_selection_exit_confirmation_shadow_config.py \
+            tests/test_cross_sectional_portfolio.py \
+            2>&1 | tee selection-exit-confirmation-pytest.txt
+
+      - name: Upload selection-exit diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: selection-exit-confirmation-${{ github.run_id }}
+          path: selection-exit-confirmation-pytest.txt
+          if-no-files-found: warn
+          retention-days: 30
