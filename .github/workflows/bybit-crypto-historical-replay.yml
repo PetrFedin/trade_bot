@@ -186,6 +186,38 @@ jobs:
               assert variant['bybit_live_order_routing_allowed'] is False
           PY
 
+      - name: Print replay decision evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('artifacts/bybit-crypto/report.json').read_text())
+          summary = {
+              'source': report['source'],
+              'archive_dates': report['archive_dates'],
+              'symbols': report['symbols'],
+              'synchronized_bar_count_per_symbol': report['synchronized_bar_count_per_symbol'],
+              'archive_trade_rows_by_symbol': report['archive_trade_rows_by_symbol'],
+              'variants': {
+                  name: {
+                      'target_net_profit_usd': variant['target_net_profit_usd'],
+                      'metrics': variant['metrics'],
+                      'eligible_signal_event_count': variant['eligible_signal_event_count'],
+                      'accepted_trade_plan_event_count': variant['accepted_trade_plan_event_count'],
+                      'trade_plan_block_reason_counts': variant['trade_plan_block_reason_counts'],
+                      'terminal_completed_bar_signal': variant['terminal_completed_bar_signal'],
+                  }
+                  for name, variant in report['variants'].items()
+              },
+          }
+          print('BYBIT_REPLAY_SUMMARY=' + json.dumps(summary, sort_keys=True))
+          for variant_name, variant in report['variants'].items():
+              for trade_number, trade in enumerate(variant['closed_trades'], start=1):
+                  payload = {'variant': variant_name, 'trade_number': trade_number, **trade}
+                  print('BYBIT_REPLAY_TRADE=' + json.dumps(payload, sort_keys=True))
+          PY
+
       - name: Upload real-market replay evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
