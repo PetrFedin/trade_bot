@@ -12,6 +12,11 @@ on:
       - 'tests/test_bybit_crypto_core.py'
       - 'tests/test_bybit_crypto_replay.py'
       - '.github/workflows/bybit-crypto-historical-replay.yml'
+  push:
+    branches:
+      - agent/trading-quality-profit-protection
+    paths:
+      - '.github/workflows/bybit-crypto-historical-replay.yml'
   workflow_dispatch:
     inputs:
       lookback_days:
