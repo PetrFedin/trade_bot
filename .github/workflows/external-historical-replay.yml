@@ -84,7 +84,8 @@ jobs:
     if: >-
       github.event_name == 'workflow_run' &&
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event != 'pull_request'
+      github.event.workflow_run.event != 'pull_request' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -205,10 +206,14 @@ jobs:
           assert replay['live_trading_allowed'] is False
           assert replay['real_paper_fills'] is False
           assert replay['counterfactual_candidates_promoted'] is False
+          assert replay['declared_interaction_checks'] == [
+              'ENTRY_QUALITY_PLUS_SELECTION_EXIT_INTERACTION'
+          ]
           assert set(replay['variants']) == {
               'CURRENT_COMBINED_SHADOW',
               'ENTRY_QUALITY_CANDIDATE',
               'SELECTION_EXIT_CONFIRMATION_CANDIDATE',
+              'ENTRY_QUALITY_PLUS_SELECTION_EXIT_INTERACTION',
               'PROFIT_RUNNER_CANDIDATE',
           }
           for variant in replay['variants'].values():
