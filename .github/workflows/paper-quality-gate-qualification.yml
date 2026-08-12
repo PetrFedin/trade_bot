@@ -5,22 +5,32 @@ on:
     branches: [main]
     paths:
       - 'app/application/paper_quality_gate.py'
+      - 'app/application/paper_quality_cycle.py'
+      - 'app/application/paper_decision_audit.py'
+      - 'app/application/paper_decision_cycle.py'
       - 'app/application/paper_execution_quality.py'
       - 'app/application/paper_reaction_quality.py'
       - 'app/application/portfolio_paper_planner.py'
       - 'app/strategy/quality_monitor.py'
       - 'tests/test_paper_quality_gate.py'
+      - 'tests/test_paper_quality_cycle.py'
+      - 'tests/test_paper_decision_audit.py'
       - 'tests/test_portfolio_paper_planner.py'
       - '.github/workflows/paper-quality-gate-qualification.yml'
   push:
     branches: [main]
     paths:
       - 'app/application/paper_quality_gate.py'
+      - 'app/application/paper_quality_cycle.py'
+      - 'app/application/paper_decision_audit.py'
+      - 'app/application/paper_decision_cycle.py'
       - 'app/application/paper_execution_quality.py'
       - 'app/application/paper_reaction_quality.py'
       - 'app/application/portfolio_paper_planner.py'
       - 'app/strategy/quality_monitor.py'
       - 'tests/test_paper_quality_gate.py'
+      - 'tests/test_paper_quality_cycle.py'
+      - 'tests/test_paper_decision_audit.py'
       - 'tests/test_portfolio_paper_planner.py'
       - '.github/workflows/paper-quality-gate-qualification.yml'
 
@@ -55,10 +65,15 @@ jobs:
         run: >-
           ruff check --output-format=github
           app/application/paper_quality_gate.py
+          app/application/paper_quality_cycle.py
+          app/application/paper_decision_audit.py
+          app/application/paper_decision_cycle.py
           app/application/paper_execution_quality.py
           app/application/paper_reaction_quality.py
           app/application/portfolio_paper_planner.py
           tests/test_paper_quality_gate.py
+          tests/test_paper_quality_cycle.py
+          tests/test_paper_decision_audit.py
           tests/test_portfolio_paper_planner.py
 
       - name: Composite paper quality gate regressions
@@ -67,6 +82,8 @@ jobs:
           set -o pipefail
           pytest -vv \
             tests/test_paper_quality_gate.py \
+            tests/test_paper_quality_cycle.py \
+            tests/test_paper_decision_audit.py \
             tests/test_portfolio_paper_planner.py \
             2>&1 | tee paper-quality-gate-pytest.txt
 
