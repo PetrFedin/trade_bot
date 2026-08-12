@@ -1,4 +1,5 @@
 from decimal import Decimal
+from typing import Any
 
 from app.execution.bybit_demo import (
     BybitDemoOrderAck,
@@ -28,8 +29,8 @@ class _FakeDemoClient:
         self.position_snapshots = position_snapshots
         self.protection_error = protection_error
         self.flatten_error = flatten_error
-        self.orders: list[object] = []
-        self.protections: list[object] = []
+        self.orders: list[Any] = []
+        self.protections: list[Any] = []
         self.position_reads = 0
 
     def get_positions(self, *, settle_coin: str = "USDT") -> tuple[BybitDemoPosition, ...]:
@@ -38,12 +39,12 @@ class _FakeDemoClient:
         self.position_reads += 1
         return self.position_snapshots[index]
 
-    def place_market_order(self, request: object) -> BybitDemoOrderAck:
-        reduce_only = bool(getattr(request, "reduce_only"))
+    def place_market_order(self, request: Any) -> BybitDemoOrderAck:
+        reduce_only = bool(request.reduce_only)
         if reduce_only and self.flatten_error is not None:
             raise self.flatten_error
         self.orders.append(request)
-        order_link_id = str(getattr(request, "order_link_id"))
+        order_link_id = str(request.order_link_id)
         return BybitDemoOrderAck(
             order_id=f"order-{len(self.orders)}",
             order_link_id=order_link_id,
@@ -52,16 +53,16 @@ class _FakeDemoClient:
 
     def set_open_ended_position_protection(
         self,
-        request: object,
+        request: Any,
     ) -> BybitDemoRunnerProtectionAck:
         if self.protection_error is not None:
             raise self.protection_error
         self.protections.append(request)
         return BybitDemoRunnerProtectionAck(
-            symbol=str(getattr(request, "symbol")),
-            stop_loss_price=getattr(request, "stop_loss_price"),
-            trailing_stop_distance=getattr(request, "trailing_stop_distance"),
-            trailing_active_price=getattr(request, "trailing_active_price"),
+            symbol=str(request.symbol),
+            stop_loss_price=request.stop_loss_price,
+            trailing_stop_distance=request.trailing_stop_distance,
+            trailing_active_price=request.trailing_active_price,
         )
 
 
@@ -132,17 +133,19 @@ def _enabled_policy() -> BybitDemoCyclePolicy:
     )
 
 
+def _strategy_config() -> CryptoPerpStrategyConfig:
+    return CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20"))
+
+
 def test_demo_cycle_is_non_writing_by_default() -> None:
     client = _FakeDemoClient([()])
-
     result = execute_bybit_demo_trade_cycle(
         _trade_plan(),
         instrument=_instrument(),
-        strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
+        strategy_config=_strategy_config(),
         session_state=_session(),
         client=client,
     )
-
     assert result.status is BybitDemoCycleStatus.DEMO_WRITES_DISABLED
     assert result.demo_order_writes_enabled is False
     assert result.live_mainnet_order_routing_allowed is False
@@ -152,7 +155,6 @@ def test_demo_cycle_is_non_writing_by_default() -> None:
 
 def test_demo_cycle_blocks_15_dollar_entry_instead_of_falling_back() -> None:
     client = _FakeDemoClient([()])
-
     result = execute_bybit_demo_trade_cycle(
         _trade_plan(Decimal("15")),
         instrument=_instrument(),
@@ -161,7 +163,6 @@ def test_demo_cycle_blocks_15_dollar_entry_instead_of_falling_back() -> None:
         client=client,
         cycle_policy=_enabled_policy(),
     )
-
     assert result.status is BybitDemoCycleStatus.ENTRY_BLOCKED
     assert result.reasons == ("CRYPTO_ENTRY_MINIMUM_20_USD_NET_EDGE_REQUIRED",)
     assert client.orders == []
@@ -169,17 +170,15 @@ def test_demo_cycle_blocks_15_dollar_entry_instead_of_falling_back() -> None:
 
 def test_demo_cycle_reconciles_fill_before_uncapped_runner_protection() -> None:
     client = _FakeDemoClient([(), (_position(),)])
-
     result = execute_bybit_demo_trade_cycle(
         _trade_plan(),
         instrument=_instrument(),
-        strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
+        strategy_config=_strategy_config(),
         session_state=_session(),
         client=client,
         cycle_policy=_enabled_policy(),
         sleeper=lambda _seconds: None,
     )
-
     assert result.status is BybitDemoCycleStatus.PROTECTED
     assert result.entry_ack is not None
     assert result.protection_ack is not None
@@ -187,26 +186,24 @@ def test_demo_cycle_reconciles_fill_before_uncapped_runner_protection() -> None:
     assert result.reconciled_position == _position()
     assert result.next_entry_allowed is True
     assert len(client.orders) == 1
-    assert getattr(client.orders[0], "reduce_only") is False
+    assert client.orders[0].reduce_only is False
     assert len(client.protections) == 1
     runner_request = client.protections[0]
     assert not hasattr(runner_request, "take_profit_price")
-    assert getattr(runner_request, "trailing_stop_distance") > 0
-    assert getattr(runner_request, "trailing_active_price") > Decimal("100050")
+    assert runner_request.trailing_stop_distance > 0
+    assert runner_request.trailing_active_price > Decimal("100050")
 
 
 def test_preexisting_symbol_position_blocks_new_entry() -> None:
     client = _FakeDemoClient([(_position(),)])
-
     result = execute_bybit_demo_trade_cycle(
         _trade_plan(),
         instrument=_instrument(),
-        strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
+        strategy_config=_strategy_config(),
         session_state=_session(),
         client=client,
         cycle_policy=_enabled_policy(),
     )
-
     assert result.status is BybitDemoCycleStatus.PREEXISTING_POSITION_BLOCKED
     assert result.next_entry_allowed is False
     assert client.orders == []
@@ -214,17 +211,15 @@ def test_preexisting_symbol_position_blocks_new_entry() -> None:
 
 def test_order_ack_without_reconciled_fill_never_counts_as_protected() -> None:
     client = _FakeDemoClient([(), (), ()])
-
     result = execute_bybit_demo_trade_cycle(
         _trade_plan(),
         instrument=_instrument(),
-        strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
+        strategy_config=_strategy_config(),
         session_state=_session(),
         client=client,
         cycle_policy=_enabled_policy(),
         sleeper=lambda _seconds: None,
     )
-
     assert result.status is BybitDemoCycleStatus.ENTRY_ACKED_FILL_UNRESOLVED
     assert result.entry_ack is not None
     assert result.protection_ack is None
@@ -234,24 +229,22 @@ def test_order_ack_without_reconciled_fill_never_counts_as_protected() -> None:
 
 def test_post_fill_risk_breach_sets_runner_protection_then_reduce_only_flatten() -> None:
     client = _FakeDemoClient([(), (_position("0.020"),)])
-
     result = execute_bybit_demo_trade_cycle(
         _trade_plan(),
         instrument=_instrument(),
-        strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
+        strategy_config=_strategy_config(),
         session_state=_session(),
         client=client,
         cycle_policy=_enabled_policy(),
         sleeper=lambda _seconds: None,
     )
-
     assert result.status is BybitDemoCycleStatus.PROTECTED_THEN_FLATTEN_REQUESTED
     assert result.protection_ack is not None
     assert result.flatten_ack is not None
     assert "POST_FILL_RISK_BUDGET_EXCEEDED" in result.reasons
     assert len(client.protections) == 1
     assert len(client.orders) == 2
-    assert getattr(client.orders[1], "reduce_only") is True
+    assert client.orders[1].reduce_only is True
     assert result.next_entry_allowed is False
 
 
@@ -260,20 +253,18 @@ def test_exchange_protection_failure_attempts_reduce_only_flatten() -> None:
         [(), (_position(),)],
         protection_error=RuntimeError("simulated-protection-failure"),
     )
-
     result = execute_bybit_demo_trade_cycle(
         _trade_plan(),
         instrument=_instrument(),
-        strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
+        strategy_config=_strategy_config(),
         session_state=_session(),
         client=client,
         cycle_policy=_enabled_policy(),
         sleeper=lambda _seconds: None,
     )
-
     assert result.status is BybitDemoCycleStatus.PROTECTION_FAILED_FLATTEN_REQUESTED
     assert result.flatten_ack is not None
     assert result.protection_ack is None
     assert result.reasons == ("EXCHANGE_PROTECTION_WRITE_FAILED:RuntimeError",)
-    assert getattr(client.orders[-1], "reduce_only") is True
+    assert client.orders[-1].reduce_only is True
     assert result.next_entry_allowed is False
