@@ -16,6 +16,7 @@ from tools.replay_bybit_crypto import (
     replay_acquisition,
     write_trade_csvs,
 )
+from tools.replay_bybit_crypto_runner import replay_open_ended_crypto_runner
 
 _DEFAULT_SYMBOLS = (
     "BTCUSDT",
@@ -54,6 +55,11 @@ def acquire_archive_and_replay(
         targets_usd=targets_usd,
         interval="5",
     )
+    open_ended_runner = replay_open_ended_crypto_runner(
+        acquisition.klines,
+        opening_equity_usdt=opening_equity_usdt,
+        interval="5",
+    )
     three_x_candidate = replay_acquisition(
         acquisition.klines,
         opening_equity_usdt=opening_equity_usdt,
@@ -76,6 +82,9 @@ def acquire_archive_and_replay(
         current_incomplete_bar_excluded=True,
         raw_trade_archive_committed_to_repository=False,
         rest_api_required=False,
+        strategy_shadow_candidates={
+            "MIN_20_NET_EDGE_OPEN_ENDED_RUNNER": open_ended_runner,
+        },
         notional_cap_shadow_candidates={
             "MAX_NOTIONAL_3X_EQUITY": {
                 "maximum_notional_to_equity": 3.0,
@@ -99,6 +108,9 @@ def acquire_archive_and_replay(
         "order-book depth and queue position are not reconstructed.",
         "Only fully completed UTC archive days are included, so the current UTC day is "
         "intentionally absent from this historical qualification run.",
+        "The open-ended runner is a shadow counterfactual: $20 is the minimum modeled net "
+        "entry edge and runner activation level, $15 is only the initial normal-fill "
+        "protection objective, and favorable upside has no fixed take-profit ceiling.",
         "The 3x notional-cap run is a predeclared shadow candidate with unchanged 1% "
         "cost-aware risk budgeting; it is not permission to use 3x leverage in demo or live.",
     ]
