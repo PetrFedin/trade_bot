@@ -76,8 +76,39 @@ class BybitDemoProtectionRequest:
                 raise ValueError("long Bybit demo TP/SL must bracket entry price")
         elif not self.take_profit_price < self.average_entry_price < self.stop_loss_price:
             raise ValueError("short Bybit demo TP/SL must bracket entry price")
-        if self.trigger_by not in {"LastPrice", "MarkPrice", "IndexPrice"}:
-            raise ValueError("unsupported Bybit demo TP/SL trigger price")
+        _validate_trigger_by(self.trigger_by)
+
+
+@dataclass(frozen=True)
+class BybitDemoRunnerProtectionRequest:
+    """Exchange-native hard stop + delayed trailing stop with no fixed take profit."""
+
+    symbol: str
+    side: str
+    average_entry_price: Decimal
+    stop_loss_price: Decimal
+    trailing_stop_distance: Decimal
+    trailing_active_price: Decimal
+    trigger_by: str = "LastPrice"
+
+    def validate(self) -> None:
+        _validate_symbol(self.symbol)
+        if self.side not in {"Buy", "Sell"}:
+            raise ValueError("Bybit demo runner side must be Buy or Sell")
+        for name, value in (
+            ("average_entry_price", self.average_entry_price),
+            ("stop_loss_price", self.stop_loss_price),
+            ("trailing_stop_distance", self.trailing_stop_distance),
+            ("trailing_active_price", self.trailing_active_price),
+        ):
+            if not value.is_finite() or value <= 0:
+                raise ValueError(f"Bybit demo runner {name} must be positive and finite")
+        if self.side == "Buy":
+            if not self.stop_loss_price < self.average_entry_price < self.trailing_active_price:
+                raise ValueError("long Bybit demo runner must have stop < entry < activation")
+        elif not self.trailing_active_price < self.average_entry_price < self.stop_loss_price:
+            raise ValueError("short Bybit demo runner must have activation < entry < stop")
+        _validate_trigger_by(self.trigger_by)
 
 
 @dataclass(frozen=True)
@@ -94,6 +125,17 @@ class BybitDemoProtectionAck:
     symbol: str
     take_profit_price: Decimal
     stop_loss_price: Decimal
+    accepted: bool = True
+    environment: str = "BYBIT_DEMO"
+    live_mainnet_order: bool = False
+
+
+@dataclass(frozen=True)
+class BybitDemoRunnerProtectionAck:
+    symbol: str
+    stop_loss_price: Decimal
+    trailing_stop_distance: Decimal
+    trailing_active_price: Decimal
     accepted: bool = True
     environment: str = "BYBIT_DEMO"
     live_mainnet_order: bool = False
@@ -172,11 +214,7 @@ class BybitDemoOrderClient:
         self,
         request: BybitDemoProtectionRequest,
     ) -> BybitDemoProtectionAck:
-        """Set exchange-native full-position TP/SL after fill reconciliation.
-
-        Callers must reconcile the actual position first. Replacements should always submit
-        both TP and SL so their full-position protection remains an explicit pair.
-        """
+        """Legacy fixed full-position TP/SL helper retained for benchmark compatibility."""
 
         request.validate()
         self._signed_post(
@@ -196,6 +234,33 @@ class BybitDemoOrderClient:
             symbol=request.symbol,
             take_profit_price=request.take_profit_price,
             stop_loss_price=request.stop_loss_price,
+        )
+
+    def set_open_ended_position_protection(
+        self,
+        request: BybitDemoRunnerProtectionRequest,
+    ) -> BybitDemoRunnerProtectionAck:
+        """Set hard SL plus delayed trailing protection without a fixed take-profit ceiling."""
+
+        request.validate()
+        self._signed_post(
+            "/v5/position/trading-stop",
+            {
+                "category": "linear",
+                "symbol": request.symbol,
+                "stopLoss": _decimal_text(request.stop_loss_price),
+                "slTriggerBy": request.trigger_by,
+                "trailingStop": _decimal_text(request.trailing_stop_distance),
+                "activePrice": _decimal_text(request.trailing_active_price),
+                "tpslMode": "Full",
+                "positionIdx": 0,
+            },
+        )
+        return BybitDemoRunnerProtectionAck(
+            symbol=request.symbol,
+            stop_loss_price=request.stop_loss_price,
+            trailing_stop_distance=request.trailing_stop_distance,
+            trailing_active_price=request.trailing_active_price,
         )
 
     def cancel_order(self, *, symbol: str, order_link_id: str) -> BybitDemoOrderAck:
@@ -326,6 +391,11 @@ def _result(response: BybitDemoHttpJson) -> Mapping[str, Any]:
 def _validate_symbol(symbol: str) -> None:
     if symbol != symbol.strip().upper() or not symbol.endswith("USDT"):
         raise ValueError("Bybit symbol must be normalized USDT linear symbol")
+
+
+def _validate_trigger_by(trigger_by: str) -> None:
+    if trigger_by not in {"LastPrice", "MarkPrice", "IndexPrice"}:
+        raise ValueError("unsupported Bybit demo protection trigger price")
 
 
 def _decimal_text(value: Decimal) -> str:
