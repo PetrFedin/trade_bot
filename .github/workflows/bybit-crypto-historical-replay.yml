@@ -11,17 +11,21 @@ on:
       - 'app/execution/bybit_demo.py'
       - 'app/execution/bybit_demo_controller.py'
       - 'app/strategy/crypto_perp.py'
+      - 'app/strategy/crypto_profit_runner.py'
       - 'app/strategy/crypto_trade_management.py'
       - 'app/strategy/crypto_evidence.py'
       - 'app/strategy/crypto_session_risk.py'
       - 'app/strategy/crypto_replay_quality.py'
+      - 'app/strategy/crypto_protection_quality.py'
       - 'tools/replay_bybit_crypto.py'
+      - 'tools/replay_bybit_crypto_runner.py'
       - 'tools/replay_bybit_crypto_archive.py'
       - 'tools/normalize_bybit_crypto_replay.py'
       - 'tools/evaluate_bybit_crypto_replay.py'
       - 'tests/test_bybit_http.py'
       - 'tests/test_bybit_crypto_core.py'
       - 'tests/test_bybit_crypto_replay.py'
+      - 'tests/test_bybit_crypto_runner_replay.py'
       - 'tests/test_bybit_demo_protection.py'
       - 'tests/test_bybit_demo_controller.py'
       - 'tests/test_bybit_instruments.py'
@@ -29,6 +33,7 @@ on:
       - 'tests/test_crypto_evidence.py'
       - 'tests/test_crypto_session_risk.py'
       - 'tests/test_crypto_replay_quality.py'
+      - 'tests/test_crypto_protection_quality.py'
       - 'tests/test_evaluate_bybit_crypto_replay.py'
       - '.github/workflows/bybit-crypto-historical-replay.yml'
   push:
@@ -86,17 +91,21 @@ jobs:
           app/execution/bybit_demo.py
           app/execution/bybit_demo_controller.py
           app/strategy/crypto_perp.py
+          app/strategy/crypto_profit_runner.py
           app/strategy/crypto_trade_management.py
           app/strategy/crypto_evidence.py
           app/strategy/crypto_session_risk.py
           app/strategy/crypto_replay_quality.py
+          app/strategy/crypto_protection_quality.py
           tools/replay_bybit_crypto.py
+          tools/replay_bybit_crypto_runner.py
           tools/replay_bybit_crypto_archive.py
           tools/normalize_bybit_crypto_replay.py
           tools/evaluate_bybit_crypto_replay.py
           tests/test_bybit_http.py
           tests/test_bybit_crypto_core.py
           tests/test_bybit_crypto_replay.py
+          tests/test_bybit_crypto_runner_replay.py
           tests/test_bybit_demo_protection.py
           tests/test_bybit_demo_controller.py
           tests/test_bybit_instruments.py
@@ -104,6 +113,7 @@ jobs:
           tests/test_crypto_evidence.py
           tests/test_crypto_session_risk.py
           tests/test_crypto_replay_quality.py
+          tests/test_crypto_protection_quality.py
           tests/test_evaluate_bybit_crypto_replay.py
 
       - name: Bybit crypto invariants
@@ -114,6 +124,7 @@ jobs:
             tests/test_bybit_http.py \
             tests/test_bybit_crypto_core.py \
             tests/test_bybit_crypto_replay.py \
+            tests/test_bybit_crypto_runner_replay.py \
             tests/test_bybit_demo_protection.py \
             tests/test_bybit_demo_controller.py \
             tests/test_bybit_instruments.py \
@@ -121,6 +132,7 @@ jobs:
             tests/test_crypto_evidence.py \
             tests/test_crypto_session_risk.py \
             tests/test_crypto_replay_quality.py \
+            tests/test_crypto_protection_quality.py \
             tests/test_evaluate_bybit_crypto_replay.py \
             2>&1 | tee bybit-crypto-pytest.txt
 
@@ -134,11 +146,14 @@ jobs:
           app/execution/bybit_demo.py
           app/execution/bybit_demo_controller.py
           app/strategy/crypto_perp.py
+          app/strategy/crypto_profit_runner.py
           app/strategy/crypto_trade_management.py
           app/strategy/crypto_evidence.py
           app/strategy/crypto_session_risk.py
           app/strategy/crypto_replay_quality.py
+          app/strategy/crypto_protection_quality.py
           tools/replay_bybit_crypto.py
+          tools/replay_bybit_crypto_runner.py
           tools/replay_bybit_crypto_archive.py
           tools/normalize_bybit_crypto_replay.py
           tools/evaluate_bybit_crypto_replay.py
@@ -227,6 +242,8 @@ jobs:
           assert report['replay_quality_normalization']['raw_trade_pnl_preserved'] is True
           assert report['replay_quality_normalization']['breakeven_residuals_classified_neutral'] is True
           assert report['replay_quality_normalization']['terminal_forced_closes_distinguished_from_max_hold'] is True
+          assert report['replay_quality_normalization']['strategy_shadow_candidates_normalized'] is True
+          assert report['protection_quality_contract']['open_ended_runner_protection_is_not_a_profit_guarantee'] is True
           assert scorecard['strategy_promotion_allowed'] is False
           assert scorecard['live_promotion_allowed'] is False
           assert set(report['variants']) == {
@@ -247,6 +264,20 @@ jobs:
           assert scored_candidate['strategy_promotion_allowed'] is False
           assert scored_candidate['demo_order_writes_allowed'] is False
           assert scored_candidate['live_promotion_allowed'] is False
+          runner = report['strategy_shadow_candidates']['MIN_20_NET_EDGE_OPEN_ENDED_RUNNER']
+          assert runner['minimum_entry_net_profit_usd'] == 20.0
+          assert runner['runner_activation_net_profit_usd'] == 20.0
+          assert runner['runner_initial_protected_net_profit_usd'] == 15.0
+          assert runner['profit_cap_net_profit_usd'] is None
+          assert runner['fixed_take_profit_enabled'] is False
+          assert runner['protected_15_is_guaranteed_realized_pnl'] is False
+          assert runner['strategy_promotion_allowed'] is False
+          assert runner['bybit_demo_order_writes_enabled'] is False
+          assert runner['bybit_live_order_routing_allowed'] is False
+          scored_runner = scorecard['strategy_shadow_candidates']['MIN_20_NET_EDGE_OPEN_ENDED_RUNNER']
+          assert scored_runner['strategy_promotion_allowed'] is False
+          assert scored_runner['demo_order_writes_allowed'] is False
+          assert scored_runner['live_promotion_allowed'] is False
           for variant in scorecard['variants'].values():
               assert variant['live_promotion_allowed'] is False
           for variant in scored_candidate['variants'].values():
@@ -263,6 +294,8 @@ jobs:
           scorecard = json.loads(Path('artifacts/bybit-crypto/evidence-scorecard.json').read_text())
           candidate = report['notional_cap_shadow_candidates']['MAX_NOTIONAL_3X_EQUITY']
           candidate_score = scorecard['shadow_candidates']['MAX_NOTIONAL_3X_EQUITY']
+          runner = report['strategy_shadow_candidates']['MIN_20_NET_EDGE_OPEN_ENDED_RUNNER']
+          runner_score = scorecard['strategy_shadow_candidates']['MIN_20_NET_EDGE_OPEN_ENDED_RUNNER']
           summary = {
               'source': report['source'],
               'archive_dates': report['archive_dates'],
@@ -281,6 +314,19 @@ jobs:
                       'evidence_scorecard': scorecard['variants'][name],
                   }
                   for name, variant in report['variants'].items()
+              },
+              'open_ended_runner_2x': {
+                  'minimum_entry_net_profit_usd': runner['minimum_entry_net_profit_usd'],
+                  'runner_activation_net_profit_usd': runner['runner_activation_net_profit_usd'],
+                  'runner_initial_protected_net_profit_usd': runner['runner_initial_protected_net_profit_usd'],
+                  'profit_cap_net_profit_usd': runner['profit_cap_net_profit_usd'],
+                  'runner_activation_event_count': runner['runner_activation_event_count'],
+                  'metrics': runner['metrics'],
+                  'eligible_signal_event_count': runner['eligible_signal_event_count'],
+                  'accepted_trade_plan_event_count': runner['accepted_trade_plan_event_count'],
+                  'trade_plan_block_reason_counts': runner['trade_plan_block_reason_counts'],
+                  'protection_quality': runner['protection_quality'],
+                  'evidence_scorecard': runner_score,
               },
               'shadow_3x_same_risk': {
                   name: {
@@ -308,6 +354,14 @@ jobs:
                           **trade,
                       }
                       print('BYBIT_REPLAY_TRADE=' + json.dumps(payload, sort_keys=True))
+          for trade_number, trade in enumerate(runner['closed_trades'], start=1):
+              payload = {
+                  'scope': 'OPEN_ENDED_RUNNER_2X',
+                  'variant': 'MIN_20_NET_EDGE_OPEN_ENDED_RUNNER',
+                  'trade_number': trade_number,
+                  **trade,
+              }
+              print('BYBIT_REPLAY_TRADE=' + json.dumps(payload, sort_keys=True))
           PY
 
       - name: Upload real-market replay evidence
