@@ -85,8 +85,12 @@ def test_replay_emits_trade_and_decision_evidence_without_lookahead(
         "CURRENT_COMBINED_SHADOW",
         "ENTRY_QUALITY_CANDIDATE",
         "SELECTION_EXIT_CONFIRMATION_CANDIDATE",
+        "ENTRY_QUALITY_PLUS_SELECTION_EXIT_INTERACTION",
         "PROFIT_RUNNER_CANDIDATE",
     }
+    assert report["declared_interaction_checks"] == [
+        "ENTRY_QUALITY_PLUS_SELECTION_EXIT_INTERACTION"
+    ]
     for payload in variants.values():
         assert payload["no_lookahead_verified"] is True
         assert payload["trade_timestamps_verified"] is True
@@ -99,7 +103,7 @@ def test_replay_emits_trade_and_decision_evidence_without_lookahead(
     assert baseline["metrics"]["closed_trade_count"] >= 1
 
 
-def test_replay_candidates_remain_marginal_and_unpromoted(tmp_path: Path) -> None:
+def test_replay_candidates_and_interaction_remain_unpromoted(tmp_path: Path) -> None:
     csv_path = tmp_path / "bars.csv"
     _write_market(csv_path)
 
@@ -119,5 +123,6 @@ def test_replay_candidates_remain_marginal_and_unpromoted(tmp_path: Path) -> Non
     assert set(report["comparisons_vs_current_combined_shadow"]) == {
         "ENTRY_QUALITY_CANDIDATE",
         "SELECTION_EXIT_CONFIRMATION_CANDIDATE",
+        "ENTRY_QUALITY_PLUS_SELECTION_EXIT_INTERACTION",
         "PROFIT_RUNNER_CANDIDATE",
     }
