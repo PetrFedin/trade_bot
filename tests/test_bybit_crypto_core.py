@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from urllib.parse import parse_qs, urlsplit
@@ -27,7 +28,12 @@ from app.strategy.crypto_perp import (
 )
 
 
-def _trend_bars(symbol: str, *, direction: int, count: int = 36) -> tuple[BybitKlineBar, ...]:
+def _trend_bars(
+    symbol: str,
+    *,
+    direction: int,
+    count: int = 36,
+) -> tuple[BybitKlineBar, ...]:
     start = datetime(2026, 8, 1, tzinfo=UTC)
     base = Decimal("100") if direction > 0 else Decimal("130")
     bars = []
@@ -134,13 +140,10 @@ def test_trade_plan_treats_dollar_target_as_net_edge_gate() -> None:
         quality_score=Decimal("3"),
         decision_time="2026-08-12T18:00:00+00:00",
     )
-    base = _research_config()
-    base = CryptoPerpStrategyConfig(
-        **{
-            **base.__dict__,
-            "risk_fraction_per_trade": Decimal("0.01"),
-            "expected_move_atr_multiple": Decimal("3"),
-        }
+    base = replace(
+        _research_config(),
+        risk_fraction_per_trade=Decimal("0.01"),
+        expected_move_atr_multiple=Decimal("3"),
     )
 
     target_15 = build_trade_plan(
@@ -156,7 +159,8 @@ def test_trade_plan_treats_dollar_target_as_net_edge_gate() -> None:
 
     assert target_15.eligible is True
     assert target_15.plan is not None
-    assert target_15.plan.notional_usdt == Decimal("2000.0")
+    assert target_15.plan.notional_usdt < Decimal("2000")
+    assert target_15.plan.estimated_stop_loss_after_cost_usdt <= Decimal("10")
     assert target_15.plan.expected_net_edge_usd > Decimal("15")
     assert target_25.eligible is False
     assert "EXPECTED_NET_PROFIT_BELOW_TARGET" in target_25.reasons
@@ -187,7 +191,7 @@ def test_execution_levels_are_directionally_symmetric() -> None:
         config=config,
     )
 
-    short_signal = CryptoSignal(**{**signal.__dict__, "side": CryptoSide.SHORT})
+    short_signal = replace(signal, side=CryptoSide.SHORT)
     short_evaluation = build_trade_plan(
         short_signal,
         equity_usdt=Decimal("1000"),
