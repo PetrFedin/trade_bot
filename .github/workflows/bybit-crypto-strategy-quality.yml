@@ -17,8 +17,11 @@ on:
       - 'app/strategy/crypto_entry_economics.py'
       - 'app/strategy/crypto_target_selection.py'
       - 'app/strategy/crypto_profit_runner.py'
+      - 'tools/replay_bybit_crypto_runner.py'
+      - 'tools/replay_bybit_crypto_archive.py'
       - 'tests/test_bybit_crypto_core.py'
       - 'tests/test_bybit_crypto_replay.py'
+      - 'tests/test_bybit_crypto_runner_replay.py'
       - 'tests/test_bybit_demo_protection.py'
       - 'tests/test_bybit_demo_controller.py'
       - 'tests/test_bybit_demo_cycle.py'
@@ -76,8 +79,11 @@ jobs:
           app/strategy/crypto_entry_economics.py
           app/strategy/crypto_target_selection.py
           app/strategy/crypto_profit_runner.py
+          tools/replay_bybit_crypto_runner.py
+          tools/replay_bybit_crypto_archive.py
           tests/test_bybit_crypto_core.py
           tests/test_bybit_crypto_replay.py
+          tests/test_bybit_crypto_runner_replay.py
           tests/test_bybit_demo_protection.py
           tests/test_bybit_demo_controller.py
           tests/test_bybit_demo_cycle.py
@@ -98,6 +104,7 @@ jobs:
           pytest -vv \
             tests/test_bybit_crypto_core.py \
             tests/test_bybit_crypto_replay.py \
+            tests/test_bybit_crypto_runner_replay.py \
             tests/test_bybit_demo_protection.py \
             tests/test_bybit_demo_controller.py \
             tests/test_bybit_demo_cycle.py \
@@ -128,6 +135,8 @@ jobs:
           app/strategy/crypto_entry_economics.py
           app/strategy/crypto_target_selection.py
           app/strategy/crypto_profit_runner.py
+          tools/replay_bybit_crypto_runner.py
+          tools/replay_bybit_crypto_archive.py
 
       - name: Upload strategy diagnostics
         if: always()
