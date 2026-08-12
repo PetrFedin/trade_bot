@@ -10,7 +10,10 @@ from decimal import Decimal
 from pathlib import Path
 
 from app.marketdata.ohlcv import OhlcvBar
-from app.strategy.cross_sectional_portfolio import CrossSectionalPortfolioResult
+from app.strategy.cross_sectional_portfolio import (
+    CrossSectionalPortfolioBacktester,
+    CrossSectionalPortfolioResult,
+)
 from tools import qualify_cross_sectional_trading_quality_shadow as quality
 from tools import qualify_entry_quality_shadow as entry_quality
 from tools import qualify_profit_runner_shadow as profit_runner
@@ -140,6 +143,27 @@ def _filter_completed_through(
     return retained, excluded
 
 
+def _run_entry_selection_interaction(
+    bars: tuple[OhlcvBar, ...],
+    *,
+    config: dict,
+    entry_policy: dict,
+    selection_policy: dict,
+) -> CrossSectionalPortfolioResult:
+    return CrossSectionalPortfolioBacktester(
+        selector=entry_quality._selector(
+            config,
+            filtered=True,
+            policy=entry_policy,
+        ),
+        portfolio_policy=quality._portfolio_policy(config),
+        position_policy=quality._position_policy(config, protection=True),
+        reentry_policy=quality._reentry_policy(config),
+        sizing_policy=quality._sizing_policy(config),
+        selection_exit_policy=selection_exit._selection_exit_policy(selection_policy),
+    ).run(bars)
+
+
 def replay(
     *,
     csv_path: Path,
@@ -185,6 +209,14 @@ def replay(
             config=config,
             policy=selection_policy,
             confirmed=True,
+        ),
+        "ENTRY_QUALITY_PLUS_SELECTION_EXIT_INTERACTION": (
+            _run_entry_selection_interaction(
+                bars,
+                config=config,
+                entry_policy=entry_policy,
+                selection_policy=selection_policy,
+            )
         ),
         "PROFIT_RUNNER_CANDIDATE": profit_runner._run(
             bars,
@@ -238,13 +270,17 @@ def replay(
             "selection_exit_confirmation": selection_policy["policy"],
             "profit_runner": runner_policy["policy"],
         },
+        "declared_interaction_checks": [
+            "ENTRY_QUALITY_PLUS_SELECTION_EXIT_INTERACTION"
+        ],
         "variants": evidence,
         "comparisons_vs_current_combined_shadow": comparisons,
         "limitations": [
             "HISTORICAL_REPLAY_IS_NOT_LIVE_OR_REAL_PAPER_EXECUTION",
             "STATIC_SLIPPAGE_AND_FEE_MODEL_DOES_NOT_CAPTURE_ORDER_BOOK_IMPACT",
             "DAILY_BARS_DO_NOT_RECONSTRUCT_TRUE_INTRABAR_PATH",
-            "CANDIDATE_VARIANTS_ARE_EVALUATED_MARGINALLY_NOT_AS_A_PROMOTED_STACK",
+            "CANDIDATES_REMAIN_NON_PROMOTED_DESPITE_MARGINAL_OR_PAIRWISE_RESULTS",
+            "PAIRWISE_RESULT_DOES_NOT_ESTABLISH_FULL_STACK_INTERACTION_SAFETY",
             "SAME_SAMPLE_REPLAY_IS_NOT_STRATEGY_PROMOTION_EVIDENCE",
             "NO_STRATEGY_PROFITABILITY_CLAIM",
         ],
