@@ -299,7 +299,11 @@ def test_profitable_selection_rotation_still_exits_immediately() -> None:
         START + timedelta(days=3): ("MSFT",),
     }
     universe = [
-        *series("AAPL", ["100", "100", "102", "102", "102"]),
+        *series(
+            "AAPL",
+            ["100", "100", "103", "103", "103"],
+            overrides={2: ("102", "103.2", "101.8", "103")},
+        ),
         *series("MSFT", ["100", "100", "100", "101", "102"]),
     ]
     result = CrossSectionalPortfolioBacktester(
