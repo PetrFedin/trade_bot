@@ -6,11 +6,12 @@ import json
 import statistics
 import time
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from app.marketdata.bybit_v5 import (
     BybitKlineAcquisition,
