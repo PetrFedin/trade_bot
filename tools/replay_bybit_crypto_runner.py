@@ -16,11 +16,16 @@ from app.strategy.crypto_profit_runner import (
     CryptoProfitRunnerPolicy,
     build_crypto_profit_runner_levels,
 )
+from app.strategy.crypto_runner_admission import (
+    CryptoRunnerAdmissionPolicy,
+    evaluate_crypto_runner_admission,
+)
 from app.strategy.crypto_trade_management import (
     CryptoExitReason,
     CryptoProtectionPolicy,
     resolve_crypto_bar_exit,
     update_open_ended_runner_after_completed_bar,
+    update_protection_after_completed_bar,
 )
 from tools import replay_bybit_crypto as replay_core
 
@@ -46,11 +51,16 @@ def replay_open_ended_crypto_runner(
     base_config: CryptoPerpStrategyConfig | None = None,
     protection_policy: CryptoProtectionPolicy | None = None,
     runner_policy: CryptoProfitRunnerPolicy | None = None,
+    runner_admission_policy: CryptoRunnerAdmissionPolicy | None = None,
     interval: str = "5",
 ) -> dict[str, Any]:
-    """Replay one portfolio using >=$20 admission and no fixed take-profit ceiling.
+    """Replay a >=$20 portfolio with optional excess-edge-gated unlimited runners.
 
-    This is intentionally a separate shadow counterfactual from the fixed-target benchmark.
+    With ``runner_admission_policy=None`` every accepted position uses the original unlimited
+    runner shadow. When an admission policy is supplied, positions whose expected net edge is
+    not sufficiently above the $20 activation keep the fixed $20 target; only high-excess-edge
+    positions give up that fixed target for the unlimited runner.
+
     Entry remains completed-bar signal -> next-bar open. Runner activation is observed from a
     completed bar and can only tighten the stop for the following bar, so no same-bar
     retroactive protection is credited to the strategy.
@@ -60,6 +70,8 @@ def replay_open_ended_crypto_runner(
         raise ValueError("opening equity must be positive")
     runner = CryptoProfitRunnerPolicy() if runner_policy is None else runner_policy
     runner.validate()
+    if runner_admission_policy is not None:
+        runner_admission_policy.validate()
     base = default_crypto_config() if base_config is None else base_config
     config = replace(base, target_net_profit_usd=runner.activation_net_profit_usd)
     policy = CryptoProtectionPolicy() if protection_policy is None else protection_policy
@@ -92,6 +104,8 @@ def replay_open_ended_crypto_runner(
     plan_event_count = 0
     maximum_concurrent = 0
     runner_activation_event_count = 0
+    runner_selected_trade_count = 0
+    fixed_target_selected_trade_count = 0
     runner_armed: set[str] = set()
     decision_events: list[dict[str, Any]] = []
 
@@ -132,15 +146,31 @@ def replay_open_ended_crypto_runner(
             if index < cooldown_until_index.get(symbol, -1):
                 continue
             position = _open_position(pending, bar=current_bars[symbol], config=config)
-            levels = build_crypto_profit_runner_levels(
-                position.plan,
-                actual_average_entry_price=position.entry_price,
-                actual_filled_quantity=position.quantity,
-                strategy_config=config,
-                policy=runner,
-            )
+            admission = None
+            runner_selected = True
+            if runner_admission_policy is not None:
+                admission = evaluate_crypto_runner_admission(
+                    position.plan,
+                    runner_policy=runner,
+                    admission_policy=runner_admission_policy,
+                )
+                runner_selected = admission.eligible
+
+            levels: CryptoProfitRunnerLevels | None = None
+            if runner_selected:
+                levels = build_crypto_profit_runner_levels(
+                    position.plan,
+                    actual_average_entry_price=position.entry_price,
+                    actual_filled_quantity=position.quantity,
+                    strategy_config=config,
+                    policy=runner,
+                )
+                runner_levels[symbol] = levels
+                runner_selected_trade_count += 1
+            else:
+                fixed_target_selected_trade_count += 1
+
             positions[symbol] = position
-            runner_levels[symbol] = levels
             cash_equity -= position.entry_fee
             decision_events.append(
                 {
@@ -152,23 +182,43 @@ def replay_open_ended_crypto_runner(
                     "entry_price": float(position.entry_price),
                     "quantity": float(position.quantity),
                     "minimum_entry_net_edge_usd": float(runner.activation_net_profit_usd),
-                    "runner_activation_price": float(levels.activation_price),
-                    "runner_initial_protected_price": float(
-                        levels.protected_price_at_activation
+                    "expected_net_edge_usd": float(position.plan.expected_net_edge_usd),
+                    "exit_mode": "OPEN_ENDED_RUNNER" if runner_selected else "FIXED_20_TARGET",
+                    "runner_activation_price": (
+                        None if levels is None else float(levels.activation_price)
                     ),
-                    "runner_trailing_distance": float(levels.trailing_distance),
-                    "profit_cap_net_profit_usd": None,
+                    "runner_initial_protected_price": (
+                        None
+                        if levels is None
+                        else float(levels.protected_price_at_activation)
+                    ),
+                    "runner_trailing_distance": (
+                        None if levels is None else float(levels.trailing_distance)
+                    ),
+                    "runner_required_expected_net_edge_usd": (
+                        None
+                        if admission is None
+                        else float(admission.required_expected_net_edge_usd)
+                    ),
+                    "runner_admission_reasons": (
+                        [] if admission is None else list(admission.reasons)
+                    ),
+                    "fixed_target_price": (
+                        None if runner_selected else float(position.target_price)
+                    ),
+                    "profit_cap_net_profit_usd": None if runner_selected else 20.0,
                     "risk_budget_usdt": float(position.plan.risk_budget_usdt),
                 }
             )
 
         for symbol, position in list(positions.items()):
+            runner_selected = symbol in runner_levels
             bar_exit = resolve_crypto_bar_exit(
                 side=position.side,
                 bar=current_bars[symbol],
                 active_stop_price=position.protection.active_stop_price,
                 active_stop_reason=position.protection.active_stop_reason,
-                target_price=None,
+                target_price=None if runner_selected else position.target_price,
             )
             if bar_exit is None:
                 continue
@@ -183,43 +233,57 @@ def replay_open_ended_crypto_runner(
             positions.pop(symbol)
             runner_levels.pop(symbol, None)
             runner_armed.discard(symbol)
-            cooldown_until_index[symbol] = index + policy.cooldown_bars_after_stop
+            cooldown_until_index[symbol] = index + _cooldown_bars_for_reason(
+                bar_exit.reason,
+                policy,
+            )
             decision_events.append(_exit_event(trade))
 
         for symbol, position in positions.items():
             position.bars_held += 1
-            levels = runner_levels[symbol]
-            previous_favorable = position.protection.favorable_extreme
-            position.protection = update_open_ended_runner_after_completed_bar(
-                position.protection,
-                side=position.side,
-                entry_price=position.entry_price,
-                risk_price_distance=position.risk_price_distance,
-                break_even_price=position.break_even_trigger_price,
-                runner_activation_price=levels.activation_price,
-                runner_protected_price_at_activation=levels.protected_price_at_activation,
-                runner_trailing_distance=levels.trailing_distance,
-                completed_bar=current_bars[symbol],
-                policy=policy,
-            )
-            if symbol not in runner_armed and _runner_reached_activation(
-                position,
-                levels,
-                previous_favorable=previous_favorable,
-            ):
-                runner_armed.add(symbol)
-                runner_activation_event_count += 1
-                decision_events.append(
-                    {
-                        "event": "RUNNER_ACTIVATED",
-                        "symbol": symbol,
-                        "side": position.side.value,
-                        "decision_time": timestamp.isoformat(),
-                        "active_stop_for_next_bar": float(
-                            position.protection.active_stop_price
-                        ),
-                        "profit_cap_net_profit_usd": None,
-                    }
+            if symbol in runner_levels:
+                levels = runner_levels[symbol]
+                previous_favorable = position.protection.favorable_extreme
+                position.protection = update_open_ended_runner_after_completed_bar(
+                    position.protection,
+                    side=position.side,
+                    entry_price=position.entry_price,
+                    risk_price_distance=position.risk_price_distance,
+                    break_even_price=position.break_even_trigger_price,
+                    runner_activation_price=levels.activation_price,
+                    runner_protected_price_at_activation=levels.protected_price_at_activation,
+                    runner_trailing_distance=levels.trailing_distance,
+                    completed_bar=current_bars[symbol],
+                    policy=policy,
+                )
+                if symbol not in runner_armed and _runner_reached_activation(
+                    position,
+                    levels,
+                    previous_favorable=previous_favorable,
+                ):
+                    runner_armed.add(symbol)
+                    runner_activation_event_count += 1
+                    decision_events.append(
+                        {
+                            "event": "RUNNER_ACTIVATED",
+                            "symbol": symbol,
+                            "side": position.side.value,
+                            "decision_time": timestamp.isoformat(),
+                            "active_stop_for_next_bar": float(
+                                position.protection.active_stop_price
+                            ),
+                            "profit_cap_net_profit_usd": None,
+                        }
+                    )
+            else:
+                position.protection = update_protection_after_completed_bar(
+                    position.protection,
+                    side=position.side,
+                    entry_price=position.entry_price,
+                    risk_price_distance=position.risk_price_distance,
+                    break_even_price=position.break_even_trigger_price,
+                    completed_bar=current_bars[symbol],
+                    policy=policy,
                 )
             if position.bars_held >= policy.maximum_holding_bars:
                 pending_max_hold_exits.add(symbol)
@@ -313,13 +377,25 @@ def replay_open_ended_crypto_runner(
         maximum_concurrent=maximum_concurrent,
     )
     terminal = _terminal_snapshot(histories, final_equity=final_equity, config=config)
+    conditional = runner_admission_policy is not None
     return {
-        "mode": "MIN_20_NET_EDGE_OPEN_ENDED_RUNNER",
+        "mode": (
+            "MIN_20_NET_EDGE_CONDITIONAL_OPEN_ENDED_RUNNER"
+            if conditional
+            else "MIN_20_NET_EDGE_OPEN_ENDED_RUNNER"
+        ),
         "minimum_entry_net_profit_usd": float(runner.activation_net_profit_usd),
         "runner_activation_net_profit_usd": float(runner.activation_net_profit_usd),
         "runner_initial_protected_net_profit_usd": float(runner.protected_net_profit_usd),
-        "profit_cap_net_profit_usd": None,
-        "fixed_take_profit_enabled": False,
+        "runner_minimum_expected_edge_multiple": (
+            None
+            if runner_admission_policy is None
+            else float(runner_admission_policy.minimum_expected_edge_multiple)
+        ),
+        "runner_selected_trade_count": runner_selected_trade_count,
+        "fixed_target_selected_trade_count": fixed_target_selected_trade_count,
+        "profit_cap_net_profit_usd": None if not conditional else "CONDITIONAL_BY_TRADE",
+        "fixed_take_profit_enabled": conditional,
         "runner_activation_event_count": runner_activation_event_count,
         "metrics": metrics,
         "closed_trades": [trade.as_dict() for trade in closed],
@@ -333,6 +409,11 @@ def replay_open_ended_crypto_runner(
         "no_lookahead_contract": "completed bar decision -> next bar open execution",
         "runner_protection_contract": (
             "completed favorable bar arms/tightens runner only for the next bar"
+        ),
+        "conditional_runner_contract": (
+            "fixed $20 target unless pre-entry expected net edge clears the excess-edge runner gate"
+            if conditional
+            else "all accepted positions use the open-ended runner shadow"
         ),
         "protected_15_is_guaranteed_realized_pnl": False,
         "strategy_promotion_allowed": False,
@@ -357,3 +438,12 @@ def _runner_reached_activation(
         previous_favorable > levels.activation_price
         >= position.protection.favorable_extreme
     )
+
+
+def _cooldown_bars_for_reason(
+    reason: CryptoExitReason,
+    policy: CryptoProtectionPolicy,
+) -> int:
+    if reason is CryptoExitReason.NET_TARGET:
+        return policy.cooldown_bars_after_target
+    return policy.cooldown_bars_after_stop
