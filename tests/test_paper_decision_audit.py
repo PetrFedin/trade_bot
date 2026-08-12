@@ -84,23 +84,31 @@ def result_fixture():
     )
 
 
-def test_decision_audit_persists_selection_blocks_exits_and_order_reasons(
+def test_decision_audit_persists_selection_health_and_order_reasons(
     tmp_path: Path,
 ) -> None:
     store = SQLitePaperDecisionAuditStore(tmp_path / "decision-audit.sqlite")
     result = result_fixture()
+    gate = SimpleNamespace(
+        status=SimpleNamespace(value="PAUSE_ENTRIES"),
+        allow_new_entries=False,
+        allow_exits=True,
+        reasons=("EXECUTION:WEIGHTED_SLIPPAGE_ABOVE_MAXIMUM",),
+    )
 
     first = audit_cross_sectional_paper_result(
         store=store,
         strategy_id=STRATEGY,
         generated_at=NOW,
         result=result,
+        quality_gate=gate,
     )
     replay = audit_cross_sectional_paper_result(
         store=store,
         strategy_id=STRATEGY,
         generated_at=NOW,
         result=result,
+        quality_gate=gate,
     )
 
     assert replay == first
@@ -111,6 +119,12 @@ def test_decision_audit_persists_selection_blocks_exits_and_order_reasons(
     assert record.entry_blocks == (("MSFT", "GROSS_EXPOSURE_CAP"),)
     assert record.exit_reasons == (("NVDA", "SELECTION_EXIT"),)
     assert record.prepared_intent_ids == ("exit-nvda",)
+    assert record.quality_gate_status == "PAUSE_ENTRIES"
+    assert record.quality_gate_allow_new_entries is False
+    assert record.quality_gate_allow_exits is True
+    assert record.quality_gate_reasons == (
+        "EXECUTION:WEIGHTED_SLIPPAGE_ABOVE_MAXIMUM",
+    )
     assert record.order_decisions[0]["approved"] is True
     assert record.order_decisions[0]["side"] == "SELL"
     assert record.order_decisions[1]["approved"] is False
