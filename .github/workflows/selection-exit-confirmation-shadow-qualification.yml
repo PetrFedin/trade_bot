@@ -7,8 +7,11 @@ on:
       - 'app/strategy/selection_exit_confirmation.py'
       - 'app/strategy/cross_sectional_portfolio.py'
       - 'research/selection_exit_confirmation_shadow_v1.json'
+      - 'tools/qualify_selection_exit_confirmation_shadow.py'
+      - 'tools/qualify_selection_exit_confirmation_walk_forward.py'
       - 'tests/test_selection_exit_confirmation.py'
       - 'tests/test_selection_exit_confirmation_shadow_config.py'
+      - 'tests/test_selection_exit_confirmation_qualification.py'
       - 'tests/test_cross_sectional_portfolio.py'
       - '.github/workflows/selection-exit-confirmation-shadow-qualification.yml'
   push:
@@ -17,8 +20,11 @@ on:
       - 'app/strategy/selection_exit_confirmation.py'
       - 'app/strategy/cross_sectional_portfolio.py'
       - 'research/selection_exit_confirmation_shadow_v1.json'
+      - 'tools/qualify_selection_exit_confirmation_shadow.py'
+      - 'tools/qualify_selection_exit_confirmation_walk_forward.py'
       - 'tests/test_selection_exit_confirmation.py'
       - 'tests/test_selection_exit_confirmation_shadow_config.py'
+      - 'tests/test_selection_exit_confirmation_qualification.py'
       - 'tests/test_cross_sectional_portfolio.py'
       - '.github/workflows/selection-exit-confirmation-shadow-qualification.yml'
 
@@ -49,16 +55,28 @@ jobs:
           python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
           python -m pip check
 
-      - name: Validate shadow policy JSON
-        run: python -m json.tool research/selection_exit_confirmation_shadow_v1.json > /dev/null
+      - name: Validate shadow policy and qualifier contracts
+        run: |
+          python -m json.tool research/selection_exit_confirmation_shadow_v1.json > /dev/null
+          python -m tools.qualify_selection_exit_confirmation_shadow \
+            --trading-quality-config research/cross_sectional_trading_quality_shadow_v2.json \
+            --selection-exit-policy research/selection_exit_confirmation_shadow_v1.json \
+            --validate-config-only
+          python -m tools.qualify_selection_exit_confirmation_walk_forward \
+            --trading-quality-config research/cross_sectional_trading_quality_shadow_v2.json \
+            --selection-exit-policy research/selection_exit_confirmation_shadow_v1.json \
+            --validate-config-only
 
       - name: Lint selection-exit confirmation surface
         run: >-
           ruff check --output-format=github
           app/strategy/selection_exit_confirmation.py
           app/strategy/cross_sectional_portfolio.py
+          tools/qualify_selection_exit_confirmation_shadow.py
+          tools/qualify_selection_exit_confirmation_walk_forward.py
           tests/test_selection_exit_confirmation.py
           tests/test_selection_exit_confirmation_shadow_config.py
+          tests/test_selection_exit_confirmation_qualification.py
           tests/test_cross_sectional_portfolio.py
 
       - name: Selection-exit confirmation regressions
@@ -68,6 +86,7 @@ jobs:
           pytest -vv \
             tests/test_selection_exit_confirmation.py \
             tests/test_selection_exit_confirmation_shadow_config.py \
+            tests/test_selection_exit_confirmation_qualification.py \
             tests/test_cross_sectional_portfolio.py \
             2>&1 | tee selection-exit-confirmation-pytest.txt
 
