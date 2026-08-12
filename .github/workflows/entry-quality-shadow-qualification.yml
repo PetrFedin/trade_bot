@@ -6,16 +6,22 @@ on:
     paths:
       - 'app/strategy/entry_quality.py'
       - 'research/entry_quality_filter_shadow_v1.json'
+      - 'tools/qualify_entry_quality_shadow.py'
+      - 'tools/qualify_entry_quality_walk_forward.py'
       - 'tests/test_entry_quality.py'
       - 'tests/test_entry_quality_shadow_config.py'
+      - 'tests/test_entry_quality_qualification.py'
       - '.github/workflows/entry-quality-shadow-qualification.yml'
   push:
     branches: [main]
     paths:
       - 'app/strategy/entry_quality.py'
       - 'research/entry_quality_filter_shadow_v1.json'
+      - 'tools/qualify_entry_quality_shadow.py'
+      - 'tools/qualify_entry_quality_walk_forward.py'
       - 'tests/test_entry_quality.py'
       - 'tests/test_entry_quality_shadow_config.py'
+      - 'tests/test_entry_quality_qualification.py'
       - '.github/workflows/entry-quality-shadow-qualification.yml'
 
 permissions:
@@ -46,14 +52,26 @@ jobs:
           python -m pip check
 
       - name: Validate shadow configuration JSON
-        run: python -m json.tool research/entry_quality_filter_shadow_v1.json > /dev/null
+        run: |
+          python -m json.tool research/entry_quality_filter_shadow_v1.json > /dev/null
+          python tools/qualify_entry_quality_shadow.py \
+            --trading-quality-config research/cross_sectional_trading_quality_shadow_v2.json \
+            --entry-quality-policy research/entry_quality_filter_shadow_v1.json \
+            --validate-config-only
+          python tools/qualify_entry_quality_walk_forward.py \
+            --trading-quality-config research/cross_sectional_trading_quality_shadow_v2.json \
+            --entry-quality-policy research/entry_quality_filter_shadow_v1.json \
+            --validate-config-only
 
       - name: Lint entry-quality surface
         run: >-
           ruff check --output-format=github
           app/strategy/entry_quality.py
+          tools/qualify_entry_quality_shadow.py
+          tools/qualify_entry_quality_walk_forward.py
           tests/test_entry_quality.py
           tests/test_entry_quality_shadow_config.py
+          tests/test_entry_quality_qualification.py
 
       - name: Entry-quality regressions
         shell: bash
@@ -62,6 +80,7 @@ jobs:
           pytest -vv \
             tests/test_entry_quality.py \
             tests/test_entry_quality_shadow_config.py \
+            tests/test_entry_quality_qualification.py \
             2>&1 | tee entry-quality-pytest.txt
 
       - name: Upload entry-quality diagnostics
