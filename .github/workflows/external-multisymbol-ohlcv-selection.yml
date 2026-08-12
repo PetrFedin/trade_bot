@@ -9,14 +9,26 @@ on:
       - 'app/marketdata/alpaca_historical.py'
       - 'app/strategy/cross_sectional_selection.py'
       - 'app/strategy/cross_sectional_portfolio.py'
+      - 'app/strategy/entry_quality.py'
+      - 'app/strategy/selection_exit_confirmation.py'
       - 'app/strategy/position_management.py'
       - 'app/strategy/position_sizing.py'
       - 'app/strategy/quality_monitor.py'
       - 'research/multisymbol_ohlcv_selection_v1.json'
       - 'research/cross_sectional_trading_quality_shadow_v2.json'
+      - 'research/entry_quality_filter_shadow_v1.json'
+      - 'research/selection_exit_confirmation_shadow_v1.json'
+      - 'research/profit_runner_shadow_v1.json'
       - 'tools/external_multisymbol_historical.py'
       - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
       - 'tools/qualify_cross_sectional_walk_forward.py'
+      - 'tools/qualify_entry_quality_shadow.py'
+      - 'tools/qualify_entry_quality_walk_forward.py'
+      - 'tools/qualify_selection_exit_confirmation_shadow.py'
+      - 'tools/qualify_selection_exit_confirmation_walk_forward.py'
+      - 'tools/qualify_profit_runner_shadow.py'
+      - 'tools/qualify_profit_runner_walk_forward.py'
+      - 'tools/qualify_external_strategy_candidates.py'
       - 'tests/test_ohlcv.py'
       - 'tests/test_alpaca_historical.py'
       - 'tests/test_cross_sectional_selection.py'
@@ -24,6 +36,10 @@ on:
       - 'tests/test_cross_sectional_trading_quality_shadow.py'
       - 'tests/test_cross_sectional_walk_forward.py'
       - 'tests/test_quality_monitor.py'
+      - 'tests/test_entry_quality_qualification.py'
+      - 'tests/test_selection_exit_confirmation_qualification.py'
+      - 'tests/test_profit_runner_qualification.py'
+      - 'tests/test_external_strategy_candidate_suite.py'
       - 'requirements.lock'
       - 'LIVE_EXECUTION_STATUS_V109.json'
       - '.github/workflows/external-multisymbol-ohlcv-selection.yml'
@@ -34,14 +50,26 @@ on:
       - 'app/marketdata/alpaca_historical.py'
       - 'app/strategy/cross_sectional_selection.py'
       - 'app/strategy/cross_sectional_portfolio.py'
+      - 'app/strategy/entry_quality.py'
+      - 'app/strategy/selection_exit_confirmation.py'
       - 'app/strategy/position_management.py'
       - 'app/strategy/position_sizing.py'
       - 'app/strategy/quality_monitor.py'
       - 'research/multisymbol_ohlcv_selection_v1.json'
       - 'research/cross_sectional_trading_quality_shadow_v2.json'
+      - 'research/entry_quality_filter_shadow_v1.json'
+      - 'research/selection_exit_confirmation_shadow_v1.json'
+      - 'research/profit_runner_shadow_v1.json'
       - 'tools/external_multisymbol_historical.py'
       - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
       - 'tools/qualify_cross_sectional_walk_forward.py'
+      - 'tools/qualify_entry_quality_shadow.py'
+      - 'tools/qualify_entry_quality_walk_forward.py'
+      - 'tools/qualify_selection_exit_confirmation_shadow.py'
+      - 'tools/qualify_selection_exit_confirmation_walk_forward.py'
+      - 'tools/qualify_profit_runner_shadow.py'
+      - 'tools/qualify_profit_runner_walk_forward.py'
+      - 'tools/qualify_external_strategy_candidates.py'
       - 'tests/test_ohlcv.py'
       - 'tests/test_alpaca_historical.py'
       - 'tests/test_cross_sectional_selection.py'
@@ -49,6 +77,10 @@ on:
       - 'tests/test_cross_sectional_trading_quality_shadow.py'
       - 'tests/test_cross_sectional_walk_forward.py'
       - 'tests/test_quality_monitor.py'
+      - 'tests/test_entry_quality_qualification.py'
+      - 'tests/test_selection_exit_confirmation_qualification.py'
+      - 'tests/test_profit_runner_qualification.py'
+      - 'tests/test_external_strategy_candidate_suite.py'
       - 'requirements.lock'
       - 'LIVE_EXECUTION_STATUS_V109.json'
       - '.github/workflows/external-multisymbol-ohlcv-selection.yml'
@@ -63,7 +95,7 @@ concurrency:
 jobs:
   contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -87,12 +119,21 @@ jobs:
           app/marketdata/alpaca_historical.py
           app/strategy/cross_sectional_selection.py
           app/strategy/cross_sectional_portfolio.py
+          app/strategy/entry_quality.py
+          app/strategy/selection_exit_confirmation.py
           app/strategy/position_management.py
           app/strategy/position_sizing.py
           app/strategy/quality_monitor.py
           tools/external_multisymbol_historical.py
           tools/qualify_cross_sectional_trading_quality_shadow.py
           tools/qualify_cross_sectional_walk_forward.py
+          tools/qualify_entry_quality_shadow.py
+          tools/qualify_entry_quality_walk_forward.py
+          tools/qualify_selection_exit_confirmation_shadow.py
+          tools/qualify_selection_exit_confirmation_walk_forward.py
+          tools/qualify_profit_runner_shadow.py
+          tools/qualify_profit_runner_walk_forward.py
+          tools/qualify_external_strategy_candidates.py
           tests/test_ohlcv.py
           tests/test_alpaca_historical.py
           tests/test_cross_sectional_selection.py
@@ -100,8 +141,12 @@ jobs:
           tests/test_cross_sectional_trading_quality_shadow.py
           tests/test_cross_sectional_walk_forward.py
           tests/test_quality_monitor.py
+          tests/test_entry_quality_qualification.py
+          tests/test_selection_exit_confirmation_qualification.py
+          tests/test_profit_runner_qualification.py
+          tests/test_external_strategy_candidate_suite.py
 
-      - name: Validate provider, OHLCV, selector, report, comparison, monitor, and walk-forward contracts
+      - name: Validate provider, OHLCV, selector, report, comparison, monitor, walk-forward, and candidate contracts
         run: >-
           pytest -q
           tests/test_ohlcv.py
@@ -111,6 +156,10 @@ jobs:
           tests/test_cross_sectional_trading_quality_shadow.py
           tests/test_cross_sectional_walk_forward.py
           tests/test_quality_monitor.py
+          tests/test_entry_quality_qualification.py
+          tests/test_selection_exit_confirmation_qualification.py
+          tests/test_profit_runner_qualification.py
+          tests/test_external_strategy_candidate_suite.py
           tests/test_regime_momentum.py
 
       - name: Validate predeclared acquisition configuration
@@ -131,6 +180,33 @@ jobs:
           --config research/cross_sectional_trading_quality_shadow_v2.json
           --validate-config-only
 
+      - name: Validate shadow candidate configurations
+        run: |
+          python -m tools.qualify_entry_quality_shadow \
+            --trading-quality-config research/cross_sectional_trading_quality_shadow_v2.json \
+            --entry-quality-policy research/entry_quality_filter_shadow_v1.json \
+            --validate-config-only
+          python -m tools.qualify_entry_quality_walk_forward \
+            --trading-quality-config research/cross_sectional_trading_quality_shadow_v2.json \
+            --entry-quality-policy research/entry_quality_filter_shadow_v1.json \
+            --validate-config-only
+          python -m tools.qualify_selection_exit_confirmation_shadow \
+            --trading-quality-config research/cross_sectional_trading_quality_shadow_v2.json \
+            --selection-exit-policy research/selection_exit_confirmation_shadow_v1.json \
+            --validate-config-only
+          python -m tools.qualify_selection_exit_confirmation_walk_forward \
+            --trading-quality-config research/cross_sectional_trading_quality_shadow_v2.json \
+            --selection-exit-policy research/selection_exit_confirmation_shadow_v1.json \
+            --validate-config-only
+          python -m tools.qualify_profit_runner_shadow \
+            --trading-quality-config research/cross_sectional_trading_quality_shadow_v2.json \
+            --profit-runner-policy research/profit_runner_shadow_v1.json \
+            --validate-config-only
+          python -m tools.qualify_profit_runner_walk_forward \
+            --trading-quality-config research/cross_sectional_trading_quality_shadow_v2.json \
+            --profit-runner-policy research/profit_runner_shadow_v1.json \
+            --validate-config-only
+
       - name: Compile read-only research boundary
         run: >-
           python -m compileall -q
@@ -138,12 +214,21 @@ jobs:
           app/marketdata/alpaca_historical.py
           app/strategy/cross_sectional_selection.py
           app/strategy/cross_sectional_portfolio.py
+          app/strategy/entry_quality.py
+          app/strategy/selection_exit_confirmation.py
           app/strategy/position_management.py
           app/strategy/position_sizing.py
           app/strategy/quality_monitor.py
           tools/external_multisymbol_historical.py
           tools/qualify_cross_sectional_trading_quality_shadow.py
           tools/qualify_cross_sectional_walk_forward.py
+          tools/qualify_entry_quality_shadow.py
+          tools/qualify_entry_quality_walk_forward.py
+          tools/qualify_selection_exit_confirmation_shadow.py
+          tools/qualify_selection_exit_confirmation_walk_forward.py
+          tools/qualify_profit_runner_shadow.py
+          tools/qualify_profit_runner_walk_forward.py
+          tools/qualify_external_strategy_candidates.py
 
       - name: Verify fail-closed execution state
         run: |
@@ -248,6 +333,18 @@ jobs:
             --csv multisymbol-research-evidence/bars.csv \
             --config research/cross_sectional_trading_quality_shadow_v2.json \
             --output multisymbol-research-evidence/walk-forward-report.json
+
+      - name: Run all non-promotable strategy candidates on acquired bars
+        id: candidate_suite
+        if: steps.credentials.outputs.configured == 'true' && steps.acquisition.outcome == 'success'
+        run: |
+          python -m tools.qualify_external_strategy_candidates \
+            --csv multisymbol-research-evidence/bars.csv \
+            --trading-quality-config research/cross_sectional_trading_quality_shadow_v2.json \
+            --entry-quality-policy research/entry_quality_filter_shadow_v1.json \
+            --selection-exit-policy research/selection_exit_confirmation_shadow_v1.json \
+            --profit-runner-policy research/profit_runner_shadow_v1.json \
+            --output-dir multisymbol-research-evidence
 
       - name: Normalize credentialed acquisition failure evidence
         if: always() && steps.credentials.outputs.configured == 'true' && steps.acquisition.outcome != 'success'
@@ -396,4 +493,40 @@ jobs:
           assert 'NO_EXTERNAL_PAPER_PORTFOLIO_EXECUTION' in walk['remaining_promotion_blockers']
           assert 'DEGRADATION_THRESHOLDS_UNCALIBRATED' in walk['remaining_promotion_blockers']
           assert 'NO_STRATEGY_PROFITABILITY_CLAIM' in walk['limitations']
+          PY
+
+      - name: Enforce all shadow candidate suite semantics
+        if: steps.credentials.outputs.configured == 'true' && steps.acquisition.outcome == 'success'
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          acquisition = json.loads(
+              Path('multisymbol-research-evidence/report.json').read_text(encoding='utf-8')
+          )
+          manifest = json.loads(
+              Path('multisymbol-research-evidence/strategy-candidate-suite-manifest.json').read_text(encoding='utf-8')
+          )
+          assert manifest['qualification'] == 'PASS_EXTERNAL_STRATEGY_CANDIDATE_SUITE'
+          assert manifest['source_csv_sha256'] == acquisition['csv_sha256']
+          assert manifest['candidate_count'] == 6
+          assert manifest['shadow_only'] is True
+          assert manifest['strategy_promotion_allowed'] is False
+          assert manifest['external_order_routing_allowed'] is False
+          assert manifest['live_trading_allowed'] is False
+          assert set(manifest['remaining_real_paper_blockers']) == {
+              'NO_REAL_PAPER_ENTRY_QUALITY_EVIDENCE',
+              'NO_REAL_PAPER_SELECTION_EXIT_EVIDENCE',
+              'NO_REAL_PAPER_PROFIT_RUNNER_EVIDENCE',
+          }
+          for file_name in manifest['reports'].values():
+              candidate = json.loads(
+                  Path('multisymbol-research-evidence', file_name).read_text(encoding='utf-8')
+              )
+              assert candidate['source_csv_sha256'] == acquisition['csv_sha256']
+              assert candidate['shadow_only'] is True
+              assert candidate['strategy_promotion_allowed'] is False
+              assert candidate['external_order_routing_allowed'] is False
+              assert candidate['live_trading_allowed'] is False
           PY
