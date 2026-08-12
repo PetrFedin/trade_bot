@@ -2,6 +2,8 @@ from decimal import Decimal
 from types import SimpleNamespace
 from typing import cast
 
+import pytest
+
 import app.strategy.crypto_target_selection as target_selection
 from app.strategy.crypto_entry_economics import CryptoEntryEconomicsPolicy
 from app.strategy.crypto_perp import (
@@ -40,42 +42,16 @@ def _signal_placeholder() -> CryptoSignal:
     return cast(CryptoSignal, object())
 
 
-def test_selector_tries_25_then_20_then_15_and_stops_at_highest_feasible(
-    monkeypatch,
-) -> None:
+def test_selector_requires_20_net_then_leaves_profit_uncapped(monkeypatch) -> None:
     attempted: list[Decimal] = []
 
     def fake_build(_signal, *, equity_usdt, config):
         assert equity_usdt == Decimal("1000")
         attempted.append(config.target_net_profit_usd)
-        target = config.target_net_profit_usd
-        if target == Decimal("25"):
-            return SimpleNamespace(eligible=False, plan=None, reasons=("EDGE_TOO_SMALL",))
-        return SimpleNamespace(eligible=True, plan=_plan(target), reasons=())
-
-    monkeypatch.setattr(target_selection, "build_trade_plan", fake_build)
-
-    selected = select_highest_feasible_crypto_target(
-        _signal_placeholder(),
-        equity_usdt=Decimal("1000"),
-        config=CryptoPerpStrategyConfig(),
-    )
-
-    assert attempted == [Decimal("25"), Decimal("20")]
-    assert selected.eligible is True
-    assert selected.selected_target_net_profit_usd == Decimal("20")
-    assert selected.selected_plan is not None
-    assert selected.strategy_promotion_allowed is False
-    assert selected.live_activation_allowed is False
-
-
-def test_selector_returns_no_trade_when_even_15_has_no_cost_aware_edge(monkeypatch) -> None:
-    def fake_build(_signal, *, equity_usdt, config):
-        del equity_usdt
         return SimpleNamespace(
-            eligible=False,
-            plan=None,
-            reasons=(f"TARGET_{config.target_net_profit_usd}_NOT_FEASIBLE",),
+            eligible=True,
+            plan=_plan(config.target_net_profit_usd),
+            reasons=(),
         )
 
     monkeypatch.setattr(target_selection, "build_trade_plan", fake_build)
@@ -86,20 +62,52 @@ def test_selector_returns_no_trade_when_even_15_has_no_cost_aware_edge(monkeypat
         config=CryptoPerpStrategyConfig(),
     )
 
-    assert selected.eligible is False
-    assert selected.selected_target_net_profit_usd is None
-    assert len(selected.attempts) == 3
+    assert attempted == [Decimal("20")]
+    assert selected.eligible is True
+    assert selected.selected_target_net_profit_usd == Decimal("20")
+    assert selected.selected_plan is not None
+    assert selected.open_ended_profit_runner is True
+    assert selected.profit_cap_net_profit_usd is None
+    assert selected.fallback_protected_net_profit_usd == Decimal("15")
     assert selected.strategy_promotion_allowed is False
+    assert selected.live_activation_allowed is False
 
 
-def test_optional_economics_gate_can_reject_thin_25_edge_and_select_20(monkeypatch) -> None:
+def test_selector_never_falls_back_to_15_for_a_new_entry(monkeypatch) -> None:
+    attempted: list[Decimal] = []
+
     def fake_build(_signal, *, equity_usdt, config):
         del equity_usdt
-        target = config.target_net_profit_usd
-        expected_edge = Decimal("26") if target == Decimal("25") else Decimal("30")
+        attempted.append(config.target_net_profit_usd)
+        return SimpleNamespace(
+            eligible=False,
+            plan=None,
+            reasons=("EXPECTED_NET_PROFIT_BELOW_TARGET",),
+        )
+
+    monkeypatch.setattr(target_selection, "build_trade_plan", fake_build)
+
+    selected = select_highest_feasible_crypto_target(
+        _signal_placeholder(),
+        equity_usdt=Decimal("1000"),
+        config=CryptoPerpStrategyConfig(),
+    )
+
+    assert attempted == [Decimal("20")]
+    assert selected.eligible is False
+    assert selected.selected_target_net_profit_usd is None
+    assert len(selected.attempts) == 1
+    assert selected.attempts[0].minimum_net_profit_usd == Decimal("20")
+    assert selected.fallback_protected_net_profit_usd == Decimal("15")
+
+
+def test_optional_economics_gate_can_block_thin_20_edge(monkeypatch) -> None:
+    def fake_build(_signal, *, equity_usdt, config):
+        del equity_usdt
+        assert config.target_net_profit_usd == Decimal("20")
         return SimpleNamespace(
             eligible=True,
-            plan=_plan(target, expected_edge=expected_edge),
+            plan=_plan(Decimal("20"), expected_edge=Decimal("21")),
             reasons=(),
         )
 
@@ -119,10 +127,15 @@ def test_optional_economics_gate_can_reject_thin_25_edge_and_select_20(monkeypat
         policy=policy,
     )
 
-    assert selected.eligible is True
-    assert selected.selected_target_net_profit_usd == Decimal("20")
+    assert selected.eligible is False
     assert selected.shadow_economics_enabled is True
     assert selected.attempts[0].entry_economics is not None
     assert selected.attempts[0].entry_economics.eligible is False
-    assert selected.attempts[1].entry_economics is not None
-    assert selected.attempts[1].entry_economics.eligible is True
+
+
+def test_protected_fallback_must_remain_below_entry_threshold() -> None:
+    with pytest.raises(ValueError, match="protected fallback"):
+        CryptoTargetSelectionPolicy(
+            minimum_entry_net_profit_usd=Decimal("20"),
+            fallback_protected_net_profit_usd=Decimal("20"),
+        ).validate()
