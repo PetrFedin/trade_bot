@@ -80,8 +80,14 @@ class ReplayStablePaperExecutionQualityTracker:
         )
         if not expected.is_finite() or expected <= 0:
             raise ValueError("historical execution limit must be positive and finite")
-        raw_fraction = (fill.price - expected) / expected
+        price_delta = fill.price - expected
+        raw_fraction = price_delta / expected
         signed_fraction = raw_fraction if fill.side is Side.BUY else -raw_fraction
+        signed_notional = (
+            price_delta * fill.quantity
+            if fill.side is Side.BUY
+            else -price_delta * fill.quantity
+        )
         self.store.append(
             PaperExecutionQualityFill(
                 fill_id=fill.fill_id,
@@ -92,7 +98,7 @@ class ReplayStablePaperExecutionQualityTracker:
                 expected_limit_price=expected,
                 fill_price=fill.price,
                 signed_slippage_fraction=signed_fraction,
-                signed_slippage_notional=signed_fraction * expected * fill.quantity,
+                signed_slippage_notional=signed_notional,
                 occurred_at=fill.occurred_at,
             )
         )
