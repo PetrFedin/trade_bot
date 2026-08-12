@@ -7,8 +7,11 @@ on:
       - 'app/strategy/position_management.py'
       - 'app/strategy/ohlcv_exit.py'
       - 'research/profit_runner_shadow_v1.json'
+      - 'tools/qualify_profit_runner_shadow.py'
+      - 'tools/qualify_profit_runner_walk_forward.py'
       - 'tests/test_profit_runner.py'
       - 'tests/test_profit_runner_shadow_config.py'
+      - 'tests/test_profit_runner_qualification.py'
       - '.github/workflows/profit-runner-shadow-qualification.yml'
   push:
     branches: [main]
@@ -16,8 +19,11 @@ on:
       - 'app/strategy/position_management.py'
       - 'app/strategy/ohlcv_exit.py'
       - 'research/profit_runner_shadow_v1.json'
+      - 'tools/qualify_profit_runner_shadow.py'
+      - 'tools/qualify_profit_runner_walk_forward.py'
       - 'tests/test_profit_runner.py'
       - 'tests/test_profit_runner_shadow_config.py'
+      - 'tests/test_profit_runner_qualification.py'
       - '.github/workflows/profit-runner-shadow-qualification.yml'
 
 permissions:
@@ -47,18 +53,30 @@ jobs:
           python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
           python -m pip check
 
-      - name: Validate shadow policy JSON
-        run: python -m json.tool research/profit_runner_shadow_v1.json > /dev/null
+      - name: Validate shadow policy and qualifier contracts
+        run: |
+          python -m json.tool research/profit_runner_shadow_v1.json > /dev/null
+          python -m tools.qualify_profit_runner_shadow \
+            --trading-quality-config research/cross_sectional_trading_quality_shadow_v2.json \
+            --profit-runner-policy research/profit_runner_shadow_v1.json \
+            --validate-config-only
+          python -m tools.qualify_profit_runner_walk_forward \
+            --trading-quality-config research/cross_sectional_trading_quality_shadow_v2.json \
+            --profit-runner-policy research/profit_runner_shadow_v1.json \
+            --validate-config-only
 
       - name: Lint profit-runner surface
         run: >-
           ruff check --output-format=github
           app/strategy/position_management.py
           app/strategy/ohlcv_exit.py
+          tools/qualify_profit_runner_shadow.py
+          tools/qualify_profit_runner_walk_forward.py
           tests/test_profit_runner.py
           tests/test_profit_runner_shadow_config.py
+          tests/test_profit_runner_qualification.py
 
-      - name: Profit-runner safety regressions
+      - name: Profit-runner safety and evidence regressions
         shell: bash
         run: |
           set -o pipefail
@@ -67,6 +85,7 @@ jobs:
             tests/test_ohlcv_exit.py \
             tests/test_profit_runner.py \
             tests/test_profit_runner_shadow_config.py \
+            tests/test_profit_runner_qualification.py \
             2>&1 | tee profit-runner-pytest.txt
 
       - name: Upload profit-runner diagnostics
