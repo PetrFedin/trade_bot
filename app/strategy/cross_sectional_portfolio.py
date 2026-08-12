@@ -25,6 +25,11 @@ from app.strategy.reentry_confirmation import (
     clear_after_entry,
     evaluate_reentry_confirmation,
 )
+from app.strategy.selection_exit_confirmation import (
+    SelectionExitConfirmationPolicy,
+    SelectionExitConfirmationState,
+    evaluate_selection_exit_confirmation,
+)
 
 
 class PortfolioExitReason(StrEnum):
@@ -112,6 +117,7 @@ class PortfolioDecisionTrace:
     closing_equity: Decimal
     closing_gross_exposure_fraction: Decimal
     concurrent_positions: int
+    pending_selection_exit_symbols: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -141,6 +147,7 @@ class CrossSectionalPortfolioResult:
     maximum_gross_exposure_fraction_observed: Decimal
     maximum_concurrent_positions: int
     one_bar_reentry_count: int
+    selection_exit_confirmation_pending_count: int
     selection_counts: dict[str, int]
     realized_pnl_by_symbol: dict[str, Decimal]
     intrabar_exit_counts: dict[str, int]
@@ -177,6 +184,7 @@ class CrossSectionalPortfolioBacktester:
         position_policy: PositionManagementPolicy | None = None,
         reentry_policy: ReentryConfirmationPolicy | None = None,
         sizing_policy: RiskAwareSizingPolicy | None = None,
+        selection_exit_policy: SelectionExitConfirmationPolicy | None = None,
     ) -> None:
         portfolio = (
             CrossSectionalPortfolioPolicy()
@@ -184,17 +192,24 @@ class CrossSectionalPortfolioBacktester:
             else portfolio_policy
         )
         portfolio.validate(top_k=selector.top_k)
-        position = PositionManagementPolicy() if position_policy is None else position_policy
+        position = (
+            PositionManagementPolicy()
+            if position_policy is None
+            else position_policy
+        )
         position.validate()
         if reentry_policy is not None:
             reentry_policy.validate()
         if sizing_policy is not None:
             sizing_policy.validate()
+        if selection_exit_policy is not None:
+            selection_exit_policy.validate()
         self.selector = selector
         self.portfolio_policy = portfolio
         self.position_policy = position
         self.reentry_policy = reentry_policy
         self.sizing_policy = sizing_policy
+        self.selection_exit_policy = selection_exit_policy
 
     def run(
         self,
@@ -219,12 +234,17 @@ class CrossSectionalPortfolioBacktester:
         slip = self.portfolio_policy.slippage_bps / Decimal("10000")
         open_states: dict[str, _OpenPositionState] = {}
         reentry_states = {symbol: ReentryConfirmationState() for symbol in symbols}
+        selection_exit_states = {
+            symbol: SelectionExitConfirmationState() for symbol in symbols
+        }
         last_exit_index: dict[str, int] = {}
         closed_trades: list[PortfolioTrade] = []
         trace: list[PortfolioDecisionTrace] = []
         selection_counts: Counter[str] = Counter()
         entry_block_counts: Counter[str] = Counter()
-        realized_by_symbol: defaultdict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+        realized_by_symbol: defaultdict[str, Decimal] = defaultdict(
+            lambda: Decimal("0")
+        )
         intrabar_exit_counts: Counter[str] = Counter()
         traded_notional = Decimal("0")
         fill_count = 0
@@ -233,6 +253,7 @@ class CrossSectionalPortfolioBacktester:
         max_gross_fraction = Decimal("0")
         max_positions = 0
         one_bar_reentries = 0
+        selection_exit_confirmation_pending_count = 0
 
         for execution_index in range(first_execution, len(timeline)):
             execution_time = timeline[execution_index]
@@ -247,13 +268,16 @@ class CrossSectionalPortfolioBacktester:
                 raise RuntimeError("selector decision timestamp drifted")
             selected = tuple(selection.selected_symbols)
             selected_set = set(selected)
-            candidates = {candidate.symbol: candidate for candidate in selection.candidates}
+            candidates = {
+                candidate.symbol: candidate for candidate in selection.candidates
+            }
             selection_counts.update(selected)
             current_bars = {
                 symbol: by_symbol[symbol][execution_index] for symbol in symbols
             }
             previous_closes = {
-                symbol: by_symbol[symbol][execution_index - 1].close for symbol in symbols
+                symbol: by_symbol[symbol][execution_index - 1].close
+                for symbol in symbols
             }
             equity_at_prior_close = ledger.equity(previous_closes)
             if equity_at_prior_close <= 0:
@@ -262,6 +286,7 @@ class CrossSectionalPortfolioBacktester:
             open_exit_symbols: list[str] = []
             intrabar_exit_symbols: list[str] = []
             entered_symbols: list[str] = []
+            pending_selection_exit_symbols: list[str] = []
             blocked_entries: list[tuple[str, PortfolioEntryBlockReason]] = []
             exited_today: set[str] = set()
 
@@ -274,10 +299,29 @@ class CrossSectionalPortfolioBacktester:
                     raise RuntimeError("open portfolio position missing tracking state")
                 holding_bars = execution_index - state.entry_execution_index
                 reason: PortfolioExitReason | None = None
-                if symbol not in selected_set:
-                    reason = PortfolioExitReason.SELECTION_EXIT
-                elif holding_bars >= self.position_policy.maximum_holding_bars:
-                    reason = PortfolioExitReason.TIME_STOP
+                if self.selection_exit_policy is None:
+                    if symbol not in selected_set:
+                        reason = PortfolioExitReason.SELECTION_EXIT
+                    elif holding_bars >= self.position_policy.maximum_holding_bars:
+                        reason = PortfolioExitReason.TIME_STOP
+                else:
+                    if holding_bars >= self.position_policy.maximum_holding_bars:
+                        reason = PortfolioExitReason.TIME_STOP
+                    else:
+                        selection_exit = evaluate_selection_exit_confirmation(
+                            selected=symbol in selected_set,
+                            profitable_at_decision=(
+                                previous_closes[symbol] > position.average_cost
+                            ),
+                            state=selection_exit_states[symbol],
+                            policy=self.selection_exit_policy,
+                        )
+                        selection_exit_states[symbol] = selection_exit.state
+                        if selection_exit.allow_selection_exit:
+                            reason = PortfolioExitReason.SELECTION_EXIT
+                        elif symbol not in selected_set:
+                            pending_selection_exit_symbols.append(symbol)
+                            selection_exit_confirmation_pending_count += 1
                 if reason is None:
                     continue
                 exit_price = current_bars[symbol].open * (Decimal("1") - slip)
@@ -306,6 +350,7 @@ class CrossSectionalPortfolioBacktester:
                 closed_trades.append(trade)
                 realized_by_symbol[symbol] += trade.net_pnl
                 open_states.pop(symbol)
+                selection_exit_states[symbol] = SelectionExitConfirmationState()
                 last_exit_index[symbol] = execution_index
                 exited_today.add(symbol)
                 open_exit_symbols.append(symbol)
@@ -354,7 +399,9 @@ class CrossSectionalPortfolioBacktester:
                     )
                     target_notional = sizing.target_notional
 
-                open_prices = {item: current_bars[item].open for item in symbols}
+                open_prices = {
+                    item: current_bars[item].open for item in symbols
+                }
                 current_gross = ledger.gross_notional(open_prices)
                 projected_gross = current_gross + target_notional
                 cap = (
@@ -373,7 +420,9 @@ class CrossSectionalPortfolioBacktester:
                 quantity = target_notional / entry_price
                 required_cash = target_notional + self.portfolio_policy.fee_per_fill
                 if ledger.cash < required_cash:
-                    raise ValueError("portfolio entry requires cash beyond available balance")
+                    raise ValueError(
+                        "portfolio entry requires cash beyond available balance"
+                    )
                 if last_exit_index.get(symbol) == execution_index - 1:
                     one_bar_reentries += 1
                 fill_count += 1
@@ -388,6 +437,7 @@ class CrossSectionalPortfolioBacktester:
                 )
                 traded_notional += quantity * entry_price
                 entered_symbols.append(symbol)
+                selection_exit_states[symbol] = SelectionExitConfirmationState()
                 open_states[symbol] = _OpenPositionState(
                     entry_time=execution_time,
                     entry_execution_index=execution_index,
@@ -403,7 +453,9 @@ class CrossSectionalPortfolioBacktester:
             for symbol in tuple(sorted(open_states)):
                 position = ledger.position(symbol)
                 if position.quantity <= 0:
-                    raise RuntimeError("portfolio tracking survived closed ledger position")
+                    raise RuntimeError(
+                        "portfolio tracking survived closed ledger position"
+                    )
                 state = open_states[symbol]
                 intrabar = evaluate_long_intrabar_exit(
                     average_cost=position.average_cost,
@@ -419,8 +471,13 @@ class CrossSectionalPortfolioBacktester:
                         intrabar_state=intrabar.state,
                     )
                     continue
-                if intrabar.exit_price_before_costs is None or intrabar.reason is None:
-                    raise RuntimeError("portfolio intrabar exit missing reason or price")
+                if (
+                    intrabar.exit_price_before_costs is None
+                    or intrabar.reason is None
+                ):
+                    raise RuntimeError(
+                        "portfolio intrabar exit missing reason or price"
+                    )
                 exit_price = intrabar.exit_price_before_costs * (Decimal("1") - slip)
                 fill_count += 1
                 _sell(
@@ -452,6 +509,7 @@ class CrossSectionalPortfolioBacktester:
                 intrabar_exit_counts[reason.value] += 1
                 intrabar_exit_symbols.append(symbol)
                 open_states.pop(symbol)
+                selection_exit_states[symbol] = SelectionExitConfirmationState()
                 last_exit_index[symbol] = execution_index
                 exited_today.add(symbol)
                 if self.reentry_policy is not None:
@@ -485,6 +543,9 @@ class CrossSectionalPortfolioBacktester:
                     closing_equity=snapshot.equity,
                     closing_gross_exposure_fraction=gross_fraction,
                     concurrent_positions=concurrent,
+                    pending_selection_exit_symbols=tuple(
+                        pending_selection_exit_symbols
+                    ),
                 )
             )
 
@@ -494,7 +555,11 @@ class CrossSectionalPortfolioBacktester:
         losses = sum(trade.net_pnl < 0 for trade in closed_trades)
         breakeven = len(closed_trades) - wins - losses
         closed_count = len(closed_trades)
-        win_rate = Decimal(wins) / Decimal(closed_count) if closed_count else Decimal("0")
+        win_rate = (
+            Decimal(wins) / Decimal(closed_count)
+            if closed_count
+            else Decimal("0")
+        )
         gross_profit = sum(
             (trade.net_pnl for trade in closed_trades if trade.net_pnl > 0),
             Decimal("0"),
@@ -554,6 +619,9 @@ class CrossSectionalPortfolioBacktester:
             maximum_gross_exposure_fraction_observed=max_gross_fraction,
             maximum_concurrent_positions=max_positions,
             one_bar_reentry_count=one_bar_reentries,
+            selection_exit_confirmation_pending_count=(
+                selection_exit_confirmation_pending_count
+            ),
             selection_counts=dict(sorted(selection_counts.items())),
             realized_pnl_by_symbol=dict(sorted(realized_by_symbol.items())),
             intrabar_exit_counts=dict(sorted(intrabar_exit_counts.items())),
