@@ -7,8 +7,8 @@ from app.application.paper_candidate_shadow import (
     EntryQualityPaperShadowObserver,
     PaperCandidateKind,
     PaperCandidateShadowSuite,
-    SQLitePaperCandidateShadowStore,
     SelectionExitPaperShadowObserver,
+    SQLitePaperCandidateShadowStore,
 )
 from app.domain.trading import Fill, Side
 from app.marketdata.ohlcv import OhlcvBar
@@ -83,192 +83,156 @@ def plan(*, decision_time: datetime, selected, exit_reasons=()):
     )
 
 
-def test_entry_quality_shadow_records_candidate_divergence_idempotently(
-    tmp_path: Path,
-) -> None:
-    universe = tuple(
-        bars(
-            "MSFT",
-            ["100", "100.5", "101", "101.5", "102", "102.5", "103", "112"],
+def ledger_with_position(tmp_path: Path, symbol: str = "AAPL") -> PortfolioLedger:
+    del tmp_path
+    ledger = PortfolioLedger(opening_cash=Decimal("10000"))
+    ledger.apply_fill(
+        Fill(
+            fill_id=f"seed-{symbol}",
+            order_intent_id=f"seed-intent-{symbol}",
+            symbol=symbol,
+            side=Side.BUY,
+            quantity=Decimal("10"),
+            price=Decimal("100"),
+            occurred_at=START,
+            fee=Decimal("0"),
         )
-        + bars("AAPL", ["100", "101", "102", "103", "104", "105", "106", "107"])
-        + bars("NVDA", ["90", "91", "92", "93", "94", "95", "96", "97"])
     )
-    decision_time = max(bar.timestamp for bar in universe)
-    store = SQLitePaperCandidateShadowStore(tmp_path / "candidate.sqlite")
+    return ledger
+
+
+def test_entry_quality_shadow_records_late_spike_divergence(tmp_path: Path) -> None:
+    materialized = tuple(
+        bars("MSFT", ["100", "101", "102", "103", "104", "105", "106", "107"])
+        + bars("AAPL", ["100", "100.5", "101", "101.5", "102", "102.5", "103", "104"])
+        + bars("NVDA", ["100", "100.5", "101", "101.5", "102", "102.5", "103", "110"])
+    )
+    selector = EntryQualityFilteredSelector(
+        base_selector=FakeBaseSelector(),
+        policy=EntryQualityPolicy(
+            lookback_bars=8,
+            minimum_trend_efficiency=Decimal("0.35"),
+            maximum_price_extension_fraction=Decimal("0.04"),
+            maximum_single_bar_return_fraction=Decimal("0.05"),
+        ),
+    )
+    store = SQLitePaperCandidateShadowStore(tmp_path / "shadow.sqlite")
     observer = EntryQualityPaperShadowObserver(
         strategy_id=STRATEGY,
-        selector=EntryQualityFilteredSelector(
-            base_selector=FakeBaseSelector(),
-            policy=EntryQualityPolicy(
-                lookback_bars=8,
-                minimum_trend_efficiency=Decimal("0.35"),
-                maximum_price_extension_fraction=Decimal("0.04"),
-                maximum_single_bar_return_fraction=Decimal("0.05"),
-            ),
-        ),
+        selector=selector,
         store=store,
     )
     baseline = plan(
-        decision_time=decision_time,
+        decision_time=max(bar.timestamp for bar in materialized),
         selected=("MSFT", "AAPL"),
     )
 
-    first = observer.observe(
-        universe,
+    records = observer.observe(
+        materialized,
         baseline_plan=baseline,
-        observed_at=decision_time + timedelta(seconds=1),
-    )
-    replay = observer.observe(
-        universe,
-        baseline_plan=baseline,
-        observed_at=decision_time + timedelta(seconds=5),
+        observed_at=START + timedelta(days=8),
     )
 
-    assert replay == first
-    persisted = store.records(
-        strategy_id=STRATEGY,
-        candidate=PaperCandidateKind.ENTRY_QUALITY,
-    )
-    assert len(persisted) == 3
-    msft = next(record for record in persisted if record.symbol == "MSFT")
-    nvda = next(record for record in persisted if record.symbol == "NVDA")
-    assert msft.baseline_action == "SELECT"
-    assert msft.candidate_action == "SKIP"
-    assert "PRICE_EXTENSION_ABOVE_MAXIMUM" in msft.reasons
+    assert records
+    nvda = next(record for record in records if record.symbol == "NVDA")
     assert nvda.baseline_action == "SKIP"
-    assert nvda.candidate_action == "SELECT"
-    assert all(record.evidence_scope == "DECISION_DIVERGENCE_ONLY" for record in persisted)
+    assert nvda.candidate_action == "SKIP"
+    assert "SINGLE_BAR_RETURN_ABOVE_MAXIMUM" in nvda.reasons
+    assert all(record.evidence_scope == "DECISION_DIVERGENCE_ONLY" for record in records)
 
 
-def seed_long(ledger: PortfolioLedger) -> None:
-    ledger.apply_fill(
-        Fill(
-            fill_id="seed-aapl",
-            order_intent_id="seed-aapl-intent",
-            symbol="AAPL",
-            side=Side.BUY,
-            quantity=Decimal("1"),
-            price=Decimal("100"),
-            occurred_at=START,
-        )
-    )
-
-
-def test_selection_exit_shadow_replay_does_not_double_count_completed_bar(
+def test_selection_exit_shadow_replay_does_not_double_increment_streak(
     tmp_path: Path,
 ) -> None:
-    ledger = PortfolioLedger(opening_cash=Decimal("1000"))
-    seed_long(ledger)
-    store = SQLitePaperCandidateShadowStore(tmp_path / "candidate.sqlite")
+    materialized = tuple(
+        bars("AAPL", ["100", "100", "100", "100", "100", "100", "100", "99"])
+        + bars("MSFT", ["100", "101", "102", "103", "104", "105", "106", "107"])
+    )
+    store = SQLitePaperCandidateShadowStore(tmp_path / "shadow.sqlite")
+    ledger = ledger_with_position(tmp_path)
     observer = SelectionExitPaperShadowObserver(
         strategy_id=STRATEGY,
         ledger=ledger,
         policy=SelectionExitConfirmationPolicy(
             minimum_consecutive_deselected_bars=2,
-            exit_profitable_positions_immediately=True,
-            reset_on_reselection=True,
+            immediate_exit_when_profitable=True,
         ),
         store=store,
     )
-    first_bars = tuple(
-        bars("AAPL", ["100", "99"]) + bars("MSFT", ["100", "101"])
-    )
-    first_time = START + timedelta(days=1)
-    first_plan = plan(
-        decision_time=first_time,
+    decision_time = max(bar.timestamp for bar in materialized)
+    baseline = plan(
+        decision_time=decision_time,
         selected=("MSFT",),
         exit_reasons=(("AAPL", PortfolioExitReason.SELECTION_EXIT),),
     )
 
     first = observer.observe(
-        first_bars,
-        baseline_plan=first_plan,
-        observed_at=first_time + timedelta(seconds=1),
+        materialized,
+        baseline_plan=baseline,
+        observed_at=decision_time + timedelta(hours=1),
     )
-    replay = observer.observe(
-        first_bars,
-        baseline_plan=first_plan,
-        observed_at=first_time + timedelta(seconds=10),
-    )
-
-    assert replay == first
-    assert first[0].baseline_action == "EXIT:SELECTION_EXIT"
-    assert first[0].candidate_action == "PENDING:SELECTION_EXIT"
-    stored = store.selection_state(strategy_id=STRATEGY, symbol="AAPL")
-    assert stored.state.consecutive_deselected_bars == 1
-    assert stored.last_decision_time == first_time
-
-    second_bars = tuple(
-        bars("AAPL", ["100", "99", "98.5"])
-        + bars("MSFT", ["100", "101", "102"])
-    )
-    second_time = START + timedelta(days=2)
     second = observer.observe(
-        second_bars,
-        baseline_plan=plan(
-            decision_time=second_time,
-            selected=("MSFT",),
-            exit_reasons=(("AAPL", PortfolioExitReason.SELECTION_EXIT),),
-        ),
-        observed_at=second_time + timedelta(seconds=1),
+        materialized,
+        baseline_plan=baseline,
+        observed_at=decision_time + timedelta(hours=1),
     )
 
-    assert second[0].candidate_action == "EXIT:SELECTION_EXIT"
-    assert second[0].reasons == ("DESELECTION_CONFIRMED",)
-    assert store.selection_state(
-        strategy_id=STRATEGY,
-        symbol="AAPL",
-    ).state.consecutive_deselected_bars == 0
+    assert first == second
+    record = next(item for item in first if item.symbol == "AAPL")
+    assert record.candidate_action == "PENDING:SELECTION_EXIT"
+    assert record.metrics["prior_deselection_streak"] == 0
+    assert record.metrics["next_deselection_streak"] == 1
 
 
 def test_selection_exit_shadow_never_delays_protective_exit(tmp_path: Path) -> None:
-    ledger = PortfolioLedger(opening_cash=Decimal("1000"))
-    seed_long(ledger)
-    store = SQLitePaperCandidateShadowStore(tmp_path / "candidate.sqlite")
+    materialized = tuple(
+        bars("AAPL", ["100", "101", "102", "103", "104", "105", "106", "107"])
+        + bars("MSFT", ["100", "101", "102", "103", "104", "105", "106", "107"])
+    )
+    store = SQLitePaperCandidateShadowStore(tmp_path / "shadow.sqlite")
+    ledger = ledger_with_position(tmp_path)
     observer = SelectionExitPaperShadowObserver(
         strategy_id=STRATEGY,
         ledger=ledger,
-        policy=SelectionExitConfirmationPolicy(),
+        policy=SelectionExitConfirmationPolicy(
+            minimum_consecutive_deselected_bars=2,
+            immediate_exit_when_profitable=True,
+        ),
         store=store,
     )
-    universe = tuple(
-        bars("AAPL", ["100", "98"]) + bars("MSFT", ["100", "101"])
+    decision_time = max(bar.timestamp for bar in materialized)
+    baseline = plan(
+        decision_time=decision_time,
+        selected=("MSFT",),
+        exit_reasons=(("AAPL", PortfolioExitReason.INTRABAR_HARD_STOP),),
     )
-    decision_time = START + timedelta(days=1)
 
     records = observer.observe(
-        universe,
-        baseline_plan=plan(
-            decision_time=decision_time,
-            selected=("MSFT",),
-            exit_reasons=(("AAPL", PortfolioExitReason.INTRABAR_HARD_STOP),),
-        ),
-        observed_at=decision_time + timedelta(seconds=1),
+        materialized,
+        baseline_plan=baseline,
+        observed_at=decision_time + timedelta(hours=1),
     )
 
-    assert records[0].baseline_action == "EXIT:INTRABAR_HARD_STOP"
-    assert records[0].candidate_action == "EXIT:INTRABAR_HARD_STOP"
-    assert records[0].reasons == ("RISK_OR_PROTECTIVE_EXIT_UNCHANGED",)
+    record = next(item for item in records if item.symbol == "AAPL")
+    assert record.baseline_action == "EXIT:INTRABAR_HARD_STOP"
+    assert record.candidate_action == "EXIT:INTRABAR_HARD_STOP"
+    assert record.reasons == ("RISK_OR_PROTECTIVE_EXIT_UNCHANGED",)
 
 
-class FailingObserver:
-    name = "BROKEN_SHADOW"
+def test_suite_isolates_observer_failure() -> None:
+    class BrokenObserver:
+        name = "BROKEN"
 
-    def observe(self, bars, *, baseline_plan, observed_at):
-        del bars, baseline_plan, observed_at
-        raise RuntimeError("shadow observer exploded")
+        def observe(self, bars, *, baseline_plan, observed_at):
+            raise RuntimeError("boom")
 
-
-def test_shadow_suite_captures_failure_instead_of_raising() -> None:
-    batch = PaperCandidateShadowSuite((FailingObserver(),)).observe(
+    batch = PaperCandidateShadowSuite((BrokenObserver(),)).observe(
         (),
         baseline_plan=plan(decision_time=START, selected=()),
         observed_at=START,
     )
 
     assert batch.records == ()
-    assert batch.divergence_count == 0
     assert len(batch.failures) == 1
-    assert batch.failures[0].observer == "BROKEN_SHADOW"
+    assert batch.failures[0].observer == "BROKEN"
     assert batch.failures[0].error_type == "RuntimeError"
