@@ -111,7 +111,11 @@ def evaluate_crypto_replay_evidence(
             reasons=("NON_POSITIVE_NET_PNL",),
             demo_observation_allowed=False,
         )
-    if evidence.profit_factor is None or evidence.profit_factor < active_policy.minimum_profit_factor:
+    profit_factor_below_minimum = (
+        evidence.profit_factor is None
+        or evidence.profit_factor < active_policy.minimum_profit_factor
+    )
+    if profit_factor_below_minimum:
         return CryptoEvidenceDecision(
             posture=CryptoResearchPosture.RETUNE_NEGATIVE_ECONOMICS,
             reasons=("PROFIT_FACTOR_BELOW_MINIMUM",),
