@@ -62,6 +62,7 @@ def bars(symbol: str, closes: list[str], *, volume: int = 1_000_000):
                 low=close - Decimal("1"),
                 close=close,
                 volume=volume,
+                trade_count=1_000,
             )
         )
     return result
@@ -78,7 +79,10 @@ def test_late_spike_is_rejected_and_next_smooth_candidate_is_promoted() -> None:
         ),
     )
     universe = (
-        bars("MSFT", ["100", "100.5", "101", "101.5", "102", "102.5", "103", "112"])
+        bars(
+            "MSFT",
+            ["100", "100.5", "101", "101.5", "102", "102.5", "103", "112"],
+        )
         + bars("AAPL", ["100", "101", "102", "103", "104", "105", "106", "107"])
         + bars("NVDA", ["80", "81", "82", "83", "84", "85", "86", "87"])
     )
