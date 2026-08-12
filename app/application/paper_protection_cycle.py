@@ -18,6 +18,7 @@ from app.application.paper_protection_reprice import (
     PaperProtectionRepricePlanner,
     ProtectiveRepriceDecision,
 )
+from app.application.paper_strategy_scope import SQLitePaperStrategyIntentRegistry
 from app.application.portfolio_paper_planner import (
     EntryExitGate,
     PortfolioPaperPlanItem,
@@ -58,20 +59,7 @@ class PaperProtectionOrderResult:
 
 
 class PaperProtectionOrderService:
-    """Fresh-price protection trigger through risk and durable paper OMS preparation.
-
-    No broker call occurs here. Before a durable OMS record exists, a pending exit is
-    repriced to the latest observed reference price so a prior risk rejection cannot
-    strand a SELL at an obsolete limit. Once an active broker order exists, an optional
-    reprice planner can write an adverse-only durable REPLACE mutation instead of
-    creating a second SELL. Cancelled/rejected terminal attempts may be reissued for the
-    verified remaining quantity on a newer price observation.
-
-    When a strategy-scoped quality recorder is supplied, the same fresh prices update
-    observed MFE/MAE and an approved protective exit reason is durably registered before
-    OMS outbox creation. Registration also runs on an existing-order retry so it can
-    heal an older crash or deployment window without creating another SELL.
-    """
+    """Fresh-price protection trigger through risk and durable paper OMS preparation."""
 
     _RECOVERABLE_PREOUTBOX = frozenset(
         {OrderState.CREATED, OrderState.RISK_APPROVED}
@@ -86,6 +74,7 @@ class PaperProtectionOrderService:
         lifecycle: PaperOrderLifecycle,
         quality_recorder: ProtectionQualityRecorder | None = None,
         reprice_planner: PaperProtectionRepricePlanner | None = None,
+        intent_registry: SQLitePaperStrategyIntentRegistry | None = None,
     ) -> None:
         if protection.ledger is not planner.ledger:
             raise ValueError("protection and planner must share one durable ledger")
@@ -96,6 +85,7 @@ class PaperProtectionOrderService:
         self.lifecycle = lifecycle
         self.quality_recorder = quality_recorder
         self.reprice_planner = reprice_planner
+        self.intent_registry = intent_registry
 
     def observe_and_prepare(
         self,
@@ -159,6 +149,10 @@ class PaperProtectionOrderService:
                     existing_order_reused=True,
                 )
             if existing.state not in self._REISSUABLE_TERMINAL:
+                self._register_ownership(
+                    stable_intent,
+                    registered_at=decision.exit_target.generated_at,
+                )
                 self._register_exit(
                     intent_id=stable_intent.intent_id,
                     target=decision.exit_target,
@@ -272,6 +266,7 @@ class PaperProtectionOrderService:
             )
         if item.intent is None:
             raise RuntimeError("approved protection item is missing SELL intent")
+        self._register_ownership(item.intent, registered_at=item.target.generated_at)
         self._register_exit(
             intent_id=item.intent.intent_id,
             target=item.target,
@@ -288,6 +283,15 @@ class PaperProtectionOrderService:
             plan_item=item,
             prepared=prepared[0],
             existing_order_reused=existing_order_reused,
+        )
+
+    def _register_ownership(self, intent, *, registered_at: datetime) -> None:
+        if self.intent_registry is None:
+            return
+        self.intent_registry.register(
+            intent,
+            strategy_id=self.protection.strategy_id,
+            registered_at=registered_at,
         )
 
     def _register_exit(
