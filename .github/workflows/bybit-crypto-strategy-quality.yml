@@ -17,6 +17,7 @@ on:
       - 'app/strategy/crypto_entry_economics.py'
       - 'app/strategy/crypto_target_selection.py'
       - 'app/strategy/crypto_profit_runner.py'
+      - 'app/strategy/crypto_runner_admission.py'
       - 'tools/replay_bybit_crypto_runner.py'
       - 'tools/replay_bybit_crypto_archive.py'
       - 'tests/test_bybit_crypto_core.py'
@@ -33,6 +34,7 @@ on:
       - 'tests/test_crypto_entry_economics.py'
       - 'tests/test_crypto_target_selection.py'
       - 'tests/test_crypto_profit_runner.py'
+      - 'tests/test_crypto_runner_admission.py'
       - 'tests/test_evaluate_bybit_crypto_replay.py'
       - '.github/workflows/bybit-crypto-strategy-quality.yml'
 
@@ -79,6 +81,7 @@ jobs:
           app/strategy/crypto_entry_economics.py
           app/strategy/crypto_target_selection.py
           app/strategy/crypto_profit_runner.py
+          app/strategy/crypto_runner_admission.py
           tools/replay_bybit_crypto_runner.py
           tools/replay_bybit_crypto_archive.py
           tests/test_bybit_crypto_core.py
@@ -95,6 +98,7 @@ jobs:
           tests/test_crypto_entry_economics.py
           tests/test_crypto_target_selection.py
           tests/test_crypto_profit_runner.py
+          tests/test_crypto_runner_admission.py
           tests/test_evaluate_bybit_crypto_replay.py
 
       - name: Run crypto strategy invariants
@@ -116,6 +120,7 @@ jobs:
             tests/test_crypto_entry_economics.py \
             tests/test_crypto_target_selection.py \
             tests/test_crypto_profit_runner.py \
+            tests/test_crypto_runner_admission.py \
             tests/test_evaluate_bybit_crypto_replay.py \
             2>&1 | tee bybit-crypto-strategy-pytest.txt
 
@@ -135,6 +140,7 @@ jobs:
           app/strategy/crypto_entry_economics.py
           app/strategy/crypto_target_selection.py
           app/strategy/crypto_profit_runner.py
+          app/strategy/crypto_runner_admission.py
           tools/replay_bybit_crypto_runner.py
           tools/replay_bybit_crypto_archive.py
 
