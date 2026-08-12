@@ -22,7 +22,7 @@ from app.strategy.cross_sectional_portfolio import (
 
 
 class AuditedCrossSectionalPaperCycleService:
-    """Persist the exact selection/target/risk rationale after each paper decision."""
+    """Persist the exact selection, health, target and risk rationale per decision."""
 
     def __init__(
         self,
@@ -60,5 +60,6 @@ class AuditedCrossSectionalPaperCycleService:
             strategy_id=self.cycle.target_planner.strategy_id,
             generated_at=generated_at,
             result=result,
+            quality_gate=quality_gate,
         )
         return result
