@@ -90,13 +90,7 @@ class EntryQualitySelectionTrace:
 
 
 class EntryQualityFilteredSelector:
-    """Shadow wrapper that rejects choppy or late-spike entry candidates.
-
-    The wrapper never changes the base candidate score. It walks the base selector's
-    eligible ranking and admits the first ``top_k`` candidates that pass transparent
-    path-quality checks. This makes attribution explicit: a symbol can be high-ranked
-    by momentum/trend/volatility yet still be rejected as a poor *entry*.
-    """
+    """Shadow wrapper that rejects choppy or late-spike entry candidates."""
 
     def __init__(
         self,
@@ -168,7 +162,9 @@ class EntryQualityFilteredSelector:
     def _ranked_eligible(
         candidates: tuple[SelectionCandidate, ...],
     ) -> tuple[SelectionCandidate, ...]:
-        indexed = tuple(enumerate(candidate for candidate in candidates if candidate.eligible))
+        indexed = tuple(
+            enumerate(candidate for candidate in candidates if candidate.eligible)
+        )
         ranked = sorted(
             indexed,
             key=lambda item: (
@@ -198,7 +194,10 @@ class EntryQualityFilteredSelector:
         window = bars[-self.policy.lookback_bars :]
         closes = tuple(bar.close for bar in window)
         path_length = sum(
-            (abs(current - prior) for prior, current in zip(closes, closes[1:])),
+            (
+                abs(current - prior)
+                for prior, current in zip(closes, closes[1:], strict=False)
+            ),
             start=Decimal("0"),
         )
         net_change = abs(closes[-1] - closes[0])
@@ -206,7 +205,10 @@ class EntryQualityFilteredSelector:
             Decimal("0") if path_length == 0 else net_change / path_length
         )
         mean_close = sum(closes, start=Decimal("0")) / Decimal(len(closes))
-        price_extension = max(Decimal("0"), closes[-1] / mean_close - Decimal("1"))
+        price_extension = max(
+            Decimal("0"),
+            closes[-1] / mean_close - Decimal("1"),
+        )
         single_bar_return = max(
             Decimal("0"),
             closes[-1] / closes[-2] - Decimal("1"),
