@@ -30,7 +30,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: bybit-crypto-replay-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: bybit-crypto-replay-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
