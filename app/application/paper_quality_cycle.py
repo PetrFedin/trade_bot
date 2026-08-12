@@ -7,6 +7,10 @@ from decimal import Decimal
 from typing import Protocol
 
 from app.application.cross_sectional_paper_cycle import CrossSectionalPaperCycleResult
+from app.application.paper_candidate_shadow import (
+    PaperCandidateShadowBatch,
+    PaperCandidateShadowSuite,
+)
 from app.application.paper_decision_cycle import AuditedCrossSectionalPaperCycleService
 from app.application.paper_execution_quality import SQLitePaperExecutionQualityStore
 from app.application.paper_quality_gate import (
@@ -42,16 +46,18 @@ class TradeQualityGateProvider(Protocol):
 class PaperQualityManagedCycleResult:
     quality_gate: PaperQualityGateDecision
     decision: CrossSectionalPaperCycleResult
+    candidate_shadow: PaperCandidateShadowBatch | None = None
 
 
 class QualityManagedCrossSectionalPaperCycleService:
     """Derive current paper health before every cross-sectional decision.
 
-    The service removes a dangerous orchestration dependency: callers cannot forget to
-    apply the current quality gate before producing paper order intents. Trade outcome,
-    execution slippage and reaction latency evidence are composed immediately before
-    the audited strategy cycle. The resulting gate can pause new BUYs but always keeps
-    exits enabled. No broker mutation occurs in this layer.
+    Trade outcome, execution slippage and reaction latency evidence are composed before
+    the audited baseline strategy cycle. An optional candidate-shadow suite is invoked
+    only after the baseline decision has already produced its durable OMS outbox, so
+    counterfactual research cannot alter, delay or cancel actual paper order intents.
+    Observer failures are returned as evidence failures instead of raising through the
+    execution path. The quality gate may pause new BUYs but always keeps exits enabled.
     """
 
     def __init__(
@@ -64,6 +70,7 @@ class QualityManagedCrossSectionalPaperCycleService:
         execution_policy: ExecutionQualityGatePolicy | None = None,
         reaction_store: SQLitePaperReactionQualityStore | None = None,
         reaction_policy: ReactionQualityGatePolicy | None = None,
+        candidate_shadow: PaperCandidateShadowSuite | None = None,
     ) -> None:
         strategy_id = cycle.cycle.target_planner.strategy_id
         if trade_quality.strategy_id != strategy_id:
@@ -84,6 +91,7 @@ class QualityManagedCrossSectionalPaperCycleService:
         self.execution_policy = execution_policy
         self.reaction_store = reaction_store
         self.reaction_policy = reaction_policy
+        self.candidate_shadow = candidate_shadow
         self.strategy_id = strategy_id
 
     def current_gate(self) -> PaperQualityGateDecision:
@@ -108,9 +116,10 @@ class QualityManagedCrossSectionalPaperCycleService:
         blocked_entries: Mapping[str, PortfolioEntryBlockReason] | None = None,
         protective_exits: Mapping[str, PortfolioExitReason] | None = None,
     ) -> PaperQualityManagedCycleResult:
+        materialized = tuple(bars)
         gate = self.current_gate()
         decision = self.cycle.plan_and_prepare(
-            bars,
+            materialized,
             reference_prices=reference_prices,
             generated_at=generated_at,
             quality_gate=gate,
@@ -119,7 +128,17 @@ class QualityManagedCrossSectionalPaperCycleService:
             blocked_entries=blocked_entries,
             protective_exits=protective_exits,
         )
+        shadow = (
+            None
+            if self.candidate_shadow is None
+            else self.candidate_shadow.observe(
+                materialized,
+                baseline_plan=decision.target_plan,
+                observed_at=generated_at,
+            )
+        )
         return PaperQualityManagedCycleResult(
             quality_gate=gate,
             decision=decision,
+            candidate_shadow=shadow,
         )
