@@ -8,6 +8,7 @@ from app.marketdata.ohlcv import OhlcvBar
 from app.strategy.position_management import (
     ExitReason,
     PositionManagementPolicy,
+    TakeProfitMode,
     profit_protection_stop,
 )
 
@@ -60,8 +61,9 @@ def evaluate_long_intrabar_exit(
 
     Trailing and profit-protection eligibility use only extrema from *completed prior
     bars*. The current bar high/low update MFE/MAE tracking only when the position
-    survives the bar. If both a protective stop and take-profit are reachable inside
-    the same bar, the protective exit is chosen to avoid optimistic path reconstruction.
+    survives the bar. Fixed take-profit preserves legacy behavior. In profit-runner
+    mode, touching the take-profit threshold does not retroactively arm a same-bar stop;
+    the completed bar peak may tighten protection only from the next bar onward.
     """
 
     policy.validate()
@@ -72,6 +74,7 @@ def evaluate_long_intrabar_exit(
 
     hard_stop = average_cost * (Decimal("1") - policy.stop_loss_fraction)
     take_profit = average_cost * (Decimal("1") + policy.take_profit_fraction)
+    fixed_take_profit = policy.take_profit_mode is TakeProfitMode.FIXED_EXIT
     trailing_active = state.peak_completed_price >= average_cost * (
         Decimal("1") + policy.trailing_activation_fraction
     )
@@ -121,7 +124,7 @@ def evaluate_long_intrabar_exit(
             state=state,
         )
 
-    if bar.open >= take_profit:
+    if fixed_take_profit and bar.open >= take_profit:
         return IntrabarExitDecision(
             exit_now=True,
             reason=IntrabarExitReason.TAKE_PROFIT,
@@ -136,7 +139,7 @@ def evaluate_long_intrabar_exit(
         )
 
     protective_hit = bar.low <= protective_price
-    take_profit_hit = bar.high >= take_profit
+    take_profit_hit = fixed_take_profit and bar.high >= take_profit
     if protective_hit:
         return IntrabarExitDecision(
             exit_now=True,
