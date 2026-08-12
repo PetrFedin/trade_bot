@@ -7,7 +7,16 @@ from app.application.paper_execution_quality import (
     PaperExecutionQualityFill,
     SQLitePaperExecutionQualityStore,
 )
+from app.application.paper_quality_gate import (
+    ExecutionQualityGatePolicy,
+    PaperQualityGateStatus,
+    ReactionQualityGatePolicy,
+)
 from app.application.paper_quality_reporting import build_paper_trading_quality_report
+from app.application.paper_reaction_quality import (
+    PaperReactionFill,
+    SQLitePaperReactionQualityStore,
+)
 from app.application.paper_trade_quality import (
     PaperTradeQualityTracker,
     SQLitePaperTradeQualityStore,
@@ -149,13 +158,59 @@ def execution_store(tmp_path: Path) -> SQLitePaperExecutionQualityStore:
     return store
 
 
-def test_report_separates_trade_quality_from_execution_quality(tmp_path: Path) -> None:
+def reaction_store(tmp_path: Path) -> SQLitePaperReactionQualityStore:
+    store = SQLitePaperReactionQualityStore(tmp_path / "reaction-quality.sqlite")
+    store.append(
+        PaperReactionFill(
+            fill_id="reaction-entry",
+            intent_id="entry-1",
+            strategy_id=STRATEGY,
+            symbol="AAPL",
+            side=Side.BUY,
+            decision_at=NOW,
+            fill_at=NOW + timedelta(seconds=1),
+            latency_seconds=Decimal("1"),
+        )
+    )
+    store.append(
+        PaperReactionFill(
+            fill_id="reaction-exit",
+            intent_id="exit-1",
+            strategy_id=STRATEGY,
+            symbol="AAPL",
+            side=Side.SELL,
+            decision_at=NOW + timedelta(seconds=1),
+            fill_at=NOW + timedelta(seconds=3),
+            latency_seconds=Decimal("2"),
+        )
+    )
+    return store
+
+
+def test_report_separates_and_composes_trade_execution_reaction_quality(
+    tmp_path: Path,
+) -> None:
     tracker = build_two_trades(tmp_path)
+    execution = execution_store(tmp_path)
+    reaction = reaction_store(tmp_path)
     report = build_paper_trading_quality_report(
         tracker=tracker,
         policy=policy(),
         generated_at=NOW + timedelta(minutes=1),
-        execution_store=execution_store(tmp_path),
+        execution_store=execution,
+        reaction_store=reaction,
+        execution_gate_policy=ExecutionQualityGatePolicy(
+            window_fills=5,
+            minimum_observations=2,
+            maximum_weighted_signed_slippage_bps=Decimal("10"),
+            maximum_worst_signed_slippage_bps=Decimal("25"),
+        ),
+        reaction_gate_policy=ReactionQualityGatePolicy(
+            window_fills=5,
+            minimum_observations=2,
+            maximum_average_latency_seconds=Decimal("5"),
+            maximum_p95_latency_seconds=Decimal("5"),
+        ),
     )
 
     assert report.trade_count == 2
@@ -175,9 +230,22 @@ def test_report_separates_trade_quality_from_execution_quality(tmp_path: Path) -
     assert report.execution_entries.signed_slippage_notional == Decimal("0.10")
     assert report.execution_exits is not None
     assert report.execution_exits.signed_slippage_notional == Decimal("0.20")
+    assert report.reaction_all is not None
+    assert report.reaction_all.average_latency_seconds == Decimal("1.5")
+    assert report.reaction_exits is not None
+    assert report.reaction_exits.p95_latency_seconds == Decimal("2")
+    assert report.composite_quality_gate is not None
+    assert report.composite_quality_gate.status is PaperQualityGateStatus.PAUSE_ENTRIES
+    assert report.composite_quality_gate.allow_new_entries is False
+    assert report.composite_quality_gate.allow_exits is True
+    assert report.composite_quality_gate.reasons == (
+        "EXECUTION:WEIGHTED_SLIPPAGE_ABOVE_MAXIMUM",
+    )
 
     document = report.to_dict()
     assert document["total_net_pnl"] == "2"
     assert document["quality_gate"]["status"] == "HEALTHY"
     assert document["execution_exits"]["signed_slippage_notional"] == "0.20"
+    assert document["reaction_all"]["average_latency_seconds"] == "1.5"
+    assert document["composite_quality_gate"]["status"] == "PAUSE_ENTRIES"
     json.dumps(document)
