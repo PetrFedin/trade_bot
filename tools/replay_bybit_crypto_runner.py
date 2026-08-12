@@ -12,8 +12,8 @@ from app.strategy.crypto_perp import (
     rank_crypto_signals,
 )
 from app.strategy.crypto_profit_runner import (
-    CryptoProfitRunnerPolicy,
     CryptoProfitRunnerLevels,
+    CryptoProfitRunnerPolicy,
     build_crypto_profit_runner_levels,
 )
 from app.strategy.crypto_trade_management import (
