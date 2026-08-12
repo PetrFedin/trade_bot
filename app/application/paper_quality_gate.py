@@ -4,14 +4,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 
-from app.application.paper_execution_quality import (
-    PaperExecutionQualityFill,
-    SQLitePaperExecutionQualityStore,
-)
-from app.application.paper_reaction_quality import (
-    PaperReactionFill,
-    SQLitePaperReactionQualityStore,
-)
+from app.application.paper_execution_quality import SQLitePaperExecutionQualityStore
+from app.application.paper_reaction_quality import SQLitePaperReactionQualityStore
 from app.strategy.quality_monitor import StrategyQualityGateDecision
 
 
@@ -167,30 +161,16 @@ def evaluate_paper_quality_gate(
 
     allow_new_entries = (
         trade_gate.allow_new_entries
-        and (
-            execution_decision is None
-            or execution_decision.allow_new_entries
-        )
-        and (
-            reaction_decision is None
-            or reaction_decision.allow_new_entries
-        )
+        and (execution_decision is None or execution_decision.allow_new_entries)
+        and (reaction_decision is None or reaction_decision.allow_new_entries)
     )
     insufficient = (
         trade_gate.status.value == PaperQualityGateStatus.INSUFFICIENT_DATA.value
-        or (
-            execution_decision is not None
-            and not execution_decision.sufficient_data
-        )
-        or (
-            reaction_decision is not None
-            and not reaction_decision.sufficient_data
-        )
+        or (execution_decision is not None and not execution_decision.sufficient_data)
+        or (reaction_decision is not None and not reaction_decision.sufficient_data)
     )
     degraded = any(
-        reason
-        for reason in reasons
-        if "INSUFFICIENT_OBSERVATIONS" not in reason
+        "INSUFFICIENT_OBSERVATIONS" not in reason for reason in reasons
     )
     status = (
         PaperQualityGateStatus.PAUSE_ENTRIES
@@ -232,9 +212,7 @@ def _execution_gate(
         else signed_notional / expected_notional * Decimal("10000")
     )
     worst_bps = (
-        None
-        if not fills
-        else max(item.signed_slippage_bps for item in fills)
+        None if not fills else max(item.signed_slippage_bps for item in fills)
     )
     metrics = ExecutionQualityGateMetrics(
         observation_count=len(fills),
