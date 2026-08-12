@@ -164,6 +164,69 @@ def _run_entry_selection_interaction(
     ).run(bars)
 
 
+def _terminal_signal_snapshot(
+    bars: tuple[OhlcvBar, ...],
+    *,
+    config: dict,
+    entry_policy: dict,
+) -> dict[str, object]:
+    base_selector = entry_quality._selector(
+        config,
+        filtered=False,
+        policy=entry_policy,
+    )
+    base = base_selector.select(bars)
+    filtered_selector = entry_quality._selector(
+        config,
+        filtered=True,
+        policy=entry_policy,
+    )
+    filtered, trace = filtered_selector.select_with_trace(bars)
+    entry_evaluations = {
+        evaluation.symbol: {
+            "passed": evaluation.passed,
+            "selected": evaluation.selected,
+            "block_reasons": [reason.value for reason in evaluation.block_reasons],
+            "trend_efficiency": _decimal(evaluation.metrics.trend_efficiency),
+            "price_extension_fraction": _decimal(
+                evaluation.metrics.price_extension_fraction
+            ),
+            "single_bar_return_fraction": _decimal(
+                evaluation.metrics.single_bar_return_fraction
+            ),
+            "average_dollar_volume": _decimal(
+                evaluation.metrics.average_dollar_volume
+            ),
+        }
+        for evaluation in trace.evaluations
+    }
+    return {
+        "decision_time": base.decision_time.isoformat(),
+        "execution_pending": True,
+        "stateful_entry_gates_evaluated": False,
+        "stateful_entry_gate_note": (
+            "SELECTION_IS_NOT_AN_ORDER; REENTRY_GROSS_CASH_AND_QUALITY_GATES_RUN_AT_EXECUTION"
+        ),
+        "current_selected_symbols": list(base.selected_symbols),
+        "entry_quality_selected_symbols": list(filtered.selected_symbols),
+        "candidates": [
+            {
+                "symbol": candidate.symbol,
+                "rank": candidate.rank,
+                "eligible": candidate.eligible,
+                "rejection_reasons": list(candidate.rejection_reasons),
+                "momentum_return": str(candidate.momentum_return),
+                "trend_strength": str(candidate.trend_strength),
+                "realized_volatility": str(candidate.realized_volatility),
+                "quality_score": str(candidate.quality_score),
+                "reference_price": str(candidate.reference_price),
+                "entry_quality": entry_evaluations.get(candidate.symbol),
+            }
+            for candidate in base.candidates
+        ],
+    }
+
+
 def replay(
     *,
     csv_path: Path,
@@ -257,6 +320,11 @@ def replay(
         "synchronized_timestamp_count": len(timestamps),
         "first_timestamp": timestamps[0].isoformat(),
         "last_timestamp": timestamps[-1].isoformat(),
+        "terminal_completed_bar_signal": _terminal_signal_snapshot(
+            bars,
+            config=config,
+            entry_policy=entry_policy,
+        ),
         "cost_model": {
             "fee_per_fill": config["fee_per_fill"],
             "slippage_bps": config["slippage_bps"],
@@ -279,6 +347,7 @@ def replay(
             "HISTORICAL_REPLAY_IS_NOT_LIVE_OR_REAL_PAPER_EXECUTION",
             "STATIC_SLIPPAGE_AND_FEE_MODEL_DOES_NOT_CAPTURE_ORDER_BOOK_IMPACT",
             "DAILY_BARS_DO_NOT_RECONSTRUCT_TRUE_INTRABAR_PATH",
+            "TERMINAL_SELECTION_IS_NOT_A GUARANTEED_NEXT_OPEN_ORDER",
             "CANDIDATES_REMAIN_NON_PROMOTED_DESPITE_MARGINAL_OR_PAIRWISE_RESULTS",
             "PAIRWISE_RESULT_DOES_NOT_ESTABLISH_FULL_STACK_INTERACTION_SAFETY",
             "SAME_SAMPLE_REPLAY_IS_NOT_STRATEGY_PROMOTION_EVIDENCE",
