@@ -56,7 +56,7 @@ def qualify(
     fold_evidence: list[dict[str, object]] = []
     return_deltas: list[Decimal] = []
     drawdown_deltas: list[Decimal] = []
-    trade_count_deltas: list[Decimal] = []
+    closed_trade_count_deltas: list[Decimal] = []
     changed_decisions = 0
     better_return_folds = 0
     drawdown_not_worse_folds = 0
@@ -88,16 +88,16 @@ def qualify(
         return_delta = Decimal(str(comparison["total_return_delta"]))
         drawdown_delta = Decimal(str(comparison["max_drawdown_fraction_delta"]))
         trade_count_delta = Decimal(
-            str(candidate_metrics["trade_count"])
-        ) - Decimal(str(control_metrics["trade_count"]))
+            str(candidate_metrics["closed_trade_count"])
+        ) - Decimal(str(control_metrics["closed_trade_count"]))
         return_deltas.append(return_delta)
         drawdown_deltas.append(drawdown_delta)
-        trade_count_deltas.append(trade_count_delta)
+        closed_trade_count_deltas.append(trade_count_delta)
         better_return_folds += return_delta > 0
         drawdown_not_worse_folds += drawdown_delta <= 0
         lower_or_equal_turnover_folds += Decimal(
-            str(candidate_metrics["turnover_notional"])
-        ) <= Decimal(str(control_metrics["turnover_notional"]))
+            str(candidate_metrics["turnover_fraction"])
+        ) <= Decimal(str(control_metrics["turnover_fraction"]))
         changed_decisions += int(selection_changes["changed_decision_count"])
 
         fold_evidence.append(
@@ -113,7 +113,7 @@ def qualify(
                 "filtered": candidate_metrics,
                 "comparison": comparison,
                 "selection_changes": selection_changes,
-                "trade_count_delta": str(trade_count_delta),
+                "closed_trade_count_delta": str(trade_count_delta),
             }
         )
 
@@ -146,7 +146,9 @@ def qualify(
         "aggregate": {
             "mean_total_return_delta": str(_mean(return_deltas)),
             "mean_max_drawdown_fraction_delta": str(_mean(drawdown_deltas)),
-            "mean_trade_count_delta": str(_mean(trade_count_deltas)),
+            "mean_closed_trade_count_delta": str(
+                _mean(closed_trade_count_deltas)
+            ),
             "changed_decision_count": changed_decisions,
             "filtered_return_better_fold_count": better_return_folds,
             "filtered_drawdown_not_worse_fold_count": drawdown_not_worse_folds,
