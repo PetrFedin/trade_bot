@@ -4,28 +4,36 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'app/marketdata/bybit_http.py'
       - 'app/marketdata/bybit_v5.py'
       - 'app/marketdata/bybit_instruments.py'
+      - 'app/marketdata/bybit_public_archive.py'
       - 'app/execution/bybit_demo.py'
       - 'app/strategy/crypto_perp.py'
       - 'app/strategy/crypto_trade_management.py'
       - 'tools/replay_bybit_crypto.py'
+      - 'tools/replay_bybit_crypto_archive.py'
+      - 'tests/test_bybit_http.py'
       - 'tests/test_bybit_crypto_core.py'
       - 'tests/test_bybit_crypto_replay.py'
       - 'tests/test_bybit_instruments.py'
+      - 'tests/test_bybit_public_archive.py'
       - '.github/workflows/bybit-crypto-historical-replay.yml'
   push:
     branches:
       - agent/trading-quality-profit-protection
     paths:
-      - 'app/marketdata/bybit_instruments.py'
       - '.github/workflows/bybit-crypto-historical-replay.yml'
   workflow_dispatch:
     inputs:
       lookback_days:
-        description: 'Completed Bybit 5m history window in days'
+        description: 'Completed Bybit UTC archive days'
         required: false
         default: '7'
+      symbols:
+        description: 'Comma-separated USDT perpetual symbols'
+        required: false
+        default: 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,LINKUSDT,ADAUSDT'
   schedule:
     - cron: '17 */6 * * *'
 
@@ -59,35 +67,45 @@ jobs:
       - name: Lint Bybit crypto surface
         run: >-
           ruff check --output-format=github
+          app/marketdata/bybit_http.py
           app/marketdata/bybit_v5.py
           app/marketdata/bybit_instruments.py
+          app/marketdata/bybit_public_archive.py
           app/execution/bybit_demo.py
           app/strategy/crypto_perp.py
           app/strategy/crypto_trade_management.py
           tools/replay_bybit_crypto.py
+          tools/replay_bybit_crypto_archive.py
+          tests/test_bybit_http.py
           tests/test_bybit_crypto_core.py
           tests/test_bybit_crypto_replay.py
           tests/test_bybit_instruments.py
+          tests/test_bybit_public_archive.py
 
       - name: Bybit crypto invariants
         shell: bash
         run: |
           set -o pipefail
           pytest -vv \
+            tests/test_bybit_http.py \
             tests/test_bybit_crypto_core.py \
             tests/test_bybit_crypto_replay.py \
             tests/test_bybit_instruments.py \
+            tests/test_bybit_public_archive.py \
             2>&1 | tee bybit-crypto-pytest.txt
 
       - name: Compile Bybit crypto boundary
         run: >-
           python -m compileall -q
+          app/marketdata/bybit_http.py
           app/marketdata/bybit_v5.py
           app/marketdata/bybit_instruments.py
+          app/marketdata/bybit_public_archive.py
           app/execution/bybit_demo.py
           app/strategy/crypto_perp.py
           app/strategy/crypto_trade_management.py
           tools/replay_bybit_crypto.py
+          tools/replay_bybit_crypto_archive.py
 
       - name: Upload contract diagnostics
         if: always()
@@ -102,7 +120,7 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: contract
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - name: Checkout exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -119,21 +137,23 @@ jobs:
           python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
           python -m pip check
 
-      - name: Replay completed public Bybit 5m market history
+      - name: Replay official completed Bybit historical archives
         env:
-          LOOKBACK_DAYS: ${{ inputs.lookback_days || '7' }}
+          LOOKBACK_DAYS: ${{ github.event_name == 'push' && '3' || inputs.lookback_days || '7' }}
+          SYMBOLS: ${{ github.event_name == 'push' && 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT' || inputs.symbols || 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,LINKUSDT,ADAUSDT' }}
         shell: bash
         run: |
           set -o pipefail
           mkdir -p artifacts/bybit-crypto/trades
-          if ! PYTHONPATH=. python tools/replay_bybit_crypto.py \
+          if ! PYTHONPATH=. python tools/replay_bybit_crypto_archive.py \
+            --symbols "$SYMBOLS" \
             --lookback-days "$LOOKBACK_DAYS" \
             --opening-equity 1000 \
             --targets 15,20,25 \
             --output artifacts/bybit-crypto/report.json \
             --trades-dir artifacts/bybit-crypto/trades; then
             printf '%s\n' \
-              '{"qualification":"BLOCKED_REAL_MARKET_REPLAY","reason":"REPLAY_COMMAND_FAILED"}' \
+              '{"qualification":"BLOCKED_BYBIT_ARCHIVE_REPLAY","historical_replay_completed":false}' \
               > artifacts/bybit-crypto/blocked.json
             exit 1
           fi
@@ -146,7 +166,11 @@ jobs:
 
           report = json.loads(Path('artifacts/bybit-crypto/report.json').read_text())
           assert report['qualification'] == 'PASS_CRYPTO_HISTORICAL_REPLAY'
+          assert report['source'] == 'BYBIT_OFFICIAL_PUBLIC_TRADE_ARCHIVE_AGGREGATED_5M'
+          assert report['archive_completed_utc_days_only'] is True
           assert report['current_incomplete_bar_excluded'] is True
+          assert report['rest_api_required'] is False
+          assert report['raw_trade_archive_committed_to_repository'] is False
           assert report['strategy_promotion_allowed'] is False
           assert report['bybit_demo_order_writes_enabled'] is False
           assert report['bybit_live_order_routing_allowed'] is False
