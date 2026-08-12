@@ -3,7 +3,7 @@ from decimal import Decimal
 from app.execution.bybit_demo import (
     BybitDemoOrderAck,
     BybitDemoPosition,
-    BybitDemoProtectionAck,
+    BybitDemoRunnerProtectionAck,
 )
 from app.execution.bybit_demo_cycle import (
     BybitDemoCyclePolicy,
@@ -50,14 +50,18 @@ class _FakeDemoClient:
             accepted=True,
         )
 
-    def set_full_position_protection(self, request: object) -> BybitDemoProtectionAck:
+    def set_open_ended_position_protection(
+        self,
+        request: object,
+    ) -> BybitDemoRunnerProtectionAck:
         if self.protection_error is not None:
             raise self.protection_error
         self.protections.append(request)
-        return BybitDemoProtectionAck(
+        return BybitDemoRunnerProtectionAck(
             symbol=str(getattr(request, "symbol")),
-            take_profit_price=getattr(request, "take_profit_price"),
             stop_loss_price=getattr(request, "stop_loss_price"),
+            trailing_stop_distance=getattr(request, "trailing_stop_distance"),
+            trailing_active_price=getattr(request, "trailing_active_price"),
         )
 
 
@@ -79,7 +83,7 @@ def _instrument() -> BybitInstrumentSpec:
     )
 
 
-def _trade_plan() -> CryptoTradePlan:
+def _trade_plan(target: Decimal = Decimal("20")) -> CryptoTradePlan:
     return CryptoTradePlan(
         symbol="BTCUSDT",
         side=CryptoSide.LONG,
@@ -91,10 +95,10 @@ def _trade_plan() -> CryptoTradePlan:
         stop_fraction=Decimal("0.004"),
         estimated_round_trip_cost_usdt=Decimal("1.92"),
         estimated_stop_loss_after_cost_usdt=Decimal("6.72"),
-        target_net_profit_usd=Decimal("15"),
-        required_move_fraction=Decimal("0.0141"),
-        expected_move_fraction=Decimal("0.015"),
-        expected_net_edge_usd=Decimal("16.08"),
+        target_net_profit_usd=target,
+        required_move_fraction=Decimal("0.018"),
+        expected_move_fraction=Decimal("0.020"),
+        expected_net_edge_usd=Decimal("24"),
         quality_score=Decimal("2.5"),
     )
 
@@ -134,7 +138,7 @@ def test_demo_cycle_is_non_writing_by_default() -> None:
     result = execute_bybit_demo_trade_cycle(
         _trade_plan(),
         instrument=_instrument(),
-        strategy_config=CryptoPerpStrategyConfig(),
+        strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
         session_state=_session(),
         client=client,
     )
@@ -146,13 +150,30 @@ def test_demo_cycle_is_non_writing_by_default() -> None:
     assert client.position_reads == 0
 
 
-def test_demo_cycle_reconciles_fill_before_exchange_protection() -> None:
+def test_demo_cycle_blocks_15_dollar_entry_instead_of_falling_back() -> None:
+    client = _FakeDemoClient([()])
+
+    result = execute_bybit_demo_trade_cycle(
+        _trade_plan(Decimal("15")),
+        instrument=_instrument(),
+        strategy_config=CryptoPerpStrategyConfig(),
+        session_state=_session(),
+        client=client,
+        cycle_policy=_enabled_policy(),
+    )
+
+    assert result.status is BybitDemoCycleStatus.ENTRY_BLOCKED
+    assert result.reasons == ("CRYPTO_ENTRY_MINIMUM_20_USD_NET_EDGE_REQUIRED",)
+    assert client.orders == []
+
+
+def test_demo_cycle_reconciles_fill_before_uncapped_runner_protection() -> None:
     client = _FakeDemoClient([(), (_position(),)])
 
     result = execute_bybit_demo_trade_cycle(
         _trade_plan(),
         instrument=_instrument(),
-        strategy_config=CryptoPerpStrategyConfig(),
+        strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
         session_state=_session(),
         client=client,
         cycle_policy=_enabled_policy(),
@@ -168,6 +189,10 @@ def test_demo_cycle_reconciles_fill_before_exchange_protection() -> None:
     assert len(client.orders) == 1
     assert getattr(client.orders[0], "reduce_only") is False
     assert len(client.protections) == 1
+    runner_request = client.protections[0]
+    assert not hasattr(runner_request, "take_profit_price")
+    assert getattr(runner_request, "trailing_stop_distance") > 0
+    assert getattr(runner_request, "trailing_active_price") > Decimal("100050")
 
 
 def test_preexisting_symbol_position_blocks_new_entry() -> None:
@@ -176,7 +201,7 @@ def test_preexisting_symbol_position_blocks_new_entry() -> None:
     result = execute_bybit_demo_trade_cycle(
         _trade_plan(),
         instrument=_instrument(),
-        strategy_config=CryptoPerpStrategyConfig(),
+        strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
         session_state=_session(),
         client=client,
         cycle_policy=_enabled_policy(),
@@ -193,7 +218,7 @@ def test_order_ack_without_reconciled_fill_never_counts_as_protected() -> None:
     result = execute_bybit_demo_trade_cycle(
         _trade_plan(),
         instrument=_instrument(),
-        strategy_config=CryptoPerpStrategyConfig(),
+        strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
         session_state=_session(),
         client=client,
         cycle_policy=_enabled_policy(),
@@ -207,13 +232,13 @@ def test_order_ack_without_reconciled_fill_never_counts_as_protected() -> None:
     assert len(client.orders) == 1
 
 
-def test_post_fill_risk_breach_sets_protection_then_reduce_only_flatten() -> None:
+def test_post_fill_risk_breach_sets_runner_protection_then_reduce_only_flatten() -> None:
     client = _FakeDemoClient([(), (_position("0.020"),)])
 
     result = execute_bybit_demo_trade_cycle(
         _trade_plan(),
         instrument=_instrument(),
-        strategy_config=CryptoPerpStrategyConfig(),
+        strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
         session_state=_session(),
         client=client,
         cycle_policy=_enabled_policy(),
@@ -239,7 +264,7 @@ def test_exchange_protection_failure_attempts_reduce_only_flatten() -> None:
     result = execute_bybit_demo_trade_cycle(
         _trade_plan(),
         instrument=_instrument(),
-        strategy_config=CryptoPerpStrategyConfig(),
+        strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
         session_state=_session(),
         client=client,
         cycle_policy=_enabled_policy(),
