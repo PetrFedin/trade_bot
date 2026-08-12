@@ -20,7 +20,7 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
         opening_equity=opening_equity,
         duration_days=duration_days,
     )
-    shadow_candidates: dict[str, Any] = {}
+    notional_shadow_candidates: dict[str, Any] = {}
     raw_candidates = report.get("notional_cap_shadow_candidates", {})
     if isinstance(raw_candidates, dict):
         for candidate_name, candidate in raw_candidates.items():
@@ -29,7 +29,7 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
             candidate_variants = candidate.get("variants", {})
             if not isinstance(candidate_variants, dict):
                 continue
-            shadow_candidates[candidate_name] = {
+            notional_shadow_candidates[candidate_name] = {
                 "maximum_notional_to_equity": candidate.get("maximum_notional_to_equity"),
                 "risk_fraction_per_trade": candidate.get("risk_fraction_per_trade"),
                 "purpose": candidate.get("purpose"),
@@ -42,6 +42,41 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
                     duration_days=duration_days,
                 ),
             }
+
+    strategy_shadow_candidates: dict[str, Any] = {}
+    raw_strategy_candidates = report.get("strategy_shadow_candidates", {})
+    if isinstance(raw_strategy_candidates, dict):
+        for candidate_name, candidate in raw_strategy_candidates.items():
+            if not isinstance(candidate, dict) or not isinstance(candidate.get("metrics"), dict):
+                continue
+            target = candidate.get(
+                "minimum_entry_net_profit_usd",
+                candidate.get("target_net_profit_usd"),
+            )
+            if target is None:
+                continue
+            scored = _score_payload(
+                candidate,
+                target_net_profit_usd=Decimal(str(target)),
+                opening_equity=opening_equity,
+                duration_days=duration_days,
+            )
+            strategy_shadow_candidates[candidate_name] = {
+                **scored,
+                "mode": candidate.get("mode"),
+                "runner_activation_net_profit_usd": candidate.get(
+                    "runner_activation_net_profit_usd"
+                ),
+                "runner_initial_protected_net_profit_usd": candidate.get(
+                    "runner_initial_protected_net_profit_usd"
+                ),
+                "profit_cap_net_profit_usd": candidate.get("profit_cap_net_profit_usd"),
+                "fixed_take_profit_enabled": candidate.get("fixed_take_profit_enabled"),
+                "strategy_promotion_allowed": False,
+                "demo_order_writes_allowed": False,
+                "live_promotion_allowed": False,
+            }
+
     return {
         "qualification": "CRYPTO_REPLAY_EVIDENCE_SCORED",
         "source_qualification": report["qualification"],
@@ -49,7 +84,8 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
         "strategy_promotion_allowed": False,
         "live_promotion_allowed": False,
         "variants": variants,
-        "shadow_candidates": shadow_candidates,
+        "shadow_candidates": notional_shadow_candidates,
+        "strategy_shadow_candidates": strategy_shadow_candidates,
     }
 
 
@@ -61,36 +97,51 @@ def _score_variants(
 ) -> dict[str, Any]:
     scored: dict[str, Any] = {}
     for name, payload in variants.items():
-        metrics = payload["metrics"]
-        profit_factor_raw = metrics["profit_factor"]
-        evidence = CryptoReplayEvidence(
+        scored[name] = _score_payload(
+            payload,
             target_net_profit_usd=Decimal(str(payload["target_net_profit_usd"])),
-            opening_equity_usdt=opening_equity,
-            closed_trade_count=int(metrics["closed_trade_count"]),
-            accepted_trade_plan_event_count=int(payload["accepted_trade_plan_event_count"]),
-            total_net_pnl_usdt=Decimal(str(metrics["total_net_pnl_usdt"])),
-            profit_factor=(
-                None if profit_factor_raw is None else Decimal(str(profit_factor_raw))
-            ),
-            maximum_drawdown_pct=Decimal(str(metrics["maximum_drawdown_pct"])),
-            fees_usdt=Decimal(str(metrics["fees_usdt"])),
-            risk_budget_breach_count=int(metrics["risk_budget_breach_count"]),
-            observed_days=duration_days,
+            opening_equity=opening_equity,
+            duration_days=duration_days,
         )
-        decision = evaluate_crypto_replay_evidence(evidence)
-        scored[name] = {
-            "posture": decision.posture.value,
-            "reasons": list(decision.reasons),
-            "demo_observation_allowed": decision.demo_observation_allowed,
-            "live_promotion_allowed": decision.live_promotion_allowed,
-            "closed_trade_count": evidence.closed_trade_count,
-            "accepted_trade_plan_event_count": evidence.accepted_trade_plan_event_count,
-            "observed_days": float(evidence.observed_days),
-            "total_net_pnl_usdt": float(evidence.total_net_pnl_usdt),
-            "maximum_drawdown_pct": float(evidence.maximum_drawdown_pct),
-            "fees_usdt": float(evidence.fees_usdt),
-        }
     return scored
+
+
+def _score_payload(
+    payload: dict[str, Any],
+    *,
+    target_net_profit_usd: Decimal,
+    opening_equity: Decimal,
+    duration_days: Decimal,
+) -> dict[str, Any]:
+    metrics = payload["metrics"]
+    profit_factor_raw = metrics["profit_factor"]
+    evidence = CryptoReplayEvidence(
+        target_net_profit_usd=target_net_profit_usd,
+        opening_equity_usdt=opening_equity,
+        closed_trade_count=int(metrics["closed_trade_count"]),
+        accepted_trade_plan_event_count=int(payload["accepted_trade_plan_event_count"]),
+        total_net_pnl_usdt=Decimal(str(metrics["total_net_pnl_usdt"])),
+        profit_factor=(
+            None if profit_factor_raw is None else Decimal(str(profit_factor_raw))
+        ),
+        maximum_drawdown_pct=Decimal(str(metrics["maximum_drawdown_pct"])),
+        fees_usdt=Decimal(str(metrics["fees_usdt"])),
+        risk_budget_breach_count=int(metrics["risk_budget_breach_count"]),
+        observed_days=duration_days,
+    )
+    decision = evaluate_crypto_replay_evidence(evidence)
+    return {
+        "posture": decision.posture.value,
+        "reasons": list(decision.reasons),
+        "demo_observation_allowed": decision.demo_observation_allowed,
+        "live_promotion_allowed": decision.live_promotion_allowed,
+        "closed_trade_count": evidence.closed_trade_count,
+        "accepted_trade_plan_event_count": evidence.accepted_trade_plan_event_count,
+        "observed_days": float(evidence.observed_days),
+        "total_net_pnl_usdt": float(evidence.total_net_pnl_usdt),
+        "maximum_drawdown_pct": float(evidence.maximum_drawdown_pct),
+        "fees_usdt": float(evidence.fees_usdt),
+    }
 
 
 def _parse_args() -> argparse.Namespace:
