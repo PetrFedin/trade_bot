@@ -16,6 +16,7 @@ on:
       - 'app/strategy/crypto_protection_quality.py'
       - 'app/strategy/crypto_entry_economics.py'
       - 'app/strategy/crypto_target_selection.py'
+      - 'app/strategy/crypto_profit_runner.py'
       - 'tests/test_bybit_crypto_core.py'
       - 'tests/test_bybit_crypto_replay.py'
       - 'tests/test_bybit_demo_protection.py'
@@ -28,6 +29,7 @@ on:
       - 'tests/test_crypto_protection_quality.py'
       - 'tests/test_crypto_entry_economics.py'
       - 'tests/test_crypto_target_selection.py'
+      - 'tests/test_crypto_profit_runner.py'
       - 'tests/test_evaluate_bybit_crypto_replay.py'
       - '.github/workflows/bybit-crypto-strategy-quality.yml'
 
@@ -73,6 +75,7 @@ jobs:
           app/strategy/crypto_protection_quality.py
           app/strategy/crypto_entry_economics.py
           app/strategy/crypto_target_selection.py
+          app/strategy/crypto_profit_runner.py
           tests/test_bybit_crypto_core.py
           tests/test_bybit_crypto_replay.py
           tests/test_bybit_demo_protection.py
@@ -85,6 +88,7 @@ jobs:
           tests/test_crypto_protection_quality.py
           tests/test_crypto_entry_economics.py
           tests/test_crypto_target_selection.py
+          tests/test_crypto_profit_runner.py
           tests/test_evaluate_bybit_crypto_replay.py
 
       - name: Run crypto strategy invariants
@@ -104,6 +108,7 @@ jobs:
             tests/test_crypto_protection_quality.py \
             tests/test_crypto_entry_economics.py \
             tests/test_crypto_target_selection.py \
+            tests/test_crypto_profit_runner.py \
             tests/test_evaluate_bybit_crypto_replay.py \
             2>&1 | tee bybit-crypto-strategy-pytest.txt
 
@@ -122,6 +127,7 @@ jobs:
           app/strategy/crypto_protection_quality.py
           app/strategy/crypto_entry_economics.py
           app/strategy/crypto_target_selection.py
+          app/strategy/crypto_profit_runner.py
 
       - name: Upload strategy diagnostics
         if: always()
