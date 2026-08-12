@@ -18,6 +18,7 @@ on:
       - 'tests/test_bybit_http.py'
       - 'tests/test_bybit_crypto_core.py'
       - 'tests/test_bybit_crypto_replay.py'
+      - 'tests/test_bybit_demo_protection.py'
       - 'tests/test_bybit_instruments.py'
       - 'tests/test_bybit_public_archive.py'
       - 'tests/test_crypto_evidence.py'
@@ -84,6 +85,7 @@ jobs:
           tests/test_bybit_http.py
           tests/test_bybit_crypto_core.py
           tests/test_bybit_crypto_replay.py
+          tests/test_bybit_demo_protection.py
           tests/test_bybit_instruments.py
           tests/test_bybit_public_archive.py
           tests/test_crypto_evidence.py
@@ -96,6 +98,7 @@ jobs:
             tests/test_bybit_http.py \
             tests/test_bybit_crypto_core.py \
             tests/test_bybit_crypto_replay.py \
+            tests/test_bybit_demo_protection.py \
             tests/test_bybit_instruments.py \
             tests/test_bybit_public_archive.py \
             tests/test_crypto_evidence.py \
