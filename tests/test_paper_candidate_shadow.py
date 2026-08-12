@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 from app.application.paper_candidate_shadow import (
     EntryQualityPaperShadowObserver,
-    PaperCandidateKind,
     PaperCandidateShadowSuite,
     SelectionExitPaperShadowObserver,
     SQLitePaperCandidateShadowStore,
