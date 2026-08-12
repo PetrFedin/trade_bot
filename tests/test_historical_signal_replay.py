@@ -80,6 +80,14 @@ def test_replay_emits_trade_and_decision_evidence_without_lookahead(
     assert report["last_timestamp"].startswith("2026-01-30")
     assert report["symbols"] == ["AAPL", "MSFT", "NVDA"]
 
+    terminal = report["terminal_completed_bar_signal"]
+    assert terminal["decision_time"] == report["last_timestamp"]
+    assert terminal["execution_pending"] is True
+    assert terminal["stateful_entry_gates_evaluated"] is False
+    assert terminal["current_selected_symbols"]
+    assert terminal["candidates"]
+    assert all("quality_score" in candidate for candidate in terminal["candidates"])
+
     variants = report["variants"]
     assert set(variants) == {
         "CURRENT_COMBINED_SHADOW",
