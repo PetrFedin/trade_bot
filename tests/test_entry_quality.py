@@ -84,7 +84,7 @@ def test_late_spike_is_rejected_and_next_smooth_candidate_is_promoted() -> None:
             ["100", "100.5", "101", "101.5", "102", "102.5", "103", "112"],
         )
         + bars("AAPL", ["100", "101", "102", "103", "104", "105", "106", "107"])
-        + bars("NVDA", ["80", "81", "82", "83", "84", "85", "86", "87"])
+        + bars("NVDA", ["90", "91", "92", "93", "94", "95", "96", "97"])
     )
 
     filtered, trace = selector.select_with_trace(universe)
