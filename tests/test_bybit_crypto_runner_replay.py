@@ -4,6 +4,7 @@ from decimal import Decimal
 from app.marketdata.bybit_v5 import BybitKlineAcquisition, BybitKlineBar
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig, CryptoSide
 from app.strategy.crypto_profit_runner import CryptoProfitRunnerPolicy
+from app.strategy.crypto_runner_admission import CryptoRunnerAdmissionPolicy
 from app.strategy.crypto_trade_management import (
     CryptoExitReason,
     CryptoProtectionPolicy,
@@ -153,7 +154,36 @@ def test_stateful_runner_replay_has_no_fixed_target_exit() -> None:
     assert report["strategy_promotion_allowed"] is False
     assert report["bybit_live_order_routing_allowed"] is False
     assert report["accepted_trade_plan_event_count"] > 0
+    assert report["runner_selected_trade_count"] > 0
+    assert report["fixed_target_selected_trade_count"] == 0
     assert report["runner_activation_event_count"] > 0
     trades = report["closed_trades"]
     assert trades
     assert all(trade["exit_reason"] != CryptoExitReason.NET_TARGET.value for trade in trades)
+
+
+def test_conditional_runner_keeps_fixed_target_when_excess_edge_gate_fails() -> None:
+    report = replay_open_ended_crypto_runner(
+        _synthetic_acquisition(),
+        opening_equity_usdt=Decimal("1000"),
+        base_config=_replay_config(),
+        protection_policy=CryptoProtectionPolicy(maximum_holding_bars=12),
+        runner_policy=CryptoProfitRunnerPolicy(
+            activation_net_profit_usd=Decimal("1"),
+            protected_net_profit_usd=Decimal("0.5"),
+        ),
+        runner_admission_policy=CryptoRunnerAdmissionPolicy(
+            minimum_expected_edge_multiple=Decimal("1000")
+        ),
+    )
+
+    assert report["mode"] == "MIN_20_NET_EDGE_CONDITIONAL_OPEN_ENDED_RUNNER"
+    assert report["fixed_take_profit_enabled"] is True
+    assert report["profit_cap_net_profit_usd"] == "CONDITIONAL_BY_TRADE"
+    assert report["runner_selected_trade_count"] == 0
+    assert report["fixed_target_selected_trade_count"] > 0
+    assert report["runner_activation_event_count"] == 0
+    assert any(
+        trade["exit_reason"] == CryptoExitReason.NET_TARGET.value
+        for trade in report["closed_trades"]
+    )
