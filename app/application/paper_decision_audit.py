@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.application.cross_sectional_paper_cycle import CrossSectionalPaperCycleResult
+from app.application.portfolio_paper_planner import EntryExitGate
 
 
 @dataclass(frozen=True)
@@ -22,10 +23,14 @@ class PaperDecisionAuditRecord:
     exit_reasons: tuple[tuple[str, str], ...]
     order_decisions: tuple[dict[str, Any], ...]
     prepared_intent_ids: tuple[str, ...]
+    quality_gate_status: str | None = None
+    quality_gate_allow_new_entries: bool | None = None
+    quality_gate_allow_exits: bool | None = None
+    quality_gate_reasons: tuple[str, ...] = ()
 
 
 class SQLitePaperDecisionAuditStore:
-    """Idempotent JSON audit trail for selection, target and order decisions."""
+    """Idempotent JSON audit trail for selection, health and order decisions."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
@@ -107,6 +112,7 @@ def audit_cross_sectional_paper_result(
     strategy_id: str,
     generated_at: datetime,
     result: CrossSectionalPaperCycleResult,
+    quality_gate: EntryExitGate | None = None,
 ) -> PaperDecisionAuditRecord:
     if generated_at.tzinfo is None or generated_at.utcoffset() is None:
         raise ValueError("generated_at must be timezone-aware")
@@ -160,9 +166,28 @@ def audit_cross_sectional_paper_result(
         exit_reasons=exit_reasons,
         order_decisions=order_decisions,
         prepared_intent_ids=prepared_intent_ids,
+        quality_gate_status=_gate_status(quality_gate),
+        quality_gate_allow_new_entries=(
+            None if quality_gate is None else quality_gate.allow_new_entries
+        ),
+        quality_gate_allow_exits=(
+            None if quality_gate is None else quality_gate.allow_exits
+        ),
+        quality_gate_reasons=(
+            () if quality_gate is None else tuple(quality_gate.reasons)
+        ),
     )
     store.append(record)
     return record
+
+
+def _gate_status(quality_gate: EntryExitGate | None) -> str | None:
+    if quality_gate is None:
+        return None
+    status = getattr(quality_gate, "status", None)
+    if status is None:
+        return None
+    return str(getattr(status, "value", status))
 
 
 def _decision_id(
@@ -197,6 +222,10 @@ def _payload(record: PaperDecisionAuditRecord) -> dict[str, Any]:
         "exit_reasons": [list(item) for item in record.exit_reasons],
         "order_decisions": list(record.order_decisions),
         "prepared_intent_ids": list(record.prepared_intent_ids),
+        "quality_gate_status": record.quality_gate_status,
+        "quality_gate_allow_new_entries": record.quality_gate_allow_new_entries,
+        "quality_gate_allow_exits": record.quality_gate_allow_exits,
+        "quality_gate_reasons": list(record.quality_gate_reasons),
     }
 
 
@@ -216,5 +245,23 @@ def _record(payload: dict[str, Any]) -> PaperDecisionAuditRecord:
         order_decisions=tuple(dict(item) for item in payload["order_decisions"]),
         prepared_intent_ids=tuple(
             str(item) for item in payload["prepared_intent_ids"]
+        ),
+        quality_gate_status=(
+            None
+            if payload.get("quality_gate_status") is None
+            else str(payload["quality_gate_status"])
+        ),
+        quality_gate_allow_new_entries=(
+            None
+            if payload.get("quality_gate_allow_new_entries") is None
+            else bool(payload["quality_gate_allow_new_entries"])
+        ),
+        quality_gate_allow_exits=(
+            None
+            if payload.get("quality_gate_allow_exits") is None
+            else bool(payload["quality_gate_allow_exits"])
+        ),
+        quality_gate_reasons=tuple(
+            str(item) for item in payload.get("quality_gate_reasons", ())
         ),
     )
