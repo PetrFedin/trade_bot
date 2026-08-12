@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_DOWN, ROUND_UP
+from decimal import ROUND_DOWN, ROUND_UP, Decimal
 from http.client import HTTPSConnection
 from typing import Any
 from urllib.parse import urlencode, urlsplit
