@@ -42,8 +42,14 @@ class PaperCandidateShadowRecord:
     evidence_scope: str = "DECISION_DIVERGENCE_ONLY"
 
 
+@dataclass(frozen=True)
+class StoredSelectionExitShadowState:
+    state: SelectionExitConfirmationState
+    last_decision_time: datetime | None
+
+
 class SQLitePaperCandidateShadowStore:
-    """Durable idempotent evidence for candidates that never mutate paper orders."""
+    """Durable non-mutating candidate evidence with atomic selection-exit state."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
@@ -72,43 +78,174 @@ class SQLitePaperCandidateShadowStore:
                     payload_json TEXT NOT NULL
                 )"""
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS selection_exit_shadow_state (
+                    strategy_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    consecutive_deselected_bars INTEGER NOT NULL,
+                    last_decision_time TEXT,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (strategy_id, symbol)
+                )"""
+            )
         finally:
             connection.close()
 
+    def get(self, record_id: str) -> PaperCandidateShadowRecord | None:
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT payload_json FROM paper_candidate_shadow WHERE record_id=?",
+                (record_id,),
+            ).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            return None
+        return _record_from_payload(json.loads(str(row["payload_json"])))
+
     def append(self, record: PaperCandidateShadowRecord) -> bool:
         _validate_record(record)
-        rendered = json.dumps(
-            _record_payload(record), sort_keys=True, separators=(",", ":")
-        )
+        rendered = _render(record)
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
-            existing = connection.execute(
-                "SELECT payload_json FROM paper_candidate_shadow WHERE record_id=?",
-                (record.record_id,),
-            ).fetchone()
-            if existing is not None:
-                if str(existing["payload_json"]) != rendered:
-                    raise ValueError("PAPER_CANDIDATE_SHADOW_RECORD_CONFLICT")
-                connection.execute("COMMIT")
-                return False
-            connection.execute(
-                """INSERT INTO paper_candidate_shadow (
-                    record_id, strategy_id, candidate, decision_time,
-                    observed_at, symbol, payload_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    record.record_id,
-                    record.strategy_id,
-                    record.candidate.value,
-                    record.decision_time.astimezone(UTC).isoformat(),
-                    record.observed_at.astimezone(UTC).isoformat(),
-                    record.symbol,
-                    rendered,
-                ),
-            )
+            inserted = self._append_locked(connection, record, rendered)
             connection.execute("COMMIT")
-            return True
+            return inserted
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+        finally:
+            connection.close()
+
+    def append_with_selection_state(
+        self,
+        record: PaperCandidateShadowRecord,
+        *,
+        next_state: SelectionExitConfirmationState,
+    ) -> bool:
+        _validate_record(record)
+        if record.candidate is not PaperCandidateKind.SELECTION_EXIT_CONFIRMATION:
+            raise ValueError("selection state requires selection-exit candidate")
+        next_state.validate()
+        rendered = _render(record)
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            inserted = self._append_locked(connection, record, rendered)
+            if inserted:
+                connection.execute(
+                    """INSERT INTO selection_exit_shadow_state (
+                        strategy_id, symbol, consecutive_deselected_bars,
+                        last_decision_time, updated_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(strategy_id, symbol) DO UPDATE SET
+                        consecutive_deselected_bars=excluded.consecutive_deselected_bars,
+                        last_decision_time=excluded.last_decision_time,
+                        updated_at=excluded.updated_at""",
+                    (
+                        record.strategy_id,
+                        record.symbol,
+                        next_state.consecutive_deselected_bars,
+                        record.decision_time.astimezone(UTC).isoformat(),
+                        record.observed_at.astimezone(UTC).isoformat(),
+                    ),
+                )
+            connection.execute("COMMIT")
+            return inserted
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+        finally:
+            connection.close()
+
+    def _append_locked(
+        self,
+        connection: sqlite3.Connection,
+        record: PaperCandidateShadowRecord,
+        rendered: str,
+    ) -> bool:
+        existing = connection.execute(
+            "SELECT payload_json FROM paper_candidate_shadow WHERE record_id=?",
+            (record.record_id,),
+        ).fetchone()
+        if existing is not None:
+            if str(existing["payload_json"]) != rendered:
+                raise ValueError("PAPER_CANDIDATE_SHADOW_RECORD_CONFLICT")
+            return False
+        connection.execute(
+            """INSERT INTO paper_candidate_shadow (
+                record_id, strategy_id, candidate, decision_time,
+                observed_at, symbol, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                record.record_id,
+                record.strategy_id,
+                record.candidate.value,
+                record.decision_time.astimezone(UTC).isoformat(),
+                record.observed_at.astimezone(UTC).isoformat(),
+                record.symbol,
+                rendered,
+            ),
+        )
+        return True
+
+    def selection_state(
+        self,
+        *,
+        strategy_id: str,
+        symbol: str,
+    ) -> StoredSelectionExitShadowState:
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                """SELECT consecutive_deselected_bars, last_decision_time
+                FROM selection_exit_shadow_state
+                WHERE strategy_id=? AND symbol=?""",
+                (strategy_id, symbol),
+            ).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            return StoredSelectionExitShadowState(
+                state=SelectionExitConfirmationState(),
+                last_decision_time=None,
+            )
+        state = SelectionExitConfirmationState(
+            consecutive_deselected_bars=int(row["consecutive_deselected_bars"])
+        )
+        state.validate()
+        raw_time = row["last_decision_time"]
+        return StoredSelectionExitShadowState(
+            state=state,
+            last_decision_time=(
+                None if raw_time is None else datetime.fromisoformat(str(raw_time))
+            ),
+        )
+
+    def clear_inactive_selection_states(
+        self,
+        *,
+        strategy_id: str,
+        active_symbols: set[str],
+    ) -> None:
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT symbol FROM selection_exit_shadow_state WHERE strategy_id=?",
+                (strategy_id,),
+            ).fetchall()
+            for row in rows:
+                symbol = str(row["symbol"])
+                if symbol not in active_symbols:
+                    connection.execute(
+                        """DELETE FROM selection_exit_shadow_state
+                        WHERE strategy_id=? AND symbol=?""",
+                        (strategy_id, symbol),
+                    )
+            connection.execute("COMMIT")
         except Exception:
             connection.execute("ROLLBACK")
             raise
@@ -139,126 +276,10 @@ class SQLitePaperCandidateShadowStore:
                 ).fetchall()
         finally:
             connection.close()
-        return tuple(_record_from_payload(json.loads(row["payload_json"])) for row in rows)
-
-
-@dataclass(frozen=True)
-class SelectionExitShadowState:
-    strategy_id: str
-    symbol: str
-    state: SelectionExitConfirmationState
-    updated_at: datetime
-
-
-class SQLiteSelectionExitShadowStateStore:
-    def __init__(self, path: str | Path) -> None:
-        self.path = str(path)
-        self._initialize()
-
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, isolation_level=None, timeout=10)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA busy_timeout=10000")
-        if self.path != ":memory:":
-            connection.execute("PRAGMA journal_mode=WAL")
-            connection.execute("PRAGMA synchronous=FULL")
-        return connection
-
-    def _initialize(self) -> None:
-        connection = self._connect()
-        try:
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS selection_exit_shadow_state (
-                    strategy_id TEXT NOT NULL,
-                    symbol TEXT NOT NULL,
-                    consecutive_deselected_bars INTEGER NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    PRIMARY KEY (strategy_id, symbol)
-                )"""
-            )
-        finally:
-            connection.close()
-
-    def get(self, *, strategy_id: str, symbol: str) -> SelectionExitConfirmationState:
-        connection = self._connect()
-        try:
-            row = connection.execute(
-                """SELECT consecutive_deselected_bars
-                FROM selection_exit_shadow_state
-                WHERE strategy_id=? AND symbol=?""",
-                (strategy_id, symbol),
-            ).fetchone()
-        finally:
-            connection.close()
-        if row is None:
-            return SelectionExitConfirmationState()
-        state = SelectionExitConfirmationState(
-            consecutive_deselected_bars=int(row["consecutive_deselected_bars"])
+        return tuple(
+            _record_from_payload(json.loads(str(row["payload_json"])))
+            for row in rows
         )
-        state.validate()
-        return state
-
-    def put(
-        self,
-        *,
-        strategy_id: str,
-        symbol: str,
-        state: SelectionExitConfirmationState,
-        updated_at: datetime,
-    ) -> None:
-        state.validate()
-        _validate_identity(strategy_id=strategy_id, symbol=symbol, timestamp=updated_at)
-        connection = self._connect()
-        try:
-            connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                """INSERT INTO selection_exit_shadow_state (
-                    strategy_id, symbol, consecutive_deselected_bars, updated_at
-                ) VALUES (?, ?, ?, ?)
-                ON CONFLICT(strategy_id, symbol) DO UPDATE SET
-                    consecutive_deselected_bars=excluded.consecutive_deselected_bars,
-                    updated_at=excluded.updated_at""",
-                (
-                    strategy_id,
-                    symbol,
-                    state.consecutive_deselected_bars,
-                    updated_at.astimezone(UTC).isoformat(),
-                ),
-            )
-            connection.execute("COMMIT")
-        except Exception:
-            connection.execute("ROLLBACK")
-            raise
-        finally:
-            connection.close()
-
-    def clear_inactive(
-        self,
-        *,
-        strategy_id: str,
-        active_symbols: set[str],
-    ) -> None:
-        connection = self._connect()
-        try:
-            connection.execute("BEGIN IMMEDIATE")
-            rows = connection.execute(
-                "SELECT symbol FROM selection_exit_shadow_state WHERE strategy_id=?",
-                (strategy_id,),
-            ).fetchall()
-            for row in rows:
-                symbol = str(row["symbol"])
-                if symbol not in active_symbols:
-                    connection.execute(
-                        """DELETE FROM selection_exit_shadow_state
-                        WHERE strategy_id=? AND symbol=?""",
-                        (strategy_id, symbol),
-                    )
-            connection.execute("COMMIT")
-        except Exception:
-            connection.execute("ROLLBACK")
-            raise
-        finally:
-            connection.close()
 
 
 class PaperCandidateShadowObserver(Protocol):
@@ -287,7 +308,10 @@ class PaperCandidateShadowBatch:
 
     @property
     def divergence_count(self) -> int:
-        return sum(record.baseline_action != record.candidate_action for record in self.records)
+        return sum(
+            record.baseline_action != record.candidate_action
+            for record in self.records
+        )
 
 
 class PaperCandidateShadowSuite:
@@ -355,6 +379,16 @@ class EntryQualityPaperShadowObserver:
         baseline_selected = set(baseline_plan.selected_symbols)
         records: list[PaperCandidateShadowRecord] = []
         for evaluation in trace.evaluations:
+            record_id = _candidate_record_id(
+                strategy_id=self.strategy_id,
+                candidate=PaperCandidateKind.ENTRY_QUALITY,
+                decision_time=baseline_plan.decision_time,
+                symbol=evaluation.symbol,
+            )
+            existing = self.store.get(record_id)
+            if existing is not None:
+                records.append(existing)
+                continue
             baseline_action = (
                 "SELECT" if evaluation.symbol in baseline_selected else "SKIP"
             )
@@ -365,6 +399,7 @@ class EntryQualityPaperShadowObserver:
                 if key != "symbol"
             }
             record = _candidate_record(
+                record_id=record_id,
                 strategy_id=self.strategy_id,
                 candidate=PaperCandidateKind.ENTRY_QUALITY,
                 decision_time=baseline_plan.decision_time,
@@ -389,8 +424,7 @@ class SelectionExitPaperShadowObserver:
         strategy_id: str,
         ledger: PortfolioLedger,
         policy: SelectionExitConfirmationPolicy,
-        state_store: SQLiteSelectionExitShadowStateStore,
-        evidence_store: SQLitePaperCandidateShadowStore,
+        store: SQLitePaperCandidateShadowStore,
     ) -> None:
         if not strategy_id.strip():
             raise ValueError("strategy_id is required")
@@ -398,8 +432,7 @@ class SelectionExitPaperShadowObserver:
         self.strategy_id = strategy_id.strip()
         self.ledger = ledger
         self.policy = policy
-        self.state_store = state_store
-        self.evidence_store = evidence_store
+        self.store = store
 
     def observe(
         self,
@@ -416,12 +449,22 @@ class SelectionExitPaperShadowObserver:
             for position in self.ledger.positions()
             if position.quantity > 0 and position.symbol in decision_closes
         }
-        self.state_store.clear_inactive(
+        self.store.clear_inactive_selection_states(
             strategy_id=self.strategy_id,
             active_symbols=active,
         )
         records: list[PaperCandidateShadowRecord] = []
         for symbol in sorted(active):
+            record_id = _candidate_record_id(
+                strategy_id=self.strategy_id,
+                candidate=PaperCandidateKind.SELECTION_EXIT_CONFIRMATION,
+                decision_time=baseline_plan.decision_time,
+                symbol=symbol,
+            )
+            existing = self.store.get(record_id)
+            if existing is not None:
+                records.append(existing)
+                continue
             position = self.ledger.position(symbol)
             baseline_reason = exit_reasons.get(symbol)
             baseline_action = (
@@ -429,10 +472,16 @@ class SelectionExitPaperShadowObserver:
                 if baseline_reason is None
                 else f"EXIT:{baseline_reason.value}"
             )
-            prior = self.state_store.get(
+            stored = self.store.selection_state(
                 strategy_id=self.strategy_id,
                 symbol=symbol,
             )
+            prior = stored.state
+            if (
+                stored.last_decision_time is not None
+                and stored.last_decision_time >= baseline_plan.decision_time
+            ):
+                raise RuntimeError("selection-exit shadow decision order regressed")
             if baseline_reason is not None and baseline_reason.value != "SELECTION_EXIT":
                 candidate_action = baseline_action
                 candidate_reason = "RISK_OR_PROTECTIVE_EXIT_UNCHANGED"
@@ -454,13 +503,8 @@ class SelectionExitPaperShadowObserver:
                     candidate_action = "PENDING:SELECTION_EXIT"
                 else:
                     candidate_action = "HOLD"
-            self.state_store.put(
-                strategy_id=self.strategy_id,
-                symbol=symbol,
-                state=next_state,
-                updated_at=observed_at,
-            )
             record = _candidate_record(
+                record_id=record_id,
                 strategy_id=self.strategy_id,
                 candidate=PaperCandidateKind.SELECTION_EXIT_CONFIRMATION,
                 decision_time=baseline_plan.decision_time,
@@ -481,13 +525,33 @@ class SelectionExitPaperShadowObserver:
                     ),
                 },
             )
-            self.evidence_store.append(record)
+            self.store.append_with_selection_state(record, next_state=next_state)
             records.append(record)
         return tuple(records)
 
 
+def _candidate_record_id(
+    *,
+    strategy_id: str,
+    candidate: PaperCandidateKind,
+    decision_time: datetime,
+    symbol: str,
+) -> str:
+    canonical = "|".join(
+        (
+            strategy_id,
+            candidate.value,
+            decision_time.astimezone(UTC).isoformat(),
+            symbol,
+        )
+    )
+    digest = hashlib.sha256(canonical.encode()).hexdigest()
+    return f"paper-candidate:{digest}"
+
+
 def _candidate_record(
     *,
+    record_id: str,
     strategy_id: str,
     candidate: PaperCandidateKind,
     decision_time: datetime,
@@ -498,17 +562,8 @@ def _candidate_record(
     reasons: tuple[str, ...],
     metrics: dict[str, str | int | bool | None],
 ) -> PaperCandidateShadowRecord:
-    canonical = "|".join(
-        (
-            strategy_id,
-            candidate.value,
-            decision_time.astimezone(UTC).isoformat(),
-            symbol,
-        )
-    )
-    digest = hashlib.sha256(canonical.encode()).hexdigest()
     return PaperCandidateShadowRecord(
-        record_id=f"paper-candidate:{digest}",
+        record_id=record_id,
         strategy_id=strategy_id,
         candidate=candidate,
         decision_time=decision_time,
@@ -568,6 +623,12 @@ def _validate_record(record: PaperCandidateShadowRecord) -> None:
         raise ValueError("candidate shadow actions are required")
     if record.evidence_scope != "DECISION_DIVERGENCE_ONLY":
         raise ValueError("candidate shadow evidence scope must remain decision-only")
+
+
+def _render(record: PaperCandidateShadowRecord) -> str:
+    return json.dumps(
+        _record_payload(record), sort_keys=True, separators=(",", ":")
+    )
 
 
 def _record_payload(record: PaperCandidateShadowRecord) -> dict[str, Any]:
