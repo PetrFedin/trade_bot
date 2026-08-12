@@ -18,31 +18,39 @@ from app.strategy.crypto_perp import (
 
 @dataclass(frozen=True)
 class CryptoTargetSelectionPolicy:
-    targets_usd_descending: tuple[Decimal, ...] = (
-        Decimal("25"),
-        Decimal("20"),
-        Decimal("15"),
-    )
+    """Entry objective for the crypto strategy.
+
+    New positions must support at least ``minimum_entry_net_profit_usd`` after modeled
+    execution costs. There is intentionally no upper profit cap: once a position has earned
+    enough to arm the runner, exit management is expected to trail the move rather than place
+    a fixed take-profit ceiling.
+
+    ``fallback_protected_net_profit_usd`` is not an entry target and is not a guaranteed
+    realized PnL. It is the minimum normal-fill protection objective after the runner has
+    already reached its activation level; gaps and slippage can still realize less.
+    """
+
+    minimum_entry_net_profit_usd: Decimal = Decimal("20")
+    fallback_protected_net_profit_usd: Decimal = Decimal("15")
+    open_ended_profit_runner: bool = True
     entry_economics_policy: CryptoEntryEconomicsPolicy | None = None
 
     def validate(self) -> None:
-        if not self.targets_usd_descending:
-            raise ValueError("crypto target selector requires targets")
-        if any(target <= 0 for target in self.targets_usd_descending):
-            raise ValueError("crypto target selector targets must be positive")
-        if len(set(self.targets_usd_descending)) != len(self.targets_usd_descending):
-            raise ValueError("crypto target selector targets must be unique")
-        if self.targets_usd_descending != tuple(
-            sorted(self.targets_usd_descending, reverse=True)
-        ):
-            raise ValueError("crypto target selector targets must be descending")
+        if self.minimum_entry_net_profit_usd <= 0:
+            raise ValueError("crypto minimum entry net profit must be positive")
+        if self.fallback_protected_net_profit_usd <= 0:
+            raise ValueError("crypto protected fallback profit must be positive")
+        if self.fallback_protected_net_profit_usd >= self.minimum_entry_net_profit_usd:
+            raise ValueError("crypto protected fallback must be below the minimum entry edge")
+        if not self.open_ended_profit_runner:
+            raise ValueError("crypto primary policy requires an open-ended profit runner")
         if self.entry_economics_policy is not None:
             self.entry_economics_policy.validate()
 
 
 @dataclass(frozen=True)
 class CryptoTargetAttempt:
-    target_net_profit_usd: Decimal
+    minimum_net_profit_usd: Decimal
     base_plan_eligible: bool
     base_plan_reasons: tuple[str, ...]
     entry_economics: CryptoEntryEconomicsDecision | None
@@ -56,6 +64,9 @@ class CryptoTargetSelection:
     attempts: tuple[CryptoTargetAttempt, ...]
     reasons: tuple[str, ...]
     shadow_economics_enabled: bool
+    open_ended_profit_runner: bool
+    profit_cap_net_profit_usd: Decimal | None
+    fallback_protected_net_profit_usd: Decimal
     strategy_promotion_allowed: bool = False
     live_activation_allowed: bool = False
 
@@ -67,61 +78,67 @@ def select_highest_feasible_crypto_target(
     config: CryptoPerpStrategyConfig,
     policy: CryptoTargetSelectionPolicy | None = None,
 ) -> CryptoTargetSelection:
-    """Pick the highest requested net-dollar target actually supported by the signal.
+    """Require >=$20 modeled net edge, then leave upside uncapped.
 
-    The selector never relaxes risk sizing to force a target. It asks the existing cost-aware
-    planner whether $25, then $20, then $15 is feasible under the same risk configuration.
-    An optional entry-economics policy can make this a stricter research-only selection.
+    The legacy name is retained for call-site compatibility, but the policy no longer chooses
+    among fixed $15/$20/$25 take-profit ceilings. It performs one admission test at the minimum
+    acceptable net edge. If that threshold is feasible, the trade is admitted with an
+    open-ended runner objective. If it is not feasible, the correct action is no trade.
+
+    A $15 objective is never used to justify a new entry.
     """
 
     active_policy = CryptoTargetSelectionPolicy() if policy is None else policy
     active_policy.validate()
     config.validate()
-    attempts: list[CryptoTargetAttempt] = []
-    aggregate_reasons: list[str] = []
 
-    for target in active_policy.targets_usd_descending:
-        target_config = config.with_target(target)
-        plan_evaluation = build_trade_plan(
-            signal,
-            equity_usdt=equity_usdt,
-            config=target_config,
+    minimum_config = config.with_target(active_policy.minimum_entry_net_profit_usd)
+    plan_evaluation = build_trade_plan(
+        signal,
+        equity_usdt=equity_usdt,
+        config=minimum_config,
+    )
+    economics: CryptoEntryEconomicsDecision | None = None
+    if plan_evaluation.plan is not None and active_policy.entry_economics_policy is not None:
+        economics = evaluate_entry_economics(
+            plan_evaluation.plan,
+            active_policy.entry_economics_policy,
         )
-        economics: CryptoEntryEconomicsDecision | None = None
-        if plan_evaluation.plan is not None and active_policy.entry_economics_policy is not None:
-            economics = evaluate_entry_economics(
-                plan_evaluation.plan,
-                active_policy.entry_economics_policy,
-            )
-        attempts.append(
-            CryptoTargetAttempt(
-                target_net_profit_usd=target,
-                base_plan_eligible=plan_evaluation.eligible,
-                base_plan_reasons=plan_evaluation.reasons,
-                entry_economics=economics,
-            )
-        )
-        if not plan_evaluation.eligible or plan_evaluation.plan is None:
-            aggregate_reasons.extend(plan_evaluation.reasons)
-            continue
-        if economics is not None and not economics.eligible:
-            aggregate_reasons.extend(economics.reasons)
-            continue
+
+    attempt = CryptoTargetAttempt(
+        minimum_net_profit_usd=active_policy.minimum_entry_net_profit_usd,
+        base_plan_eligible=plan_evaluation.eligible,
+        base_plan_reasons=plan_evaluation.reasons,
+        entry_economics=economics,
+    )
+
+    reasons: list[str] = []
+    if not plan_evaluation.eligible or plan_evaluation.plan is None:
+        reasons.extend(plan_evaluation.reasons)
+    if economics is not None and not economics.eligible:
+        reasons.extend(economics.reasons)
+
+    if reasons:
         return CryptoTargetSelection(
-            eligible=True,
-            selected_target_net_profit_usd=target,
-            selected_plan=plan_evaluation.plan,
-            attempts=tuple(attempts),
-            reasons=(),
+            eligible=False,
+            selected_target_net_profit_usd=None,
+            selected_plan=None,
+            attempts=(attempt,),
+            reasons=tuple(dict.fromkeys(reasons)) or ("MINIMUM_20_USD_NET_EDGE_UNAVAILABLE",),
             shadow_economics_enabled=active_policy.entry_economics_policy is not None,
+            open_ended_profit_runner=active_policy.open_ended_profit_runner,
+            profit_cap_net_profit_usd=None,
+            fallback_protected_net_profit_usd=active_policy.fallback_protected_net_profit_usd,
         )
 
-    reasons = tuple(dict.fromkeys(aggregate_reasons)) or ("NO_NET_TARGET_FEASIBLE",)
     return CryptoTargetSelection(
-        eligible=False,
-        selected_target_net_profit_usd=None,
-        selected_plan=None,
-        attempts=tuple(attempts),
-        reasons=reasons,
+        eligible=True,
+        selected_target_net_profit_usd=active_policy.minimum_entry_net_profit_usd,
+        selected_plan=plan_evaluation.plan,
+        attempts=(attempt,),
+        reasons=(),
         shadow_economics_enabled=active_policy.entry_economics_policy is not None,
+        open_ended_profit_runner=active_policy.open_ended_profit_runner,
+        profit_cap_net_profit_usd=None,
+        fallback_protected_net_profit_usd=active_policy.fallback_protected_net_profit_usd,
     )
