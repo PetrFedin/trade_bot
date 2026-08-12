@@ -11,6 +11,7 @@ from app.marketdata.bybit_public_archive import (
     BybitPublicTradeArchiveClient,
     completed_archive_dates,
 )
+from app.strategy.crypto_runner_admission import CryptoRunnerAdmissionPolicy
 from tools.replay_bybit_crypto import (
     default_crypto_config,
     replay_acquisition,
@@ -29,6 +30,7 @@ _DEFAULT_SYMBOLS = (
     "ADAUSDT",
 )
 _DEFAULT_TARGETS = (Decimal("15"), Decimal("20"), Decimal("25"))
+_CONDITIONAL_RUNNER_EDGE_MULTIPLE = Decimal("1.50")
 
 
 def acquire_archive_and_replay(
@@ -60,6 +62,14 @@ def acquire_archive_and_replay(
         opening_equity_usdt=opening_equity_usdt,
         interval="5",
     )
+    conditional_runner = replay_open_ended_crypto_runner(
+        acquisition.klines,
+        opening_equity_usdt=opening_equity_usdt,
+        runner_admission_policy=CryptoRunnerAdmissionPolicy(
+            minimum_expected_edge_multiple=_CONDITIONAL_RUNNER_EDGE_MULTIPLE,
+        ),
+        interval="5",
+    )
     three_x_candidate = replay_acquisition(
         acquisition.klines,
         opening_equity_usdt=opening_equity_usdt,
@@ -84,6 +94,7 @@ def acquire_archive_and_replay(
         rest_api_required=False,
         strategy_shadow_candidates={
             "MIN_20_NET_EDGE_OPEN_ENDED_RUNNER": open_ended_runner,
+            "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_1_5X": conditional_runner,
         },
         notional_cap_shadow_candidates={
             "MAX_NOTIONAL_3X_EQUITY": {
@@ -108,9 +119,14 @@ def acquire_archive_and_replay(
         "order-book depth and queue position are not reconstructed.",
         "Only fully completed UTC archive days are included, so the current UTC day is "
         "intentionally absent from this historical qualification run.",
-        "The open-ended runner is a shadow counterfactual: $20 is the minimum modeled net "
-        "entry edge and runner activation level, $15 is only the initial normal-fill "
-        "protection objective, and favorable upside has no fixed take-profit ceiling.",
+        "The unconditional open-ended runner is retained as a shadow benchmark only: $20 is "
+        "the modeled net activation level, $15 is an initial normal-fill protection objective, "
+        "and favorable upside has no fixed take-profit ceiling.",
+        "The conditional runner is predeclared before replay: it keeps the fixed $20 target "
+        "unless pre-entry expected net edge is at least 1.5x the $20 activation amount; only "
+        "those excess-edge positions receive an uncapped runner.",
+        "Neither the $15 protection objective nor the $20 target is guaranteed realized PnL; "
+        "gaps, fees, latency and slippage can produce lower realized results.",
         "The 3x notional-cap run is a predeclared shadow candidate with unchanged 1% "
         "cost-aware risk budgeting; it is not permission to use 3x leverage in demo or live.",
     ]
