@@ -15,6 +15,11 @@ class ExitReason(StrEnum):
     TIME_STOP = "TIME_STOP"
 
 
+class TakeProfitMode(StrEnum):
+    FIXED_EXIT = "FIXED_EXIT"
+    PROFIT_RUNNER = "PROFIT_RUNNER"
+
+
 @dataclass(frozen=True)
 class PositionManagementPolicy:
     stop_loss_fraction: Decimal = Decimal("0.02")
@@ -26,6 +31,7 @@ class PositionManagementPolicy:
     break_even_buffer_fraction: Decimal = Decimal("0")
     profit_protection_activation_fraction: Decimal | None = None
     maximum_profit_giveback_fraction: Decimal = Decimal("0.50")
+    take_profit_mode: TakeProfitMode = TakeProfitMode.FIXED_EXIT
 
     def validate(self) -> None:
         for name, value in (
@@ -49,6 +55,8 @@ class PositionManagementPolicy:
                 not value.is_finite() or value <= 0 or value >= 1
             ):
                 raise ValueError(f"{name} must be finite and within (0, 1)")
+        if not isinstance(self.take_profit_mode, TakeProfitMode):
+            raise ValueError("take_profit_mode must be a TakeProfitMode")
         if self.stop_loss_fraction <= 0:
             raise ValueError("stop_loss_fraction must be positive")
         if self.take_profit_fraction <= 0:
@@ -190,7 +198,10 @@ def evaluate_position_exit(
     )
 
     reason: ExitReason | None = None
-    if profit_fraction >= policy.take_profit_fraction:
+    if (
+        policy.take_profit_mode is TakeProfitMode.FIXED_EXIT
+        and profit_fraction >= policy.take_profit_fraction
+    ):
         reason = ExitReason.TAKE_PROFIT
     elif reference_price <= protected_stop_price:
         reason = protected_stop_reason
