@@ -8,11 +8,10 @@ from http.client import HTTPSConnection
 from typing import Any
 from urllib.parse import urlencode, urlsplit
 
-from app.strategy.crypto_perp import CryptoSide
-
 _BYBIT_MAINNET_HOST = "api.bybit.com"
 _BYBIT_INSTRUMENT_PATH = "/v5/market/instruments-info"
 BYBIT_INSTRUMENT_URL = f"https://{_BYBIT_MAINNET_HOST}{_BYBIT_INSTRUMENT_PATH}"
+_VALID_SIDES = {"LONG", "SHORT"}
 
 
 @dataclass(frozen=True)
@@ -77,25 +76,23 @@ class BybitInstrumentSpec:
             return None
         return normalized
 
-    def normalize_target_price(self, side: CryptoSide, raw_price: Decimal) -> Decimal:
+    def normalize_target_price(self, side: str, raw_price: Decimal) -> Decimal:
         """Make a profit target no easier after exchange tick quantization."""
 
         self.validate()
+        normalized_side = _validate_side(side)
         _validate_price(raw_price)
-        if side is CryptoSide.LONG:
+        if normalized_side == "LONG":
             return _quantize_to_step(raw_price, self.tick_size, ROUND_UP)
         return _quantize_to_step(raw_price, self.tick_size, ROUND_DOWN)
 
-    def normalize_protective_stop_price(
-        self,
-        side: CryptoSide,
-        raw_price: Decimal,
-    ) -> Decimal:
+    def normalize_protective_stop_price(self, side: str, raw_price: Decimal) -> Decimal:
         """Use adverse rounding so historical protection is not overstated."""
 
         self.validate()
+        normalized_side = _validate_side(side)
         _validate_price(raw_price)
-        if side is CryptoSide.LONG:
+        if normalized_side == "LONG":
             return _quantize_to_step(raw_price, self.tick_size, ROUND_DOWN)
         return _quantize_to_step(raw_price, self.tick_size, ROUND_UP)
 
@@ -199,6 +196,13 @@ def _required_decimal(row: Mapping[str, Any], field: str) -> Decimal:
     if not parsed.is_finite():
         raise ValueError(f"Bybit instrument response has non-finite {field}")
     return parsed
+
+
+def _validate_side(side: str) -> str:
+    normalized = side.strip().upper()
+    if normalized not in _VALID_SIDES or normalized != side:
+        raise ValueError("Bybit instrument price side must be LONG or SHORT")
+    return normalized
 
 
 def _validate_price(price: Decimal) -> None:
