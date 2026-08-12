@@ -5,12 +5,10 @@ import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from app.application.cross_sectional_paper_cycle import CrossSectionalPaperCycleResult
-from app.domain.trading import Side
 
 
 @dataclass(frozen=True)
