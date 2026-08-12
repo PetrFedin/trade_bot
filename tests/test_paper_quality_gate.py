@@ -120,7 +120,7 @@ def append_reaction(
             symbol="AAPL",
             side=Side.BUY,
             decision_at=NOW,
-            fill_at=NOW + timedelta(seconds=float(latency_decimal)),
+            fill_at=NOW + timedelta(seconds=int(latency_decimal)),
             latency_seconds=latency_decimal,
         )
     )
