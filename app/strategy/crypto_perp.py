@@ -120,6 +120,7 @@ class CryptoTradePlan:
     risk_budget_usdt: Decimal
     stop_fraction: Decimal
     estimated_round_trip_cost_usdt: Decimal
+    estimated_stop_loss_after_cost_usdt: Decimal
     target_net_profit_usd: Decimal
     required_move_fraction: Decimal
     expected_move_fraction: Decimal
@@ -194,7 +195,9 @@ def evaluate_crypto_signal(
         directional_momentum = (-momentum) / atr_fraction
     else:
         reasons: list[str] = ["TREND_MOMENTUM_NOT_ALIGNED"]
-        reasons.extend(_market_quality_reasons(atr_fraction, average_turnover, one_bar_atr, config))
+        reasons.extend(
+            _market_quality_reasons(atr_fraction, average_turnover, one_bar_atr, config)
+        )
         return CryptoSignalEvaluation(symbol, False, tuple(dict.fromkeys(reasons)), None)
 
     quality_score = directional_momentum + trend_strength + breakout_strength
@@ -257,15 +260,18 @@ def build_trade_plan(
     stop_fraction = signal.atr_fraction * config.hard_stop_atr_multiple
     if stop_fraction <= 0:
         return CryptoTradePlanEvaluation(False, ("INVALID_STOP_DISTANCE",), None)
+
+    per_fill_cost_fraction = config.taker_fee_rate + config.slippage_bps_per_fill / _BPS
+    round_trip_cost_fraction = per_fill_cost_fraction * Decimal("2")
+    stop_loss_after_cost_fraction = stop_fraction + round_trip_cost_fraction
     risk_budget = equity_usdt * config.risk_fraction_per_trade
-    risk_sized_notional = risk_budget / stop_fraction
+    risk_sized_notional = risk_budget / stop_loss_after_cost_fraction
     notional = min(risk_sized_notional, equity_usdt * config.maximum_notional_to_equity)
     if notional <= 0:
         return CryptoTradePlanEvaluation(False, ("NO_NOTIONAL_AVAILABLE",), None)
 
-    per_fill_cost_fraction = config.taker_fee_rate + config.slippage_bps_per_fill / _BPS
-    round_trip_cost_fraction = per_fill_cost_fraction * Decimal("2")
     round_trip_cost_usdt = notional * round_trip_cost_fraction
+    stop_loss_after_cost_usdt = notional * stop_loss_after_cost_fraction
     required_move = config.target_net_profit_usd / notional + round_trip_cost_fraction
     expected_move = signal.atr_fraction * config.expected_move_atr_multiple
     expected_net_edge = notional * expected_move - round_trip_cost_usdt
@@ -274,6 +280,8 @@ def build_trade_plan(
         reasons.append("TARGET_NET_EDGE_UNAVAILABLE")
     if expected_net_edge < config.target_net_profit_usd:
         reasons.append("EXPECTED_NET_PROFIT_BELOW_TARGET")
+    if stop_loss_after_cost_usdt > risk_budget:
+        reasons.append("RISK_BUDGET_EXCEEDED_AFTER_COST")
     if reasons:
         return CryptoTradePlanEvaluation(False, tuple(reasons), None)
 
@@ -290,6 +298,7 @@ def build_trade_plan(
             risk_budget_usdt=risk_budget,
             stop_fraction=stop_fraction,
             estimated_round_trip_cost_usdt=round_trip_cost_usdt,
+            estimated_stop_loss_after_cost_usdt=stop_loss_after_cost_usdt,
             target_net_profit_usd=config.target_net_profit_usd,
             required_move_fraction=required_move,
             expected_move_fraction=expected_move,
