@@ -3,8 +3,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from tools.qualify_entry_quality_shadow import qualify as qualify_entry_shadow
 from tools.qualify_entry_quality_walk_forward import qualify as qualify_entry_walk
