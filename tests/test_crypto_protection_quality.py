@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from app.strategy.crypto_protection_quality import (
     add_protection_quality_to_report,
     evaluate_protection_quality,
@@ -40,8 +42,8 @@ def test_gap_through_losses_are_separated_from_non_gap_protection() -> None:
     assert quality.losing_protective_exit_count == 1
     assert quality.gap_through_loss_count == 1
     assert quality.worst_gap_loss_usdt == -40
-    assert quality.gap_through_share == 1 / 3
-    assert quality.gap_loss_share_of_protective_losses == 1
+    assert quality.gap_through_share == Decimal(1) / Decimal(3)
+    assert quality.gap_loss_share_of_protective_losses == Decimal(1)
 
 
 def test_report_annotation_covers_baseline_and_shadow_candidate() -> None:
