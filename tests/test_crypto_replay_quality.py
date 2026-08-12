@@ -40,6 +40,35 @@ def _report() -> dict[str, object]:
                 ],
             }
         },
+        "strategy_shadow_candidates": {
+            "MIN_20_NET_EDGE_OPEN_ENDED_RUNNER": {
+                "strategy": {"maximum_holding_bars": 36},
+                "metrics": {
+                    "win_count": 0,
+                    "loss_count": 1,
+                    "win_rate": 0,
+                    "profit_factor": None,
+                    "max_hold_exit_count": 1,
+                    "realized_target_or_better_count": 0,
+                },
+                "closed_trades": [
+                    {
+                        "net_pnl_usdt": -4e-25,
+                        "target_net_profit_usd": 20,
+                        "exit_reason": "PROFIT_PROTECTION",
+                        "exit_time": "2026-08-10T03:25:00+00:00",
+                        "holding_bars": 2,
+                    },
+                    {
+                        "net_pnl_usdt": 25,
+                        "target_net_profit_usd": 20,
+                        "exit_reason": "MAX_HOLD",
+                        "exit_time": "2026-08-11T23:55:00+00:00",
+                        "holding_bars": 7,
+                    },
+                ],
+            }
+        },
     }
 
 
@@ -80,3 +109,18 @@ def test_normalization_preserves_raw_trade_pnl_and_marks_target_hit() -> None:
     assert second["pnl_class"] == "WIN"
     assert variant["metrics"]["realized_target_or_better_count"] == 1
     assert normalized["replay_quality_normalization"]["raw_trade_pnl_preserved"] is True
+
+
+def test_open_ended_runner_shadow_candidate_is_normalized_too() -> None:
+    normalized = normalize_crypto_replay_report(_report())
+    runner = normalized["strategy_shadow_candidates"]["MIN_20_NET_EDGE_OPEN_ENDED_RUNNER"]
+
+    assert runner["closed_trades"][0]["pnl_class"] == "BREAKEVEN"
+    assert runner["closed_trades"][1]["normalized_exit_reason"] == "END_OF_REPLAY"
+    assert runner["metrics"]["win_count"] == 1
+    assert runner["metrics"]["loss_count"] == 0
+    assert runner["metrics"]["breakeven_count"] == 1
+    assert runner["metrics"]["realized_target_or_better_count"] == 1
+    assert normalized["replay_quality_normalization"][
+        "strategy_shadow_candidates_normalized"
+    ] is True
