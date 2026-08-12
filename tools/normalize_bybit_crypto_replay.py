@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
+from app.strategy.crypto_protection_quality import add_protection_quality_to_report
 from app.strategy.crypto_replay_quality import normalize_crypto_replay_report
 
 
@@ -18,6 +19,7 @@ def main() -> None:
     args = _parse_args()
     report = json.loads(args.input.read_text(encoding="utf-8"))
     normalized = normalize_crypto_replay_report(report)
+    normalized = add_protection_quality_to_report(normalized)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(normalized, indent=2, sort_keys=True) + "\n",
