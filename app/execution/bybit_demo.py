@@ -20,6 +20,7 @@ _ALLOWED_PATHS = {
     "/v5/order/history",
     "/v5/execution/list",
     "/v5/position/list",
+    "/v5/position/trading-stop",
 }
 
 
@@ -39,8 +40,7 @@ class BybitDemoOrderRequest:
     reduce_only: bool = False
 
     def validate(self) -> None:
-        if self.symbol != self.symbol.strip().upper() or not self.symbol.endswith("USDT"):
-            raise ValueError("Bybit demo order symbol must be normalized USDT linear symbol")
+        _validate_symbol(self.symbol)
         if self.side not in {"Buy", "Sell"}:
             raise ValueError("Bybit demo order side must be Buy or Sell")
         if not self.quantity.is_finite() or self.quantity <= 0:
@@ -52,10 +52,49 @@ class BybitDemoOrderRequest:
 
 
 @dataclass(frozen=True)
+class BybitDemoProtectionRequest:
+    symbol: str
+    side: str
+    average_entry_price: Decimal
+    take_profit_price: Decimal
+    stop_loss_price: Decimal
+    trigger_by: str = "LastPrice"
+
+    def validate(self) -> None:
+        _validate_symbol(self.symbol)
+        if self.side not in {"Buy", "Sell"}:
+            raise ValueError("Bybit demo protection side must be Buy or Sell")
+        for name, value in (
+            ("average_entry_price", self.average_entry_price),
+            ("take_profit_price", self.take_profit_price),
+            ("stop_loss_price", self.stop_loss_price),
+        ):
+            if not value.is_finite() or value <= 0:
+                raise ValueError(f"Bybit demo protection {name} must be positive and finite")
+        if self.side == "Buy":
+            if not self.stop_loss_price < self.average_entry_price < self.take_profit_price:
+                raise ValueError("long Bybit demo TP/SL must bracket entry price")
+        elif not self.take_profit_price < self.average_entry_price < self.stop_loss_price:
+            raise ValueError("short Bybit demo TP/SL must bracket entry price")
+        if self.trigger_by not in {"LastPrice", "MarkPrice", "IndexPrice"}:
+            raise ValueError("unsupported Bybit demo TP/SL trigger price")
+
+
+@dataclass(frozen=True)
 class BybitDemoOrderAck:
     order_id: str
     order_link_id: str
     accepted: bool
+    environment: str = "BYBIT_DEMO"
+    live_mainnet_order: bool = False
+
+
+@dataclass(frozen=True)
+class BybitDemoProtectionAck:
+    symbol: str
+    take_profit_price: Decimal
+    stop_loss_price: Decimal
+    accepted: bool = True
     environment: str = "BYBIT_DEMO"
     live_mainnet_order: bool = False
 
@@ -128,6 +167,36 @@ class BybitDemoOrderClient:
         if order_link_id != request.order_link_id:
             raise ValueError("Bybit demo order acknowledgement orderLinkId mismatch")
         return BybitDemoOrderAck(order_id, order_link_id, True)
+
+    def set_full_position_protection(
+        self,
+        request: BybitDemoProtectionRequest,
+    ) -> BybitDemoProtectionAck:
+        """Set exchange-native full-position TP/SL after fill reconciliation.
+
+        Callers must reconcile the actual position first. Replacements should always submit
+        both TP and SL so their full-position protection remains an explicit pair.
+        """
+
+        request.validate()
+        self._signed_post(
+            "/v5/position/trading-stop",
+            {
+                "category": "linear",
+                "symbol": request.symbol,
+                "takeProfit": _decimal_text(request.take_profit_price),
+                "stopLoss": _decimal_text(request.stop_loss_price),
+                "tpTriggerBy": request.trigger_by,
+                "slTriggerBy": request.trigger_by,
+                "tpslMode": "Full",
+                "positionIdx": 0,
+            },
+        )
+        return BybitDemoProtectionAck(
+            symbol=request.symbol,
+            take_profit_price=request.take_profit_price,
+            stop_loss_price=request.stop_loss_price,
+        )
 
     def cancel_order(self, *, symbol: str, order_link_id: str) -> BybitDemoOrderAck:
         _validate_symbol(symbol)
