@@ -11,13 +11,16 @@ on:
       - 'app/execution/bybit_demo.py'
       - 'app/strategy/crypto_perp.py'
       - 'app/strategy/crypto_trade_management.py'
+      - 'app/strategy/crypto_evidence.py'
       - 'tools/replay_bybit_crypto.py'
       - 'tools/replay_bybit_crypto_archive.py'
+      - 'tools/evaluate_bybit_crypto_replay.py'
       - 'tests/test_bybit_http.py'
       - 'tests/test_bybit_crypto_core.py'
       - 'tests/test_bybit_crypto_replay.py'
       - 'tests/test_bybit_instruments.py'
       - 'tests/test_bybit_public_archive.py'
+      - 'tests/test_crypto_evidence.py'
       - '.github/workflows/bybit-crypto-historical-replay.yml'
   push:
     branches:
@@ -74,13 +77,16 @@ jobs:
           app/execution/bybit_demo.py
           app/strategy/crypto_perp.py
           app/strategy/crypto_trade_management.py
+          app/strategy/crypto_evidence.py
           tools/replay_bybit_crypto.py
           tools/replay_bybit_crypto_archive.py
+          tools/evaluate_bybit_crypto_replay.py
           tests/test_bybit_http.py
           tests/test_bybit_crypto_core.py
           tests/test_bybit_crypto_replay.py
           tests/test_bybit_instruments.py
           tests/test_bybit_public_archive.py
+          tests/test_crypto_evidence.py
 
       - name: Bybit crypto invariants
         shell: bash
@@ -92,6 +98,7 @@ jobs:
             tests/test_bybit_crypto_replay.py \
             tests/test_bybit_instruments.py \
             tests/test_bybit_public_archive.py \
+            tests/test_crypto_evidence.py \
             2>&1 | tee bybit-crypto-pytest.txt
 
       - name: Compile Bybit crypto boundary
@@ -104,8 +111,10 @@ jobs:
           app/execution/bybit_demo.py
           app/strategy/crypto_perp.py
           app/strategy/crypto_trade_management.py
+          app/strategy/crypto_evidence.py
           tools/replay_bybit_crypto.py
           tools/replay_bybit_crypto_archive.py
+          tools/evaluate_bybit_crypto_replay.py
 
       - name: Upload contract diagnostics
         if: always()
@@ -139,8 +148,8 @@ jobs:
 
       - name: Replay official completed Bybit historical archives
         env:
-          LOOKBACK_DAYS: ${{ github.event_name == 'push' && '3' || inputs.lookback_days || '7' }}
-          SYMBOLS: ${{ github.event_name == 'push' && 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT' || inputs.symbols || 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,LINKUSDT,ADAUSDT' }}
+          LOOKBACK_DAYS: ${{ inputs.lookback_days || '7' }}
+          SYMBOLS: ${{ inputs.symbols || 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,LINKUSDT,ADAUSDT' }}
         shell: bash
         run: |
           set -o pipefail
@@ -158,6 +167,12 @@ jobs:
             exit 1
           fi
 
+      - name: Score replay evidence
+        run: |
+          PYTHONPATH=. python tools/evaluate_bybit_crypto_replay.py \
+            --input artifacts/bybit-crypto/report.json \
+            --output artifacts/bybit-crypto/evidence-scorecard.json
+
       - name: Enforce research-only safety boundary
         run: |
           python - <<'PY'
@@ -165,6 +180,7 @@ jobs:
           from pathlib import Path
 
           report = json.loads(Path('artifacts/bybit-crypto/report.json').read_text())
+          scorecard = json.loads(Path('artifacts/bybit-crypto/evidence-scorecard.json').read_text())
           assert report['qualification'] == 'PASS_CRYPTO_HISTORICAL_REPLAY'
           assert report['source'] == 'BYBIT_OFFICIAL_PUBLIC_TRADE_ARCHIVE_AGGREGATED_5M'
           assert report['archive_completed_utc_days_only'] is True
@@ -175,6 +191,8 @@ jobs:
           assert report['bybit_demo_order_writes_enabled'] is False
           assert report['bybit_live_order_routing_allowed'] is False
           assert report['real_demo_fills'] is False
+          assert scorecard['strategy_promotion_allowed'] is False
+          assert scorecard['live_promotion_allowed'] is False
           assert set(report['variants']) == {
               'TARGET_15_USD',
               'TARGET_20_USD',
@@ -184,6 +202,8 @@ jobs:
               assert variant['strategy_promotion_allowed'] is False
               assert variant['bybit_demo_order_writes_enabled'] is False
               assert variant['bybit_live_order_routing_allowed'] is False
+          for variant in scorecard['variants'].values():
+              assert variant['live_promotion_allowed'] is False
           PY
 
       - name: Print replay decision evidence
@@ -193,6 +213,7 @@ jobs:
           from pathlib import Path
 
           report = json.loads(Path('artifacts/bybit-crypto/report.json').read_text())
+          scorecard = json.loads(Path('artifacts/bybit-crypto/evidence-scorecard.json').read_text())
           summary = {
               'source': report['source'],
               'archive_dates': report['archive_dates'],
@@ -207,6 +228,7 @@ jobs:
                       'accepted_trade_plan_event_count': variant['accepted_trade_plan_event_count'],
                       'trade_plan_block_reason_counts': variant['trade_plan_block_reason_counts'],
                       'terminal_completed_bar_signal': variant['terminal_completed_bar_signal'],
+                      'evidence_scorecard': scorecard['variants'][name],
                   }
                   for name, variant in report['variants'].items()
               },
