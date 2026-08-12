@@ -154,7 +154,7 @@ def test_selection_exit_shadow_replay_does_not_double_increment_streak(
         ledger=ledger,
         policy=SelectionExitConfirmationPolicy(
             minimum_consecutive_deselected_bars=2,
-            immediate_exit_when_profitable=True,
+            exit_profitable_positions_immediately=True,
         ),
         store=store,
     )
@@ -195,7 +195,7 @@ def test_selection_exit_shadow_never_delays_protective_exit(tmp_path: Path) -> N
         ledger=ledger,
         policy=SelectionExitConfirmationPolicy(
             minimum_consecutive_deselected_bars=2,
-            immediate_exit_when_profitable=True,
+            exit_profitable_positions_immediately=True,
         ),
         store=store,
     )
