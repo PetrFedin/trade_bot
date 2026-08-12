@@ -9,19 +9,27 @@ on:
       - 'app/marketdata/bybit_instruments.py'
       - 'app/marketdata/bybit_public_archive.py'
       - 'app/execution/bybit_demo.py'
+      - 'app/execution/bybit_demo_controller.py'
       - 'app/strategy/crypto_perp.py'
       - 'app/strategy/crypto_trade_management.py'
       - 'app/strategy/crypto_evidence.py'
+      - 'app/strategy/crypto_session_risk.py'
+      - 'app/strategy/crypto_replay_quality.py'
       - 'tools/replay_bybit_crypto.py'
       - 'tools/replay_bybit_crypto_archive.py'
+      - 'tools/normalize_bybit_crypto_replay.py'
       - 'tools/evaluate_bybit_crypto_replay.py'
       - 'tests/test_bybit_http.py'
       - 'tests/test_bybit_crypto_core.py'
       - 'tests/test_bybit_crypto_replay.py'
       - 'tests/test_bybit_demo_protection.py'
+      - 'tests/test_bybit_demo_controller.py'
       - 'tests/test_bybit_instruments.py'
       - 'tests/test_bybit_public_archive.py'
       - 'tests/test_crypto_evidence.py'
+      - 'tests/test_crypto_session_risk.py'
+      - 'tests/test_crypto_replay_quality.py'
+      - 'tests/test_evaluate_bybit_crypto_replay.py'
       - '.github/workflows/bybit-crypto-historical-replay.yml'
   push:
     branches:
@@ -76,19 +84,27 @@ jobs:
           app/marketdata/bybit_instruments.py
           app/marketdata/bybit_public_archive.py
           app/execution/bybit_demo.py
+          app/execution/bybit_demo_controller.py
           app/strategy/crypto_perp.py
           app/strategy/crypto_trade_management.py
           app/strategy/crypto_evidence.py
+          app/strategy/crypto_session_risk.py
+          app/strategy/crypto_replay_quality.py
           tools/replay_bybit_crypto.py
           tools/replay_bybit_crypto_archive.py
+          tools/normalize_bybit_crypto_replay.py
           tools/evaluate_bybit_crypto_replay.py
           tests/test_bybit_http.py
           tests/test_bybit_crypto_core.py
           tests/test_bybit_crypto_replay.py
           tests/test_bybit_demo_protection.py
+          tests/test_bybit_demo_controller.py
           tests/test_bybit_instruments.py
           tests/test_bybit_public_archive.py
           tests/test_crypto_evidence.py
+          tests/test_crypto_session_risk.py
+          tests/test_crypto_replay_quality.py
+          tests/test_evaluate_bybit_crypto_replay.py
 
       - name: Bybit crypto invariants
         shell: bash
@@ -99,9 +115,13 @@ jobs:
             tests/test_bybit_crypto_core.py \
             tests/test_bybit_crypto_replay.py \
             tests/test_bybit_demo_protection.py \
+            tests/test_bybit_demo_controller.py \
             tests/test_bybit_instruments.py \
             tests/test_bybit_public_archive.py \
             tests/test_crypto_evidence.py \
+            tests/test_crypto_session_risk.py \
+            tests/test_crypto_replay_quality.py \
+            tests/test_evaluate_bybit_crypto_replay.py \
             2>&1 | tee bybit-crypto-pytest.txt
 
       - name: Compile Bybit crypto boundary
@@ -112,11 +132,15 @@ jobs:
           app/marketdata/bybit_instruments.py
           app/marketdata/bybit_public_archive.py
           app/execution/bybit_demo.py
+          app/execution/bybit_demo_controller.py
           app/strategy/crypto_perp.py
           app/strategy/crypto_trade_management.py
           app/strategy/crypto_evidence.py
+          app/strategy/crypto_session_risk.py
+          app/strategy/crypto_replay_quality.py
           tools/replay_bybit_crypto.py
           tools/replay_bybit_crypto_archive.py
+          tools/normalize_bybit_crypto_replay.py
           tools/evaluate_bybit_crypto_replay.py
 
       - name: Upload contract diagnostics
@@ -132,7 +156,7 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: contract
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -162,13 +186,19 @@ jobs:
             --lookback-days "$LOOKBACK_DAYS" \
             --opening-equity 1000 \
             --targets 15,20,25 \
-            --output artifacts/bybit-crypto/report.json \
+            --output artifacts/bybit-crypto/report-raw.json \
             --trades-dir artifacts/bybit-crypto/trades; then
             printf '%s\n' \
               '{"qualification":"BLOCKED_BYBIT_ARCHIVE_REPLAY","historical_replay_completed":false}' \
               > artifacts/bybit-crypto/blocked.json
             exit 1
           fi
+
+      - name: Normalize replay evidence
+        run: |
+          PYTHONPATH=. python tools/normalize_bybit_crypto_replay.py \
+            --input artifacts/bybit-crypto/report-raw.json \
+            --output artifacts/bybit-crypto/report.json
 
       - name: Score replay evidence
         run: |
@@ -194,6 +224,9 @@ jobs:
           assert report['bybit_demo_order_writes_enabled'] is False
           assert report['bybit_live_order_routing_allowed'] is False
           assert report['real_demo_fills'] is False
+          assert report['replay_quality_normalization']['raw_trade_pnl_preserved'] is True
+          assert report['replay_quality_normalization']['breakeven_residuals_classified_neutral'] is True
+          assert report['replay_quality_normalization']['terminal_forced_closes_distinguished_from_max_hold'] is True
           assert scorecard['strategy_promotion_allowed'] is False
           assert scorecard['live_promotion_allowed'] is False
           assert set(report['variants']) == {
@@ -205,7 +238,18 @@ jobs:
               assert variant['strategy_promotion_allowed'] is False
               assert variant['bybit_demo_order_writes_enabled'] is False
               assert variant['bybit_live_order_routing_allowed'] is False
+          candidate = report['notional_cap_shadow_candidates']['MAX_NOTIONAL_3X_EQUITY']
+          assert candidate['maximum_notional_to_equity'] == 3.0
+          assert candidate['strategy_promotion_allowed'] is False
+          assert candidate['bybit_demo_order_writes_enabled'] is False
+          assert candidate['bybit_live_order_routing_allowed'] is False
+          scored_candidate = scorecard['shadow_candidates']['MAX_NOTIONAL_3X_EQUITY']
+          assert scored_candidate['strategy_promotion_allowed'] is False
+          assert scored_candidate['demo_order_writes_allowed'] is False
+          assert scored_candidate['live_promotion_allowed'] is False
           for variant in scorecard['variants'].values():
+              assert variant['live_promotion_allowed'] is False
+          for variant in scored_candidate['variants'].values():
               assert variant['live_promotion_allowed'] is False
           PY
 
@@ -217,13 +261,16 @@ jobs:
 
           report = json.loads(Path('artifacts/bybit-crypto/report.json').read_text())
           scorecard = json.loads(Path('artifacts/bybit-crypto/evidence-scorecard.json').read_text())
+          candidate = report['notional_cap_shadow_candidates']['MAX_NOTIONAL_3X_EQUITY']
+          candidate_score = scorecard['shadow_candidates']['MAX_NOTIONAL_3X_EQUITY']
           summary = {
               'source': report['source'],
               'archive_dates': report['archive_dates'],
               'symbols': report['symbols'],
               'synchronized_bar_count_per_symbol': report['synchronized_bar_count_per_symbol'],
               'archive_trade_rows_by_symbol': report['archive_trade_rows_by_symbol'],
-              'variants': {
+              'replay_quality_normalization': report['replay_quality_normalization'],
+              'baseline_2x': {
                   name: {
                       'target_net_profit_usd': variant['target_net_profit_usd'],
                       'metrics': variant['metrics'],
@@ -235,12 +282,32 @@ jobs:
                   }
                   for name, variant in report['variants'].items()
               },
+              'shadow_3x_same_risk': {
+                  name: {
+                      'target_net_profit_usd': variant['target_net_profit_usd'],
+                      'metrics': variant['metrics'],
+                      'eligible_signal_event_count': variant['eligible_signal_event_count'],
+                      'accepted_trade_plan_event_count': variant['accepted_trade_plan_event_count'],
+                      'trade_plan_block_reason_counts': variant['trade_plan_block_reason_counts'],
+                      'evidence_scorecard': candidate_score['variants'][name],
+                  }
+                  for name, variant in candidate['variants'].items()
+              },
           }
           print('BYBIT_REPLAY_SUMMARY=' + json.dumps(summary, sort_keys=True))
-          for variant_name, variant in report['variants'].items():
-              for trade_number, trade in enumerate(variant['closed_trades'], start=1):
-                  payload = {'variant': variant_name, 'trade_number': trade_number, **trade}
-                  print('BYBIT_REPLAY_TRADE=' + json.dumps(payload, sort_keys=True))
+          for scope, variants in (
+              ('BASELINE_2X', report['variants']),
+              ('SHADOW_3X_SAME_RISK', candidate['variants']),
+          ):
+              for variant_name, variant in variants.items():
+                  for trade_number, trade in enumerate(variant['closed_trades'], start=1):
+                      payload = {
+                          'scope': scope,
+                          'variant': variant_name,
+                          'trade_number': trade_number,
+                          **trade,
+                      }
+                      print('BYBIT_REPLAY_TRADE=' + json.dumps(payload, sort_keys=True))
           PY
 
       - name: Upload real-market replay evidence
