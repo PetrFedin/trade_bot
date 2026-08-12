@@ -87,9 +87,7 @@ def evaluate_protection_quality(closed_trades: list[dict[str, Any]]) -> CryptoPr
 def add_protection_quality_to_report(report: dict[str, Any]) -> dict[str, Any]:
     for variant in report.get("variants", {}).values():
         if isinstance(variant, dict):
-            variant["protection_quality"] = evaluate_protection_quality(
-                list(variant.get("closed_trades", []))
-            ).as_dict()
+            _annotate_variant(variant)
     candidates = report.get("notional_cap_shadow_candidates", {})
     if isinstance(candidates, dict):
         for candidate in candidates.values():
@@ -100,15 +98,25 @@ def add_protection_quality_to_report(report: dict[str, Any]) -> dict[str, Any]:
                 continue
             for variant in variants.values():
                 if isinstance(variant, dict):
-                    variant["protection_quality"] = evaluate_protection_quality(
-                        list(variant.get("closed_trades", []))
-                    ).as_dict()
+                    _annotate_variant(variant)
+    strategy_candidates = report.get("strategy_shadow_candidates", {})
+    if isinstance(strategy_candidates, dict):
+        for candidate in strategy_candidates.values():
+            if isinstance(candidate, dict):
+                _annotate_variant(candidate)
     report["protection_quality_contract"] = {
         "protective_reasons": sorted(_PROTECTIVE_REASONS),
         "gap_through_means_bar_open_crossed_already_armed_protective_stop": True,
         "profit_protection_label_does_not_guarantee_positive_realized_pnl": True,
+        "open_ended_runner_protection_is_not_a_profit_guarantee": True,
     }
     return report
+
+
+def _annotate_variant(variant: dict[str, Any]) -> None:
+    variant["protection_quality"] = evaluate_protection_quality(
+        list(variant.get("closed_trades", []))
+    ).as_dict()
 
 
 def _pnl(trade: dict[str, Any]) -> Decimal:
