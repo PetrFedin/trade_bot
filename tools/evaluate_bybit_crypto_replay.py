@@ -15,8 +15,52 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
     last = datetime.fromisoformat(str(report["last_completed_bar"]))
     duration_days = Decimal(str(max((last - first).total_seconds(), 1.0))) / Decimal("86400")
     opening_equity = Decimal(str(report["opening_equity_usdt"]))
-    variants: dict[str, Any] = {}
-    for name, payload in report["variants"].items():
+    variants = _score_variants(
+        report["variants"],
+        opening_equity=opening_equity,
+        duration_days=duration_days,
+    )
+    shadow_candidates: dict[str, Any] = {}
+    raw_candidates = report.get("notional_cap_shadow_candidates", {})
+    if isinstance(raw_candidates, dict):
+        for candidate_name, candidate in raw_candidates.items():
+            if not isinstance(candidate, dict):
+                continue
+            candidate_variants = candidate.get("variants", {})
+            if not isinstance(candidate_variants, dict):
+                continue
+            shadow_candidates[candidate_name] = {
+                "maximum_notional_to_equity": candidate.get("maximum_notional_to_equity"),
+                "risk_fraction_per_trade": candidate.get("risk_fraction_per_trade"),
+                "purpose": candidate.get("purpose"),
+                "strategy_promotion_allowed": False,
+                "demo_order_writes_allowed": False,
+                "live_promotion_allowed": False,
+                "variants": _score_variants(
+                    candidate_variants,
+                    opening_equity=opening_equity,
+                    duration_days=duration_days,
+                ),
+            }
+    return {
+        "qualification": "CRYPTO_REPLAY_EVIDENCE_SCORED",
+        "source_qualification": report["qualification"],
+        "source": report["source"],
+        "strategy_promotion_allowed": False,
+        "live_promotion_allowed": False,
+        "variants": variants,
+        "shadow_candidates": shadow_candidates,
+    }
+
+
+def _score_variants(
+    variants: dict[str, Any],
+    *,
+    opening_equity: Decimal,
+    duration_days: Decimal,
+) -> dict[str, Any]:
+    scored: dict[str, Any] = {}
+    for name, payload in variants.items():
         metrics = payload["metrics"]
         profit_factor_raw = metrics["profit_factor"]
         evidence = CryptoReplayEvidence(
@@ -34,7 +78,7 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
             observed_days=duration_days,
         )
         decision = evaluate_crypto_replay_evidence(evidence)
-        variants[name] = {
+        scored[name] = {
             "posture": decision.posture.value,
             "reasons": list(decision.reasons),
             "demo_observation_allowed": decision.demo_observation_allowed,
@@ -46,14 +90,7 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
             "maximum_drawdown_pct": float(evidence.maximum_drawdown_pct),
             "fees_usdt": float(evidence.fees_usdt),
         }
-    return {
-        "qualification": "CRYPTO_REPLAY_EVIDENCE_SCORED",
-        "source_qualification": report["qualification"],
-        "source": report["source"],
-        "strategy_promotion_allowed": False,
-        "live_promotion_allowed": False,
-        "variants": variants,
-    }
+    return scored
 
 
 def _parse_args() -> argparse.Namespace:
