@@ -11,6 +11,7 @@ from app.application.cross_sectional_target_planner import (
     CrossSectionalTargetPlanner,
 )
 from app.application.order_lifecycle import PaperOrderLifecycle, PreparedPaperOrder
+from app.application.paper_strategy_scope import SQLitePaperStrategyIntentRegistry
 from app.application.portfolio_paper_planner import (
     EntryExitGate,
     PortfolioPaperPlan,
@@ -69,9 +70,9 @@ class CrossSectionalPaperCycleService:
     external broker mutation. Selection, durable re-entry blocks, sizing and strategy
     gross admission are resolved by the target planner; batch cash/gross/risk controls
     are resolved by the portfolio paper planner. Fresh marks update observed MFE/MAE for
-    every currently open position before strategy decisions, and approved exit reasons
-    are registered before OMS outbox persistence so exact fills can later produce
-    attributed paper trade-quality observations.
+    every currently open position before strategy decisions. Optional durable intent
+    ownership is written before OMS outbox persistence so exact fills can later be
+    routed only to this strategy's re-entry and trade-quality observers.
     """
 
     def __init__(
@@ -81,6 +82,7 @@ class CrossSectionalPaperCycleService:
         order_planner: PortfolioPaperPlanner,
         lifecycle: PaperOrderLifecycle,
         quality_recorder: ExitQualityRecorder | None = None,
+        intent_registry: SQLitePaperStrategyIntentRegistry | None = None,
     ) -> None:
         if (
             quality_recorder is not None
@@ -93,6 +95,7 @@ class CrossSectionalPaperCycleService:
         self.order_planner = order_planner
         self.lifecycle = lifecycle
         self.quality_recorder = quality_recorder
+        self.intent_registry = intent_registry
 
     def plan_and_prepare(
         self,
@@ -125,6 +128,7 @@ class CrossSectionalPaperCycleService:
             kill_switch_engaged=kill_switch_engaged,
             risk_contexts=risk_contexts,
         )
+        self._register_approved_ownership(order_plan)
         self._register_approved_exit_reasons(
             target_plan=target_plan,
             order_plan=order_plan,
@@ -157,6 +161,18 @@ class CrossSectionalPaperCycleService:
                 symbol=position.symbol,
                 reference_price=reference_price,
                 observed_at=observed_at,
+            )
+
+    def _register_approved_ownership(self, order_plan: PortfolioPaperPlan) -> None:
+        if self.intent_registry is None:
+            return
+        for item in order_plan.approved_items:
+            if item.intent is None:
+                raise RuntimeError("approved paper item is missing order intent")
+            self.intent_registry.register(
+                item.intent,
+                strategy_id=self.target_planner.strategy_id,
+                registered_at=item.target.generated_at,
             )
 
     def _register_approved_exit_reasons(
