@@ -37,11 +37,29 @@ def normalize_crypto_replay_report(report: dict[str, Any]) -> dict[str, Any]:
                 maximum_holding_bars=maximum_holding_bars,
             )
 
+    strategy_candidates = normalized.get("strategy_shadow_candidates", {})
+    if isinstance(strategy_candidates, dict):
+        for candidate in strategy_candidates.values():
+            if not isinstance(candidate, dict):
+                continue
+            candidate_strategy = candidate.get("strategy", {})
+            candidate_max_hold = maximum_holding_bars
+            if isinstance(candidate_strategy, dict):
+                candidate_max_hold = int(
+                    candidate_strategy.get("maximum_holding_bars", maximum_holding_bars)
+                )
+            _normalize_variant(
+                candidate,
+                last_completed_bar=last_completed_bar,
+                maximum_holding_bars=candidate_max_hold,
+            )
+
     normalized["replay_quality_normalization"] = {
         "pnl_epsilon_usdt": float(_PNL_EPSILON_USDT),
         "raw_trade_pnl_preserved": True,
         "breakeven_residuals_classified_neutral": True,
         "terminal_forced_closes_distinguished_from_max_hold": True,
+        "strategy_shadow_candidates_normalized": True,
     }
     return normalized
 
@@ -55,18 +73,30 @@ def _normalize_variant_map(
     if not isinstance(variants, dict):
         return
     for variant in variants.values():
-        if not isinstance(variant, dict):
-            continue
-        trades = variant.get("closed_trades", [])
-        metrics = variant.get("metrics")
-        if not isinstance(trades, list) or not isinstance(metrics, dict):
-            continue
-        _normalize_trades(
-            trades,
-            last_completed_bar=last_completed_bar,
-            maximum_holding_bars=maximum_holding_bars,
-        )
-        _normalize_metrics(metrics, trades)
+        if isinstance(variant, dict):
+            _normalize_variant(
+                variant,
+                last_completed_bar=last_completed_bar,
+                maximum_holding_bars=maximum_holding_bars,
+            )
+
+
+def _normalize_variant(
+    variant: dict[str, Any],
+    *,
+    last_completed_bar: str,
+    maximum_holding_bars: int,
+) -> None:
+    trades = variant.get("closed_trades", [])
+    metrics = variant.get("metrics")
+    if not isinstance(trades, list) or not isinstance(metrics, dict):
+        return
+    _normalize_trades(
+        trades,
+        last_completed_bar=last_completed_bar,
+        maximum_holding_bars=maximum_holding_bars,
+    )
+    _normalize_metrics(metrics, trades)
 
 
 def _normalize_trades(
