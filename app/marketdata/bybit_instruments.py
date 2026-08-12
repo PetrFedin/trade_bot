@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_DOWN, ROUND_UP, Decimal
 from http.client import HTTPSConnection
 from typing import Any
 from urllib.parse import urlencode, urlsplit
+
+from app.marketdata.bybit_http import decode_public_json_response
 
 _BYBIT_MAINNET_HOST = "api.bybit.com"
 _BYBIT_INSTRUMENT_PATH = "/v5/market/instruments-info"
@@ -230,12 +231,16 @@ def _https_transport(url: str, headers: Mapping[str, str]) -> BybitInstrumentHtt
     try:
         connection.request("GET", target, headers=dict(headers))
         response = connection.getresponse()
-        payload = json.loads(response.read().decode("utf-8"))
-        if not isinstance(payload, dict):
-            raise ValueError("Bybit instrument response must be a JSON object")
+        response_headers = {key: value for key, value in response.getheaders()}
+        body = response.read()
+        payload = decode_public_json_response(
+            status_code=response.status,
+            headers=response_headers,
+            body=body,
+        )
         return BybitInstrumentHttpJson(
             status_code=response.status,
-            headers={key: value for key, value in response.getheaders()},
+            headers=response_headers,
             payload=payload,
         )
     finally:
