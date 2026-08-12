@@ -5,12 +5,14 @@ on:
     branches: [main]
     paths:
       - 'app/marketdata/bybit_v5.py'
+      - 'app/marketdata/bybit_instruments.py'
       - 'app/execution/bybit_demo.py'
       - 'app/strategy/crypto_perp.py'
       - 'app/strategy/crypto_trade_management.py'
       - 'tools/replay_bybit_crypto.py'
       - 'tests/test_bybit_crypto_core.py'
       - 'tests/test_bybit_crypto_replay.py'
+      - 'tests/test_bybit_instruments.py'
       - '.github/workflows/bybit-crypto-historical-replay.yml'
   push:
     branches:
@@ -57,24 +59,30 @@ jobs:
         run: >-
           ruff check --output-format=github
           app/marketdata/bybit_v5.py
+          app/marketdata/bybit_instruments.py
           app/execution/bybit_demo.py
           app/strategy/crypto_perp.py
           app/strategy/crypto_trade_management.py
           tools/replay_bybit_crypto.py
           tests/test_bybit_crypto_core.py
           tests/test_bybit_crypto_replay.py
+          tests/test_bybit_instruments.py
 
       - name: Bybit crypto invariants
         shell: bash
         run: |
           set -o pipefail
-          pytest -vv tests/test_bybit_crypto_core.py tests/test_bybit_crypto_replay.py \
+          pytest -vv \
+            tests/test_bybit_crypto_core.py \
+            tests/test_bybit_crypto_replay.py \
+            tests/test_bybit_instruments.py \
             2>&1 | tee bybit-crypto-pytest.txt
 
       - name: Compile Bybit crypto boundary
         run: >-
           python -m compileall -q
           app/marketdata/bybit_v5.py
+          app/marketdata/bybit_instruments.py
           app/execution/bybit_demo.py
           app/strategy/crypto_perp.py
           app/strategy/crypto_trade_management.py
@@ -113,14 +121,21 @@ jobs:
       - name: Replay completed public Bybit 5m market history
         env:
           LOOKBACK_DAYS: ${{ inputs.lookback_days || '7' }}
+        shell: bash
         run: |
+          set -o pipefail
           mkdir -p artifacts/bybit-crypto/trades
-          python tools/replay_bybit_crypto.py \
+          if ! PYTHONPATH=. python tools/replay_bybit_crypto.py \
             --lookback-days "$LOOKBACK_DAYS" \
             --opening-equity 1000 \
             --targets 15,20,25 \
             --output artifacts/bybit-crypto/report.json \
-            --trades-dir artifacts/bybit-crypto/trades
+            --trades-dir artifacts/bybit-crypto/trades; then
+            printf '%s\n' \
+              '{"qualification":"BLOCKED_REAL_MARKET_REPLAY","reason":"REPLAY_COMMAND_FAILED"}' \
+              > artifacts/bybit-crypto/blocked.json
+            exit 1
+          fi
 
       - name: Enforce research-only safety boundary
         run: |
