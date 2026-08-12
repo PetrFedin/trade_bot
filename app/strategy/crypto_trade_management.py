@@ -161,16 +161,89 @@ def update_protection_after_completed_bar(
     )
 
 
+def update_open_ended_runner_after_completed_bar(
+    state: CryptoProtectionState,
+    *,
+    side: CryptoSide,
+    entry_price: Decimal,
+    risk_price_distance: Decimal,
+    break_even_price: Decimal,
+    runner_activation_price: Decimal,
+    runner_protected_price_at_activation: Decimal,
+    runner_trailing_distance: Decimal,
+    completed_bar: BybitKlineBar,
+    policy: CryptoProtectionPolicy,
+) -> CryptoProtectionState:
+    """Ratchet an uncapped runner only after a completed bar.
+
+    The regular hard-stop/break-even/profit-lock logic remains active before runner
+    activation. Once a completed favorable extreme reaches the activation price, the stop for
+    the *next* bar is tightened to at least the initial protected level and then follows the
+    completed favorable extreme by a fixed absolute trailing distance. There is no fixed
+    take-profit target and no same-bar retroactive protection.
+    """
+
+    if runner_activation_price <= 0 or runner_protected_price_at_activation <= 0:
+        raise ValueError("runner activation and protected prices must be positive")
+    if runner_trailing_distance <= 0:
+        raise ValueError("runner trailing distance must be positive")
+    if side is CryptoSide.LONG:
+        if not entry_price < runner_protected_price_at_activation < runner_activation_price:
+            raise ValueError("long runner must have entry < protected < activation")
+    elif not runner_activation_price < runner_protected_price_at_activation < entry_price:
+        raise ValueError("short runner must have activation < protected < entry")
+
+    updated = update_protection_after_completed_bar(
+        state,
+        side=side,
+        entry_price=entry_price,
+        risk_price_distance=risk_price_distance,
+        break_even_price=break_even_price,
+        completed_bar=completed_bar,
+        policy=policy,
+    )
+
+    active_stop = updated.active_stop_price
+    reason = updated.active_stop_reason
+    if side is CryptoSide.LONG and updated.favorable_extreme >= runner_activation_price:
+        runner_candidate = max(
+            runner_protected_price_at_activation,
+            updated.favorable_extreme - runner_trailing_distance,
+        )
+        if runner_candidate > active_stop:
+            active_stop = runner_candidate
+            reason = CryptoExitReason.PROFIT_PROTECTION
+    elif side is CryptoSide.SHORT and updated.favorable_extreme <= runner_activation_price:
+        runner_candidate = min(
+            runner_protected_price_at_activation,
+            updated.favorable_extreme + runner_trailing_distance,
+        )
+        if runner_candidate < active_stop:
+            active_stop = runner_candidate
+            reason = CryptoExitReason.PROFIT_PROTECTION
+
+    return CryptoProtectionState(
+        active_stop_price=active_stop,
+        active_stop_reason=reason,
+        favorable_extreme=updated.favorable_extreme,
+        adverse_extreme=updated.adverse_extreme,
+        maximum_favorable_r=updated.maximum_favorable_r,
+        maximum_adverse_r=updated.maximum_adverse_r,
+    )
+
+
 def resolve_crypto_bar_exit(
     *,
     side: CryptoSide,
     bar: BybitKlineBar,
     active_stop_price: Decimal,
     active_stop_reason: CryptoExitReason,
-    target_price: Decimal,
+    target_price: Decimal | None,
 ) -> CryptoBarExit | None:
-    if active_stop_price <= 0 or target_price <= 0:
-        raise ValueError("crypto exit prices must be positive")
+    if active_stop_price <= 0:
+        raise ValueError("crypto active stop price must be positive")
+    if target_price is not None and target_price <= 0:
+        raise ValueError("crypto target price must be positive when configured")
     if active_stop_reason not in {
         CryptoExitReason.HARD_STOP,
         CryptoExitReason.BREAK_EVEN_STOP,
@@ -181,17 +254,17 @@ def resolve_crypto_bar_exit(
     if side is CryptoSide.LONG:
         if bar.open <= active_stop_price:
             return CryptoBarExit(bar.open, active_stop_reason, True, False)
-        if bar.open >= target_price:
+        if target_price is not None and bar.open >= target_price:
             return CryptoBarExit(bar.open, CryptoExitReason.NET_TARGET, True, False)
         stop_hit = bar.low <= active_stop_price
-        target_hit = bar.high >= target_price
+        target_hit = target_price is not None and bar.high >= target_price
     else:
         if bar.open >= active_stop_price:
             return CryptoBarExit(bar.open, active_stop_reason, True, False)
-        if bar.open <= target_price:
+        if target_price is not None and bar.open <= target_price:
             return CryptoBarExit(bar.open, CryptoExitReason.NET_TARGET, True, False)
         stop_hit = bar.high >= active_stop_price
-        target_hit = bar.low <= target_price
+        target_hit = target_price is not None and bar.low <= target_price
 
     if stop_hit and target_hit:
         return CryptoBarExit(
@@ -203,5 +276,7 @@ def resolve_crypto_bar_exit(
     if stop_hit:
         return CryptoBarExit(active_stop_price, active_stop_reason, False, False)
     if target_hit:
+        if target_price is None:
+            raise AssertionError("target hit cannot occur without a configured target")
         return CryptoBarExit(target_price, CryptoExitReason.NET_TARGET, False, False)
     return None
