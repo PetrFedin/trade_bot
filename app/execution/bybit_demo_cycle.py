@@ -10,12 +10,12 @@ from app.execution.bybit_demo import (
     BybitDemoOrderAck,
     BybitDemoOrderClient,
     BybitDemoPosition,
-    BybitDemoProtectionAck,
+    BybitDemoRunnerProtectionAck,
 )
 from app.execution.bybit_demo_controller import (
     plan_bybit_demo_entry,
-    plan_bybit_demo_protection_after_fill,
     plan_bybit_demo_reduce_only_close,
+    plan_bybit_demo_runner_protection_after_fill,
 )
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig, CryptoSide, CryptoTradePlan
@@ -51,7 +51,7 @@ class BybitDemoCycleResult:
     status: BybitDemoCycleStatus
     reasons: tuple[str, ...]
     entry_ack: BybitDemoOrderAck | None
-    protection_ack: BybitDemoProtectionAck | None
+    protection_ack: BybitDemoRunnerProtectionAck | None
     flatten_ack: BybitDemoOrderAck | None
     reconciled_position: BybitDemoPosition | None
     next_entry_allowed: bool
@@ -67,7 +67,10 @@ class _DemoClient(Protocol):
 
     def place_market_order(self, request: object) -> BybitDemoOrderAck: ...
 
-    def set_full_position_protection(self, request: object) -> BybitDemoProtectionAck: ...
+    def set_open_ended_position_protection(
+        self,
+        request: object,
+    ) -> BybitDemoRunnerProtectionAck: ...
 
 
 Sleeper = Callable[[float], None]
@@ -84,10 +87,11 @@ def execute_bybit_demo_trade_cycle(
     session_policy: CryptoSessionRiskPolicy | None = None,
     sleeper: Sleeper = time.sleep,
 ) -> BybitDemoCycleResult:
-    """Execute one demo-only entry->reconcile->protect cycle with fail-closed semantics.
+    """Execute one demo-only entry -> reconcile -> uncapped runner protection cycle.
 
     This function has no mainnet path. Writes are disabled unless an explicit cycle policy
-    enables them. A position is never called protected merely because order creation ACKed.
+    enables them. A position is never called protected merely because order creation ACKed,
+    and successful protection deliberately omits a fixed take-profit ceiling.
     """
 
     policy = BybitDemoCyclePolicy() if cycle_policy is None else cycle_policy
@@ -139,7 +143,7 @@ def execute_bybit_demo_trade_cycle(
             writes_enabled=True,
         )
 
-    protection_plan = plan_bybit_demo_protection_after_fill(
+    protection_plan = plan_bybit_demo_runner_protection_after_fill(
         trade_plan,
         actual_average_entry_price=position.average_price,
         actual_filled_quantity=position.size,
@@ -157,7 +161,7 @@ def execute_bybit_demo_trade_cycle(
         )
 
     try:
-        protection_ack = client.set_full_position_protection(protection_plan.protection)
+        protection_ack = client.set_open_ended_position_protection(protection_plan.protection)
     except Exception as exc:  # noqa: BLE001 - protection failure must trigger a close attempt.
         return _flatten_after_protection_failure(
             trade_plan,
@@ -262,7 +266,7 @@ def _flatten_protected_position(
     client: _DemoClient,
     position: BybitDemoPosition,
     entry_ack: BybitDemoOrderAck,
-    protection_ack: BybitDemoProtectionAck,
+    protection_ack: BybitDemoRunnerProtectionAck,
     reasons: tuple[str, ...],
 ) -> BybitDemoCycleResult:
     try:
@@ -297,7 +301,7 @@ def _result(
     *,
     reasons: tuple[str, ...],
     entry_ack: BybitDemoOrderAck | None = None,
-    protection_ack: BybitDemoProtectionAck | None = None,
+    protection_ack: BybitDemoRunnerProtectionAck | None = None,
     flatten_ack: BybitDemoOrderAck | None = None,
     position: BybitDemoPosition | None = None,
     next_entry_allowed: bool = False,
