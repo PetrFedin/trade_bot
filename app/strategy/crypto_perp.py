@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from enum import StrEnum
-from typing import Sequence
 
 from app.marketdata.bybit_v5 import BybitKlineBar
 
@@ -31,10 +31,10 @@ class CryptoPerpStrategyConfig:
     minimum_abs_momentum: Decimal = Decimal("0.0025")
     minimum_quality_score: Decimal = Decimal("1.10")
     maximum_one_bar_atr_multiple: Decimal = Decimal("2.50")
-    risk_fraction_per_trade: Decimal = Decimal("0.0075")
+    risk_fraction_per_trade: Decimal = Decimal("0.01")
     maximum_notional_to_equity: Decimal = Decimal("2.0")
     hard_stop_atr_multiple: Decimal = Decimal("1.0")
-    expected_move_atr_multiple: Decimal = Decimal("1.5")
+    expected_move_atr_multiple: Decimal = Decimal("3.0")
     target_net_profit_usd: Decimal = Decimal("15")
     taker_fee_rate: Decimal = Decimal("0.0006")
     slippage_bps_per_fill: Decimal = Decimal("2")
