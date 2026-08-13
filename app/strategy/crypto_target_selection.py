@@ -50,7 +50,11 @@ class CryptoTargetSelectionPolicy:
             raise ValueError("crypto minimum entry net profit must be positive")
         if self.normal_exit_target_net_profit_usd < self.minimum_entry_net_profit_usd:
             raise ValueError("normal crypto exit target cannot be below entry threshold")
-        if not Decimal("0") < self.normal_exit_tolerance_usd < self.normal_exit_target_net_profit_usd:
+        if not (
+            Decimal("0")
+            < self.normal_exit_tolerance_usd
+            < self.normal_exit_target_net_profit_usd
+        ):
             raise ValueError("normal crypto exit tolerance must be positive and below target")
         if self.fallback_protected_net_profit_usd <= 0:
             raise ValueError("crypto protected fallback profit must be positive")
