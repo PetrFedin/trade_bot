@@ -18,30 +18,44 @@ from app.strategy.crypto_perp import (
 
 @dataclass(frozen=True)
 class CryptoTargetSelectionPolicy:
-    """Entry objective for the crypto strategy.
+    """Cost-aware entry objective and realized-profit tolerance for crypto trades.
 
-    New positions must support at least ``minimum_entry_net_profit_usd`` after modeled
-    execution costs. There is intentionally no upper profit cap: once a position has earned
-    enough to arm the runner, exit management is expected to trail the move rather than place
-    a fixed take-profit ceiling.
+    A new position must still support at least ``minimum_entry_net_profit_usd`` after modeled
+    fees and slippage. The normal fixed-exit objective is centered on $20, but realized PnL is
+    allowed to land within a small tolerance band because exchange ticks, fees and slippage make
+    an exact dollar result artificial.
 
-    ``fallback_protected_net_profit_usd`` is not an entry target and is not a guaranteed
-    realized PnL. It is the minimum normal-fill protection objective after the runner has
-    already reached its activation level; gaps and slippage can still realize less.
+    ``fallback_protected_net_profit_usd`` is never an entry target. It is only a defensive
+    protection objective after a profitable position has already advanced. It is not guaranteed
+    realized PnL because gaps, latency and adverse slippage can cross any stop.
     """
 
     minimum_entry_net_profit_usd: Decimal = Decimal("20")
+    normal_exit_target_net_profit_usd: Decimal = Decimal("20")
+    normal_exit_tolerance_usd: Decimal = Decimal("2")
     fallback_protected_net_profit_usd: Decimal = Decimal("15")
     open_ended_profit_runner: bool = True
     entry_economics_policy: CryptoEntryEconomicsPolicy | None = None
 
+    @property
+    def normal_exit_band_low_usd(self) -> Decimal:
+        return self.normal_exit_target_net_profit_usd - self.normal_exit_tolerance_usd
+
+    @property
+    def normal_exit_band_high_usd(self) -> Decimal:
+        return self.normal_exit_target_net_profit_usd + self.normal_exit_tolerance_usd
+
     def validate(self) -> None:
         if self.minimum_entry_net_profit_usd <= 0:
             raise ValueError("crypto minimum entry net profit must be positive")
+        if self.normal_exit_target_net_profit_usd < self.minimum_entry_net_profit_usd:
+            raise ValueError("normal crypto exit target cannot be below entry threshold")
+        if not Decimal("0") < self.normal_exit_tolerance_usd < self.normal_exit_target_net_profit_usd:
+            raise ValueError("normal crypto exit tolerance must be positive and below target")
         if self.fallback_protected_net_profit_usd <= 0:
             raise ValueError("crypto protected fallback profit must be positive")
-        if self.fallback_protected_net_profit_usd >= self.minimum_entry_net_profit_usd:
-            raise ValueError("crypto protected fallback must be below the minimum entry edge")
+        if self.fallback_protected_net_profit_usd >= self.normal_exit_band_low_usd:
+            raise ValueError("crypto protected fallback must stay below normal exit band")
         if not self.open_ended_profit_runner:
             raise ValueError("crypto primary policy requires an open-ended profit runner")
         if self.entry_economics_policy is not None:
@@ -67,6 +81,8 @@ class CryptoTargetSelection:
     open_ended_profit_runner: bool
     profit_cap_net_profit_usd: Decimal | None
     fallback_protected_net_profit_usd: Decimal
+    normal_exit_band_low_usd: Decimal
+    normal_exit_band_high_usd: Decimal
     strategy_promotion_allowed: bool = False
     live_activation_allowed: bool = False
 
@@ -78,14 +94,12 @@ def select_highest_feasible_crypto_target(
     config: CryptoPerpStrategyConfig,
     policy: CryptoTargetSelectionPolicy | None = None,
 ) -> CryptoTargetSelection:
-    """Require >=$20 modeled net edge, then leave upside uncapped.
+    """Require >=$20 modeled net edge and expose an $18-$22 realized tolerance band.
 
-    The legacy name is retained for call-site compatibility, but the policy no longer chooses
-    among fixed $15/$20/$25 take-profit ceilings. It performs one admission test at the minimum
-    acceptable net edge. If that threshold is feasible, the trade is admitted with an
-    open-ended runner objective. If it is not feasible, the correct action is no trade.
-
-    A $15 objective is never used to justify a new entry.
+    The legacy name is retained for call-site compatibility. The selector performs one admission
+    test at the minimum acceptable $20 modeled net edge. A successful admission may later use a
+    fixed $20-centered exit or an excess-edge-gated open-ended runner. A $15 objective is never
+    used to justify a new position.
     """
 
     active_policy = CryptoTargetSelectionPolicy() if policy is None else policy
@@ -118,6 +132,15 @@ def select_highest_feasible_crypto_target(
     if economics is not None and not economics.eligible:
         reasons.extend(economics.reasons)
 
+    common = {
+        "shadow_economics_enabled": active_policy.entry_economics_policy is not None,
+        "open_ended_profit_runner": active_policy.open_ended_profit_runner,
+        "profit_cap_net_profit_usd": None,
+        "fallback_protected_net_profit_usd": active_policy.fallback_protected_net_profit_usd,
+        "normal_exit_band_low_usd": active_policy.normal_exit_band_low_usd,
+        "normal_exit_band_high_usd": active_policy.normal_exit_band_high_usd,
+    }
+
     if reasons:
         return CryptoTargetSelection(
             eligible=False,
@@ -125,20 +148,14 @@ def select_highest_feasible_crypto_target(
             selected_plan=None,
             attempts=(attempt,),
             reasons=tuple(dict.fromkeys(reasons)) or ("MINIMUM_20_USD_NET_EDGE_UNAVAILABLE",),
-            shadow_economics_enabled=active_policy.entry_economics_policy is not None,
-            open_ended_profit_runner=active_policy.open_ended_profit_runner,
-            profit_cap_net_profit_usd=None,
-            fallback_protected_net_profit_usd=active_policy.fallback_protected_net_profit_usd,
+            **common,
         )
 
     return CryptoTargetSelection(
         eligible=True,
-        selected_target_net_profit_usd=active_policy.minimum_entry_net_profit_usd,
+        selected_target_net_profit_usd=active_policy.normal_exit_target_net_profit_usd,
         selected_plan=plan_evaluation.plan,
         attempts=(attempt,),
         reasons=(),
-        shadow_economics_enabled=active_policy.entry_economics_policy is not None,
-        open_ended_profit_runner=active_policy.open_ended_profit_runner,
-        profit_cap_net_profit_usd=None,
-        fallback_protected_net_profit_usd=active_policy.fallback_protected_net_profit_usd,
+        **common,
     )
