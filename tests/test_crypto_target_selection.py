@@ -69,6 +69,8 @@ def test_selector_requires_20_net_then_leaves_profit_uncapped(monkeypatch) -> No
     assert selected.open_ended_profit_runner is True
     assert selected.profit_cap_net_profit_usd is None
     assert selected.fallback_protected_net_profit_usd == Decimal("15")
+    assert selected.normal_exit_band_low_usd == Decimal("18")
+    assert selected.normal_exit_band_high_usd == Decimal("22")
     assert selected.strategy_promotion_allowed is False
     assert selected.live_activation_allowed is False
 
@@ -99,6 +101,8 @@ def test_selector_never_falls_back_to_15_for_a_new_entry(monkeypatch) -> None:
     assert len(selected.attempts) == 1
     assert selected.attempts[0].minimum_net_profit_usd == Decimal("20")
     assert selected.fallback_protected_net_profit_usd == Decimal("15")
+    assert selected.normal_exit_band_low_usd == Decimal("18")
+    assert selected.normal_exit_band_high_usd == Decimal("22")
 
 
 def test_optional_economics_gate_can_block_thin_20_edge(monkeypatch) -> None:
@@ -133,9 +137,11 @@ def test_optional_economics_gate_can_block_thin_20_edge(monkeypatch) -> None:
     assert selected.attempts[0].entry_economics.eligible is False
 
 
-def test_protected_fallback_must_remain_below_entry_threshold() -> None:
+def test_protected_fallback_must_remain_below_normal_target_band() -> None:
     with pytest.raises(ValueError, match="protected fallback"):
         CryptoTargetSelectionPolicy(
             minimum_entry_net_profit_usd=Decimal("20"),
-            fallback_protected_net_profit_usd=Decimal("20"),
+            normal_exit_target_net_profit_usd=Decimal("20"),
+            normal_exit_tolerance_usd=Decimal("5"),
+            fallback_protected_net_profit_usd=Decimal("18"),
         ).validate()
