@@ -1,0 +1,75 @@
+{
+  "policy_version": "crypto_profit_policy_v2",
+  "instrument_scope": "BYBIT_USDT_PERPETUALS",
+  "entry": {
+    "minimum_expected_net_profit_usd": 20.0,
+    "entry_costs_must_be_included": true,
+    "minimum_net_is_hard_admission_gate": true,
+    "allow_15_usd_entry": false
+  },
+  "normal_exit": {
+    "target_net_profit_usd": 20.0,
+    "tolerance_usd": 2.0,
+    "realized_band_usd": [18.0, 22.0],
+    "exact_dollar_target_required": false
+  },
+  "winner_management": {
+    "profit_above_20_uncapped_when_edge_supports_it": true,
+    "default_runner_is_not_unconditional": true,
+    "conditional_runner_gate": {
+      "minimum_expected_edge_multiple": 1.5,
+      "minimum_expected_net_profit_usd_for_runner": 30.0
+    }
+  },
+  "protection": {
+    "protected_net_profit_objective_usd": 15.0,
+    "protected_15_is_guaranteed": false,
+    "hard_stop_remains_before_runner_activation": true,
+    "gap_and_slippage_can_reduce_realized_protection": true
+  },
+  "execution": {
+    "decision_semantics": "completed_bar_to_next_bar_open",
+    "runner_activation_semantics": "completed_bar_to_next_bar_protection",
+    "exchange_protection": "BYBIT_V5_TRADING_STOP",
+    "runner_uses_fixed_take_profit": false,
+    "mainnet_enabled": false,
+    "demo_writes_enabled_by_default": false
+  },
+  "research": {
+    "primary_source": "BYBIT_OFFICIAL_PUBLIC_TRADE_ARCHIVE",
+    "bar_interval": "5m",
+    "minimum_next_evidence_window_days": 14,
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "XRPUSDT",
+      "BNBUSDT",
+      "DOGEUSDT",
+      "LINKUSDT",
+      "ADAUSDT"
+    ],
+    "starting_equity_usd": 1000.0,
+    "metrics": [
+      "signals",
+      "trade_plans",
+      "entries",
+      "target_band_hits",
+      "runner_activations",
+      "runner_exits",
+      "fees",
+      "slippage_assumption",
+      "net_pnl",
+      "profit_factor",
+      "maximum_drawdown",
+      "risk_budget_breaches",
+      "consecutive_losses",
+      "trade_frequency"
+    ]
+  },
+  "promotion": {
+    "strategy_promotion_allowed": false,
+    "live_promotion_allowed": false,
+    "minimum_live_evidence_is_not_satisfied": true
+  }
+}
