@@ -173,7 +173,7 @@ def test_conditional_runner_keeps_fixed_target_when_excess_edge_gate_fails() -> 
             protected_net_profit_usd=Decimal("0.5"),
         ),
         runner_admission_policy=CryptoRunnerAdmissionPolicy(
-            minimum_expected_edge_multiple=Decimal("1000")
+            minimum_expected_edge_multiple=Decimal("1000000000")
         ),
     )
 
