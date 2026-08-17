@@ -12,6 +12,7 @@ from urllib.parse import urlencode
 
 _DEMO_HOST = "api-demo.bybit.com"
 _RECV_WINDOW_MS = 5000
+_TRANSACTION_LOG_MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 
 class BybitDemoAccountingTransport(Protocol):
@@ -108,7 +109,7 @@ class BybitDemoAccountingClient:
             base_query={
                 "category": "linear",
                 "symbol": symbol,
-                "limit": str(_validate_limit(limit)),
+                "limit": str(_validate_limit(limit, maximum=100)),
             },
             max_pages=max_pages,
         )
@@ -121,21 +122,49 @@ class BybitDemoAccountingClient:
         end_time_ms: int,
         limit: int = 50,
         max_pages: int = 20,
+        transaction_type: str | None = None,
     ) -> tuple[Mapping[str, Any], ...]:
+        """Read exact-symbol demo transaction logs through documented V5 filters.
+
+        V5 transaction-log does not expose a request-side ``symbol`` filter. We query the
+        documented UNIFIED/linear/USDT/baseCoin surface, then retain only the requested symbol.
+        Requests longer than seven days are split into non-overlapping API-valid windows.
+        """
+
         _validate_symbol(symbol)
-        if start_time_ms < 0 or end_time_ms < 0 or end_time_ms < start_time_ms:
-            raise ValueError("Bybit transaction-log time range is invalid")
-        return self._paginate(
-            path="/v5/account/transaction-log",
-            base_query={
+        _validate_time_range(start_time_ms, end_time_ms)
+        validated_limit = _validate_limit(limit, maximum=50)
+        validated_type = _validate_transaction_type(transaction_type)
+        base_coin = symbol[: -len("USDT")]
+
+        rows: list[Mapping[str, Any]] = []
+        window_start = start_time_ms
+        while True:
+            window_end = min(
+                end_time_ms,
+                window_start + _TRANSACTION_LOG_MAX_WINDOW_MS,
+            )
+            query = {
+                "accountType": "UNIFIED",
                 "category": "linear",
-                "symbol": symbol,
-                "startTime": str(start_time_ms),
-                "endTime": str(end_time_ms),
-                "limit": str(_validate_limit(limit)),
-            },
-            max_pages=max_pages,
-        )
+                "currency": "USDT",
+                "baseCoin": base_coin,
+                "startTime": str(window_start),
+                "endTime": str(window_end),
+                "limit": str(validated_limit),
+            }
+            if validated_type is not None:
+                query["type"] = validated_type
+            window_rows = self._paginate(
+                path="/v5/account/transaction-log",
+                base_query=query,
+                max_pages=max_pages,
+            )
+            rows.extend(row for row in window_rows if row.get("symbol") == symbol)
+            if window_end >= end_time_ms:
+                break
+            window_start = window_end + 1
+        return tuple(rows)
 
     def _paginate(
         self,
@@ -172,9 +201,7 @@ class BybitDemoAccountingClient:
         query_string = urlencode(sorted(query.items()))
         timestamp = str(self._clock_ms())
         recv_window = str(self._recv_window_ms)
-        signature_payload = (
-            timestamp + self._api_key + recv_window + query_string
-        )
+        signature_payload = timestamp + self._api_key + recv_window + query_string
         signature = hmac.new(
             self._api_secret.encode("utf-8"),
             signature_payload.encode("utf-8"),
@@ -217,7 +244,29 @@ def _validate_symbol(symbol: str) -> None:
         raise ValueError("Bybit demo accounting symbol contains invalid characters")
 
 
-def _validate_limit(limit: int) -> int:
-    if isinstance(limit, bool) or not 1 <= limit <= 100:
-        raise ValueError("Bybit demo accounting limit must be within [1, 100]")
+def _validate_time_range(start_time_ms: int, end_time_ms: int) -> None:
+    if (
+        isinstance(start_time_ms, bool)
+        or isinstance(end_time_ms, bool)
+        or start_time_ms < 0
+        or end_time_ms < 0
+        or end_time_ms < start_time_ms
+    ):
+        raise ValueError("Bybit transaction-log time range is invalid")
+
+
+def _validate_limit(limit: int, *, maximum: int) -> int:
+    if isinstance(limit, bool) or not 1 <= limit <= maximum:
+        raise ValueError(
+            f"Bybit demo accounting limit must be within [1, {maximum}]"
+        )
     return limit
+
+
+def _validate_transaction_type(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().upper()
+    if not normalized or normalized != value or not normalized.replace("_", "").isalnum():
+        raise ValueError("Bybit transaction-log type must be normalized uppercase enum text")
+    return normalized
