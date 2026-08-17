@@ -3,8 +3,11 @@ import io
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+import pytest
+
 from app.marketdata.bybit_public_archive import (
     BybitPublicTradeArchiveClient,
+    _validated_archive_path,
     archive_url,
     completed_archive_dates,
 )
@@ -64,6 +67,27 @@ def test_completed_archive_dates_exclude_current_utc_day() -> None:
 
 
 def test_archive_url_is_fixed_to_official_public_bybit_history_surface() -> None:
-    assert archive_url("BTCUSDT", date(2026, 8, 11)) == (
-        "https://public.bybit.com/trading/BTCUSDT/BTCUSDT2026-08-11.csv.gz"
-    )
+    url = archive_url("BTCUSDT", date(2026, 8, 11))
+    assert url == "https://public.bybit.com/trading/BTCUSDT/BTCUSDT2026-08-11.csv.gz"
+    assert _validated_archive_path(url) == "/trading/BTCUSDT/BTCUSDT2026-08-11.csv.gz"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://public.bybit.com/trading/BTCUSDT/BTCUSDT2026-08-11.csv.gz",
+        "https://evil.example/trading/BTCUSDT/BTCUSDT2026-08-11.csv.gz",
+        "https://user@public.bybit.com/trading/BTCUSDT/BTCUSDT2026-08-11.csv.gz",
+        "https://public.bybit.com:444/trading/BTCUSDT/BTCUSDT2026-08-11.csv.gz",
+        "https://public.bybit.com/trading/BTCUSDT/BTCUSDT2026-08-11.csv.gz?redirect=evil",
+        "https://public.bybit.com/other/BTCUSDT/BTCUSDT2026-08-11.csv.gz",
+    ],
+)
+def test_archive_transport_rejects_non_allowlisted_endpoints(url: str) -> None:
+    with pytest.raises(ValueError):
+        _validated_archive_path(url)
+
+
+def test_archive_symbol_cannot_inject_path_components() -> None:
+    with pytest.raises(ValueError):
+        archive_url("BTCUSDT/../../evil", date(2026, 8, 11))
