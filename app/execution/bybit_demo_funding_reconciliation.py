@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 
 from app.execution.bybit_demo_account_pnl_reconciliation import (
@@ -45,6 +45,8 @@ class BybitDemoFundingLedgerWindow:
                 raise ValueError("funding entry exceeds declared ledger coverage")
             if not entry.amount_usdt.is_finite():
                 raise ValueError("funding amount must be finite")
+            if not entry.reference_id:
+                raise ValueError("funding ledger reference_id cannot be empty")
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,64 @@ class BybitDemoAllInPnlReconciliation:
     demo_only: bool = True
     strategy_promotion_allowed: bool = False
     live_mainnet_order_routing_allowed: bool = False
+
+
+def build_bybit_demo_funding_ledger(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    symbol: str,
+    coverage_start_ms: int,
+    coverage_end_ms: int,
+) -> BybitDemoFundingLedgerWindow:
+    """Normalize exact-symbol USDT funding settlements from a complete transaction-log read."""
+
+    if symbol != symbol.strip().upper() or not symbol.endswith("USDT"):
+        raise ValueError("funding ledger symbol must be a normalized USDT symbol")
+    ledger = BybitDemoFundingLedgerWindow(
+        coverage_start_ms=coverage_start_ms,
+        coverage_end_ms=coverage_end_ms,
+        entries=(),
+    )
+    ledger.validate()
+
+    entries: list[BybitDemoFundingLedgerEntry] = []
+    for row in rows:
+        row_symbol = _required_text(row, "symbol")
+        if row_symbol != symbol:
+            continue
+        if _required_text(row, "category") != "linear":
+            raise ValueError("funding transaction category must be linear")
+        if _required_text(row, "currency") != "USDT":
+            raise ValueError("funding transaction currency must be USDT")
+        transaction_time_ms = _required_non_negative_int(row, "transactionTime")
+        if not coverage_start_ms <= transaction_time_ms <= coverage_end_ms:
+            raise ValueError("funding transaction falls outside declared coverage")
+
+        funding_text = row.get("funding")
+        if funding_text in (None, ""):
+            continue
+        funding = _finite_decimal(funding_text, field="funding")
+        if funding == _ZERO:
+            continue
+        if _required_text(row, "type") != "SETTLEMENT":
+            raise ValueError("non-zero funding transaction must be SETTLEMENT")
+        reference_id = _required_text(row, "id")
+        entries.append(
+            BybitDemoFundingLedgerEntry(
+                symbol=symbol,
+                transaction_time_ms=transaction_time_ms,
+                amount_usdt=funding,
+                reference_id=reference_id,
+            )
+        )
+
+    normalized = BybitDemoFundingLedgerWindow(
+        coverage_start_ms=coverage_start_ms,
+        coverage_end_ms=coverage_end_ms,
+        entries=_dedupe(entries),
+    )
+    normalized.validate()
+    return normalized
 
 
 def reconcile_bybit_demo_funding(
@@ -151,16 +211,55 @@ def _window_covers_trade(
 def _dedupe(
     entries: Sequence[BybitDemoFundingLedgerEntry],
 ) -> tuple[BybitDemoFundingLedgerEntry, ...]:
-    seen: set[str] = set()
+    seen: dict[str, BybitDemoFundingLedgerEntry] = {}
     result: list[BybitDemoFundingLedgerEntry] = []
     for entry in sorted(entries, key=lambda item: (item.transaction_time_ms, item.reference_id)):
         if not entry.reference_id:
             raise ValueError("funding ledger reference_id cannot be empty")
-        if entry.reference_id in seen:
+        previous = seen.get(entry.reference_id)
+        if previous is not None:
+            if previous != entry:
+                raise ValueError("conflicting funding ledger reference_id duplicate")
             continue
-        seen.add(entry.reference_id)
+        seen[entry.reference_id] = entry
         result.append(entry)
     return tuple(result)
+
+
+def _required_text(row: Mapping[str, object], field: str) -> str:
+    value = row.get(field)
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"funding transaction {field} must be non-empty text")
+    return value
+
+
+def _required_non_negative_int(row: Mapping[str, object], field: str) -> int:
+    value = row.get(field)
+    if isinstance(value, bool):
+        raise ValueError(f"funding transaction {field} must be an integer timestamp")
+    try:
+        parsed = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"funding transaction {field} must be an integer timestamp"
+        ) from exc
+    if parsed < 0 or str(parsed) != str(value):
+        raise ValueError(f"funding transaction {field} must be a non-negative integer")
+    return parsed
+
+
+def _finite_decimal(value: object, *, field: str) -> Decimal:
+    if isinstance(value, bool):
+        raise ValueError(f"funding transaction {field} must be a finite decimal")
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(
+            f"funding transaction {field} must be a finite decimal"
+        ) from exc
+    if not parsed.is_finite():
+        raise ValueError(f"funding transaction {field} must be a finite decimal")
+    return parsed
 
 
 def _result(
