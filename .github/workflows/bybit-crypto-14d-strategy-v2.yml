@@ -215,6 +215,7 @@ jobs:
           candidates = report['strategy_shadow_candidates']
           required = {
               'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_1_5X',
+              'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_TIGHT_PROFIT_LOCK',
               'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_SESSION_RISK',
               'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_DIVERSIFIED',
               'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_EXECUTION_RISK',
@@ -231,6 +232,15 @@ jobs:
           assert report['bybit_live_order_routing_allowed'] is False
           assert score['strategy_promotion_allowed'] is False
           assert score['live_promotion_allowed'] is False
+
+          tight_contract = report['strategy_v2_candidate_contract'][
+              'tight_profit_lock_hypothesis'
+          ]
+          assert tight_contract['break_even_activation_r'] == 0.8
+          assert tight_contract['profit_lock_activation_r'] == 1.0
+          assert tight_contract['profit_lock_r'] == 0.5
+          assert tight_contract['same_sample_14d_promotion_allowed'] is False
+          assert tight_contract['requires_walk_forward_validation'] is True
 
           assert candidates['MIN_20_NET_EDGE_CONDITIONAL_RUNNER_SESSION_RISK'][
               'session_risk'
@@ -266,6 +276,7 @@ jobs:
           candidates = report['strategy_shadow_candidates']
           names = [
               'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_1_5X',
+              'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_TIGHT_PROFIT_LOCK',
               'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_SESSION_RISK',
               'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_DIVERSIFIED',
               'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_EXECUTION_RISK',
