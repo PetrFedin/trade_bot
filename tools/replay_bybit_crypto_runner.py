@@ -52,14 +52,15 @@ def replay_open_ended_crypto_runner(
     protection_policy: CryptoProtectionPolicy | None = None,
     runner_policy: CryptoProfitRunnerPolicy | None = None,
     runner_admission_policy: CryptoRunnerAdmissionPolicy | None = None,
+    allow_unconditional_runner_shadow: bool = False,
     interval: str = "5",
 ) -> dict[str, Any]:
-    """Replay a >=$20 portfolio with optional excess-edge-gated unlimited runners.
+    """Replay a >=$20 portfolio with an excess-edge-gated unlimited runner by default.
 
-    With ``runner_admission_policy=None`` every accepted position uses the original unlimited
-    runner shadow. When an admission policy is supplied, positions whose expected net edge is
-    not sufficiently above the $20 activation keep the fixed $20 target; only high-excess-edge
-    positions give up that fixed target for the unlimited runner.
+    The canonical mode keeps a fixed $20 target unless expected pre-entry net edge clears the
+    runner admission gate. The older unconditional runner remains available only when
+    ``allow_unconditional_runner_shadow=True`` is passed explicitly; this prevents a missing
+    caller argument from silently changing the strategy under test.
 
     Entry remains completed-bar signal -> next-bar open. Runner activation is observed from a
     completed bar and can only tighten the stop for the following bar, so no same-bar
@@ -68,10 +69,20 @@ def replay_open_ended_crypto_runner(
 
     if opening_equity_usdt <= 0:
         raise ValueError("opening equity must be positive")
+    if allow_unconditional_runner_shadow and runner_admission_policy is not None:
+        raise ValueError("unconditional runner shadow cannot also supply an admission policy")
+
     runner = CryptoProfitRunnerPolicy() if runner_policy is None else runner_policy
     runner.validate()
-    if runner_admission_policy is not None:
-        runner_admission_policy.validate()
+    active_admission = None
+    if not allow_unconditional_runner_shadow:
+        active_admission = (
+            CryptoRunnerAdmissionPolicy()
+            if runner_admission_policy is None
+            else runner_admission_policy
+        )
+        active_admission.validate()
+
     base = default_crypto_config() if base_config is None else base_config
     config = replace(base, target_net_profit_usd=runner.activation_net_profit_usd)
     policy = CryptoProtectionPolicy() if protection_policy is None else protection_policy
@@ -147,12 +158,12 @@ def replay_open_ended_crypto_runner(
                 continue
             position = _open_position(pending, bar=current_bars[symbol], config=config)
             admission = None
-            runner_selected = True
-            if runner_admission_policy is not None:
+            runner_selected = active_admission is None
+            if active_admission is not None:
                 admission = evaluate_crypto_runner_admission(
                     position.plan,
                     runner_policy=runner,
-                    admission_policy=runner_admission_policy,
+                    admission_policy=active_admission,
                 )
                 runner_selected = admission.eligible
 
@@ -379,7 +390,7 @@ def replay_open_ended_crypto_runner(
         maximum_concurrent=maximum_concurrent,
     )
     terminal = _terminal_snapshot(histories, final_equity=final_equity, config=config)
-    conditional = runner_admission_policy is not None
+    conditional = active_admission is not None
     return {
         "mode": (
             "MIN_20_NET_EDGE_CONDITIONAL_OPEN_ENDED_RUNNER"
@@ -391,9 +402,10 @@ def replay_open_ended_crypto_runner(
         "runner_initial_protected_net_profit_usd": float(runner.protected_net_profit_usd),
         "runner_minimum_expected_edge_multiple": (
             None
-            if runner_admission_policy is None
-            else float(runner_admission_policy.minimum_expected_edge_multiple)
+            if active_admission is None
+            else float(active_admission.minimum_expected_edge_multiple)
         ),
+        "unconditional_runner_shadow_explicitly_enabled": allow_unconditional_runner_shadow,
         "runner_selected_trade_count": runner_selected_trade_count,
         "fixed_target_selected_trade_count": fixed_target_selected_trade_count,
         "profit_cap_net_profit_usd": None if not conditional else "CONDITIONAL_BY_TRADE",
@@ -415,7 +427,7 @@ def replay_open_ended_crypto_runner(
         "conditional_runner_contract": (
             "fixed $20 target unless pre-entry expected net edge clears the excess-edge runner gate"
             if conditional
-            else "all accepted positions use the open-ended runner shadow"
+            else "explicit legacy shadow: all accepted positions use the open-ended runner"
         ),
         "protected_15_is_guaranteed_realized_pnl": False,
         "strategy_promotion_allowed": False,
