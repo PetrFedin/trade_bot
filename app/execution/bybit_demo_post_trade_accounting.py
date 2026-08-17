@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
+from app.execution.bybit_demo import BybitDemoPosition
 from app.execution.bybit_demo_account_pnl_reconciliation import (
     BybitDemoAccountPnlReconciliation,
     reconcile_bybit_demo_account_pnl,
@@ -19,7 +21,28 @@ from app.execution.bybit_demo_lifecycle_gate import (
     BybitDemoLifecyclePolicy,
     evaluate_bybit_demo_lifecycle,
 )
-from app.execution.bybit_demo_trade_monitor import BybitDemoTradeMonitorResult
+from app.execution.bybit_demo_trade_monitor import (
+    BybitDemoTradeMonitorResult,
+    reconcile_bybit_demo_trade,
+)
+
+
+class _TradeReadClient(Protocol):
+    live_mainnet_order_routing_allowed: bool
+
+    def get_positions(
+        self,
+        *,
+        settle_coin: str = "USDT",
+    ) -> tuple[BybitDemoPosition, ...]: ...
+
+    def get_executions(
+        self,
+        *,
+        symbol: str,
+        order_link_id: str | None = None,
+        limit: int = 50,
+    ) -> tuple[Mapping[str, Any], ...]: ...
 
 
 class _ClosedPnlReader(Protocol):
@@ -50,6 +73,34 @@ class BybitDemoPostTradeAccountingResult:
     demo_only: bool = True
     strategy_promotion_allowed: bool = False
     live_mainnet_order_routing_allowed: bool = False
+
+
+def reconcile_bybit_demo_trade_lifecycle(
+    *,
+    trade_client: _TradeReadClient,
+    accounting_client: _ClosedPnlReader,
+    symbol: str,
+    entry_side: str,
+    entry_order_link_id: str,
+    execution_limit: int = 100,
+    funding_ledger: BybitDemoFundingLedgerWindow | None = None,
+    lifecycle_policy: BybitDemoLifecyclePolicy | None = None,
+) -> BybitDemoPostTradeAccountingResult:
+    """Reconcile fills, account PnL, funding and symbol reuse as one read-only snapshot."""
+
+    trade = reconcile_bybit_demo_trade(
+        client=trade_client,
+        symbol=symbol,
+        entry_side=entry_side,
+        entry_order_link_id=entry_order_link_id,
+        execution_limit=execution_limit,
+    )
+    return reconcile_bybit_demo_post_trade_accounting(
+        trade,
+        client=accounting_client,
+        funding_ledger=funding_ledger,
+        lifecycle_policy=lifecycle_policy,
+    )
 
 
 def reconcile_bybit_demo_post_trade_accounting(
