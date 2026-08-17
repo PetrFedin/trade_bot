@@ -5,9 +5,7 @@ import pytest
 
 from app.marketdata.bybit_v5 import BybitKlineAcquisition, BybitKlineBar
 from tools.qualify_bybit_crypto_walk_forward import CryptoWalkForwardPolicy
-from tools.run_bybit_crypto_walk_forward_archive import (
-    acquire_archive_and_run_walk_forward,
-)
+from tools.run_bybit_crypto_walk_forward_archive import acquire_archive_and_run_walk_forward
 
 
 class _FakeArchiveAcquisition:
