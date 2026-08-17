@@ -67,11 +67,16 @@ def test_closed_pnl_reader_signs_exact_demo_get_contract() -> None:
     assert not hasattr(client, "cancel_order")
 
 
-def test_transaction_log_reader_paginates_with_cursor_and_detects_contract() -> None:
+def test_transaction_log_reader_uses_documented_filters_and_exact_symbol_filter() -> None:
     transport = _FakeTransport(
         [
-            _page([{"id": "1"}], cursor="next-1"),
-            _page([{"id": "2"}]),
+            _page([{"id": "1", "symbol": "BTCUSDT"}], cursor="next-1"),
+            _page(
+                [
+                    {"id": "2", "symbol": "BTCUSDT"},
+                    {"id": "3", "symbol": "BTCUSDC"},
+                ]
+            ),
         ]
     )
     client = BybitDemoAccountingClient(
@@ -86,16 +91,54 @@ def test_transaction_log_reader_paginates_with_cursor_and_detects_contract() -> 
         start_time_ms=1000,
         end_time_ms=5000,
         limit=25,
+        transaction_type="SETTLEMENT",
     )
 
-    assert rows == ({"id": "1"}, {"id": "2"})
+    assert rows == (
+        {"id": "1", "symbol": "BTCUSDT"},
+        {"id": "2", "symbol": "BTCUSDT"},
+    )
     first_path, first_query, _headers = transport.calls[0]
     second_path, second_query, _headers = transport.calls[1]
     assert first_path == second_path == "/v5/account/transaction-log"
+    assert "symbol=" not in first_query
+    assert "accountType=UNIFIED" in first_query
+    assert "baseCoin=BTC" in first_query
+    assert "category=linear" in first_query
+    assert "currency=USDT" in first_query
+    assert "type=SETTLEMENT" in first_query
     assert "cursor=" not in first_query
     assert "cursor=next-1" in second_query
     assert "startTime=1000" in first_query
     assert "endTime=5000" in first_query
+
+
+def test_transaction_log_reader_splits_ranges_longer_than_seven_days() -> None:
+    seven_days_ms = 7 * 24 * 60 * 60 * 1000
+    transport = _FakeTransport(
+        [
+            _page([{"id": "1", "symbol": "BTCUSDT"}]),
+            _page([{"id": "2", "symbol": "BTCUSDT"}]),
+        ]
+    )
+    client = BybitDemoAccountingClient(
+        api_key="key",
+        api_secret="secret",
+        transport=transport,
+        clock_ms=lambda: 1234567890,
+    )
+
+    rows = client.get_transaction_log(
+        symbol="BTCUSDT",
+        start_time_ms=0,
+        end_time_ms=seven_days_ms + 10,
+    )
+
+    assert len(rows) == 2
+    assert len(transport.calls) == 2
+    assert f"endTime={seven_days_ms}" in transport.calls[0][1]
+    assert f"startTime={seven_days_ms + 1}" in transport.calls[1][1]
+    assert f"endTime={seven_days_ms + 10}" in transport.calls[1][1]
 
 
 def test_accounting_reader_fails_on_cursor_loop() -> None:
@@ -116,7 +159,7 @@ def test_accounting_reader_fails_on_cursor_loop() -> None:
         client.get_closed_pnl(symbol="BTCUSDT")
 
 
-def test_accounting_reader_rejects_non_normalized_symbol_and_bad_range() -> None:
+def test_accounting_reader_rejects_non_normalized_symbol_bad_range_and_limits() -> None:
     client = BybitDemoAccountingClient(
         api_key="key",
         api_secret="secret",
@@ -129,4 +172,18 @@ def test_accounting_reader_rejects_non_normalized_symbol_and_bad_range() -> None
             symbol="BTCUSDT",
             start_time_ms=5000,
             end_time_ms=1000,
+        )
+    with pytest.raises(ValueError, match=r"\[1, 50\]"):
+        client.get_transaction_log(
+            symbol="BTCUSDT",
+            start_time_ms=1000,
+            end_time_ms=5000,
+            limit=51,
+        )
+    with pytest.raises(ValueError, match="normalized uppercase"):
+        client.get_transaction_log(
+            symbol="BTCUSDT",
+            start_time_ms=1000,
+            end_time_ms=5000,
+            transaction_type="settlement",
         )
