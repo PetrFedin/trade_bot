@@ -1,0 +1,4 @@
+extend = "pyproject.toml"
+
+[lint]
+extend-per-file-ignores = { "tools/replay_bybit_crypto_runner.py" = ["E501"] }
