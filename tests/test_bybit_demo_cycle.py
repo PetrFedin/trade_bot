@@ -5,6 +5,7 @@ from app.execution.bybit_demo import (
     BybitDemoFeeRate,
     BybitDemoOrderAck,
     BybitDemoPosition,
+    BybitDemoProtectionAck,
     BybitDemoRunnerProtectionAck,
 )
 from app.execution.bybit_demo_cycle import (
@@ -69,6 +70,16 @@ class _FakeDemoClient:
             accepted=True,
         )
 
+    def set_full_position_protection(self, request: Any) -> BybitDemoProtectionAck:
+        if self.protection_error is not None:
+            raise self.protection_error
+        self.protections.append(request)
+        return BybitDemoProtectionAck(
+            symbol=str(request.symbol),
+            take_profit_price=request.take_profit_price,
+            stop_loss_price=request.stop_loss_price,
+        )
+
     def set_open_ended_position_protection(
         self,
         request: Any,
@@ -102,7 +113,12 @@ def _instrument() -> BybitInstrumentSpec:
     )
 
 
-def _trade_plan(target: Decimal = Decimal("20")) -> CryptoTradePlan:
+def _trade_plan(
+    target: Decimal = Decimal("20"),
+    *,
+    expected_move_fraction: Decimal = Decimal("0.027"),
+    expected_net_edge_usd: Decimal = Decimal("31"),
+) -> CryptoTradePlan:
     return CryptoTradePlan(
         symbol="BTCUSDT",
         side=CryptoSide.LONG,
@@ -116,8 +132,8 @@ def _trade_plan(target: Decimal = Decimal("20")) -> CryptoTradePlan:
         estimated_stop_loss_after_cost_usdt=Decimal("6.72"),
         target_net_profit_usd=target,
         required_move_fraction=Decimal("0.018"),
-        expected_move_fraction=Decimal("0.020"),
-        expected_net_edge_usd=Decimal("24"),
+        expected_move_fraction=expected_move_fraction,
+        expected_net_edge_usd=expected_net_edge_usd,
         quality_score=Decimal("2.5"),
     )
 
@@ -189,7 +205,7 @@ def test_demo_cycle_blocks_15_dollar_entry_instead_of_falling_back() -> None:
 
 
 def test_account_fee_reconciliation_blocks_edge_that_no_longer_supports_20_net() -> None:
-    client = _FakeDemoClient([()], taker_fee_rate=Decimal("0.0025"))
+    client = _FakeDemoClient([()], taker_fee_rate=Decimal("0.0055"))
     result = execute_bybit_demo_trade_cycle(
         _trade_plan(),
         instrument=_instrument(),
@@ -201,7 +217,7 @@ def test_account_fee_reconciliation_blocks_edge_that_no_longer_supports_20_net()
 
     assert result.status is BybitDemoCycleStatus.ENTRY_BLOCKED
     assert "ACCOUNT_FEE_EXPECTED_NET_PROFIT_BELOW_TARGET" in result.reasons
-    assert result.account_taker_fee_rate == Decimal("0.0025")
+    assert result.account_taker_fee_rate == Decimal("0.0055")
     assert client.fee_reads == 1
     assert client.orders == []
 
@@ -220,6 +236,32 @@ def test_unresolved_account_fee_rate_blocks_before_order_write() -> None:
     assert result.status is BybitDemoCycleStatus.ENTRY_BLOCKED
     assert result.reasons == ("ACCOUNT_FEE_RATE_RECONCILIATION_FAILED:RuntimeError",)
     assert client.orders == []
+
+
+def test_thin_excess_edge_keeps_cost_aware_fixed_20_target() -> None:
+    client = _FakeDemoClient([(), (_position(),)])
+    result = execute_bybit_demo_trade_cycle(
+        _trade_plan(
+            expected_move_fraction=Decimal("0.020"),
+            expected_net_edge_usd=Decimal("24"),
+        ),
+        instrument=_instrument(),
+        strategy_config=_strategy_config(),
+        session_state=_session(),
+        client=client,
+        cycle_policy=_enabled_policy(),
+        sleeper=lambda _seconds: None,
+    )
+
+    assert result.status is BybitDemoCycleStatus.PROTECTED
+    assert result.exit_mode == "FIXED_20_TARGET"
+    assert "RUNNER_EXCESS_EXPECTED_EDGE_TOO_THIN" in result.runner_admission_reasons
+    assert len(client.protections) == 1
+    fixed_request = client.protections[0]
+    assert fixed_request.take_profit_price > Decimal("100050")
+    assert fixed_request.stop_loss_price < Decimal("100050")
+    assert not hasattr(fixed_request, "trailing_stop_distance")
+    assert result.live_mainnet_order_routing_allowed is False
 
 
 def test_demo_cycle_reconciles_fill_before_uncapped_runner_protection() -> None:
@@ -241,6 +283,8 @@ def test_demo_cycle_reconciles_fill_before_uncapped_runner_protection() -> None:
     assert result.next_entry_allowed is True
     assert result.account_taker_fee_rate == Decimal("0.0006")
     assert result.account_maker_fee_rate == Decimal("0.0001")
+    assert result.exit_mode == "OPEN_ENDED_RUNNER"
+    assert result.runner_admission_reasons == ()
     assert len(client.orders) == 1
     assert client.orders[0].reduce_only is False
     assert len(client.protections) == 1
@@ -281,6 +325,7 @@ def test_order_ack_without_reconciled_fill_never_counts_as_protected() -> None:
     assert result.entry_ack is not None
     assert result.protection_ack is None
     assert result.next_entry_allowed is False
+    assert result.exit_mode == "OPEN_ENDED_RUNNER"
     assert len(client.orders) == 1
 
 
@@ -298,6 +343,7 @@ def test_post_fill_risk_breach_sets_runner_protection_then_reduce_only_flatten()
     assert result.status is BybitDemoCycleStatus.PROTECTED_THEN_FLATTEN_REQUESTED
     assert result.protection_ack is not None
     assert result.flatten_ack is not None
+    assert result.exit_mode == "OPEN_ENDED_RUNNER"
     assert "POST_FILL_RISK_BUDGET_EXCEEDED" in result.reasons
     assert len(client.protections) == 1
     assert len(client.orders) == 2
