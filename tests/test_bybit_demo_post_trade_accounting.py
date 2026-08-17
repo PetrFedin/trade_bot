@@ -1,7 +1,10 @@
+from collections.abc import Mapping
 from decimal import Decimal
+from typing import Any
 
 import pytest
 
+from app.execution.bybit_demo import BybitDemoPosition
 from app.execution.bybit_demo_funding_reconciliation import (
     BybitDemoFundingLedgerEntry,
     BybitDemoFundingLedgerWindow,
@@ -12,6 +15,7 @@ from app.execution.bybit_demo_lifecycle_gate import (
 )
 from app.execution.bybit_demo_post_trade_accounting import (
     reconcile_bybit_demo_post_trade_accounting,
+    reconcile_bybit_demo_trade_lifecycle,
 )
 from app.execution.bybit_demo_trade_monitor import (
     BybitDemoTradeMonitorResult,
@@ -76,6 +80,44 @@ class _FundingReader(_Reader):
         return self.transaction_rows
 
 
+class _TradeReader:
+    live_mainnet_order_routing_allowed = False
+
+    def __init__(
+        self,
+        *,
+        entry_rows: tuple[Mapping[str, Any], ...],
+        all_rows: tuple[Mapping[str, Any], ...],
+        positions: tuple[BybitDemoPosition, ...] = (),
+    ) -> None:
+        self.entry_rows = entry_rows
+        self.all_rows = all_rows
+        self.positions = positions
+        self.execution_calls = 0
+        self.position_calls = 0
+
+    def get_executions(
+        self,
+        *,
+        symbol: str,
+        order_link_id: str | None = None,
+        limit: int = 50,
+    ) -> tuple[Mapping[str, Any], ...]:
+        assert symbol == "BTCUSDT"
+        assert limit == 100
+        self.execution_calls += 1
+        return self.entry_rows if order_link_id is not None else self.all_rows
+
+    def get_positions(
+        self,
+        *,
+        settle_coin: str = "USDT",
+    ) -> tuple[BybitDemoPosition, ...]:
+        assert settle_coin == "USDT"
+        self.position_calls += 1
+        return self.positions
+
+
 def _trade(*, terminal: bool = True) -> BybitDemoTradeMonitorResult:
     return BybitDemoTradeMonitorResult(
         status=(
@@ -131,6 +173,120 @@ def _funding_settlement(amount: str = "-0.10") -> dict[str, str]:
         "cashFlow": "0",
         "fee": "0",
     }
+
+
+def _execution(
+    *,
+    exec_id: str,
+    side: str,
+    quantity: str,
+    price: str,
+    fee: str,
+    exec_time: str,
+    order_link_id: str,
+) -> dict[str, str]:
+    return {
+        "symbol": "BTCUSDT",
+        "execId": exec_id,
+        "orderLinkId": order_link_id,
+        "side": side,
+        "execQty": quantity,
+        "execPrice": price,
+        "execFee": fee,
+        "execTime": exec_time,
+    }
+
+
+def test_unified_snapshot_reconciles_terminal_trade_to_all_in_pnl() -> None:
+    entry = _execution(
+        exec_id="entry-1",
+        side="Buy",
+        quantity="1",
+        price="100",
+        fee="0.06",
+        exec_time="1000",
+        order_link_id="ASTRA-DEMO-E-ABC123",
+    )
+    exit_fill = _execution(
+        exec_id="exit-1",
+        side="Sell",
+        quantity="1",
+        price="103",
+        fee="0.0618",
+        exec_time="5000",
+        order_link_id="BYBIT-PROTECTION",
+    )
+    trade_reader = _TradeReader(
+        entry_rows=(entry,),
+        all_rows=(entry, exit_fill),
+    )
+    accounting_reader = _FundingReader(
+        (_closed_pnl(),),
+        transaction_rows=(_funding_settlement(),),
+    )
+
+    result = reconcile_bybit_demo_trade_lifecycle(
+        trade_client=trade_reader,
+        accounting_client=accounting_reader,
+        symbol="BTCUSDT",
+        entry_side="Buy",
+        entry_order_link_id="ASTRA-DEMO-E-ABC123",
+    )
+
+    assert trade_reader.execution_calls == 2
+    assert trade_reader.position_calls == 1
+    assert result.trade.status is BybitDemoTradeMonitorStatus.CLOSED_RECONCILED
+    assert result.trade.terminal is True
+    assert result.account_pnl is not None
+    assert result.account_pnl.account_closed_pnl_reconciled is True
+    assert result.all_in_pnl is not None
+    assert result.all_in_pnl.all_in_net_pnl_usdt == Decimal("2.7782")
+    assert result.lifecycle.status is BybitDemoLifecycleStatus.FULLY_RECONCILED
+    assert result.lifecycle.next_entry_allowed is True
+    assert result.live_mainnet_order_routing_allowed is False
+
+
+def test_unified_snapshot_keeps_open_trade_locked_without_account_reads() -> None:
+    entry = _execution(
+        exec_id="entry-1",
+        side="Buy",
+        quantity="1",
+        price="100",
+        fee="0.06",
+        exec_time="1000",
+        order_link_id="ASTRA-DEMO-E-ABC123",
+    )
+    position = BybitDemoPosition(
+        symbol="BTCUSDT",
+        side="Buy",
+        size=Decimal("1"),
+        average_price=Decimal("100"),
+        unrealised_pnl=Decimal("0"),
+        liquidation_price=Decimal("80"),
+    )
+    trade_reader = _TradeReader(
+        entry_rows=(entry,),
+        all_rows=(entry,),
+        positions=(position,),
+    )
+    accounting_reader = _FundingReader((_closed_pnl(),))
+
+    result = reconcile_bybit_demo_trade_lifecycle(
+        trade_client=trade_reader,
+        accounting_client=accounting_reader,
+        symbol="BTCUSDT",
+        entry_side="Buy",
+        entry_order_link_id="ASTRA-DEMO-E-ABC123",
+    )
+
+    assert result.trade.status is BybitDemoTradeMonitorStatus.OPEN
+    assert result.trade.terminal is False
+    assert accounting_reader.calls == 0
+    assert accounting_reader.transaction_calls == 0
+    assert result.account_pnl is None
+    assert result.all_in_pnl is None
+    assert result.lifecycle.status is BybitDemoLifecycleStatus.TRADE_NOT_TERMINAL
+    assert result.lifecycle.next_entry_allowed is False
 
 
 def test_closed_pnl_without_funding_proof_stays_locked_by_default() -> None:
