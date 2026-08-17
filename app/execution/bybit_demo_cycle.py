@@ -23,6 +23,7 @@ from app.execution.bybit_demo_controller import (
 )
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
 from app.strategy.crypto_entry_economics import revalidate_entry_at_actual_taker_fee
+from app.strategy.crypto_liquidation_safety import evaluate_crypto_liquidation_safety
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig, CryptoSide, CryptoTradePlan
 from app.strategy.crypto_runner_admission import evaluate_crypto_runner_admission
 from app.strategy.crypto_session_risk import CryptoSessionRiskPolicy, CryptoSessionRiskState
@@ -69,6 +70,8 @@ class BybitDemoCycleResult:
     account_maker_fee_rate: Decimal | None = None
     exit_mode: str | None = None
     runner_admission_reasons: tuple[str, ...] = ()
+    liquidation_safety_reason: str | None = None
+    stop_to_liquidation_r: Decimal | None = None
     live_mainnet_order_routing_allowed: bool = False
 
 
@@ -111,7 +114,8 @@ def execute_bybit_demo_trade_cycle(
     the runner gate. The runner gate is checked with the account fee tier and instrument-sized
     quantity before entry, then rechecked using the actual reconciled fill. A favorable fill may
     not upgrade a pre-entry fixed target into a runner; an adverse fill can only downgrade the
-    runner or force a protected reduce-only flatten.
+    runner or force a protected reduce-only flatten. After exchange-native protection is
+    acknowledged, liquidation-price safety may veto the position but can never authorize entry.
     """
 
     policy = BybitDemoCyclePolicy() if cycle_policy is None else cycle_policy
@@ -309,6 +313,28 @@ def execute_bybit_demo_trade_cycle(
             reasons=flatten_reasons,
         )
 
+    liquidation = evaluate_crypto_liquidation_safety(
+        side=trade_plan.side,
+        entry_price=position.average_price,
+        hard_stop_price=protection_plan.protection.stop_loss_price,
+        liquidation_price=position.liquidation_price,
+    )
+    if not liquidation.safe:
+        return _flatten_protected_position(
+            trade_plan,
+            instrument=instrument,
+            client=client,
+            position=position,
+            entry_ack=entry_ack,
+            protection_ack=protection_ack,
+            fee_rate=fee_rate,
+            exit_mode=exit_mode,
+            runner_admission_reasons=runner_admission_reasons,
+            reasons=(liquidation.reason.value,),
+            liquidation_safety_reason=liquidation.reason.value,
+            stop_to_liquidation_r=liquidation.stop_to_liquidation_r,
+        )
+
     return _result(
         BybitDemoCycleStatus.PROTECTED,
         reasons=(),
@@ -319,6 +345,8 @@ def execute_bybit_demo_trade_cycle(
         fee_rate=fee_rate,
         exit_mode=exit_mode,
         runner_admission_reasons=runner_admission_reasons,
+        liquidation_safety_reason=liquidation.reason.value,
+        stop_to_liquidation_r=liquidation.stop_to_liquidation_r,
         writes_enabled=True,
     )
 
@@ -409,6 +437,8 @@ def _flatten_protected_position(
     exit_mode: str,
     runner_admission_reasons: tuple[str, ...],
     reasons: tuple[str, ...],
+    liquidation_safety_reason: str | None = None,
+    stop_to_liquidation_r: Decimal | None = None,
 ) -> BybitDemoCycleResult:
     try:
         close = plan_bybit_demo_reduce_only_close(
@@ -427,6 +457,8 @@ def _flatten_protected_position(
             fee_rate=fee_rate,
             exit_mode=exit_mode,
             runner_admission_reasons=runner_admission_reasons,
+            liquidation_safety_reason=liquidation_safety_reason,
+            stop_to_liquidation_r=stop_to_liquidation_r,
             writes_enabled=True,
         )
     return _result(
@@ -439,6 +471,8 @@ def _flatten_protected_position(
         fee_rate=fee_rate,
         exit_mode=exit_mode,
         runner_admission_reasons=runner_admission_reasons,
+        liquidation_safety_reason=liquidation_safety_reason,
+        stop_to_liquidation_r=stop_to_liquidation_r,
         writes_enabled=True,
     )
 
@@ -455,6 +489,8 @@ def _result(
     fee_rate: BybitDemoFeeRate | None = None,
     exit_mode: str | None = None,
     runner_admission_reasons: tuple[str, ...] = (),
+    liquidation_safety_reason: str | None = None,
+    stop_to_liquidation_r: Decimal | None = None,
     writes_enabled: bool,
 ) -> BybitDemoCycleResult:
     return BybitDemoCycleResult(
@@ -470,5 +506,7 @@ def _result(
         account_maker_fee_rate=None if fee_rate is None else fee_rate.maker_fee_rate,
         exit_mode=exit_mode,
         runner_admission_reasons=runner_admission_reasons,
+        liquidation_safety_reason=liquidation_safety_reason,
+        stop_to_liquidation_r=stop_to_liquidation_r,
         live_mainnet_order_routing_allowed=False,
     )
