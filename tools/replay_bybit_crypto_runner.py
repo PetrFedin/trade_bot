@@ -10,6 +10,10 @@ from app.strategy.crypto_correlation import (
     CryptoCorrelationPolicy,
     evaluate_crypto_correlation,
 )
+from app.strategy.crypto_execution_risk import (
+    CryptoExecutionRiskPolicy,
+    resize_trade_plan_at_next_open,
+)
 from app.strategy.crypto_perp import (
     CryptoPerpStrategyConfig,
     build_trade_plan,
@@ -65,6 +69,7 @@ def replay_open_ended_crypto_runner(
     allow_unconditional_runner_shadow: bool = False,
     session_risk_policy: CryptoSessionRiskPolicy | None = None,
     correlation_policy: CryptoCorrelationPolicy | None = None,
+    execution_risk_policy: CryptoExecutionRiskPolicy | None = None,
     interval: str = "5",
 ) -> dict[str, Any]:
     """Replay a >=$20 portfolio with fail-closed runner, risk and diversification overlays.
@@ -81,6 +86,10 @@ def replay_open_ended_crypto_runner(
     returns and compares a candidate with positions already open or already selected for the
     next open. It blocks high positive correlation and fails closed when a peer exists but the
     common return history is insufficient.
+
+    ``execution_risk_policy`` rechecks a pending trade at the first executable next-bar open.
+    Quantity may only be reduced. If the resized trade no longer supports the minimum net target,
+    the entry is cancelled rather than violating risk or trading merely for frequency.
     """
 
     if opening_equity_usdt <= 0:
@@ -102,6 +111,8 @@ def replay_open_ended_crypto_runner(
         session_risk_policy.validate()
     if correlation_policy is not None:
         correlation_policy.validate()
+    if execution_risk_policy is not None:
+        execution_risk_policy.validate()
 
     base = default_crypto_config() if base_config is None else base_config
     config = replace(base, target_net_profit_usd=runner.activation_net_profit_usd)
@@ -152,6 +163,10 @@ def replay_open_ended_crypto_runner(
 
     correlation_block_count = 0
     correlation_reason_counts: Counter[str] = Counter()
+
+    execution_resize_count = 0
+    execution_block_count = 0
+    execution_reason_counts: Counter[str] = Counter()
 
     for index, timestamp in enumerate(common_times):
         current_bars = {symbol: bars[index] for symbol, bars in bars_by_symbol.items()}
@@ -228,6 +243,65 @@ def replay_open_ended_crypto_runner(
             symbol = pending.plan.symbol
             if index < cooldown_until_index.get(symbol, -1):
                 continue
+
+            if execution_risk_policy is not None:
+                execution_decision = resize_trade_plan_at_next_open(
+                    pending.plan,
+                    raw_next_open_price=current_bars[symbol].open,
+                    strategy_config=config,
+                    policy=execution_risk_policy,
+                )
+                if not execution_decision.eligible or execution_decision.adjusted_plan is None:
+                    execution_block_count += 1
+                    execution_reason_counts.update(execution_decision.reasons)
+                    plan_block_counts.update(execution_decision.reasons)
+                    decision_events.append(
+                        {
+                            "event": "NEXT_OPEN_EXECUTION_BLOCK",
+                            "symbol": symbol,
+                            "side": pending.plan.side.value,
+                            "decision_time": pending.plan.decision_time,
+                            "execution_time": timestamp.isoformat(),
+                            "raw_next_open_price": float(current_bars[symbol].open),
+                            "modeled_entry_price": float(execution_decision.actual_entry_price),
+                            "original_quantity": float(execution_decision.original_quantity),
+                            "risk_sized_quantity": float(execution_decision.adjusted_quantity),
+                            "modeled_stop_loss_after_cost_usdt": float(
+                                execution_decision.modeled_stop_loss_after_cost_usdt
+                            ),
+                            "modeled_expected_net_edge_usd": float(
+                                execution_decision.modeled_expected_net_edge_usd
+                            ),
+                            "reasons": list(execution_decision.reasons),
+                        }
+                    )
+                    continue
+                if execution_decision.resized:
+                    execution_resize_count += 1
+                    decision_events.append(
+                        {
+                            "event": "NEXT_OPEN_RISK_RESIZE",
+                            "symbol": symbol,
+                            "side": pending.plan.side.value,
+                            "decision_time": pending.plan.decision_time,
+                            "execution_time": timestamp.isoformat(),
+                            "raw_next_open_price": float(current_bars[symbol].open),
+                            "modeled_entry_price": float(execution_decision.actual_entry_price),
+                            "original_quantity": float(execution_decision.original_quantity),
+                            "adjusted_quantity": float(execution_decision.adjusted_quantity),
+                            "modeled_stop_loss_after_cost_usdt": float(
+                                execution_decision.modeled_stop_loss_after_cost_usdt
+                            ),
+                            "modeled_expected_net_edge_usd": float(
+                                execution_decision.modeled_expected_net_edge_usd
+                            ),
+                        }
+                    )
+                pending = _PendingEntry(
+                    plan=execution_decision.adjusted_plan,
+                    signal=pending.signal,
+                )
+
             position = _open_position(pending, bar=current_bars[symbol], config=config)
             admission = None
             runner_selected = active_admission is None
@@ -607,6 +681,17 @@ def replay_open_ended_crypto_runner(
                 "a lower-priority concurrent candidate"
             ),
         },
+        "execution_risk": {
+            "enabled": execution_risk_policy is not None,
+            "resize_count": execution_resize_count,
+            "block_count": execution_block_count,
+            "reason_counts": dict(execution_reason_counts),
+            "policy": _execution_risk_policy_snapshot(execution_risk_policy),
+            "contract": (
+                "pending quantity may only shrink at the first executable next-bar open; entry "
+                "is cancelled if the resized position cannot preserve risk and minimum net edge"
+            ),
+        },
         "metrics": metrics,
         "closed_trades": [trade.as_dict() for trade in closed],
         "signal_filter_reason_counts": dict(reason_counts),
@@ -676,6 +761,16 @@ def _correlation_policy_snapshot(policy: CryptoCorrelationPolicy | None) -> dict
         "lookback_bars": policy.lookback_bars,
         "minimum_return_observations": policy.minimum_return_observations,
         "maximum_pairwise_correlation": float(policy.maximum_pairwise_correlation),
+    }
+
+
+def _execution_risk_policy_snapshot(
+    policy: CryptoExecutionRiskPolicy | None,
+) -> dict[str, object] | None:
+    if policy is None:
+        return None
+    return {
+        "maximum_risk_budget_multiple": float(policy.maximum_risk_budget_multiple),
     }
 
 
