@@ -1,0 +1,4 @@
+extend = "../.ruff.toml"
+
+[lint]
+extend-per-file-ignores = { "test_bybit_demo_lifecycle_gate.py" = ["E501"] }
