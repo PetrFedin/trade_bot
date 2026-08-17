@@ -2,6 +2,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.execution.bybit_demo import (
+    BybitDemoFeeRate,
     BybitDemoOrderAck,
     BybitDemoPosition,
     BybitDemoRunnerProtectionAck,
@@ -23,15 +24,32 @@ class _FakeDemoClient:
         self,
         position_snapshots: list[tuple[BybitDemoPosition, ...]],
         *,
+        taker_fee_rate: Decimal = Decimal("0.0006"),
+        maker_fee_rate: Decimal = Decimal("0.0001"),
+        fee_error: Exception | None = None,
         protection_error: Exception | None = None,
         flatten_error: Exception | None = None,
     ) -> None:
         self.position_snapshots = position_snapshots
+        self.taker_fee_rate = taker_fee_rate
+        self.maker_fee_rate = maker_fee_rate
+        self.fee_error = fee_error
         self.protection_error = protection_error
         self.flatten_error = flatten_error
         self.orders: list[Any] = []
         self.protections: list[Any] = []
         self.position_reads = 0
+        self.fee_reads = 0
+
+    def get_fee_rate(self, *, symbol: str) -> BybitDemoFeeRate:
+        self.fee_reads += 1
+        if self.fee_error is not None:
+            raise self.fee_error
+        return BybitDemoFeeRate(
+            symbol=symbol,
+            taker_fee_rate=self.taker_fee_rate,
+            maker_fee_rate=self.maker_fee_rate,
+        )
 
     def get_positions(self, *, settle_coin: str = "USDT") -> tuple[BybitDemoPosition, ...]:
         assert settle_coin == "USDT"
@@ -151,6 +169,7 @@ def test_demo_cycle_is_non_writing_by_default() -> None:
     assert result.live_mainnet_order_routing_allowed is False
     assert client.orders == []
     assert client.position_reads == 0
+    assert client.fee_reads == 0
 
 
 def test_demo_cycle_blocks_15_dollar_entry_instead_of_falling_back() -> None:
@@ -165,6 +184,41 @@ def test_demo_cycle_blocks_15_dollar_entry_instead_of_falling_back() -> None:
     )
     assert result.status is BybitDemoCycleStatus.ENTRY_BLOCKED
     assert result.reasons == ("CRYPTO_ENTRY_MINIMUM_20_USD_NET_EDGE_REQUIRED",)
+    assert client.orders == []
+    assert client.fee_reads == 0
+
+
+def test_account_fee_reconciliation_blocks_edge_that_no_longer_supports_20_net() -> None:
+    client = _FakeDemoClient([()], taker_fee_rate=Decimal("0.0025"))
+    result = execute_bybit_demo_trade_cycle(
+        _trade_plan(),
+        instrument=_instrument(),
+        strategy_config=_strategy_config(),
+        session_state=_session(),
+        client=client,
+        cycle_policy=_enabled_policy(),
+    )
+
+    assert result.status is BybitDemoCycleStatus.ENTRY_BLOCKED
+    assert "ACCOUNT_FEE_EXPECTED_NET_PROFIT_BELOW_TARGET" in result.reasons
+    assert result.account_taker_fee_rate == Decimal("0.0025")
+    assert client.fee_reads == 1
+    assert client.orders == []
+
+
+def test_unresolved_account_fee_rate_blocks_before_order_write() -> None:
+    client = _FakeDemoClient([()], fee_error=RuntimeError("fee-unavailable"))
+    result = execute_bybit_demo_trade_cycle(
+        _trade_plan(),
+        instrument=_instrument(),
+        strategy_config=_strategy_config(),
+        session_state=_session(),
+        client=client,
+        cycle_policy=_enabled_policy(),
+    )
+
+    assert result.status is BybitDemoCycleStatus.ENTRY_BLOCKED
+    assert result.reasons == ("ACCOUNT_FEE_RATE_RECONCILIATION_FAILED:RuntimeError",)
     assert client.orders == []
 
 
@@ -185,6 +239,8 @@ def test_demo_cycle_reconciles_fill_before_uncapped_runner_protection() -> None:
     assert result.flatten_ack is None
     assert result.reconciled_position == _position()
     assert result.next_entry_allowed is True
+    assert result.account_taker_fee_rate == Decimal("0.0006")
+    assert result.account_maker_fee_rate == Decimal("0.0001")
     assert len(client.orders) == 1
     assert client.orders[0].reduce_only is False
     assert len(client.protections) == 1
@@ -207,6 +263,7 @@ def test_preexisting_symbol_position_blocks_new_entry() -> None:
     assert result.status is BybitDemoCycleStatus.PREEXISTING_POSITION_BLOCKED
     assert result.next_entry_allowed is False
     assert client.orders == []
+    assert client.fee_reads == 0
 
 
 def test_order_ack_without_reconciled_fill_never_counts_as_protected() -> None:
