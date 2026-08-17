@@ -1,7 +1,5 @@
-from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
 
 import pytest
 
@@ -9,11 +7,11 @@ from app.marketdata.bybit_funding import BybitFundingHistoryClient
 
 
 class _FakeTransport:
-    def __init__(self, payloads: list[Mapping[str, Any]]) -> None:
+    def __init__(self, payloads: list[dict[str, object]]) -> None:
         self.payloads = payloads
         self.calls: list[tuple[str, str]] = []
 
-    def get_json(self, *, path: str, query_string: str) -> Mapping[str, Any]:
+    def get_json(self, *, path: str, query_string: str) -> dict[str, object]:
         self.calls.append((path, query_string))
         return self.payloads.pop(0)
 
