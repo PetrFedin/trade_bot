@@ -12,6 +12,7 @@ from app.marketdata.bybit_public_archive import (
     completed_archive_dates,
 )
 from app.strategy.crypto_correlation import CryptoCorrelationPolicy
+from app.strategy.crypto_execution_risk import CryptoExecutionRiskPolicy
 from app.strategy.crypto_runner_admission import CryptoRunnerAdmissionPolicy
 from app.strategy.crypto_session_risk import CryptoSessionRiskPolicy
 from tools.replay_bybit_crypto import (
@@ -91,6 +92,15 @@ def acquire_archive_and_replay(
         correlation_policy=CryptoCorrelationPolicy(),
         interval="5",
     )
+    conditional_runner_execution_risk = replay_open_ended_crypto_runner(
+        acquisition.klines,
+        opening_equity_usdt=opening_equity_usdt,
+        runner_admission_policy=CryptoRunnerAdmissionPolicy(
+            minimum_expected_edge_multiple=_CONDITIONAL_RUNNER_EDGE_MULTIPLE,
+        ),
+        execution_risk_policy=CryptoExecutionRiskPolicy(),
+        interval="5",
+    )
     three_x_candidate = replay_acquisition(
         acquisition.klines,
         opening_equity_usdt=opening_equity_usdt,
@@ -121,6 +131,9 @@ def acquire_archive_and_replay(
             ),
             "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_DIVERSIFIED": (
                 conditional_runner_diversified
+            ),
+            "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_EXECUTION_RISK": (
+                conditional_runner_execution_risk
             ),
         },
         notional_cap_shadow_candidates={
@@ -159,6 +172,9 @@ def acquire_archive_and_replay(
         "The diversified candidate uses completed synchronized returns to reject a second "
         "concurrent symbol when positive pairwise correlation exceeds 0.85; insufficient peer "
         "history fails closed. This is a shadow comparison, not a promoted portfolio rule.",
+        "The execution-risk candidate re-sizes pending quantity using only the first executable "
+        "next-bar open. Quantity can only shrink; a trade is cancelled when the resized position "
+        "cannot preserve both the planned risk budget and minimum net-profit edge.",
         "Neither the $15 protection objective nor the $20 target is guaranteed realized PnL; "
         "gaps, fees, latency and slippage can produce lower realized results.",
         "The 3x notional-cap run is a predeclared shadow candidate with unchanged 1% "
