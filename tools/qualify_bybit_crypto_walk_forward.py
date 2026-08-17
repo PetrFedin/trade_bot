@@ -26,6 +26,7 @@ _DEFAULT_SYMBOLS = (
     "LINKUSDT",
     "ADAUSDT",
 )
+_SIDES = ("LONG", "SHORT")
 
 
 @dataclass(frozen=True)
@@ -76,13 +77,7 @@ def run_crypto_walk_forward(
     opening_equity_usdt: Decimal = Decimal("1000"),
     policy: CryptoWalkForwardPolicy | None = None,
 ) -> dict[str, Any]:
-    """Run fixed-parameter strategy-v2 candidates over non-overlapping chronological folds.
-
-    There is no train/tune step. Every fold starts from only the bars contained in that fold;
-    the strategy must rebuild its own minimum signal history before any entry can occur. This
-    intentionally sacrifices some early-fold opportunities to avoid carrying future or
-    cross-fold state into the next test window.
-    """
+    """Run fixed-parameter strategy-v2 candidates over non-overlapping chronological folds."""
 
     active = CryptoWalkForwardPolicy() if policy is None else policy
     active.validate()
@@ -102,6 +97,7 @@ def run_crypto_walk_forward(
             candidate_fold_reports.setdefault(candidate_name, []).append(candidate)
             candidate_metrics[candidate_name] = {
                 "metrics": candidate["metrics"],
+                "side_metrics": _single_fold_side_metrics(candidate),
                 "accepted_trade_plan_event_count": candidate[
                     "accepted_trade_plan_event_count"
                 ],
@@ -138,6 +134,10 @@ def run_crypto_walk_forward(
     decision_payload = {
         name: _decision_dict(decision) for name, decision in decisions.items()
     }
+    side_diagnostics = {
+        name: _aggregate_side_diagnostics(reports)
+        for name, reports in candidate_fold_reports.items()
+    }
     baseline = decisions.get("CONDITIONAL_1_5X")
     combined = decisions.get("CONDITIONAL_COMBINED_RISK")
     comparison = _combined_vs_baseline(baseline, combined)
@@ -166,6 +166,8 @@ def run_crypto_walk_forward(
         "fold_count": len(folds),
         "folds": fold_reports,
         "candidate_decisions": decision_payload,
+        "candidate_side_diagnostics": side_diagnostics,
+        "directional_filter_selection_allowed": False,
         "combined_vs_baseline": comparison,
         "parameter_tuning_between_folds": False,
         "cross_fold_position_state_carried": False,
@@ -186,8 +188,6 @@ def acquire_and_run_crypto_walk_forward(
     client: BybitPublicTradeArchiveClient | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Acquire completed UTC archives and run the same cold-start V2 suite as the safe wrapper."""
-
     active = CryptoWalkForwardPolicy() if policy is None else policy
     active.validate()
     if opening_equity_usdt <= 0:
@@ -327,6 +327,97 @@ def _evaluate_candidate(
         total_fees_usdt=total_fees,
         total_risk_budget_breaches=total_breaches,
     )
+
+
+def _single_fold_side_metrics(report: dict[str, Any]) -> dict[str, Any]:
+    output: dict[str, Any] = {}
+    for side in _SIDES:
+        trades = [
+            trade
+            for trade in report["closed_trades"]
+            if str(trade["side"]).upper() == side
+        ]
+        nets = [Decimal(str(trade["net_pnl_usdt"])) for trade in trades]
+        total_net = sum(nets, start=_ZERO)
+        fees = sum(
+            (Decimal(str(trade["fees_usdt"])) for trade in trades),
+            start=_ZERO,
+        )
+        gross_profit = sum((net for net in nets if net > 0), start=_ZERO)
+        gross_loss = sum((-net for net in nets if net < 0), start=_ZERO)
+        output[side] = {
+            "closed_trade_count": len(trades),
+            "win_count": sum(1 for net in nets if net > 0),
+            "loss_count": sum(1 for net in nets if net < 0),
+            "total_net_pnl_usdt": float(total_net),
+            "profit_factor": (
+                None if gross_loss == 0 else float(gross_profit / gross_loss)
+            ),
+            "fees_usdt": float(fees),
+        }
+    observed_sides = {str(trade["side"]).upper() for trade in report["closed_trades"]}
+    unexpected = observed_sides - set(_SIDES)
+    if unexpected:
+        raise ValueError(f"unexpected crypto trade sides in walk-forward: {sorted(unexpected)}")
+    return output
+
+
+def _aggregate_side_diagnostics(reports: list[dict[str, Any]]) -> dict[str, Any]:
+    output: dict[str, Any] = {}
+    for side in _SIDES:
+        total_closed = 0
+        wins = 0
+        losses = 0
+        total_net = _ZERO
+        total_fees = _ZERO
+        gross_profit = _ZERO
+        gross_loss = _ZERO
+        folds_with_trades = 0
+        positive_folds = 0
+        fold_net_pnl_usdt: list[float] = []
+        for report in reports:
+            metrics = _single_fold_side_metrics(report)[side]
+            closed = int(metrics["closed_trade_count"])
+            net = Decimal(str(metrics["total_net_pnl_usdt"]))
+            total_closed += closed
+            wins += int(metrics["win_count"])
+            losses += int(metrics["loss_count"])
+            total_net += net
+            total_fees += Decimal(str(metrics["fees_usdt"]))
+            fold_net_pnl_usdt.append(float(net))
+            if closed > 0:
+                folds_with_trades += 1
+                if net > 0:
+                    positive_folds += 1
+            for trade in report["closed_trades"]:
+                if str(trade["side"]).upper() != side:
+                    continue
+                trade_net = Decimal(str(trade["net_pnl_usdt"]))
+                if trade_net > 0:
+                    gross_profit += trade_net
+                elif trade_net < 0:
+                    gross_loss += -trade_net
+        output[side] = {
+            "fold_count": len(reports),
+            "folds_with_trades": folds_with_trades,
+            "positive_net_pnl_fold_count": positive_folds,
+            "positive_net_pnl_fold_fraction_among_active_folds": (
+                None
+                if folds_with_trades == 0
+                else float(Decimal(positive_folds) / Decimal(folds_with_trades))
+            ),
+            "closed_trade_count": total_closed,
+            "win_count": wins,
+            "loss_count": losses,
+            "total_net_pnl_usdt": float(total_net),
+            "aggregate_profit_factor": (
+                None if gross_loss == 0 else float(gross_profit / gross_loss)
+            ),
+            "fees_usdt": float(total_fees),
+            "fold_net_pnl_usdt": fold_net_pnl_usdt,
+            "directional_filter_selection_allowed": False,
+        }
+    return output
 
 
 def _decision_dict(decision: CryptoWalkForwardCandidateDecision) -> dict[str, Any]:
