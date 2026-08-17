@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -11,9 +11,7 @@ from app.strategy.crypto_evidence import CryptoReplayEvidence, evaluate_crypto_r
 
 
 def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
-    first = datetime.fromisoformat(str(report["first_completed_bar"]))
-    last = datetime.fromisoformat(str(report["last_completed_bar"]))
-    duration_days = Decimal(str(max((last - first).total_seconds(), 1.0))) / Decimal("86400")
+    duration_days, observation_window_basis = _observed_days(report)
     opening_equity = Decimal(str(report["opening_equity_usdt"]))
     variants = _score_variants(
         report["variants"],
@@ -81,12 +79,32 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
         "qualification": "CRYPTO_REPLAY_EVIDENCE_SCORED",
         "source_qualification": report["qualification"],
         "source": report["source"],
+        "observed_days": float(duration_days),
+        "observation_window_basis": observation_window_basis,
         "strategy_promotion_allowed": False,
         "live_promotion_allowed": False,
         "variants": variants,
         "shadow_candidates": notional_shadow_candidates,
         "strategy_shadow_candidates": strategy_shadow_candidates,
     }
+
+
+def _observed_days(report: dict[str, Any]) -> tuple[Decimal, str]:
+    archive_dates = report.get("archive_dates")
+    if report.get("archive_completed_utc_days_only") is True and isinstance(
+        archive_dates, list
+    ):
+        if not archive_dates:
+            raise ValueError("completed archive evidence must include archive_dates")
+        parsed_dates = [date.fromisoformat(str(value)) for value in archive_dates]
+        if parsed_dates != sorted(parsed_dates) or len(set(parsed_dates)) != len(parsed_dates):
+            raise ValueError("completed archive dates must be unique and chronological")
+        return Decimal(len(parsed_dates)), "COMPLETED_UTC_ARCHIVE_DATES"
+
+    first = datetime.fromisoformat(str(report["first_completed_bar"]))
+    last = datetime.fromisoformat(str(report["last_completed_bar"]))
+    duration_days = Decimal(str(max((last - first).total_seconds(), 1.0))) / Decimal("86400")
+    return duration_days, "FIRST_TO_LAST_COMPLETED_BAR_ELAPSED_TIME"
 
 
 def _score_variants(
