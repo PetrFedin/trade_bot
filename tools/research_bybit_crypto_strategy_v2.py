@@ -13,6 +13,8 @@ from app.strategy.crypto_trade_management import CryptoProtectionPolicy
 from tools.replay_bybit_crypto_runner import replay_open_ended_crypto_runner
 
 _CONDITIONAL_EDGE_MULTIPLE = Decimal("1.50")
+_TIGHT_PROFIT_LOCK_ACTIVATION_R = Decimal("1.00")
+_TIGHT_PROFIT_LOCK_R = Decimal("0.50")
 
 
 def run_crypto_strategy_v2_suite(
@@ -33,11 +35,24 @@ def run_crypto_strategy_v2_suite(
     session = CryptoSessionRiskPolicy()
     correlation = CryptoCorrelationPolicy()
     execution = CryptoExecutionRiskPolicy()
+    baseline_protection = (
+        CryptoProtectionPolicy() if protection_policy is None else protection_policy
+    )
+    baseline_protection.validate()
+    tight_profit_lock = CryptoProtectionPolicy(
+        break_even_activation_r=baseline_protection.break_even_activation_r,
+        profit_lock_activation_r=_TIGHT_PROFIT_LOCK_ACTIVATION_R,
+        profit_lock_r=_TIGHT_PROFIT_LOCK_R,
+        maximum_holding_bars=baseline_protection.maximum_holding_bars,
+        cooldown_bars_after_stop=baseline_protection.cooldown_bars_after_stop,
+        cooldown_bars_after_target=baseline_protection.cooldown_bars_after_target,
+    )
+    tight_profit_lock.validate()
 
     common = {
         "opening_equity_usdt": opening_equity_usdt,
         "base_config": base_config,
-        "protection_policy": protection_policy,
+        "protection_policy": baseline_protection,
         "runner_admission_policy": admission,
         "interval": interval,
     }
@@ -45,6 +60,14 @@ def run_crypto_strategy_v2_suite(
         "CONDITIONAL_1_5X": replay_open_ended_crypto_runner(
             acquisition,
             **common,
+        ),
+        "CONDITIONAL_TIGHT_PROFIT_LOCK": replay_open_ended_crypto_runner(
+            acquisition,
+            protection_policy=tight_profit_lock,
+            opening_equity_usdt=opening_equity_usdt,
+            base_config=base_config,
+            runner_admission_policy=admission,
+            interval=interval,
         ),
         "CONDITIONAL_SESSION_RISK": replay_open_ended_crypto_runner(
             acquisition,
@@ -80,6 +103,17 @@ def run_crypto_strategy_v2_suite(
         "candidate_contract": {
             "minimum_entry_net_profit_usd": 20.0,
             "runner_minimum_expected_edge_multiple": 1.5,
+            "tight_profit_lock_hypothesis": {
+                "break_even_activation_r": float(
+                    tight_profit_lock.break_even_activation_r
+                ),
+                "profit_lock_activation_r": float(
+                    tight_profit_lock.profit_lock_activation_r
+                ),
+                "profit_lock_r": float(tight_profit_lock.profit_lock_r),
+                "same_sample_14d_promotion_allowed": False,
+                "requires_walk_forward_validation": True,
+            },
             "session_risk_policy": {
                 "maximum_realized_loss_fraction": float(
                     session.maximum_realized_loss_fraction
