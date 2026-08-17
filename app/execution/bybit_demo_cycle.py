@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol
 
 from app.execution.bybit_demo import (
+    BybitDemoFeeRate,
     BybitDemoOrderAck,
     BybitDemoOrderClient,
     BybitDemoPosition,
@@ -18,6 +20,7 @@ from app.execution.bybit_demo_controller import (
     plan_bybit_demo_runner_protection_after_fill,
 )
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
+from app.strategy.crypto_entry_economics import revalidate_entry_at_actual_taker_fee
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig, CryptoSide, CryptoTradePlan
 from app.strategy.crypto_session_risk import CryptoSessionRiskPolicy, CryptoSessionRiskState
 
@@ -56,12 +59,16 @@ class BybitDemoCycleResult:
     reconciled_position: BybitDemoPosition | None
     next_entry_allowed: bool
     demo_order_writes_enabled: bool
+    account_taker_fee_rate: Decimal | None = None
+    account_maker_fee_rate: Decimal | None = None
     live_mainnet_order_routing_allowed: bool = False
 
 
 class _DemoClient(Protocol):
     @property
     def live_mainnet_order_routing_allowed(self) -> bool: ...
+
+    def get_fee_rate(self, *, symbol: str) -> BybitDemoFeeRate: ...
 
     def get_positions(self, *, settle_coin: str = "USDT") -> tuple[BybitDemoPosition, ...]: ...
 
@@ -90,8 +97,10 @@ def execute_bybit_demo_trade_cycle(
     """Execute one demo-only entry -> reconcile -> uncapped runner protection cycle.
 
     This function has no mainnet path. Writes are disabled unless an explicit cycle policy
-    enables them. A position is never called protected merely because order creation ACKed,
-    and successful protection deliberately omits a fixed take-profit ceiling.
+    enables them. A position is never called protected merely because order creation ACKed.
+    Before an order is submitted, the account-specific taker fee and instrument-normalized
+    quantity must still support the planned net target and risk budget. Successful protection
+    deliberately omits a fixed take-profit ceiling.
     """
 
     policy = BybitDemoCyclePolicy() if cycle_policy is None else cycle_policy
@@ -127,6 +136,34 @@ def execute_bybit_demo_trade_cycle(
             writes_enabled=True,
         )
 
+    try:
+        fee_rate = client.get_fee_rate(symbol=trade_plan.symbol)
+    except Exception as exc:  # noqa: BLE001 - unresolved fees must block before any order write.
+        return _result(
+            BybitDemoCycleStatus.ENTRY_BLOCKED,
+            reasons=(f"ACCOUNT_FEE_RATE_RECONCILIATION_FAILED:{type(exc).__name__}",),
+            writes_enabled=True,
+        )
+
+    effective_strategy_config = replace(
+        strategy_config,
+        taker_fee_rate=fee_rate.taker_fee_rate,
+    )
+    execution_notional = entry_plan.order.quantity * trade_plan.reference_price
+    fee_decision = revalidate_entry_at_actual_taker_fee(
+        trade_plan,
+        execution_notional_usdt=execution_notional,
+        actual_taker_fee_rate=fee_rate.taker_fee_rate,
+        strategy_config=effective_strategy_config,
+    )
+    if not fee_decision.eligible:
+        return _result(
+            BybitDemoCycleStatus.ENTRY_BLOCKED,
+            reasons=fee_decision.reasons,
+            fee_rate=fee_rate,
+            writes_enabled=True,
+        )
+
     entry_ack = client.place_market_order(entry_plan.order)
     position = _reconcile_position(
         client,
@@ -140,6 +177,7 @@ def execute_bybit_demo_trade_cycle(
             BybitDemoCycleStatus.ENTRY_ACKED_FILL_UNRESOLVED,
             reasons=("ORDER_ACK_IS_NOT_FILL_CONFIRMATION",),
             entry_ack=entry_ack,
+            fee_rate=fee_rate,
             writes_enabled=True,
         )
 
@@ -148,7 +186,7 @@ def execute_bybit_demo_trade_cycle(
         actual_average_entry_price=position.average_price,
         actual_filled_quantity=position.size,
         instrument=instrument,
-        strategy_config=strategy_config,
+        strategy_config=effective_strategy_config,
     )
     if protection_plan.protection is None:
         return _flatten_after_protection_failure(
@@ -157,6 +195,7 @@ def execute_bybit_demo_trade_cycle(
             client=client,
             position=position,
             entry_ack=entry_ack,
+            fee_rate=fee_rate,
             reasons=protection_plan.reasons,
         )
 
@@ -169,6 +208,7 @@ def execute_bybit_demo_trade_cycle(
             client=client,
             position=position,
             entry_ack=entry_ack,
+            fee_rate=fee_rate,
             reasons=(f"EXCHANGE_PROTECTION_WRITE_FAILED:{type(exc).__name__}",),
         )
 
@@ -180,6 +220,7 @@ def execute_bybit_demo_trade_cycle(
             position=position,
             entry_ack=entry_ack,
             protection_ack=protection_ack,
+            fee_rate=fee_rate,
             reasons=protection_plan.reasons,
         )
 
@@ -190,6 +231,7 @@ def execute_bybit_demo_trade_cycle(
         protection_ack=protection_ack,
         position=position,
         next_entry_allowed=True,
+        fee_rate=fee_rate,
         writes_enabled=True,
     )
 
@@ -232,6 +274,7 @@ def _flatten_after_protection_failure(
     client: _DemoClient,
     position: BybitDemoPosition,
     entry_ack: BybitDemoOrderAck,
+    fee_rate: BybitDemoFeeRate,
     reasons: tuple[str, ...],
 ) -> BybitDemoCycleResult:
     try:
@@ -247,6 +290,7 @@ def _flatten_after_protection_failure(
             reasons=(*reasons, f"EMERGENCY_REDUCE_ONLY_CLOSE_FAILED:{type(exc).__name__}"),
             entry_ack=entry_ack,
             position=position,
+            fee_rate=fee_rate,
             writes_enabled=True,
         )
     return _result(
@@ -255,6 +299,7 @@ def _flatten_after_protection_failure(
         entry_ack=entry_ack,
         flatten_ack=flatten_ack,
         position=position,
+        fee_rate=fee_rate,
         writes_enabled=True,
     )
 
@@ -267,6 +312,7 @@ def _flatten_protected_position(
     position: BybitDemoPosition,
     entry_ack: BybitDemoOrderAck,
     protection_ack: BybitDemoRunnerProtectionAck,
+    fee_rate: BybitDemoFeeRate,
     reasons: tuple[str, ...],
 ) -> BybitDemoCycleResult:
     try:
@@ -283,6 +329,7 @@ def _flatten_protected_position(
             entry_ack=entry_ack,
             protection_ack=protection_ack,
             position=position,
+            fee_rate=fee_rate,
             writes_enabled=True,
         )
     return _result(
@@ -292,6 +339,7 @@ def _flatten_protected_position(
         protection_ack=protection_ack,
         flatten_ack=flatten_ack,
         position=position,
+        fee_rate=fee_rate,
         writes_enabled=True,
     )
 
@@ -305,6 +353,7 @@ def _result(
     flatten_ack: BybitDemoOrderAck | None = None,
     position: BybitDemoPosition | None = None,
     next_entry_allowed: bool = False,
+    fee_rate: BybitDemoFeeRate | None = None,
     writes_enabled: bool,
 ) -> BybitDemoCycleResult:
     return BybitDemoCycleResult(
@@ -316,5 +365,7 @@ def _result(
         reconciled_position=position,
         next_entry_allowed=next_entry_allowed,
         demo_order_writes_enabled=writes_enabled,
+        account_taker_fee_rate=None if fee_rate is None else fee_rate.taker_fee_rate,
+        account_maker_fee_rate=None if fee_rate is None else fee_rate.maker_fee_rate,
         live_mainnet_order_routing_allowed=False,
     )
