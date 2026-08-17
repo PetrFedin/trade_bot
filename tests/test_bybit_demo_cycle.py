@@ -149,13 +149,18 @@ def _session() -> CryptoSessionRiskState:
     )
 
 
-def _position(quantity: str = "0.012") -> BybitDemoPosition:
+def _position(
+    quantity: str = "0.012",
+    *,
+    liquidation_price: Decimal | None = Decimal("99000"),
+) -> BybitDemoPosition:
     return BybitDemoPosition(
         symbol="BTCUSDT",
         side="Buy",
         size=Decimal(quantity),
         average_price=Decimal("100050"),
         unrealised_pnl=Decimal("0"),
+        liquidation_price=liquidation_price,
     )
 
 
@@ -256,6 +261,9 @@ def test_thin_excess_edge_keeps_cost_aware_fixed_20_target() -> None:
     assert result.status is BybitDemoCycleStatus.PROTECTED
     assert result.exit_mode == "FIXED_20_TARGET"
     assert "RUNNER_EXCESS_EXPECTED_EDGE_TOO_THIN" in result.runner_admission_reasons
+    assert result.liquidation_safety_reason == "SAFE"
+    assert result.stop_to_liquidation_r is not None
+    assert result.stop_to_liquidation_r >= Decimal("1")
     assert len(client.protections) == 1
     fixed_request = client.protections[0]
     assert fixed_request.take_profit_price > Decimal("100050")
@@ -285,6 +293,8 @@ def test_demo_cycle_reconciles_fill_before_uncapped_runner_protection() -> None:
     assert result.account_maker_fee_rate == Decimal("0.0001")
     assert result.exit_mode == "OPEN_ENDED_RUNNER"
     assert result.runner_admission_reasons == ()
+    assert result.liquidation_safety_reason == "SAFE"
+    assert result.stop_to_liquidation_r is not None
     assert len(client.orders) == 1
     assert client.orders[0].reduce_only is False
     assert len(client.protections) == 1
@@ -292,6 +302,54 @@ def test_demo_cycle_reconciles_fill_before_uncapped_runner_protection() -> None:
     assert not hasattr(runner_request, "take_profit_price")
     assert runner_request.trailing_stop_distance > 0
     assert runner_request.trailing_active_price > Decimal("100050")
+
+
+def test_missing_liquidation_price_protects_then_flattens_reduce_only() -> None:
+    client = _FakeDemoClient([(), (_position(liquidation_price=None),)])
+    result = execute_bybit_demo_trade_cycle(
+        _trade_plan(),
+        instrument=_instrument(),
+        strategy_config=_strategy_config(),
+        session_state=_session(),
+        client=client,
+        cycle_policy=_enabled_policy(),
+        sleeper=lambda _seconds: None,
+    )
+
+    assert result.status is BybitDemoCycleStatus.PROTECTED_THEN_FLATTEN_REQUESTED
+    assert result.protection_ack is not None
+    assert result.flatten_ack is not None
+    assert result.reasons == ("LIQUIDATION_PRICE_UNAVAILABLE",)
+    assert result.liquidation_safety_reason == "LIQUIDATION_PRICE_UNAVAILABLE"
+    assert result.stop_to_liquidation_r is None
+    assert len(client.protections) == 1
+    assert len(client.orders) == 2
+    assert client.orders[0].reduce_only is False
+    assert client.orders[1].reduce_only is True
+    assert result.next_entry_allowed is False
+
+
+def test_liquidation_inside_hard_stop_protects_then_flattens_reduce_only() -> None:
+    client = _FakeDemoClient(
+        [(), (_position(liquidation_price=Decimal("100000")),)]
+    )
+    result = execute_bybit_demo_trade_cycle(
+        _trade_plan(),
+        instrument=_instrument(),
+        strategy_config=_strategy_config(),
+        session_state=_session(),
+        client=client,
+        cycle_policy=_enabled_policy(),
+        sleeper=lambda _seconds: None,
+    )
+
+    assert result.status is BybitDemoCycleStatus.PROTECTED_THEN_FLATTEN_REQUESTED
+    assert result.reasons == ("LIQUIDATION_NOT_BEYOND_HARD_STOP",)
+    assert result.liquidation_safety_reason == "LIQUIDATION_NOT_BEYOND_HARD_STOP"
+    assert result.stop_to_liquidation_r is None
+    assert result.protection_ack is not None
+    assert result.flatten_ack is not None
+    assert client.orders[-1].reduce_only is True
 
 
 def test_preexisting_symbol_position_blocks_new_entry() -> None:
