@@ -9,6 +9,7 @@ on:
       - 'tools/qualify_bybit_crypto_walk_forward.py'
       - 'tools/run_bybit_crypto_walk_forward_archive.py'
       - 'tools/research_bybit_crypto_strategy_v2.py'
+      - 'tests/test_crypto_walk_forward_side_diagnostics.py'
       - 'tests/test_qualify_bybit_crypto_walk_forward.py'
       - 'tests/test_run_bybit_crypto_walk_forward_archive.py'
       - 'tests/test_research_bybit_crypto_strategy_v2.py'
@@ -56,6 +57,7 @@ jobs:
           tools/qualify_bybit_crypto_walk_forward.py
           tools/run_bybit_crypto_walk_forward_archive.py
           tools/research_bybit_crypto_strategy_v2.py
+          tests/test_crypto_walk_forward_side_diagnostics.py
           tests/test_qualify_bybit_crypto_walk_forward.py
           tests/test_run_bybit_crypto_walk_forward_archive.py
           tests/test_research_bybit_crypto_strategy_v2.py
@@ -63,6 +65,7 @@ jobs:
       - name: Test chronology and acquisition contracts
         run: >-
           pytest -vv
+          tests/test_crypto_walk_forward_side_diagnostics.py
           tests/test_qualify_bybit_crypto_walk_forward.py
           tests/test_run_bybit_crypto_walk_forward_archive.py
           tests/test_research_bybit_crypto_strategy_v2.py
@@ -146,6 +149,7 @@ jobs:
           assert report['demo_observation_allowed'] is False
           assert report['live_promotion_allowed'] is False
           assert report['bybit_live_order_routing_allowed'] is False
+          assert report['directional_filter_selection_allowed'] is False
 
           required = {
               'CONDITIONAL_1_5X',
@@ -153,14 +157,28 @@ jobs:
               'CONDITIONAL_DIVERSIFIED',
               'CONDITIONAL_EXECUTION_RISK',
               'CONDITIONAL_COMBINED_RISK',
+              'CONDITIONAL_TIGHT_PROFIT_LOCK',
           }
           decisions = report['candidate_decisions']
+          side_diagnostics = report['candidate_side_diagnostics']
           assert required == set(decisions)
+          assert set(side_diagnostics) == set(decisions)
           for name, decision in decisions.items():
               assert decision['strategy_promotion_allowed'] is False, name
               assert decision['demo_observation_allowed'] is False, name
               assert decision['live_promotion_allowed'] is False, name
               assert decision['fold_count'] == report['fold_count'], name
+              sides = side_diagnostics[name]
+              assert set(sides) == {'LONG', 'SHORT'}, name
+              assert (
+                  sides['LONG']['closed_trade_count']
+                  + sides['SHORT']['closed_trade_count']
+                  == decision['total_closed_trades']
+              ), name
+              for side_name, side in sides.items():
+                  assert side['fold_count'] == report['fold_count'], (name, side_name)
+                  assert len(side['fold_net_pnl_usdt']) == report['fold_count'], (name, side_name)
+                  assert side['directional_filter_selection_allowed'] is False, (name, side_name)
           assert report['combined_vs_baseline']['automatic_strategy_selection_allowed'] is False
           PY
 
@@ -176,6 +194,8 @@ jobs:
               'fold_count': report['fold_count'],
               'policy': report['policy'],
               'candidate_decisions': report['candidate_decisions'],
+              'candidate_side_diagnostics': report['candidate_side_diagnostics'],
+              'directional_filter_selection_allowed': False,
               'combined_vs_baseline': report['combined_vs_baseline'],
               'strategy_promotion_allowed': False,
               'demo_observation_allowed': False,
