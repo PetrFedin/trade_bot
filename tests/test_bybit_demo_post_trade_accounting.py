@@ -14,6 +14,7 @@ from app.execution.bybit_demo_lifecycle_gate import (
     BybitDemoLifecycleStatus,
 )
 from app.execution.bybit_demo_post_trade_accounting import (
+    BybitDemoProfitOutcomeStatus,
     reconcile_bybit_demo_post_trade_accounting,
     reconcile_bybit_demo_trade_lifecycle,
 )
@@ -241,6 +242,11 @@ def test_unified_snapshot_reconciles_terminal_trade_to_all_in_pnl() -> None:
     assert result.account_pnl.account_closed_pnl_reconciled is True
     assert result.all_in_pnl is not None
     assert result.all_in_pnl.all_in_net_pnl_usdt == Decimal("2.7782")
+    assert result.fully_reconciled_all_in_net_pnl_usdt == Decimal("2.7782")
+    assert result.profit_outcome_status is (
+        BybitDemoProfitOutcomeStatus.FULLY_RECONCILED_PROFIT
+    )
+    assert result.closed_in_profit_after_all_reconciled_costs is True
     assert result.lifecycle.status is BybitDemoLifecycleStatus.FULLY_RECONCILED
     assert result.lifecycle.next_entry_allowed is True
     assert result.live_mainnet_order_routing_allowed is False
@@ -285,6 +291,8 @@ def test_unified_snapshot_keeps_open_trade_locked_without_account_reads() -> Non
     assert accounting_reader.transaction_calls == 0
     assert result.account_pnl is None
     assert result.all_in_pnl is None
+    assert result.profit_outcome_status is BybitDemoProfitOutcomeStatus.TRADE_OPEN
+    assert result.closed_in_profit_after_all_reconciled_costs is None
     assert result.lifecycle.status is BybitDemoLifecycleStatus.TRADE_NOT_TERMINAL
     assert result.lifecycle.next_entry_allowed is False
 
@@ -303,6 +311,11 @@ def test_closed_pnl_without_funding_proof_stays_locked_by_default() -> None:
     assert result.account_pnl.account_closed_pnl_reconciled is True
     assert result.all_in_pnl is None
     assert result.funding_transaction_log_read_attempted is False
+    assert result.profit_outcome_status is (
+        BybitDemoProfitOutcomeStatus.ALL_IN_ACCOUNTING_PENDING
+    )
+    assert result.fully_reconciled_all_in_net_pnl_usdt is None
+    assert result.closed_in_profit_after_all_reconciled_costs is None
     assert result.lifecycle.status is (
         BybitDemoLifecycleStatus.ACCOUNT_PNL_RECONCILED_FUNDING_PENDING
     )
@@ -330,8 +343,34 @@ def test_transaction_log_automatically_reconciles_all_in_pnl() -> None:
     assert result.all_in_pnl is not None
     assert result.all_in_pnl.funding_net_usdt == Decimal("-0.10")
     assert result.all_in_pnl.all_in_net_pnl_usdt == Decimal("2.7782")
+    assert result.profit_outcome_status is (
+        BybitDemoProfitOutcomeStatus.FULLY_RECONCILED_PROFIT
+    )
+    assert result.closed_in_profit_after_all_reconciled_costs is True
     assert result.lifecycle.status is BybitDemoLifecycleStatus.FULLY_RECONCILED
     assert result.lifecycle.fully_reconciled_net_pnl is True
+
+
+def test_funding_can_turn_fill_profit_into_fully_reconciled_loss() -> None:
+    reader = _FundingReader(
+        (_closed_pnl(),),
+        transaction_rows=(_funding_settlement("-3.00"),),
+    )
+
+    result = reconcile_bybit_demo_post_trade_accounting(
+        _trade(),
+        client=reader,
+    )
+
+    assert result.trade.realized_net_pnl_after_execution_fees_usdt == Decimal("2.8782")
+    assert result.all_in_pnl is not None
+    assert result.all_in_pnl.funding_net_usdt == Decimal("-3.00")
+    assert result.fully_reconciled_all_in_net_pnl_usdt == Decimal("-0.1218")
+    assert result.profit_outcome_status is (
+        BybitDemoProfitOutcomeStatus.FULLY_RECONCILED_LOSS
+    )
+    assert result.closed_in_profit_after_all_reconciled_costs is False
+    assert result.lifecycle.status is BybitDemoLifecycleStatus.FULLY_RECONCILED
 
 
 def test_complete_empty_transaction_log_proves_zero_funding() -> None:
@@ -346,6 +385,9 @@ def test_complete_empty_transaction_log_proves_zero_funding() -> None:
     assert result.all_in_pnl.funding_entry_count == 0
     assert result.all_in_pnl.funding_net_usdt == Decimal("0")
     assert result.all_in_pnl.all_in_net_pnl_usdt == Decimal("2.8782")
+    assert result.profit_outcome_status is (
+        BybitDemoProfitOutcomeStatus.FULLY_RECONCILED_PROFIT
+    )
     assert result.lifecycle.status is BybitDemoLifecycleStatus.FULLY_RECONCILED
     assert result.lifecycle.next_entry_allowed is True
 
@@ -365,6 +407,10 @@ def test_transaction_log_api_failure_stays_pending_and_blocks_default_lifecycle(
     assert result.funding_transaction_log_error_type == "RuntimeError"
     assert result.funding_ledger_source is None
     assert result.all_in_pnl is None
+    assert result.profit_outcome_status is (
+        BybitDemoProfitOutcomeStatus.ALL_IN_ACCOUNTING_PENDING
+    )
+    assert result.closed_in_profit_after_all_reconciled_costs is None
     assert result.lifecycle.status is (
         BybitDemoLifecycleStatus.ACCOUNT_PNL_RECONCILED_FUNDING_PENDING
     )
@@ -395,6 +441,9 @@ def test_explicit_covered_funding_ledger_unlocks_default_lifecycle() -> None:
     assert complete.funding_ledger_source == "SUPPLIED"
     assert complete.all_in_pnl is not None
     assert complete.all_in_pnl.all_in_net_pnl_usdt == Decimal("2.7782")
+    assert complete.profit_outcome_status is (
+        BybitDemoProfitOutcomeStatus.FULLY_RECONCILED_PROFIT
+    )
     assert complete.lifecycle.status is BybitDemoLifecycleStatus.FULLY_RECONCILED
     assert complete.lifecycle.next_entry_allowed is True
     assert complete.lifecycle.fully_reconciled_net_pnl is True
@@ -414,6 +463,10 @@ def test_relaxed_policy_can_unlock_when_funding_read_is_unavailable() -> None:
     )
 
     assert result.all_in_pnl is None
+    assert result.profit_outcome_status is (
+        BybitDemoProfitOutcomeStatus.ALL_IN_ACCOUNTING_PENDING
+    )
+    assert result.closed_in_profit_after_all_reconciled_costs is None
     assert result.lifecycle.status is (
         BybitDemoLifecycleStatus.ACCOUNT_PNL_RECONCILED_FUNDING_PENDING
     )
@@ -433,6 +486,8 @@ def test_open_trade_does_not_query_closed_pnl() -> None:
     assert reader.transaction_calls == 0
     assert result.closed_pnl_read_attempted is False
     assert result.account_pnl is None
+    assert result.profit_outcome_status is BybitDemoProfitOutcomeStatus.TRADE_OPEN
+    assert result.closed_in_profit_after_all_reconciled_costs is None
     assert result.lifecycle.status is BybitDemoLifecycleStatus.TRADE_NOT_TERMINAL
     assert result.lifecycle.next_entry_allowed is False
 
