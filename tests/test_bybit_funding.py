@@ -1,6 +1,7 @@
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Mapping
+from typing import Any
 
 import pytest
 
@@ -34,12 +35,12 @@ def test_funding_history_uses_exact_public_v5_path_and_normalizes_order() -> Non
                     {
                         "symbol": "BTCUSDT",
                         "fundingRate": "0.0001",
-                        "fundingRateTimestamp": "1785542400000",
+                        "fundingRateTimestamp": "1785571200000",
                     },
                     {
                         "symbol": "BTCUSDT",
                         "fundingRate": "-0.0002",
-                        "fundingRateTimestamp": "1785513600000",
+                        "fundingRateTimestamp": "1785542400000",
                     },
                 ]
             )
