@@ -6,6 +6,10 @@ from decimal import Decimal
 from typing import Any
 
 from app.marketdata.bybit_v5 import BybitKlineAcquisition
+from app.strategy.crypto_correlation import (
+    CryptoCorrelationPolicy,
+    evaluate_crypto_correlation,
+)
 from app.strategy.crypto_perp import (
     CryptoPerpStrategyConfig,
     build_trade_plan,
@@ -60,20 +64,23 @@ def replay_open_ended_crypto_runner(
     runner_admission_policy: CryptoRunnerAdmissionPolicy | None = None,
     allow_unconditional_runner_shadow: bool = False,
     session_risk_policy: CryptoSessionRiskPolicy | None = None,
+    correlation_policy: CryptoCorrelationPolicy | None = None,
     interval: str = "5",
 ) -> dict[str, Any]:
-    """Replay a >=$20 portfolio with an excess-edge-gated unlimited runner by default.
+    """Replay a >=$20 portfolio with fail-closed runner, risk and diversification overlays.
 
     The canonical mode keeps a fixed $20 target unless expected pre-entry net edge clears the
     runner admission gate. The older unconditional runner remains available only when
-    ``allow_unconditional_runner_shadow=True`` is passed explicitly; this prevents a missing
-    caller argument from silently changing the strategy under test.
+    ``allow_unconditional_runner_shadow=True`` is passed explicitly.
 
     ``session_risk_policy`` is an optional continuous-window shadow overlay. It is evaluated only
     after a bar is complete. A flatten decision therefore executes at the next bar open, never
-    retroactively inside the bar that caused the drawdown/cost/loss-streak breach. Once a
-    session kill-switch fires it remains latched for the rest of this replay window; no reset
-    schedule is invented by the backtest.
+    retroactively inside the bar that caused the drawdown/cost/loss-streak breach.
+
+    ``correlation_policy`` is an optional shadow entry gate. It uses only completed synchronized
+    returns and compares a candidate with positions already open or already selected for the
+    next open. It blocks high positive correlation and fails closed when a peer exists but the
+    common return history is insufficient.
     """
 
     if opening_equity_usdt <= 0:
@@ -93,6 +100,8 @@ def replay_open_ended_crypto_runner(
         active_admission.validate()
     if session_risk_policy is not None:
         session_risk_policy.validate()
+    if correlation_policy is not None:
+        correlation_policy.validate()
 
     base = default_crypto_config() if base_config is None else base_config
     config = replace(base, target_net_profit_usd=runner.activation_net_profit_usd)
@@ -140,6 +149,9 @@ def replay_open_ended_crypto_runner(
     session_risk_entry_block_count = 0
     session_risk_flatten_trade_count = 0
     session_risk_reason_counts: Counter[str] = Counter()
+
+    correlation_block_count = 0
+    correlation_reason_counts: Counter[str] = Counter()
 
     for index, timestamp in enumerate(common_times):
         current_bars = {symbol: bars[index] for symbol, bars in bars_by_symbol.items()}
@@ -441,6 +453,37 @@ def replay_open_ended_crypto_runner(
             if index < cooldown_until_index.get(symbol, -1):
                 plan_block_counts["COOLDOWN_ACTIVE"] += 1
                 continue
+            if correlation_policy is not None:
+                peers = tuple(sorted(set(positions) | already_pending))
+                correlation_decision = evaluate_crypto_correlation(
+                    symbol,
+                    selected_symbols=peers,
+                    histories=histories,
+                    policy=correlation_policy,
+                )
+                if not correlation_decision.eligible:
+                    correlation_reason = (
+                        correlation_decision.reason or "CORRELATION_DIVERSIFICATION_BLOCK"
+                    )
+                    plan_block_counts[correlation_reason] += 1
+                    correlation_reason_counts[correlation_reason] += 1
+                    correlation_block_count += 1
+                    decision_events.append(
+                        {
+                            "event": "CORRELATION_ENTRY_BLOCK",
+                            "symbol": symbol,
+                            "side": evaluation.signal.side.value,
+                            "decision_time": timestamp.isoformat(),
+                            "reason": correlation_reason,
+                            "blocking_symbol": correlation_decision.blocking_symbol,
+                            "correlation": (
+                                None
+                                if correlation_decision.correlation is None
+                                else float(correlation_decision.correlation)
+                            ),
+                        }
+                    )
+                    continue
             plan_evaluation = build_trade_plan(
                 evaluation.signal,
                 equity_usdt=equity,
@@ -554,6 +597,16 @@ def replay_open_ended_crypto_runner(
                 "consecutive_losses": session_consecutive_losses,
             },
         },
+        "correlation_diversification": {
+            "enabled": correlation_policy is not None,
+            "block_count": correlation_block_count,
+            "reason_counts": dict(correlation_reason_counts),
+            "policy": _correlation_policy_snapshot(correlation_policy),
+            "contract": (
+                "completed synchronized returns only; high positive pairwise correlation blocks "
+                "a lower-priority concurrent candidate"
+            ),
+        },
         "metrics": metrics,
         "closed_trades": [trade.as_dict() for trade in closed],
         "signal_filter_reason_counts": dict(reason_counts),
@@ -613,6 +666,16 @@ def _session_policy_snapshot(policy: CryptoSessionRiskPolicy | None) -> dict[str
         "maximum_execution_cost_fraction": float(policy.maximum_execution_cost_fraction),
         "maximum_consecutive_losses": policy.maximum_consecutive_losses,
         "minimum_equity_fraction": float(policy.minimum_equity_fraction),
+    }
+
+
+def _correlation_policy_snapshot(policy: CryptoCorrelationPolicy | None) -> dict[str, object] | None:
+    if policy is None:
+        return None
+    return {
+        "lookback_bars": policy.lookback_bars,
+        "minimum_return_observations": policy.minimum_return_observations,
+        "maximum_pairwise_correlation": float(policy.maximum_pairwise_correlation),
     }
 
 
