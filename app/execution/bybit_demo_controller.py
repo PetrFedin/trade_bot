@@ -10,15 +10,11 @@ from app.execution.bybit_demo import (
     BybitDemoRunnerProtectionRequest,
 )
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
-from app.strategy.crypto_perp import (
-    CryptoPerpStrategyConfig,
-    CryptoSide,
-    CryptoTradePlan,
-    execution_levels,
-)
+from app.strategy.crypto_perp import CryptoPerpStrategyConfig, CryptoSide, CryptoTradePlan
 from app.strategy.crypto_profit_runner import (
     CryptoProfitRunnerPolicy,
     build_crypto_profit_runner_levels,
+    modeled_raw_trigger_for_net_profit,
 )
 from app.strategy.crypto_session_risk import (
     CryptoSessionRiskPolicy,
@@ -45,6 +41,8 @@ class BybitDemoProtectionPlan:
     eligible: bool
     reasons: tuple[str, ...]
     protection: BybitDemoProtectionRequest | None
+    flatten_required: bool = False
+    modeled_stop_loss_after_cost_usdt: Decimal | None = None
     live_mainnet_order_routing_allowed: bool = False
 
 
@@ -126,12 +124,7 @@ def plan_bybit_demo_runner_protection_after_fill(
     strategy_config: CryptoPerpStrategyConfig,
     runner_policy: CryptoProfitRunnerPolicy | None = None,
 ) -> BybitDemoRunnerProtectionPlan:
-    """Build hard SL + $20-activated trailing runner with no take-profit ceiling.
-
-    The trailing distance is chosen so that its initial normal-fill protection corresponds to
-    about $15 net after modeled fees/slippage. That amount is a protection objective, not a
-    guarantee: gaps and execution slippage can realize less.
-    """
+    """Build hard SL + $20-activated trailing runner with no take-profit ceiling."""
 
     instrument.validate()
     active_runner = CryptoProfitRunnerPolicy() if runner_policy is None else runner_policy
@@ -222,22 +215,37 @@ def plan_bybit_demo_protection_after_fill(
     actual_average_entry_price: Decimal,
     instrument: BybitInstrumentSpec,
     strategy_config: CryptoPerpStrategyConfig,
+    actual_filled_quantity: Decimal | None = None,
 ) -> BybitDemoProtectionPlan:
-    """Legacy fixed TP/SL planner retained for fixed-target replay/demo comparisons."""
+    """Build a cost-aware fixed $20 TP/SL from the actual reconciled fill when available."""
 
     instrument.validate()
     if instrument.symbol != trade_plan.symbol:
         raise ValueError("Bybit demo instrument does not match crypto trade plan")
     if actual_average_entry_price <= 0:
         raise ValueError("actual Bybit demo average entry price must be positive")
-    levels = execution_levels(
+    quantity = (
+        trade_plan.notional_usdt / actual_average_entry_price
+        if actual_filled_quantity is None
+        else actual_filled_quantity
+    )
+    if quantity <= 0:
+        raise ValueError("actual Bybit demo filled quantity must be positive")
+
+    raw_target = modeled_raw_trigger_for_net_profit(
+        side=trade_plan.side,
+        actual_average_entry_price=actual_average_entry_price,
+        actual_filled_quantity=quantity,
+        desired_net_profit_usd=trade_plan.target_net_profit_usd,
+        strategy_config=strategy_config,
+    )
+    raw_stop = _hard_stop_price(
         trade_plan,
-        entry_price=actual_average_entry_price,
-        config=strategy_config,
+        actual_average_entry_price=actual_average_entry_price,
     )
     side = trade_plan.side.value
-    target = instrument.normalize_target_price(side, levels.target_price)
-    stop = instrument.normalize_protective_stop_price(side, levels.stop_price)
+    target = instrument.normalize_target_price(side, raw_target)
+    stop = instrument.normalize_protective_stop_price(side, raw_stop)
     request = BybitDemoProtectionRequest(
         symbol=trade_plan.symbol,
         side="Buy" if trade_plan.side is CryptoSide.LONG else "Sell",
@@ -252,11 +260,25 @@ def plan_bybit_demo_protection_after_fill(
             eligible=False,
             reasons=("BYBIT_QUANTIZED_PROTECTION_INVALID",),
             protection=None,
+            flatten_required=True,
         )
+
+    modeled_stop_loss = _modeled_stop_loss_after_cost(
+        side=trade_plan.side,
+        actual_average_entry_price=actual_average_entry_price,
+        actual_filled_quantity=quantity,
+        raw_stop_price=stop,
+        strategy_config=strategy_config,
+    )
+    risk_limit = trade_plan.risk_budget_usdt * _POST_FILL_RISK_TOLERANCE
+    risk_breached = modeled_stop_loss > risk_limit
+    reasons = ("POST_FILL_RISK_BUDGET_EXCEEDED",) if risk_breached else ()
     return BybitDemoProtectionPlan(
-        eligible=True,
-        reasons=(),
+        eligible=not risk_breached,
+        reasons=reasons,
         protection=request,
+        flatten_required=risk_breached,
+        modeled_stop_loss_after_cost_usdt=modeled_stop_loss,
     )
 
 
