@@ -1,5 +1,6 @@
+from collections.abc import Mapping
 from decimal import Decimal
-from typing import Any, Mapping
+from typing import Any
 
 import pytest
 
@@ -121,7 +122,7 @@ def test_closed_trade_reconciles_fill_level_net_and_unlocks_symbol() -> None:
     assert result.live_mainnet_order_routing_allowed is False
 
 
-def test_partial_close_keeps_symbol_locked() -> None:
+def test_partial_close_keeps_symbol_locked_and_prorates_entry_fee() -> None:
     link = "ASTRA-DEMO-E-ABC123"
     client = _FakeReadClient(
         executions=(
@@ -155,7 +156,9 @@ def test_partial_close_keeps_symbol_locked() -> None:
 
     assert result.status is BybitDemoTradeMonitorStatus.PARTIALLY_CLOSED
     assert result.remaining_quantity == Decimal("0.6")
+    assert result.execution_fees_usdt == Decimal("0.08448")
     assert result.realized_gross_pnl_usdt == Decimal("0.8")
+    assert result.realized_net_pnl_after_execution_fees_usdt == Decimal("0.75152")
     assert result.next_entry_allowed is False
     assert result.terminal is False
 
