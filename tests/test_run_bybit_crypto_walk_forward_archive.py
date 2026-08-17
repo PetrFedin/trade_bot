@@ -95,6 +95,7 @@ def test_archive_wrapper_is_validated_before_walk_forward() -> None:
 
     assert acquisition.validated is True
     assert client.requested_dates == 4
+    assert len(report["requested_archive_dates"]) == 4
     assert report["fold_count"] == 4
     assert report["source"] == "BYBIT_OFFICIAL_PUBLIC_TRADE_ARCHIVE_AGGREGATED_5M"
     assert report["archive_completed_utc_days_only"] is True
