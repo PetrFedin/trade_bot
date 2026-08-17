@@ -5,6 +5,7 @@ from app.marketdata.bybit_v5 import BybitKlineAcquisition, BybitKlineBar
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig, CryptoSide
 from app.strategy.crypto_profit_runner import CryptoProfitRunnerPolicy
 from app.strategy.crypto_runner_admission import CryptoRunnerAdmissionPolicy
+from app.strategy.crypto_session_risk import CryptoSessionRiskPolicy
 from app.strategy.crypto_trade_management import (
     CryptoExitReason,
     CryptoProtectionPolicy,
@@ -180,6 +181,7 @@ def test_runner_replay_defaults_to_conditional_excess_edge_gate() -> None:
     assert report["fixed_take_profit_enabled"] is True
     assert report["runner_minimum_expected_edge_multiple"] == 1.5
     assert report["unconditional_runner_shadow_explicitly_enabled"] is False
+    assert report["session_risk"]["enabled"] is False
 
 
 def test_conditional_runner_keeps_fixed_target_when_excess_edge_gate_fails() -> None:
@@ -207,3 +209,41 @@ def test_conditional_runner_keeps_fixed_target_when_excess_edge_gate_fails() -> 
         trade["exit_reason"] == CryptoExitReason.NET_TARGET.value
         for trade in report["closed_trades"]
     )
+
+
+def test_session_risk_cost_budget_latches_and_blocks_future_entries() -> None:
+    report = replay_open_ended_crypto_runner(
+        _synthetic_acquisition(),
+        opening_equity_usdt=Decimal("1000"),
+        base_config=_replay_config(),
+        protection_policy=CryptoProtectionPolicy(maximum_holding_bars=12),
+        runner_policy=CryptoProfitRunnerPolicy(
+            activation_net_profit_usd=Decimal("1"),
+            protected_net_profit_usd=Decimal("0.5"),
+        ),
+        session_risk_policy=CryptoSessionRiskPolicy(
+            maximum_realized_loss_fraction=Decimal("0.90"),
+            maximum_drawdown_fraction=Decimal("0.90"),
+            maximum_execution_cost_fraction=Decimal("0.0001"),
+            maximum_consecutive_losses=100,
+            minimum_equity_fraction=Decimal("0.10"),
+        ),
+    )
+
+    session = report["session_risk"]
+    assert session["enabled"] is True
+    assert session["scope"] == "CONTINUOUS_REPLAY_WINDOW_NO_RESET"
+    assert session["decision_timing"] == "COMPLETED_BAR_STATE_TO_NEXT_OPEN_FLATTEN"
+    assert session["kill_switch_latched"] is True
+    assert session["risk_event_count"] == 1
+    assert session["reason_counts"]["SESSION_EXECUTION_COST_BUDGET_EXHAUSTED"] == 1
+    assert session["entry_block_count"] > 0
+    assert session["flatten_trade_count"] == 0
+    latch = next(
+        event for event in report["decision_events"] if event["event"] == "SESSION_RISK_LATCHED"
+    )
+    assert latch["action"] == "BLOCK_NEW_ENTRIES"
+    assert latch["flatten_at_next_open"] is False
+    assert report["trade_plan_block_reason_counts"]["SESSION_RISK_BLOCKED"] > 0
+    assert report["strategy_promotion_allowed"] is False
+    assert report["bybit_live_order_routing_allowed"] is False
