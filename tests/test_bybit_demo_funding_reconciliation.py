@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+import pytest
+
 from app.execution.bybit_demo_account_pnl_reconciliation import (
     BybitDemoAccountPnlReconciliation,
     BybitDemoAccountPnlStatus,
@@ -10,6 +12,7 @@ from app.execution.bybit_demo_funding_reconciliation import (
     BybitDemoFundingLedgerWindow,
     BybitDemoFundingStatus,
     apply_funding_to_account_view,
+    build_bybit_demo_funding_ledger,
     reconcile_bybit_demo_funding,
 )
 
@@ -41,6 +44,100 @@ def _account() -> BybitDemoAccountPnlReconciliation:
         fully_reconciled_net_pnl=False,
         next_entry_allowed=True,
     )
+
+
+def _settlement(
+    *,
+    symbol: str = "BTCUSDT",
+    transaction_time: str = "2000",
+    funding: str = "-0.20",
+    reference_id: str = "funding-1",
+    transaction_type: str = "SETTLEMENT",
+) -> dict[str, object]:
+    return {
+        "id": reference_id,
+        "symbol": symbol,
+        "category": "linear",
+        "currency": "USDT",
+        "transactionTime": transaction_time,
+        "type": transaction_type,
+        "funding": funding,
+        "cashFlow": "0",
+        "fee": "0",
+    }
+
+
+def test_transaction_log_normalization_preserves_funding_sign_and_exact_symbol() -> None:
+    ledger = build_bybit_demo_funding_ledger(
+        (
+            _settlement(funding="-0.20", reference_id="funding-paid"),
+            _settlement(
+                transaction_time="4000",
+                funding="0.05",
+                reference_id="funding-received",
+            ),
+            _settlement(symbol="BTCUSDC", reference_id="other-symbol"),
+            _settlement(funding="0", reference_id="zero-funding"),
+        ),
+        symbol="BTCUSDT",
+        coverage_start_ms=1000,
+        coverage_end_ms=5000,
+    )
+
+    assert ledger.entries == (
+        BybitDemoFundingLedgerEntry(
+            symbol="BTCUSDT",
+            transaction_time_ms=2000,
+            amount_usdt=Decimal("-0.20"),
+            reference_id="funding-paid",
+        ),
+        BybitDemoFundingLedgerEntry(
+            symbol="BTCUSDT",
+            transaction_time_ms=4000,
+            amount_usdt=Decimal("0.05"),
+            reference_id="funding-received",
+        ),
+    )
+
+
+def test_transaction_log_normalization_rejects_non_settlement_funding() -> None:
+    with pytest.raises(ValueError, match="must be SETTLEMENT"):
+        build_bybit_demo_funding_ledger(
+            (_settlement(transaction_type="TRADE"),),
+            symbol="BTCUSDT",
+            coverage_start_ms=1000,
+            coverage_end_ms=5000,
+        )
+
+
+def test_transaction_log_normalization_rejects_conflicting_duplicate_id() -> None:
+    with pytest.raises(ValueError, match="conflicting funding ledger"):
+        build_bybit_demo_funding_ledger(
+            (
+                _settlement(funding="-0.20", reference_id="same"),
+                _settlement(funding="-0.25", reference_id="same"),
+            ),
+            symbol="BTCUSDT",
+            coverage_start_ms=1000,
+            coverage_end_ms=5000,
+        )
+
+
+def test_transaction_log_normalization_rejects_non_finite_or_out_of_range() -> None:
+    with pytest.raises(ValueError, match="finite decimal"):
+        build_bybit_demo_funding_ledger(
+            (_settlement(funding="NaN"),),
+            symbol="BTCUSDT",
+            coverage_start_ms=1000,
+            coverage_end_ms=5000,
+        )
+    with pytest.raises(ValueError, match="outside declared coverage"):
+        build_bybit_demo_funding_ledger(
+            (_settlement(transaction_time="6000"),),
+            symbol="BTCUSDT",
+            coverage_start_ms=1000,
+            coverage_end_ms=5000,
+        )
 
 
 def test_full_ledger_coverage_reconciles_all_in_pnl() -> None:
