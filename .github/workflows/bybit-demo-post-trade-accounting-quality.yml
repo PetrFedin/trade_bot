@@ -10,12 +10,14 @@ on:
       - 'app/execution/bybit_demo_funding_reconciliation.py'
       - 'app/execution/bybit_demo_lifecycle_gate.py'
       - 'app/execution/bybit_demo_post_trade_accounting.py'
+      - 'app/execution/bybit_demo_quality_tracker.py'
       - 'app/execution/bybit_demo_trade_monitor.py'
       - 'tests/test_bybit_demo_account_reader.py'
       - 'tests/test_bybit_demo_account_pnl_reconciliation.py'
       - 'tests/test_bybit_demo_funding_reconciliation.py'
       - 'tests/test_bybit_demo_lifecycle_gate.py'
       - 'tests/test_bybit_demo_post_trade_accounting.py'
+      - 'tests/test_bybit_demo_quality_tracker.py'
       - 'tests/test_bybit_demo_trade_monitor.py'
       - '.github/workflows/bybit-demo-post-trade-accounting-quality.yml'
   pull_request:
@@ -26,12 +28,14 @@ on:
       - 'app/execution/bybit_demo_funding_reconciliation.py'
       - 'app/execution/bybit_demo_lifecycle_gate.py'
       - 'app/execution/bybit_demo_post_trade_accounting.py'
+      - 'app/execution/bybit_demo_quality_tracker.py'
       - 'app/execution/bybit_demo_trade_monitor.py'
       - 'tests/test_bybit_demo_account_reader.py'
       - 'tests/test_bybit_demo_account_pnl_reconciliation.py'
       - 'tests/test_bybit_demo_funding_reconciliation.py'
       - 'tests/test_bybit_demo_lifecycle_gate.py'
       - 'tests/test_bybit_demo_post_trade_accounting.py'
+      - 'tests/test_bybit_demo_quality_tracker.py'
       - 'tests/test_bybit_demo_trade_monitor.py'
       - '.github/workflows/bybit-demo-post-trade-accounting-quality.yml'
 
@@ -70,12 +74,14 @@ jobs:
           app/execution/bybit_demo_funding_reconciliation.py
           app/execution/bybit_demo_lifecycle_gate.py
           app/execution/bybit_demo_post_trade_accounting.py
+          app/execution/bybit_demo_quality_tracker.py
           app/execution/bybit_demo_trade_monitor.py
           tests/test_bybit_demo_account_reader.py
           tests/test_bybit_demo_account_pnl_reconciliation.py
           tests/test_bybit_demo_funding_reconciliation.py
           tests/test_bybit_demo_lifecycle_gate.py
           tests/test_bybit_demo_post_trade_accounting.py
+          tests/test_bybit_demo_quality_tracker.py
           tests/test_bybit_demo_trade_monitor.py
 
       - name: Test post-trade accounting chain
@@ -87,6 +93,7 @@ jobs:
           tests/test_bybit_demo_funding_reconciliation.py
           tests/test_bybit_demo_lifecycle_gate.py
           tests/test_bybit_demo_post_trade_accounting.py
+          tests/test_bybit_demo_quality_tracker.py
 
       - name: Compile post-trade accounting boundary
         run: >-
@@ -96,4 +103,5 @@ jobs:
           app/execution/bybit_demo_funding_reconciliation.py
           app/execution/bybit_demo_lifecycle_gate.py
           app/execution/bybit_demo_post_trade_accounting.py
+          app/execution/bybit_demo_quality_tracker.py
           app/execution/bybit_demo_trade_monitor.py
