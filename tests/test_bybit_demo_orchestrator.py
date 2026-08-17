@@ -70,7 +70,7 @@ def _session() -> CryptoSessionRiskState:
 def _lifecycle(*, allow: bool) -> BybitDemoLifecycleDecision:
     return BybitDemoLifecycleDecision(
         status=(
-            BybitDemoLifecycleStatus.ACCOUNT_PNL_RECONCILED_FUNDING_PENDING
+            BybitDemoLifecycleStatus.FULLY_RECONCILED
             if allow
             else BybitDemoLifecycleStatus.ACCOUNT_PNL_PENDING
         ),
@@ -78,8 +78,8 @@ def _lifecycle(*, allow: bool) -> BybitDemoLifecycleDecision:
         next_entry_allowed=allow,
         trade_terminal=True,
         account_closed_pnl_reconciled=allow,
-        funding_reconciled=False,
-        fully_reconciled_net_pnl=False,
+        funding_reconciled=allow,
+        fully_reconciled_net_pnl=allow,
     )
 
 
@@ -142,13 +142,17 @@ def test_first_trade_can_execute_without_prior_lifecycle_record() -> None:
 
 
 def test_reconciled_previous_trade_allows_next_cycle() -> None:
+    lifecycle = _lifecycle(allow=True)
+    assert lifecycle.status is BybitDemoLifecycleStatus.FULLY_RECONCILED
+    assert lifecycle.fully_reconciled_net_pnl is True
+
     result = execute_guarded_bybit_demo_cycle(
         _trade_plan(),
         instrument=_instrument(),
         strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
         session_state=_session(),
         client=object(),
-        previous_trade_lifecycle=_lifecycle(allow=True),
+        previous_trade_lifecycle=lifecycle,
         cycle_executor=_successful_cycle,
     )
 
