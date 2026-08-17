@@ -64,12 +64,19 @@ def test_strategy_v2_suite_keeps_all_candidates_shadow_only() -> None:
     assert suite["suite"] == "BYBIT_CRYPTO_STRATEGY_V2_SHADOW"
     assert suite["candidate_contract"]["minimum_entry_net_profit_usd"] == 20.0
     assert suite["candidate_contract"]["runner_minimum_expected_edge_multiple"] == 1.5
+    tight = suite["candidate_contract"]["tight_profit_lock_hypothesis"]
+    assert tight["break_even_activation_r"] == 0.8
+    assert tight["profit_lock_activation_r"] == 1.0
+    assert tight["profit_lock_r"] == 0.5
+    assert tight["same_sample_14d_promotion_allowed"] is False
+    assert tight["requires_walk_forward_validation"] is True
     assert suite["strategy_promotion_allowed"] is False
     assert suite["demo_order_writes_enabled"] is False
     assert suite["live_promotion_allowed"] is False
     assert suite["bybit_live_order_routing_allowed"] is False
     assert set(suite["candidates"]) == {
         "CONDITIONAL_1_5X",
+        "CONDITIONAL_TIGHT_PROFIT_LOCK",
         "CONDITIONAL_SESSION_RISK",
         "CONDITIONAL_DIVERSIFIED",
         "CONDITIONAL_EXECUTION_RISK",
@@ -92,6 +99,7 @@ def test_strategy_v2_suite_exposes_only_overlay_differences_in_comparison() -> N
 
     assert set(comparison) == set(suite["candidates"])
     assert comparison["CONDITIONAL_1_5X"]["session_risk"]["enabled"] is False
+    assert comparison["CONDITIONAL_TIGHT_PROFIT_LOCK"]["session_risk"]["enabled"] is False
     assert comparison["CONDITIONAL_SESSION_RISK"]["session_risk"]["enabled"] is True
     assert comparison["CONDITIONAL_DIVERSIFIED"]["correlation_diversification"][
         "enabled"
