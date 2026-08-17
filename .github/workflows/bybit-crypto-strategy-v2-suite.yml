@@ -1,0 +1,58 @@
+name: bybit-crypto-strategy-v2-suite
+
+on:
+  push:
+    branches:
+      - agent/trading-quality-profit-protection
+    paths:
+      - 'tools/research_bybit_crypto_strategy_v2.py'
+      - 'tests/test_research_bybit_crypto_strategy_v2.py'
+      - '.github/workflows/bybit-crypto-strategy-v2-suite.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/research_bybit_crypto_strategy_v2.py'
+      - 'tests/test_research_bybit_crypto_strategy_v2.py'
+      - '.github/workflows/bybit-crypto-strategy-v2-suite.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-crypto-strategy-v2-suite-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  candidate-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint strategy v2 suite
+        run: >-
+          ruff check --output-format=github
+          tools/research_bybit_crypto_strategy_v2.py
+          tests/test_research_bybit_crypto_strategy_v2.py
+
+      - name: Test candidate comparison contract
+        run: pytest -vv tests/test_research_bybit_crypto_strategy_v2.py
+
+      - name: Compile suite boundary
+        run: >-
+          python -m compileall -q
+          tools/research_bybit_crypto_strategy_v2.py
+          tests/test_research_bybit_crypto_strategy_v2.py
