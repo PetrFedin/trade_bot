@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.marketdata.bybit_funding import (
@@ -40,9 +40,11 @@ def test_complete_funding_acquisition_never_claims_usdt_impact_without_marks() -
         symbols=("BTCUSDT", "ETHUSDT"),
         lookback_days=2,
         client=_Client(),
+        now=datetime(2026, 8, 17, 12, tzinfo=UTC),
     )
 
     assert report["qualification"] == "PASS_BYBIT_FUNDING_HISTORY_ACQUISITION"
+    assert report["archive_dates"] == ["2026-08-15", "2026-08-16"]
     assert report["record_counts_by_symbol"] == {"BTCUSDT": 1, "ETHUSDT": 1}
     assert report["blocked_symbols"] == {}
     assert report["mark_price_evidence_included"] is False
@@ -57,6 +59,7 @@ def test_external_access_failure_is_normalized_not_misreported_as_pass() -> None
         symbols=("BTCUSDT", "ETHUSDT"),
         lookback_days=2,
         client=_Client(fail_symbol="ETHUSDT"),
+        now=datetime(2026, 8, 17, 12, tzinfo=UTC),
     )
 
     assert report["qualification"] == "BLOCKED_BYBIT_FUNDING_EXTERNAL_ACCESS"
