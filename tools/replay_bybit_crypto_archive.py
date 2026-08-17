@@ -12,6 +12,7 @@ from app.marketdata.bybit_public_archive import (
     completed_archive_dates,
 )
 from app.strategy.crypto_runner_admission import CryptoRunnerAdmissionPolicy
+from app.strategy.crypto_session_risk import CryptoSessionRiskPolicy
 from tools.replay_bybit_crypto import (
     default_crypto_config,
     replay_acquisition,
@@ -71,6 +72,15 @@ def acquire_archive_and_replay(
         ),
         interval="5",
     )
+    conditional_runner_session_risk = replay_open_ended_crypto_runner(
+        acquisition.klines,
+        opening_equity_usdt=opening_equity_usdt,
+        runner_admission_policy=CryptoRunnerAdmissionPolicy(
+            minimum_expected_edge_multiple=_CONDITIONAL_RUNNER_EDGE_MULTIPLE,
+        ),
+        session_risk_policy=CryptoSessionRiskPolicy(),
+        interval="5",
+    )
     three_x_candidate = replay_acquisition(
         acquisition.klines,
         opening_equity_usdt=opening_equity_usdt,
@@ -96,6 +106,9 @@ def acquire_archive_and_replay(
         strategy_shadow_candidates={
             "MIN_20_NET_EDGE_OPEN_ENDED_RUNNER": open_ended_runner,
             "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_1_5X": conditional_runner,
+            "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_SESSION_RISK": (
+                conditional_runner_session_risk
+            ),
         },
         notional_cap_shadow_candidates={
             "MAX_NOTIONAL_3X_EQUITY": {
@@ -126,6 +139,10 @@ def acquire_archive_and_replay(
         "The conditional runner is the fail-closed default: it keeps the fixed $20 target unless "
         "pre-entry expected net edge is at least 1.5x the $20 activation amount; only those "
         "excess-edge positions receive an uncapped runner.",
+        "The session-risk candidate uses the same conditional runner and adds a continuous-window "
+        "kill switch for realized loss, peak drawdown, execution cost and consecutive losses. "
+        "A flatten decision is executed only at the next bar open and remains research-only; "
+        "no daily reset behavior is assumed without separate evidence.",
         "Neither the $15 protection objective nor the $20 target is guaranteed realized PnL; "
         "gaps, fees, latency and slippage can produce lower realized results.",
         "The 3x notional-cap run is a predeclared shadow candidate with unchanged 1% "
