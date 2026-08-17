@@ -11,16 +11,13 @@ from app.marketdata.bybit_public_archive import (
     BybitPublicTradeArchiveClient,
     completed_archive_dates,
 )
-from app.strategy.crypto_correlation import CryptoCorrelationPolicy
-from app.strategy.crypto_execution_risk import CryptoExecutionRiskPolicy
-from app.strategy.crypto_runner_admission import CryptoRunnerAdmissionPolicy
-from app.strategy.crypto_session_risk import CryptoSessionRiskPolicy
 from tools.replay_bybit_crypto import (
     default_crypto_config,
     replay_acquisition,
     write_trade_csvs,
 )
 from tools.replay_bybit_crypto_runner import replay_open_ended_crypto_runner
+from tools.research_bybit_crypto_strategy_v2 import run_crypto_strategy_v2_suite
 
 _DEFAULT_SYMBOLS = (
     "BTCUSDT",
@@ -33,7 +30,6 @@ _DEFAULT_SYMBOLS = (
     "ADAUSDT",
 )
 _DEFAULT_TARGETS = (Decimal("15"), Decimal("20"), Decimal("25"))
-_CONDITIONAL_RUNNER_EDGE_MULTIPLE = Decimal("1.50")
 
 
 def acquire_archive_and_replay(
@@ -66,41 +62,12 @@ def acquire_archive_and_replay(
         allow_unconditional_runner_shadow=True,
         interval="5",
     )
-    conditional_runner = replay_open_ended_crypto_runner(
+    strategy_v2 = run_crypto_strategy_v2_suite(
         acquisition.klines,
         opening_equity_usdt=opening_equity_usdt,
-        runner_admission_policy=CryptoRunnerAdmissionPolicy(
-            minimum_expected_edge_multiple=_CONDITIONAL_RUNNER_EDGE_MULTIPLE,
-        ),
         interval="5",
     )
-    conditional_runner_session_risk = replay_open_ended_crypto_runner(
-        acquisition.klines,
-        opening_equity_usdt=opening_equity_usdt,
-        runner_admission_policy=CryptoRunnerAdmissionPolicy(
-            minimum_expected_edge_multiple=_CONDITIONAL_RUNNER_EDGE_MULTIPLE,
-        ),
-        session_risk_policy=CryptoSessionRiskPolicy(),
-        interval="5",
-    )
-    conditional_runner_diversified = replay_open_ended_crypto_runner(
-        acquisition.klines,
-        opening_equity_usdt=opening_equity_usdt,
-        runner_admission_policy=CryptoRunnerAdmissionPolicy(
-            minimum_expected_edge_multiple=_CONDITIONAL_RUNNER_EDGE_MULTIPLE,
-        ),
-        correlation_policy=CryptoCorrelationPolicy(),
-        interval="5",
-    )
-    conditional_runner_execution_risk = replay_open_ended_crypto_runner(
-        acquisition.klines,
-        opening_equity_usdt=opening_equity_usdt,
-        runner_admission_policy=CryptoRunnerAdmissionPolicy(
-            minimum_expected_edge_multiple=_CONDITIONAL_RUNNER_EDGE_MULTIPLE,
-        ),
-        execution_risk_policy=CryptoExecutionRiskPolicy(),
-        interval="5",
-    )
+    v2_candidates = strategy_v2["candidates"]
     three_x_candidate = replay_acquisition(
         acquisition.klines,
         opening_equity_usdt=opening_equity_usdt,
@@ -123,18 +90,24 @@ def acquire_archive_and_replay(
         current_incomplete_bar_excluded=True,
         raw_trade_archive_committed_to_repository=False,
         rest_api_required=False,
+        strategy_v2_candidate_contract=strategy_v2["candidate_contract"],
         strategy_shadow_candidates={
             "MIN_20_NET_EDGE_OPEN_ENDED_RUNNER": open_ended_runner,
-            "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_1_5X": conditional_runner,
-            "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_SESSION_RISK": (
-                conditional_runner_session_risk
-            ),
-            "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_DIVERSIFIED": (
-                conditional_runner_diversified
-            ),
-            "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_EXECUTION_RISK": (
-                conditional_runner_execution_risk
-            ),
+            "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_1_5X": v2_candidates[
+                "CONDITIONAL_1_5X"
+            ],
+            "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_SESSION_RISK": v2_candidates[
+                "CONDITIONAL_SESSION_RISK"
+            ],
+            "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_DIVERSIFIED": v2_candidates[
+                "CONDITIONAL_DIVERSIFIED"
+            ],
+            "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_EXECUTION_RISK": v2_candidates[
+                "CONDITIONAL_EXECUTION_RISK"
+            ],
+            "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_COMBINED_RISK": v2_candidates[
+                "CONDITIONAL_COMBINED_RISK"
+            ],
         },
         notional_cap_shadow_candidates={
             "MAX_NOTIONAL_3X_EQUITY": {
@@ -162,6 +135,9 @@ def acquire_archive_and_replay(
         "The unconditional open-ended runner is retained as an explicitly enabled shadow "
         "benchmark only: $20 is the modeled net activation level, $15 is an initial normal-fill "
         "protection objective, and favorable upside has no fixed take-profit ceiling.",
+        "All conditional risk candidates are instantiated through the same strategy-v2 suite "
+        "used by chronological walk-forward, preventing 14-day and 28-day evidence from "
+        "silently testing different parameter contracts.",
         "The conditional runner is the fail-closed default: it keeps the fixed $20 target unless "
         "pre-entry expected net edge is at least 1.5x the $20 activation amount; only those "
         "excess-edge positions receive an uncapped runner.",
@@ -175,6 +151,8 @@ def acquire_archive_and_replay(
         "The execution-risk candidate re-sizes pending quantity using only the first executable "
         "next-bar open. Quantity can only shrink; a trade is cancelled when the resized position "
         "cannot preserve both the planned risk budget and minimum net-profit edge.",
+        "The combined-risk candidate applies session, correlation and next-open execution risk "
+        "together and remains research-only until it passes the same frozen evidence gates.",
         "Neither the $15 protection objective nor the $20 target is guaranteed realized PnL; "
         "gaps, fees, latency and slippage can produce lower realized results.",
         "The 3x notional-cap run is a predeclared shadow candidate with unchanged 1% "
