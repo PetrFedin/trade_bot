@@ -65,8 +65,12 @@ def audit_session_risk_interventions(candidate: Mapping[str, Any]) -> dict[str, 
     block_symbol_counts: Counter[str] = Counter()
     block_reason_counts: Counter[str] = Counter()
     for event in entry_blocks:
-        block_side_counts[_required_text(event.get("side"), field="entry-block side").upper()] += 1
-        block_symbol_counts[_required_text(event.get("symbol"), field="entry-block symbol")] += 1
+        block_side_counts[
+            _required_text(event.get("side"), field="entry-block side").upper()
+        ] += 1
+        block_symbol_counts[
+            _required_text(event.get("symbol"), field="entry-block symbol")
+        ] += 1
         block_reason_counts.update(
             _strings(event.get("latched_reasons"), field="entry-block latched reasons")
         )
@@ -75,8 +79,12 @@ def audit_session_risk_interventions(candidate: Mapping[str, Any]) -> dict[str, 
     flatten_symbol_counts: Counter[str] = Counter()
     flatten_net_pnls: list[Decimal] = []
     for event in flatten_exits:
-        flatten_side_counts[_required_text(event.get("side"), field="flatten side").upper()] += 1
-        flatten_symbol_counts[_required_text(event.get("symbol"), field="flatten symbol")] += 1
+        flatten_side_counts[
+            _required_text(event.get("side"), field="flatten side").upper()
+        ] += 1
+        flatten_symbol_counts[
+            _required_text(event.get("symbol"), field="flatten symbol")
+        ] += 1
         flatten_net_pnls.append(
             _finite_decimal(event.get("net_pnl_usdt"), "flatten net_pnl_usdt")
         )
@@ -178,10 +186,16 @@ def _metrics(candidate: Mapping[str, Any]) -> dict[str, Decimal | int | None]:
     if not isinstance(raw, Mapping):
         raise ValueError("session-risk candidate metrics are missing")
     return {
-        "closed_trade_count": _non_negative_int(raw.get("closed_trade_count"), "closed_trade_count"),
-        "total_net_pnl_usdt": _finite_decimal(raw.get("total_net_pnl_usdt"), "total_net_pnl_usdt"),
+        "closed_trade_count": _non_negative_int(
+            raw.get("closed_trade_count"), "closed_trade_count"
+        ),
+        "total_net_pnl_usdt": _finite_decimal(
+            raw.get("total_net_pnl_usdt"), "total_net_pnl_usdt"
+        ),
         "profit_factor": _optional_decimal(raw.get("profit_factor"), "profit_factor"),
-        "maximum_drawdown_pct": _finite_decimal(raw.get("maximum_drawdown_pct"), "maximum_drawdown_pct"),
+        "maximum_drawdown_pct": _finite_decimal(
+            raw.get("maximum_drawdown_pct"), "maximum_drawdown_pct"
+        ),
         "fees_usdt": _finite_decimal(raw.get("fees_usdt"), "fees_usdt"),
         "risk_budget_breach_count": _non_negative_int(
             raw.get("risk_budget_breach_count"), "risk_budget_breach_count"
@@ -196,9 +210,12 @@ def _metric_delta(
     candidate_pf = candidate["profit_factor"]
     baseline_pf = baseline["profit_factor"]
     return {
-        "closed_trade_delta": int(candidate["closed_trade_count"]) - int(baseline["closed_trade_count"]),
+        "closed_trade_delta": (
+            int(candidate["closed_trade_count"]) - int(baseline["closed_trade_count"])
+        ),
         "total_net_pnl_delta_usdt": float(
-            Decimal(candidate["total_net_pnl_usdt"]) - Decimal(baseline["total_net_pnl_usdt"])
+            Decimal(candidate["total_net_pnl_usdt"])
+            - Decimal(baseline["total_net_pnl_usdt"])
         ),
         "profit_factor_delta": (
             None
@@ -209,9 +226,13 @@ def _metric_delta(
             Decimal(candidate["maximum_drawdown_pct"])
             - Decimal(baseline["maximum_drawdown_pct"])
         ),
-        "fees_delta_usdt": float(Decimal(candidate["fees_usdt"]) - Decimal(baseline["fees_usdt"])),
-        "risk_budget_breach_delta": int(candidate["risk_budget_breach_count"])
-        - int(baseline["risk_budget_breach_count"]),
+        "fees_delta_usdt": float(
+            Decimal(candidate["fees_usdt"]) - Decimal(baseline["fees_usdt"])
+        ),
+        "risk_budget_breach_delta": (
+            int(candidate["risk_budget_breach_count"])
+            - int(baseline["risk_budget_breach_count"])
+        ),
         "causal_attribution_allowed": False,
     }
 
@@ -223,8 +244,12 @@ def _event_is(value: object, event_name: str) -> bool:
 def _strings(value: object, *, field: str) -> tuple[str, ...]:
     if value is None:
         return ()
-    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
-        raise ValueError(f"session-risk {field} must be an array of non-empty strings")
+    if not isinstance(value, list) or not all(
+        isinstance(item, str) and item for item in value
+    ):
+        raise ValueError(
+            f"session-risk {field} must be an array of non-empty strings"
+        )
     return tuple(value)
 
 
