@@ -178,10 +178,17 @@ def validate_strategy_v2_policy(policy: dict[str, Any]) -> dict[str, Any]:
         is not lifecycle.require_account_closed_pnl_before_next_entry
     ):
         raise ValueError("post-trade closed-PnL reuse gate drifted")
+    if (
+        post_trade.get("funding_reconciliation_required_before_symbol_reuse")
+        is not lifecycle.require_funding_before_next_entry
+    ):
+        raise ValueError("post-trade funding reuse gate drifted")
     if post_trade.get("funding_is_never_assumed_zero_when_unreconciled") is not True:
         raise ValueError("unreconciled funding must never be assumed zero")
     if post_trade.get("fully_reconciled_net_pnl_requires_funding_coverage") is not True:
         raise ValueError("full PnL must require funding coverage")
+    if post_trade.get("profit_outcome_requires_fully_reconciled_all_in_pnl") is not True:
+        raise ValueError("profit outcome must require fully reconciled all-in PnL")
 
     promotion = _object(policy, "promotion")
     for field in (
