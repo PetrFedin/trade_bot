@@ -60,6 +60,7 @@ def acquire_archive_and_replay(
     open_ended_runner = replay_open_ended_crypto_runner(
         acquisition.klines,
         opening_equity_usdt=opening_equity_usdt,
+        allow_unconditional_runner_shadow=True,
         interval="5",
     )
     conditional_runner = replay_open_ended_crypto_runner(
@@ -119,12 +120,12 @@ def acquire_archive_and_replay(
         "order-book depth and queue position are not reconstructed.",
         "Only fully completed UTC archive days are included, so the current UTC day is "
         "intentionally absent from this historical qualification run.",
-        "The unconditional open-ended runner is retained as a shadow benchmark only: $20 is "
-        "the modeled net activation level, $15 is an initial normal-fill protection objective, "
-        "and favorable upside has no fixed take-profit ceiling.",
-        "The conditional runner is predeclared before replay: it keeps the fixed $20 target "
-        "unless pre-entry expected net edge is at least 1.5x the $20 activation amount; only "
-        "those excess-edge positions receive an uncapped runner.",
+        "The unconditional open-ended runner is retained as an explicitly enabled shadow "
+        "benchmark only: $20 is the modeled net activation level, $15 is an initial normal-fill "
+        "protection objective, and favorable upside has no fixed take-profit ceiling.",
+        "The conditional runner is the fail-closed default: it keeps the fixed $20 target unless "
+        "pre-entry expected net edge is at least 1.5x the $20 activation amount; only those "
+        "excess-edge positions receive an uncapped runner.",
         "Neither the $15 protection objective nor the $20 target is guaranteed realized PnL; "
         "gaps, fees, latency and slippage can produce lower realized results.",
         "The 3x notional-cap run is a predeclared shadow candidate with unchanged 1% "
