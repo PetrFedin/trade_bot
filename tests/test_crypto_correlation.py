@@ -36,7 +36,18 @@ def _closes_from_returns(start: str, returns: list[str]) -> list[Decimal]:
 
 
 def test_identical_return_stream_is_blocked_as_duplicate_exposure() -> None:
-    returns = ["0.01", "0.02", "-0.005", "0.015", "0.01", "-0.01", "0.02", "0.005", "-0.004", "0.012"]
+    returns = [
+        "0.01",
+        "0.02",
+        "-0.005",
+        "0.015",
+        "0.01",
+        "-0.01",
+        "0.02",
+        "0.005",
+        "-0.004",
+        "0.012",
+    ]
     btc = _series("BTCUSDT", _closes_from_returns("100", returns))
     eth = _series("ETHUSDT", _closes_from_returns("200", returns))
 
@@ -60,7 +71,18 @@ def test_identical_return_stream_is_blocked_as_duplicate_exposure() -> None:
 
 
 def test_negative_correlation_is_not_penalized() -> None:
-    returns = ["0.01", "0.02", "-0.005", "0.015", "0.01", "-0.01", "0.02", "0.005", "-0.004", "0.012"]
+    returns = [
+        "0.01",
+        "0.02",
+        "-0.005",
+        "0.015",
+        "0.01",
+        "-0.01",
+        "0.02",
+        "0.005",
+        "-0.004",
+        "0.012",
+    ]
     opposite = [str(-Decimal(value)) for value in returns]
     btc = _series("BTCUSDT", _closes_from_returns("100", returns))
     hedge = _series("ETHUSDT", _closes_from_returns("200", opposite))
