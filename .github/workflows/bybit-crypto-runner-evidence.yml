@@ -14,7 +14,9 @@ on:
       - 'tools/replay_bybit_crypto_archive.py'
       - 'tools/normalize_bybit_crypto_replay.py'
       - 'tools/evaluate_bybit_crypto_replay.py'
+      - 'tools/audit_bybit_crypto_runner_opportunity.py'
       - 'tests/test_bybit_crypto_runner_replay.py'
+      - 'tests/test_audit_bybit_crypto_runner_opportunity.py'
       - 'tests/test_crypto_correlation.py'
       - 'tests/test_crypto_execution_risk.py'
       - 'tests/test_crypto_execution_risk_replay.py'
@@ -33,7 +35,9 @@ on:
       - 'tools/replay_bybit_crypto_archive.py'
       - 'tools/normalize_bybit_crypto_replay.py'
       - 'tools/evaluate_bybit_crypto_replay.py'
+      - 'tools/audit_bybit_crypto_runner_opportunity.py'
       - 'tests/test_bybit_crypto_runner_replay.py'
+      - 'tests/test_audit_bybit_crypto_runner_opportunity.py'
       - 'tests/test_crypto_correlation.py'
       - 'tests/test_crypto_execution_risk.py'
       - 'tests/test_crypto_execution_risk_replay.py'
@@ -85,7 +89,9 @@ jobs:
           tools/replay_bybit_crypto_archive.py
           tools/normalize_bybit_crypto_replay.py
           tools/evaluate_bybit_crypto_replay.py
+          tools/audit_bybit_crypto_runner_opportunity.py
           tests/test_bybit_crypto_runner_replay.py
+          tests/test_audit_bybit_crypto_runner_opportunity.py
           tests/test_crypto_correlation.py
           tests/test_crypto_execution_risk.py
           tests/test_crypto_execution_risk_replay.py
@@ -94,6 +100,7 @@ jobs:
         run: >-
           pytest -vv
           tests/test_bybit_crypto_runner_replay.py
+          tests/test_audit_bybit_crypto_runner_opportunity.py
           tests/test_crypto_correlation.py
           tests/test_crypto_execution_risk.py
           tests/test_crypto_execution_risk_replay.py
@@ -114,6 +121,7 @@ jobs:
           tools/replay_bybit_crypto_archive.py
           tools/normalize_bybit_crypto_replay.py
           tools/evaluate_bybit_crypto_replay.py
+          tools/audit_bybit_crypto_runner_opportunity.py
 
   archive-replay:
     if: github.event_name != 'pull_request'
@@ -161,6 +169,12 @@ jobs:
             --input artifacts/bybit-runner/report.json \
             --output artifacts/bybit-runner/evidence-scorecard.json
 
+      - name: Audit frozen runner admission opportunity
+        run: |
+          PYTHONPATH=. python tools/audit_bybit_crypto_runner_opportunity.py \
+            --input artifacts/bybit-runner/report.json \
+            --output artifacts/bybit-runner/runner-opportunity.json
+
       - name: Enforce runner research boundary and print comparison
         run: |
           python - <<'PY'
@@ -169,6 +183,9 @@ jobs:
 
           report = json.loads(Path('artifacts/bybit-runner/report.json').read_text())
           score = json.loads(Path('artifacts/bybit-runner/evidence-scorecard.json').read_text())
+          opportunity = json.loads(
+              Path('artifacts/bybit-runner/runner-opportunity.json').read_text()
+          )
           candidates = report['strategy_shadow_candidates']
           score_candidates = score['strategy_shadow_candidates']
           runner = candidates['MIN_20_NET_EDGE_OPEN_ENDED_RUNNER']
@@ -176,6 +193,8 @@ jobs:
           session_risk = candidates['MIN_20_NET_EDGE_CONDITIONAL_RUNNER_SESSION_RISK']
           diversified = candidates['MIN_20_NET_EDGE_CONDITIONAL_RUNNER_DIVERSIFIED']
           execution_risk = candidates['MIN_20_NET_EDGE_CONDITIONAL_RUNNER_EXECUTION_RISK']
+          combined_name = 'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_COMBINED_RISK'
+          combined_opportunity = opportunity['candidates'][combined_name]
 
           assert runner['minimum_entry_net_profit_usd'] == 20.0
           assert runner['runner_activation_net_profit_usd'] == 20.0
@@ -191,6 +210,15 @@ jobs:
           assert diversified['correlation_diversification']['enabled'] is True
           assert execution_risk['execution_risk']['enabled'] is True
           assert execution_risk['metrics']['risk_budget_breach_count'] == 0
+
+          assert opportunity['runner_threshold_retuning_allowed'] is False
+          assert opportunity['automatic_runner_activation_allowed'] is False
+          assert opportunity['strategy_promotion_allowed'] is False
+          assert opportunity['live_promotion_allowed'] is False
+          assert combined_opportunity['fixed_target_post_exit_path_is_censored'] is True
+          assert combined_opportunity['fixed_target_mfe_may_validate_runner_counterfactual'] is False
+          assert combined_opportunity['runner_threshold_retuning_allowed'] is False
+          assert combined_opportunity['automatic_runner_activation_allowed'] is False
 
           for name, candidate in candidates.items():
               assert candidate['strategy_promotion_allowed'] is False, name
@@ -217,6 +245,7 @@ jobs:
                   'metrics': execution_risk['metrics'],
                   'execution_risk': execution_risk['execution_risk'],
               },
+              'combined_runner_opportunity': combined_opportunity,
           }
           print('BYBIT_RUNNER_COMPARISON=' + json.dumps(summary, sort_keys=True))
           PY
