@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from enum import StrEnum
-from typing import Sequence
 
 from app.execution.bybit_demo_account_pnl_reconciliation import (
     BybitDemoAccountPnlReconciliation,
