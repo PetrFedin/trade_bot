@@ -133,7 +133,38 @@ def test_completed_bar_runner_ratchets_without_a_take_profit_ceiling() -> None:
     ) is None
 
 
-def test_stateful_runner_replay_has_no_fixed_target_exit() -> None:
+def test_unconditional_runner_requires_explicit_shadow_opt_in() -> None:
+    report = replay_open_ended_crypto_runner(
+        _synthetic_acquisition(),
+        opening_equity_usdt=Decimal("1000"),
+        base_config=_replay_config(),
+        protection_policy=CryptoProtectionPolicy(maximum_holding_bars=12),
+        runner_policy=CryptoProfitRunnerPolicy(
+            activation_net_profit_usd=Decimal("1"),
+            protected_net_profit_usd=Decimal("0.5"),
+        ),
+        allow_unconditional_runner_shadow=True,
+    )
+
+    assert report["mode"] == "MIN_20_NET_EDGE_OPEN_ENDED_RUNNER"
+    assert report["minimum_entry_net_profit_usd"] == 1.0
+    assert report["runner_activation_net_profit_usd"] == 1.0
+    assert report["runner_initial_protected_net_profit_usd"] == 0.5
+    assert report["profit_cap_net_profit_usd"] is None
+    assert report["fixed_take_profit_enabled"] is False
+    assert report["unconditional_runner_shadow_explicitly_enabled"] is True
+    assert report["strategy_promotion_allowed"] is False
+    assert report["bybit_live_order_routing_allowed"] is False
+    assert report["accepted_trade_plan_event_count"] > 0
+    assert report["runner_selected_trade_count"] > 0
+    assert report["fixed_target_selected_trade_count"] == 0
+    assert report["runner_activation_event_count"] > 0
+    trades = report["closed_trades"]
+    assert trades
+    assert all(trade["exit_reason"] != CryptoExitReason.NET_TARGET.value for trade in trades)
+
+
+def test_runner_replay_defaults_to_conditional_excess_edge_gate() -> None:
     report = replay_open_ended_crypto_runner(
         _synthetic_acquisition(),
         opening_equity_usdt=Decimal("1000"),
@@ -145,21 +176,10 @@ def test_stateful_runner_replay_has_no_fixed_target_exit() -> None:
         ),
     )
 
-    assert report["mode"] == "MIN_20_NET_EDGE_OPEN_ENDED_RUNNER"
-    assert report["minimum_entry_net_profit_usd"] == 1.0
-    assert report["runner_activation_net_profit_usd"] == 1.0
-    assert report["runner_initial_protected_net_profit_usd"] == 0.5
-    assert report["profit_cap_net_profit_usd"] is None
-    assert report["fixed_take_profit_enabled"] is False
-    assert report["strategy_promotion_allowed"] is False
-    assert report["bybit_live_order_routing_allowed"] is False
-    assert report["accepted_trade_plan_event_count"] > 0
-    assert report["runner_selected_trade_count"] > 0
-    assert report["fixed_target_selected_trade_count"] == 0
-    assert report["runner_activation_event_count"] > 0
-    trades = report["closed_trades"]
-    assert trades
-    assert all(trade["exit_reason"] != CryptoExitReason.NET_TARGET.value for trade in trades)
+    assert report["mode"] == "MIN_20_NET_EDGE_CONDITIONAL_OPEN_ENDED_RUNNER"
+    assert report["fixed_take_profit_enabled"] is True
+    assert report["runner_minimum_expected_edge_multiple"] == 1.5
+    assert report["unconditional_runner_shadow_explicitly_enabled"] is False
 
 
 def test_conditional_runner_keeps_fixed_target_when_excess_edge_gate_fails() -> None:
