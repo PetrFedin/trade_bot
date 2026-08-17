@@ -6,13 +6,17 @@ on:
       - agent/trading-quality-profit-protection
     paths:
       - 'tools/audit_bybit_crypto_session_risk_interventions.py'
+      - 'tools/audit_bybit_crypto_walk_forward_session_risk.py'
       - 'tests/test_audit_bybit_crypto_session_risk_interventions.py'
+      - 'tests/test_audit_bybit_crypto_walk_forward_session_risk.py'
       - '.github/workflows/bybit-crypto-session-risk-intervention-audit.yml'
   pull_request:
     branches: [main]
     paths:
       - 'tools/audit_bybit_crypto_session_risk_interventions.py'
+      - 'tools/audit_bybit_crypto_walk_forward_session_risk.py'
       - 'tests/test_audit_bybit_crypto_session_risk_interventions.py'
+      - 'tests/test_audit_bybit_crypto_walk_forward_session_risk.py'
       - '.github/workflows/bybit-crypto-session-risk-intervention-audit.yml'
 
 permissions:
@@ -42,19 +46,23 @@ jobs:
           python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
           python -m pip check
 
-      - name: Lint session-risk intervention audit
+      - name: Lint session-risk audit surfaces
         run: >-
           ruff check --output-format=github
           tools/audit_bybit_crypto_session_risk_interventions.py
+          tools/audit_bybit_crypto_walk_forward_session_risk.py
           tests/test_audit_bybit_crypto_session_risk_interventions.py
+          tests/test_audit_bybit_crypto_walk_forward_session_risk.py
 
-      - name: Test session-risk intervention audit
+      - name: Test session-risk audit surfaces
         run: >-
           pytest -vv
           tests/test_audit_bybit_crypto_session_risk_interventions.py
+          tests/test_audit_bybit_crypto_walk_forward_session_risk.py
           tests/test_crypto_session_risk.py
 
       - name: Compile session-risk audit boundary
         run: >-
           python -m compileall -q
           tools/audit_bybit_crypto_session_risk_interventions.py
+          tools/audit_bybit_crypto_walk_forward_session_risk.py
