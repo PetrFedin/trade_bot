@@ -9,6 +9,7 @@ on:
       - 'app/execution/bybit_demo_cycle.py'
       - 'app/marketdata/bybit_instruments.py'
       - 'app/strategy/crypto_correlation.py'
+      - 'app/strategy/crypto_execution_risk.py'
       - 'app/strategy/crypto_perp.py'
       - 'app/strategy/crypto_trade_management.py'
       - 'app/strategy/crypto_evidence.py'
@@ -29,6 +30,8 @@ on:
       - 'tests/test_bybit_demo_cycle.py'
       - 'tests/test_bybit_instruments.py'
       - 'tests/test_crypto_correlation.py'
+      - 'tests/test_crypto_execution_risk.py'
+      - 'tests/test_crypto_execution_risk_replay.py'
       - 'tests/test_crypto_evidence.py'
       - 'tests/test_crypto_session_risk.py'
       - 'tests/test_crypto_replay_quality.py'
@@ -75,6 +78,7 @@ jobs:
           app/execution/bybit_demo_cycle.py
           app/marketdata/bybit_instruments.py
           app/strategy/crypto_correlation.py
+          app/strategy/crypto_execution_risk.py
           app/strategy/crypto_perp.py
           app/strategy/crypto_trade_management.py
           app/strategy/crypto_evidence.py
@@ -95,6 +99,8 @@ jobs:
           tests/test_bybit_demo_cycle.py
           tests/test_bybit_instruments.py
           tests/test_crypto_correlation.py
+          tests/test_crypto_execution_risk.py
+          tests/test_crypto_execution_risk_replay.py
           tests/test_crypto_evidence.py
           tests/test_crypto_session_risk.py
           tests/test_crypto_replay_quality.py
@@ -118,6 +124,8 @@ jobs:
             tests/test_bybit_demo_cycle.py \
             tests/test_bybit_instruments.py \
             tests/test_crypto_correlation.py \
+            tests/test_crypto_execution_risk.py \
+            tests/test_crypto_execution_risk_replay.py \
             tests/test_crypto_evidence.py \
             tests/test_crypto_session_risk.py \
             tests/test_crypto_replay_quality.py \
@@ -137,6 +145,7 @@ jobs:
           app/execution/bybit_demo_cycle.py
           app/marketdata/bybit_instruments.py
           app/strategy/crypto_correlation.py
+          app/strategy/crypto_execution_risk.py
           app/strategy/crypto_perp.py
           app/strategy/crypto_trade_management.py
           app/strategy/crypto_evidence.py
