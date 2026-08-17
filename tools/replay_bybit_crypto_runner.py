@@ -20,6 +20,11 @@ from app.strategy.crypto_runner_admission import (
     CryptoRunnerAdmissionPolicy,
     evaluate_crypto_runner_admission,
 )
+from app.strategy.crypto_session_risk import (
+    CryptoSessionRiskPolicy,
+    CryptoSessionRiskState,
+    evaluate_crypto_session_risk,
+)
 from app.strategy.crypto_trade_management import (
     CryptoExitReason,
     CryptoProtectionPolicy,
@@ -29,6 +34,7 @@ from app.strategy.crypto_trade_management import (
 )
 from tools import replay_bybit_crypto as replay_core
 
+_PNL_EPSILON_USDT = Decimal("0.000001")
 _PendingEntry = replay_core._PendingEntry
 _Position = replay_core._Position
 _bars_by_symbol_and_time = replay_core._bars_by_symbol_and_time
@@ -53,6 +59,7 @@ def replay_open_ended_crypto_runner(
     runner_policy: CryptoProfitRunnerPolicy | None = None,
     runner_admission_policy: CryptoRunnerAdmissionPolicy | None = None,
     allow_unconditional_runner_shadow: bool = False,
+    session_risk_policy: CryptoSessionRiskPolicy | None = None,
     interval: str = "5",
 ) -> dict[str, Any]:
     """Replay a >=$20 portfolio with an excess-edge-gated unlimited runner by default.
@@ -62,9 +69,11 @@ def replay_open_ended_crypto_runner(
     ``allow_unconditional_runner_shadow=True`` is passed explicitly; this prevents a missing
     caller argument from silently changing the strategy under test.
 
-    Entry remains completed-bar signal -> next-bar open. Runner activation is observed from a
-    completed bar and can only tighten the stop for the following bar, so no same-bar
-    retroactive protection is credited to the strategy.
+    ``session_risk_policy`` is an optional continuous-window shadow overlay. It is evaluated only
+    after a bar is complete. A flatten decision therefore executes at the next bar open, never
+    retroactively inside the bar that caused the drawdown/cost/loss-streak breach. Once a
+    session kill-switch fires it remains latched for the rest of this replay window; no reset
+    schedule is invented by the backtest.
     """
 
     if opening_equity_usdt <= 0:
@@ -82,6 +91,8 @@ def replay_open_ended_crypto_runner(
             else runner_admission_policy
         )
         active_admission.validate()
+    if session_risk_policy is not None:
+        session_risk_policy.validate()
 
     base = default_crypto_config() if base_config is None else base_config
     config = replace(base, target_net_profit_usd=runner.activation_net_profit_usd)
@@ -120,8 +131,48 @@ def replay_open_ended_crypto_runner(
     runner_armed: set[str] = set()
     decision_events: list[dict[str, Any]] = []
 
+    session_realized_pnl = Decimal("0")
+    session_execution_cost = Decimal("0")
+    session_consecutive_losses = 0
+    session_block_latched = False
+    pending_session_flatten = False
+    session_risk_event_count = 0
+    session_risk_entry_block_count = 0
+    session_risk_flatten_trade_count = 0
+    session_risk_reason_counts: Counter[str] = Counter()
+
     for index, timestamp in enumerate(common_times):
         current_bars = {symbol: bars[index] for symbol, bars in bars_by_symbol.items()}
+
+        if pending_session_flatten:
+            for symbol, position in list(positions.items()):
+                trade, cash_delta = _close_position(
+                    position,
+                    raw_exit_price=current_bars[symbol].open,
+                    exit_time=timestamp,
+                    reason=CryptoExitReason.SESSION_RISK_FLATTEN,
+                    config=config,
+                    gap_through=False,
+                    ambiguous=False,
+                )
+                cash_equity += cash_delta
+                closed.append(trade)
+                session_realized_pnl, session_execution_cost, session_consecutive_losses = (
+                    _session_after_close(
+                        trade,
+                        entry_fee=position.entry_fee,
+                        realized_pnl=session_realized_pnl,
+                        execution_cost=session_execution_cost,
+                        consecutive_losses=session_consecutive_losses,
+                    )
+                )
+                positions.pop(symbol)
+                runner_levels.pop(symbol, None)
+                runner_armed.discard(symbol)
+                pending_max_hold_exits.discard(symbol)
+                session_risk_flatten_trade_count += 1
+                decision_events.append(_exit_event(trade))
+            pending_session_flatten = False
 
         for symbol in tuple(pending_max_hold_exits):
             position = positions.get(symbol)
@@ -139,6 +190,15 @@ def replay_open_ended_crypto_runner(
             )
             cash_equity += cash_delta
             closed.append(trade)
+            session_realized_pnl, session_execution_cost, session_consecutive_losses = (
+                _session_after_close(
+                    trade,
+                    entry_fee=position.entry_fee,
+                    realized_pnl=session_realized_pnl,
+                    execution_cost=session_execution_cost,
+                    consecutive_losses=session_consecutive_losses,
+                )
+            )
             positions.pop(symbol)
             runner_levels.pop(symbol, None)
             runner_armed.discard(symbol)
@@ -146,7 +206,7 @@ def replay_open_ended_crypto_runner(
             cooldown_until_index[symbol] = index + policy.cooldown_bars_after_stop
             decision_events.append(_exit_event(trade))
 
-        entries_to_execute = pending_entries
+        entries_to_execute = [] if session_block_latched else pending_entries
         pending_entries = []
         for pending in entries_to_execute:
             if pending.plan.symbol in positions:
@@ -183,6 +243,7 @@ def replay_open_ended_crypto_runner(
 
             positions[symbol] = position
             cash_equity -= position.entry_fee
+            session_execution_cost += position.entry_fee
             decision_events.append(
                 {
                     "event": "ENTRY",
@@ -215,9 +276,7 @@ def replay_open_ended_crypto_runner(
                         [] if admission is None else list(admission.reasons)
                     ),
                     "fixed_target_price": (
-                        None
-                        if runner_selected
-                        else float(position.target_trigger_price)
+                        None if runner_selected else float(position.target_trigger_price)
                     ),
                     "profit_cap_net_profit_usd": None if runner_selected else 20.0,
                     "risk_budget_usdt": float(position.plan.risk_budget_usdt),
@@ -243,6 +302,15 @@ def replay_open_ended_crypto_runner(
             )
             cash_equity += cash_delta
             closed.append(trade)
+            session_realized_pnl, session_execution_cost, session_consecutive_losses = (
+                _session_after_close(
+                    trade,
+                    entry_fee=position.entry_fee,
+                    realized_pnl=session_realized_pnl,
+                    execution_cost=session_execution_cost,
+                    consecutive_losses=session_consecutive_losses,
+                )
+            )
             positions.pop(symbol)
             runner_levels.pop(symbol, None)
             runner_armed.discard(symbol)
@@ -311,6 +379,39 @@ def replay_open_ended_crypto_runner(
             maximum_drawdown = max(maximum_drawdown, drawdown)
         equity_curve.append({"time": timestamp.isoformat(), "equity": float(equity)})
 
+        if session_risk_policy is not None and not session_block_latched:
+            session_decision = evaluate_crypto_session_risk(
+                CryptoSessionRiskState(
+                    opening_equity_usdt=opening_equity_usdt,
+                    current_equity_usdt=equity,
+                    peak_equity_usdt=peak_equity,
+                    realized_pnl_usdt=session_realized_pnl,
+                    execution_cost_usdt=session_execution_cost,
+                    consecutive_losses=session_consecutive_losses,
+                ),
+                session_risk_policy,
+            )
+            if not session_decision.new_entries_allowed:
+                session_block_latched = True
+                pending_entries = []
+                session_risk_event_count += 1
+                session_risk_reason_counts.update(session_decision.reasons)
+                pending_session_flatten = session_decision.flatten_required and bool(positions)
+                decision_events.append(
+                    {
+                        "event": "SESSION_RISK_LATCHED",
+                        "decision_time": timestamp.isoformat(),
+                        "action": session_decision.action.value,
+                        "reasons": list(session_decision.reasons),
+                        "flatten_at_next_open": pending_session_flatten,
+                        "current_equity_usdt": float(equity),
+                        "peak_equity_usdt": float(peak_equity),
+                        "realized_pnl_usdt": float(session_realized_pnl),
+                        "execution_cost_usdt": float(session_execution_cost),
+                        "consecutive_losses": session_consecutive_losses,
+                    }
+                )
+
         if index >= len(common_times) - 1:
             continue
         rankings = rank_crypto_signals(histories, config)
@@ -323,6 +424,19 @@ def replay_open_ended_crypto_runner(
             signal_event_count += 1
             symbol = evaluation.signal.symbol
             if symbol in positions or symbol in already_pending:
+                continue
+            if session_block_latched:
+                plan_block_counts["SESSION_RISK_BLOCKED"] += 1
+                session_risk_entry_block_count += 1
+                decision_events.append(
+                    {
+                        "event": "SESSION_RISK_ENTRY_BLOCK",
+                        "symbol": symbol,
+                        "side": evaluation.signal.side.value,
+                        "decision_time": timestamp.isoformat(),
+                        "latched_reasons": sorted(session_risk_reason_counts),
+                    }
+                )
                 continue
             if index < cooldown_until_index.get(symbol, -1):
                 plan_block_counts["COOLDOWN_ACTIVE"] += 1
@@ -373,12 +487,22 @@ def replay_open_ended_crypto_runner(
             )
             cash_equity += cash_delta
             closed.append(trade)
+            session_realized_pnl, session_execution_cost, session_consecutive_losses = (
+                _session_after_close(
+                    trade,
+                    entry_fee=position.entry_fee,
+                    realized_pnl=session_realized_pnl,
+                    execution_cost=session_execution_cost,
+                    consecutive_losses=session_consecutive_losses,
+                )
+            )
             positions.pop(symbol)
             runner_levels.pop(symbol, None)
             runner_armed.discard(symbol)
             decision_events.append(_exit_event(trade))
 
     final_equity = cash_equity
+    final_peak_equity = max(peak_equity, final_equity)
     metrics = _metrics(
         closed,
         opening_equity=opening_equity_usdt,
@@ -411,6 +535,25 @@ def replay_open_ended_crypto_runner(
         "profit_cap_net_profit_usd": None if not conditional else "CONDITIONAL_BY_TRADE",
         "fixed_take_profit_enabled": conditional,
         "runner_activation_event_count": runner_activation_event_count,
+        "session_risk": {
+            "enabled": session_risk_policy is not None,
+            "scope": "CONTINUOUS_REPLAY_WINDOW_NO_RESET",
+            "decision_timing": "COMPLETED_BAR_STATE_TO_NEXT_OPEN_FLATTEN",
+            "kill_switch_latched": session_block_latched,
+            "risk_event_count": session_risk_event_count,
+            "entry_block_count": session_risk_entry_block_count,
+            "flatten_trade_count": session_risk_flatten_trade_count,
+            "reason_counts": dict(session_risk_reason_counts),
+            "policy": _session_policy_snapshot(session_risk_policy),
+            "final_state": {
+                "opening_equity_usdt": float(opening_equity_usdt),
+                "current_equity_usdt": float(final_equity),
+                "peak_equity_usdt": float(final_peak_equity),
+                "realized_pnl_usdt": float(session_realized_pnl),
+                "execution_cost_usdt": float(session_execution_cost),
+                "consecutive_losses": session_consecutive_losses,
+            },
+        },
         "metrics": metrics,
         "closed_trades": [trade.as_dict() for trade in closed],
         "signal_filter_reason_counts": dict(reason_counts),
@@ -424,6 +567,10 @@ def replay_open_ended_crypto_runner(
         "runner_protection_contract": (
             "completed favorable bar arms/tightens runner only for the next bar"
         ),
+        "session_risk_contract": (
+            "completed-bar session state may latch new-entry blocking immediately for the next "
+            "decision; forced flatten executes only at the next available bar open"
+        ),
         "conditional_runner_contract": (
             "fixed $20 target unless pre-entry expected net edge clears the excess-edge runner gate"
             if conditional
@@ -434,6 +581,38 @@ def replay_open_ended_crypto_runner(
         "bybit_demo_order_writes_enabled": False,
         "bybit_live_order_routing_allowed": False,
         "strategy": _strategy_snapshot(config, policy),
+    }
+
+
+def _session_after_close(
+    trade: Any,
+    *,
+    entry_fee: Decimal,
+    realized_pnl: Decimal,
+    execution_cost: Decimal,
+    consecutive_losses: int,
+) -> tuple[Decimal, Decimal, int]:
+    realized_pnl += trade.net_pnl_usdt
+    exit_fee = trade.fees_usdt - entry_fee
+    if exit_fee < 0:
+        raise ValueError("crypto replay exit fee cannot be negative")
+    execution_cost += exit_fee
+    if trade.net_pnl_usdt < -_PNL_EPSILON_USDT:
+        consecutive_losses += 1
+    elif trade.net_pnl_usdt > _PNL_EPSILON_USDT:
+        consecutive_losses = 0
+    return realized_pnl, execution_cost, consecutive_losses
+
+
+def _session_policy_snapshot(policy: CryptoSessionRiskPolicy | None) -> dict[str, object] | None:
+    if policy is None:
+        return None
+    return {
+        "maximum_realized_loss_fraction": float(policy.maximum_realized_loss_fraction),
+        "maximum_drawdown_fraction": float(policy.maximum_drawdown_fraction),
+        "maximum_execution_cost_fraction": float(policy.maximum_execution_cost_fraction),
+        "maximum_consecutive_losses": policy.maximum_consecutive_losses,
+        "minimum_equity_fraction": float(policy.minimum_equity_fraction),
     }
 
 
