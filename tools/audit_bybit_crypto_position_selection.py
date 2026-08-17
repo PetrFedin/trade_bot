@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -218,10 +218,12 @@ def acquire_archive_and_audit_position_selection(
     lookback_days: int = 14,
     equity_usdt: Decimal = Decimal("1000"),
     client: BybitPublicTradeArchiveClient | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     if lookback_days < 1:
         raise ValueError("selection audit lookback_days must be positive")
-    dates = completed_archive_dates(lookback_days=lookback_days)
+    cutoff = datetime.now(UTC) if now is None else now
+    dates = completed_archive_dates(now=cutoff, lookback_days=lookback_days)
     archive = BybitPublicTradeArchiveClient() if client is None else client
     acquisition = archive.fetch_klines(
         symbols=symbols,
