@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'app/strategy/crypto_correlation.py'
+      - 'app/strategy/crypto_execution_risk.py'
       - 'app/strategy/crypto_profit_runner.py'
       - 'app/strategy/crypto_runner_admission.py'
       - 'app/strategy/crypto_session_risk.py'
@@ -15,12 +16,15 @@ on:
       - 'tools/evaluate_bybit_crypto_replay.py'
       - 'tests/test_bybit_crypto_runner_replay.py'
       - 'tests/test_crypto_correlation.py'
+      - 'tests/test_crypto_execution_risk.py'
+      - 'tests/test_crypto_execution_risk_replay.py'
       - '.github/workflows/bybit-crypto-runner-evidence.yml'
   push:
     branches:
       - agent/trading-quality-profit-protection
     paths:
       - 'app/strategy/crypto_correlation.py'
+      - 'app/strategy/crypto_execution_risk.py'
       - 'app/strategy/crypto_profit_runner.py'
       - 'app/strategy/crypto_runner_admission.py'
       - 'app/strategy/crypto_session_risk.py'
@@ -31,6 +35,8 @@ on:
       - 'tools/evaluate_bybit_crypto_replay.py'
       - 'tests/test_bybit_crypto_runner_replay.py'
       - 'tests/test_crypto_correlation.py'
+      - 'tests/test_crypto_execution_risk.py'
+      - 'tests/test_crypto_execution_risk_replay.py'
       - '.github/workflows/bybit-crypto-runner-evidence.yml'
   workflow_dispatch:
     inputs:
@@ -70,6 +76,7 @@ jobs:
         run: >-
           ruff check --output-format=github
           app/strategy/crypto_correlation.py
+          app/strategy/crypto_execution_risk.py
           app/strategy/crypto_profit_runner.py
           app/strategy/crypto_runner_admission.py
           app/strategy/crypto_session_risk.py
@@ -80,12 +87,16 @@ jobs:
           tools/evaluate_bybit_crypto_replay.py
           tests/test_bybit_crypto_runner_replay.py
           tests/test_crypto_correlation.py
+          tests/test_crypto_execution_risk.py
+          tests/test_crypto_execution_risk_replay.py
 
       - name: Test runner replay contract
         run: >-
           pytest -vv
           tests/test_bybit_crypto_runner_replay.py
           tests/test_crypto_correlation.py
+          tests/test_crypto_execution_risk.py
+          tests/test_crypto_execution_risk_replay.py
           tests/test_crypto_replay_quality.py
           tests/test_crypto_protection_quality.py
           tests/test_evaluate_bybit_crypto_replay.py
@@ -94,6 +105,7 @@ jobs:
         run: >-
           python -m compileall -q
           app/strategy/crypto_correlation.py
+          app/strategy/crypto_execution_risk.py
           app/strategy/crypto_profit_runner.py
           app/strategy/crypto_runner_admission.py
           app/strategy/crypto_session_risk.py
@@ -163,6 +175,7 @@ jobs:
           conditional = candidates['MIN_20_NET_EDGE_CONDITIONAL_RUNNER_1_5X']
           session_risk = candidates['MIN_20_NET_EDGE_CONDITIONAL_RUNNER_SESSION_RISK']
           diversified = candidates['MIN_20_NET_EDGE_CONDITIONAL_RUNNER_DIVERSIFIED']
+          execution_risk = candidates['MIN_20_NET_EDGE_CONDITIONAL_RUNNER_EXECUTION_RISK']
 
           assert runner['minimum_entry_net_profit_usd'] == 20.0
           assert runner['runner_activation_net_profit_usd'] == 20.0
@@ -176,6 +189,8 @@ jobs:
           assert conditional['unconditional_runner_shadow_explicitly_enabled'] is False
           assert session_risk['session_risk']['enabled'] is True
           assert diversified['correlation_diversification']['enabled'] is True
+          assert execution_risk['execution_risk']['enabled'] is True
+          assert execution_risk['metrics']['risk_budget_breach_count'] == 0
 
           for name, candidate in candidates.items():
               assert candidate['strategy_promotion_allowed'] is False, name
@@ -197,6 +212,10 @@ jobs:
               'diversified_runner': {
                   'metrics': diversified['metrics'],
                   'correlation_diversification': diversified['correlation_diversification'],
+              },
+              'execution_risk_runner': {
+                  'metrics': execution_risk['metrics'],
+                  'execution_risk': execution_risk['execution_risk'],
               },
           }
           print('BYBIT_RUNNER_COMPARISON=' + json.dumps(summary, sort_keys=True))
