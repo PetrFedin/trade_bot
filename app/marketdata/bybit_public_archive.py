@@ -8,17 +8,53 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_FLOOR, Decimal
-from typing import BinaryIO
-from urllib.error import HTTPError
-from urllib.request import urlopen
+from http.client import HTTPException, HTTPResponse, HTTPSConnection
+from typing import BinaryIO, cast
+from urllib.parse import urlsplit
 
 from app.marketdata.bybit_v5 import BybitKlineAcquisition, BybitKlineBar
 
 _PUBLIC_ARCHIVE_BASE = "https://public.bybit.com/trading"
+_PUBLIC_ARCHIVE_HOST = "public.bybit.com"
 
 
 class BybitArchiveUnavailableError(RuntimeError):
     pass
+
+
+class _ArchiveTransportError(OSError):
+    pass
+
+
+class _ArchiveHttpStatusError(_ArchiveTransportError):
+    def __init__(self, status: int) -> None:
+        super().__init__(f"Bybit archive HTTP status {status}")
+        self.status = status
+
+
+class _HttpsArchiveStream:
+    """Keep the HTTPS connection alive for a streaming gzip consumer."""
+
+    def __init__(self, connection: HTTPSConnection, response: HTTPResponse) -> None:
+        self._connection = connection
+        self._response = response
+        self._closed = False
+
+    def read(self, size: int = -1) -> bytes:
+        return self._response.read(size)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._response.close()
+        finally:
+            self._connection.close()
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
 
 
 @dataclass
@@ -130,9 +166,13 @@ class BybitPublicTradeArchiveClient:
                                 f"Bybit archive file contained no trades:{symbol}"
                             )
                         return count
-        except HTTPError as exc:
+        except _ArchiveHttpStatusError as exc:
             raise BybitArchiveUnavailableError(
-                f"Bybit archive download failed:{symbol}:HTTP_{exc.code}"
+                f"Bybit archive download failed:{symbol}:HTTP_{exc.status}"
+            ) from exc
+        except _ArchiveTransportError as exc:
+            raise BybitArchiveUnavailableError(
+                f"Bybit archive download failed:{symbol}:TRANSPORT"
             ) from exc
         except (OSError, UnicodeError, csv.Error) as exc:
             raise BybitArchiveUnavailableError(
@@ -254,5 +294,37 @@ def _validate_header(fieldnames: list[str] | None) -> None:
         raise ValueError(f"Bybit archive CSV missing columns:{sorted(missing)}")
 
 
+def _validated_archive_path(url: str) -> str:
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or parsed.hostname != _PUBLIC_ARCHIVE_HOST:
+        raise ValueError("Bybit archive transport rejected non-allowlisted endpoint")
+    if parsed.username is not None or parsed.password is not None or parsed.fragment:
+        raise ValueError("Bybit archive transport rejected ambiguous URL authority")
+    if parsed.port not in (None, 443):
+        raise ValueError("Bybit archive transport requires HTTPS port 443")
+    if parsed.query:
+        raise ValueError("Bybit archive transport rejects query parameters")
+    if not parsed.path.startswith("/trading/") or not parsed.path.endswith(".csv.gz"):
+        raise ValueError("Bybit archive transport rejected unexpected path")
+    return parsed.path
+
+
 def _open_archive(url: str) -> BinaryIO:
-    return urlopen(url, timeout=90)  # noqa: S310 - URL is constructed from a fixed Bybit host.
+    target = _validated_archive_path(url)
+    connection = HTTPSConnection(_PUBLIC_ARCHIVE_HOST, 443, timeout=90)
+    try:
+        connection.request(
+            "GET",
+            target,
+            headers={"Accept-Encoding": "identity", "User-Agent": "astra-trade-bot-research/1.0"},
+        )
+        response = connection.getresponse()
+    except (OSError, HTTPException) as exc:
+        connection.close()
+        raise _ArchiveTransportError("Bybit archive HTTPS request failed") from exc
+    if response.status != 200:
+        status = response.status
+        response.close()
+        connection.close()
+        raise _ArchiveHttpStatusError(status)
+    return cast(BinaryIO, _HttpsArchiveStream(connection, response))
