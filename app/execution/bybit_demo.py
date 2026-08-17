@@ -6,7 +6,7 @@ import json
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from http.client import HTTPSConnection
 from typing import Any
 from urllib.parse import urlencode, urlsplit
@@ -149,6 +149,7 @@ class BybitDemoPosition:
     size: Decimal
     average_price: Decimal | None
     unrealised_pnl: Decimal | None
+    liquidation_price: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -341,6 +342,7 @@ class BybitDemoOrderClient:
                     size=_required_decimal(row, "size"),
                     average_price=_optional_decimal(row, "avgPrice"),
                     unrealised_pnl=_optional_decimal(row, "unrealisedPnl"),
+                    liquidation_price=_optional_finite_decimal(row, "liqPrice"),
                 )
             )
         return tuple(positions)
@@ -441,7 +443,7 @@ def _required_decimal(row: Mapping[str, Any], field: str) -> Decimal:
         raise ValueError(f"Bybit demo response missing {field}")
     try:
         return Decimal(str(value))
-    except (TypeError, ValueError) as exc:
+    except (InvalidOperation, TypeError, ValueError) as exc:
         raise ValueError(f"Bybit demo response has invalid {field}") from exc
 
 
@@ -451,8 +453,21 @@ def _optional_decimal(row: Mapping[str, Any], field: str) -> Decimal | None:
         return None
     try:
         return Decimal(str(value))
-    except (TypeError, ValueError) as exc:
+    except (InvalidOperation, TypeError, ValueError) as exc:
         raise ValueError(f"Bybit demo response has invalid {field}") from exc
+
+
+def _optional_finite_decimal(row: Mapping[str, Any], field: str) -> Decimal | None:
+    value = row.get(field)
+    if value in (None, ""):
+        return None
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(f"Bybit demo response has invalid {field}") from exc
+    if not parsed.is_finite():
+        raise ValueError(f"Bybit demo response has non-finite {field}")
+    return parsed
 
 
 def _fee_rate_decimal(row: Mapping[str, Any], field: str) -> Decimal:
