@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -184,22 +184,28 @@ def acquire_and_run_crypto_walk_forward(
     opening_equity_usdt: Decimal = Decimal("1000"),
     policy: CryptoWalkForwardPolicy | None = None,
     client: BybitPublicTradeArchiveClient | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
+    """Acquire completed UTC archives and run the same cold-start V2 suite as the safe wrapper."""
+
     active = CryptoWalkForwardPolicy() if policy is None else policy
     active.validate()
+    if opening_equity_usdt <= 0:
+        raise ValueError("walk-forward opening equity must be positive")
     minimum_days = active.fold_days * active.minimum_folds
     if lookback_days < minimum_days:
         raise ValueError(
             f"walk-forward requires at least {minimum_days} completed archive days"
         )
-    dates = completed_archive_dates(lookback_days=lookback_days)
+    cutoff = datetime.now(UTC) if now is None else now
+    dates = completed_archive_dates(now=cutoff, lookback_days=lookback_days)
     archive = BybitPublicTradeArchiveClient() if client is None else client
     acquisition = archive.fetch_klines(
         symbols=symbols,
         dates=dates,
         interval_minutes=5,
     )
-    acquisition.klines.validate(requested_symbols=symbols, minimum_bars=25)
+    acquisition.validate(requested_symbols=symbols, minimum_bars=25)
     report = run_crypto_walk_forward(
         acquisition.klines,
         opening_equity_usdt=opening_equity_usdt,
@@ -211,6 +217,10 @@ def acquire_and_run_crypto_walk_forward(
         symbols=list(symbols),
         archive_completed_utc_days_only=True,
         raw_trade_archive_committed_to_repository=False,
+        strategy_promotion_allowed=False,
+        demo_observation_allowed=False,
+        live_promotion_allowed=False,
+        bybit_live_order_routing_allowed=False,
     )
     return report
 
