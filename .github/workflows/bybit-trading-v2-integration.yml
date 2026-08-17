@@ -12,6 +12,7 @@ on:
       - 'app/execution/bybit_demo_funding_reconciliation.py'
       - 'app/execution/bybit_demo_lifecycle_gate.py'
       - 'app/execution/bybit_demo_post_trade_accounting.py'
+      - 'app/execution/bybit_demo_quality_tracker.py'
       - 'app/execution/bybit_demo_orchestrator.py'
       - 'app/execution/bybit_demo_trade_monitor.py'
       - 'app/strategy/crypto_correlation.py'
@@ -27,6 +28,7 @@ on:
       - 'tests/test_bybit_demo_funding_reconciliation.py'
       - 'tests/test_bybit_demo_lifecycle_gate.py'
       - 'tests/test_bybit_demo_post_trade_accounting.py'
+      - 'tests/test_bybit_demo_quality_tracker.py'
       - 'tests/test_bybit_demo_orchestrator.py'
       - 'tests/test_bybit_demo_position_parsing.py'
       - 'tests/test_bybit_demo_trade_monitor.py'
@@ -82,6 +84,7 @@ jobs:
           app/execution/bybit_demo_funding_reconciliation.py
           app/execution/bybit_demo_lifecycle_gate.py
           app/execution/bybit_demo_post_trade_accounting.py
+          app/execution/bybit_demo_quality_tracker.py
           app/execution/bybit_demo_orchestrator.py
           app/execution/bybit_demo_trade_monitor.py
           app/strategy/crypto_correlation.py
@@ -97,6 +100,7 @@ jobs:
           tests/test_bybit_demo_funding_reconciliation.py
           tests/test_bybit_demo_lifecycle_gate.py
           tests/test_bybit_demo_post_trade_accounting.py
+          tests/test_bybit_demo_quality_tracker.py
           tests/test_bybit_demo_orchestrator.py
           tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_trade_monitor.py
@@ -138,6 +142,7 @@ jobs:
           tests/test_bybit_demo_funding_reconciliation.py
           tests/test_bybit_demo_lifecycle_gate.py
           tests/test_bybit_demo_post_trade_accounting.py
+          tests/test_bybit_demo_quality_tracker.py
           tests/test_bybit_demo_orchestrator.py
           tests/test_evaluate_bybit_crypto_replay.py
 
@@ -151,6 +156,7 @@ jobs:
           app/execution/bybit_demo_funding_reconciliation.py
           app/execution/bybit_demo_lifecycle_gate.py
           app/execution/bybit_demo_post_trade_accounting.py
+          app/execution/bybit_demo_quality_tracker.py
           app/execution/bybit_demo_orchestrator.py
           app/execution/bybit_demo_trade_monitor.py
           app/strategy/crypto_correlation.py
