@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
-from typing import Any, Mapping, Protocol
+from typing import Any, Protocol
 
 from app.execution.bybit_demo import BybitDemoPosition
 
@@ -160,7 +161,9 @@ def reconcile_bybit_demo_trade(
             gross_pnl = (average_exit - average_entry) * matched_quantity
         else:
             gross_pnl = (average_entry - average_exit) * matched_quantity
-        net_pnl = gross_pnl - execution_fees
+        realized_entry_fees = entry_fees * matched_quantity / entry_quantity
+        realized_execution_fees = realized_entry_fees + exit_fees
+        net_pnl = gross_pnl - realized_execution_fees
 
     if reasons:
         status = BybitDemoTradeMonitorStatus.AMBIGUOUS
