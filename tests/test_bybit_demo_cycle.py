@@ -329,7 +329,7 @@ def test_order_ack_without_reconciled_fill_never_counts_as_protected() -> None:
     assert len(client.orders) == 1
 
 
-def test_post_fill_risk_breach_sets_runner_protection_then_reduce_only_flatten() -> None:
+def test_post_fill_risk_breach_sets_protection_then_reduce_only_flatten() -> None:
     client = _FakeDemoClient([(), (_position("0.020"),)])
     result = execute_bybit_demo_trade_cycle(
         _trade_plan(),
@@ -343,9 +343,11 @@ def test_post_fill_risk_breach_sets_runner_protection_then_reduce_only_flatten()
     assert result.status is BybitDemoCycleStatus.PROTECTED_THEN_FLATTEN_REQUESTED
     assert result.protection_ack is not None
     assert result.flatten_ack is not None
-    assert result.exit_mode == "OPEN_ENDED_RUNNER"
+    assert result.exit_mode == "FIXED_20_TARGET"
     assert "POST_FILL_RISK_BUDGET_EXCEEDED" in result.reasons
     assert len(client.protections) == 1
+    fixed_request = client.protections[0]
+    assert hasattr(fixed_request, "take_profit_price")
     assert len(client.orders) == 2
     assert client.orders[1].reduce_only is True
     assert result.next_entry_allowed is False
