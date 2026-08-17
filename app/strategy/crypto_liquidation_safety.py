@@ -43,6 +43,18 @@ class CryptoLiquidationSafetyDecision:
     demo_activation_allowed: bool = False
     live_activation_allowed: bool = False
 
+    @property
+    def reason(self) -> CryptoLiquidationSafetyStatus:
+        """Compatibility alias for consumers that need the canonical status."""
+
+        return self.status
+
+    @property
+    def stop_to_liquidation_r(self) -> Decimal | None:
+        """Compatibility alias for the canonical stop-to-liquidation buffer in R."""
+
+        return self.stop_to_liquidation_buffer_r
+
 
 def evaluate_crypto_liquidation_safety(
     *,
