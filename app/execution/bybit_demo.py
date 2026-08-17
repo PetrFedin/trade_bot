@@ -14,6 +14,7 @@ from urllib.parse import urlencode, urlsplit
 _BYBIT_DEMO_HOST = "api-demo.bybit.com"
 _BYBIT_DEMO_BASE_URL = f"https://{_BYBIT_DEMO_HOST}"
 _ALLOWED_PATHS = {
+    "/v5/account/fee-rate",
     "/v5/order/create",
     "/v5/order/cancel",
     "/v5/order/realtime",
@@ -150,6 +151,13 @@ class BybitDemoPosition:
     unrealised_pnl: Decimal | None
 
 
+@dataclass(frozen=True)
+class BybitDemoFeeRate:
+    symbol: str
+    taker_fee_rate: Decimal
+    maker_fee_rate: Decimal
+
+
 Transport = Callable[[str, str, Mapping[str, str], str | None], BybitDemoHttpJson]
 ClockMs = Callable[[], int]
 
@@ -281,6 +289,31 @@ class BybitDemoOrderClient:
         if not isinstance(order_id, str) or returned_link != order_link_id:
             raise ValueError("Bybit demo cancel acknowledgement mismatch")
         return BybitDemoOrderAck(order_id, returned_link, True)
+
+    def get_fee_rate(self, *, symbol: str) -> BybitDemoFeeRate:
+        """Read account-specific demo fees so edge/risk math can use the actual tier."""
+
+        _validate_symbol(symbol)
+        response = self._signed_get(
+            "/v5/account/fee-rate",
+            {"category": "linear", "symbol": symbol},
+        )
+        rows = _result(response).get("list")
+        if not isinstance(rows, list):
+            raise ValueError("Bybit demo fee rate response missing list")
+        matches = [
+            row
+            for row in rows
+            if isinstance(row, Mapping) and row.get("symbol") == symbol
+        ]
+        if len(matches) != 1:
+            raise ValueError(f"Bybit demo fee rate response missing {symbol}")
+        row = matches[0]
+        return BybitDemoFeeRate(
+            symbol=symbol,
+            taker_fee_rate=_fee_rate_decimal(row, "takerFeeRate"),
+            maker_fee_rate=_fee_rate_decimal(row, "makerFeeRate"),
+        )
 
     def get_positions(self, *, settle_coin: str = "USDT") -> tuple[BybitDemoPosition, ...]:
         if settle_coin != settle_coin.strip().upper() or settle_coin != "USDT":
@@ -420,6 +453,13 @@ def _optional_decimal(row: Mapping[str, Any], field: str) -> Decimal | None:
         return Decimal(str(value))
     except (TypeError, ValueError) as exc:
         raise ValueError(f"Bybit demo response has invalid {field}") from exc
+
+
+def _fee_rate_decimal(row: Mapping[str, Any], field: str) -> Decimal:
+    value = _required_decimal(row, field)
+    if not value.is_finite() or value < 0 or value >= 1:
+        raise ValueError(f"Bybit demo {field} must be finite and within [0, 1)")
+    return value
 
 
 def _https_transport(
