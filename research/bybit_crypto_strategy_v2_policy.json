@@ -1,0 +1,94 @@
+{
+  "schema_version": "bybit-crypto-strategy-v2-policy-1",
+  "instrument_scope": "BYBIT_USDT_PERPETUALS",
+  "bar_interval": "5m",
+  "account_research_equity_usdt": 1000.0,
+  "entry": {
+    "minimum_expected_net_profit_usd": 20.0,
+    "allow_15_usd_entry_fallback": false,
+    "cost_aware_risk_fraction_per_trade": 0.01,
+    "maximum_notional_to_equity": 2.0,
+    "taker_fee_and_slippage_included": true,
+    "next_open_execution_risk": {
+      "enabled_in_shadow_candidate": true,
+      "maximum_risk_budget_multiple": 1.0,
+      "quantity_may_only_decrease": true,
+      "cancel_if_minimum_net_edge_lost": true
+    }
+  },
+  "runner": {
+    "activation_net_profit_usd": 20.0,
+    "initial_protected_net_profit_objective_usd": 15.0,
+    "initial_protection_is_not_guaranteed_realized_pnl": true,
+    "minimum_expected_edge_multiple": 1.5,
+    "minimum_expected_net_profit_usd_for_runner": 30.0,
+    "fixed_20_target_when_runner_gate_fails": true,
+    "unconditional_runner_is_benchmark_only": true
+  },
+  "portfolio": {
+    "maximum_concurrent_positions": 2,
+    "correlation_shadow_candidate": {
+      "lookback_bars": 20,
+      "minimum_return_observations": 10,
+      "maximum_positive_pairwise_correlation": 0.85,
+      "negative_correlation_penalized": false,
+      "insufficient_peer_history_fails_closed": true
+    }
+  },
+  "session_risk_shadow_candidate": {
+    "scope": "CONTINUOUS_REPLAY_WINDOW_NO_RESET",
+    "maximum_realized_loss_fraction": 0.03,
+    "maximum_drawdown_fraction": 0.05,
+    "maximum_execution_cost_fraction": 0.02,
+    "maximum_consecutive_losses": 3,
+    "minimum_equity_fraction": 0.90,
+    "forced_flatten_executes_at_next_open": true
+  },
+  "evidence": {
+    "minimum_completed_archive_days": 14,
+    "minimum_closed_trades": 30,
+    "minimum_profit_factor": 1.20,
+    "maximum_drawdown_pct": 5.0,
+    "maximum_fee_fraction_of_opening_equity": 0.10,
+    "require_positive_net_pnl": true,
+    "require_zero_risk_budget_breaches": true,
+    "completed_archive_day_counting": "UNIQUE_COMPLETED_UTC_ARCHIVE_DATES"
+  },
+  "walk_forward": {
+    "enabled": true,
+    "lookback_completed_archive_days": 28,
+    "fold_days": 7,
+    "minimum_folds": 4,
+    "cross_fold_signal_history_carried": false,
+    "cross_fold_position_state_carried": false,
+    "parameter_tuning_between_folds": false,
+    "minimum_total_closed_trades": 30,
+    "minimum_positive_fold_fraction": 0.75,
+    "minimum_aggregate_profit_factor": 1.20,
+    "maximum_worst_fold_drawdown_pct": 5.0,
+    "require_zero_risk_budget_breaches": true
+  },
+  "position_selection_audit": {
+    "candidate_ranking": [
+      "expected_net_r_desc",
+      "expected_net_edge_usd_desc",
+      "quality_score_desc",
+      "cost_to_target_fraction_asc",
+      "symbol_asc"
+    ],
+    "realized_pnl_used_for_ranking": false,
+    "automatic_activation_allowed": false
+  },
+  "post_trade_accounting": {
+    "terminal_fill_reconciliation_required": true,
+    "account_closed_pnl_reconciliation_required_before_symbol_reuse": true,
+    "funding_is_never_assumed_zero_when_unreconciled": true,
+    "fully_reconciled_net_pnl_requires_funding_coverage": true
+  },
+  "promotion": {
+    "strategy_promotion_allowed": false,
+    "demo_observation_automatic_activation_allowed": false,
+    "live_promotion_allowed": false,
+    "bybit_live_order_routing_allowed": false
+  }
+}
