@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import http.client
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Mapping, Protocol
+from typing import Any, Protocol
 from urllib.parse import urlencode
 
 _HOST = "api.bybit.com"
@@ -112,7 +113,8 @@ class BybitFundingHistoryClient:
             request_count += 1
             if len(rows) >= _MAX_LIMIT:
                 raise RuntimeError(
-                    "Bybit funding-history daily window reached API limit; refusing possible truncation"
+                    "Bybit funding-history daily window reached API limit; "
+                    "refusing possible truncation"
                 )
             for record in rows:
                 if not start <= record.funding_time <= end:
