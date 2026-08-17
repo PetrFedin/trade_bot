@@ -125,8 +125,8 @@ def compact_candidate_comparison(suite: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("crypto strategy-v2 candidate metrics are missing")
         comparison[name] = {
             "closed_trade_count": metrics["closed_trade_count"],
-            "winning_trade_count": metrics["winning_trade_count"],
-            "losing_trade_count": metrics["losing_trade_count"],
+            "winning_trade_count": metrics["win_count"],
+            "losing_trade_count": metrics["loss_count"],
             "total_net_pnl_usdt": metrics["total_net_pnl_usdt"],
             "profit_factor": metrics["profit_factor"],
             "maximum_drawdown_pct": metrics["maximum_drawdown_pct"],
