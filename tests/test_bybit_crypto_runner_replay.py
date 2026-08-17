@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from app.marketdata.bybit_v5 import BybitKlineAcquisition, BybitKlineBar
+from app.strategy.crypto_correlation import CryptoCorrelationPolicy
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig, CryptoSide
 from app.strategy.crypto_profit_runner import CryptoProfitRunnerPolicy
 from app.strategy.crypto_runner_admission import CryptoRunnerAdmissionPolicy
@@ -36,6 +37,17 @@ def _synthetic_acquisition(count: int = 90) -> BybitKlineAcquisition:
     bars = []
     for symbol, direction in (("BTCUSDT", 1), ("ETHUSDT", -1)):
         bars.extend(_bar(symbol, index, direction=direction, start=start) for index in range(count))
+    return BybitKlineAcquisition(
+        bars=tuple(sorted(bars, key=lambda item: (item.symbol, item.start_time))),
+        pages_by_symbol={"BTCUSDT": 1, "ETHUSDT": 1},
+    )
+
+
+def _correlated_acquisition(count: int = 90) -> BybitKlineAcquisition:
+    start = datetime(2026, 8, 1, tzinfo=UTC)
+    bars = []
+    for symbol in ("BTCUSDT", "ETHUSDT"):
+        bars.extend(_bar(symbol, index, direction=1, start=start) for index in range(count))
     return BybitKlineAcquisition(
         bars=tuple(sorted(bars, key=lambda item: (item.symbol, item.start_time))),
         pages_by_symbol={"BTCUSDT": 1, "ETHUSDT": 1},
@@ -182,6 +194,7 @@ def test_runner_replay_defaults_to_conditional_excess_edge_gate() -> None:
     assert report["runner_minimum_expected_edge_multiple"] == 1.5
     assert report["unconditional_runner_shadow_explicitly_enabled"] is False
     assert report["session_risk"]["enabled"] is False
+    assert report["correlation_diversification"]["enabled"] is False
 
 
 def test_conditional_runner_keeps_fixed_target_when_excess_edge_gate_fails() -> None:
@@ -245,5 +258,36 @@ def test_session_risk_cost_budget_latches_and_blocks_future_entries() -> None:
     assert latch["action"] == "BLOCK_NEW_ENTRIES"
     assert latch["flatten_at_next_open"] is False
     assert report["trade_plan_block_reason_counts"]["SESSION_RISK_BLOCKED"] > 0
+    assert report["strategy_promotion_allowed"] is False
+    assert report["bybit_live_order_routing_allowed"] is False
+
+
+def test_correlation_gate_blocks_duplicate_concurrent_directional_exposure() -> None:
+    report = replay_open_ended_crypto_runner(
+        _correlated_acquisition(),
+        opening_equity_usdt=Decimal("1000"),
+        base_config=_replay_config(),
+        protection_policy=CryptoProtectionPolicy(maximum_holding_bars=12),
+        runner_policy=CryptoProfitRunnerPolicy(
+            activation_net_profit_usd=Decimal("1"),
+            protected_net_profit_usd=Decimal("0.5"),
+        ),
+        correlation_policy=CryptoCorrelationPolicy(
+            lookback_bars=10,
+            minimum_return_observations=10,
+            maximum_pairwise_correlation=Decimal("0.85"),
+        ),
+    )
+
+    diversification = report["correlation_diversification"]
+    assert diversification["enabled"] is True
+    assert diversification["block_count"] > 0
+    assert diversification["reason_counts"]["PAIRWISE_CORRELATION_ABOVE_LIMIT"] > 0
+    assert report["trade_plan_block_reason_counts"]["PAIRWISE_CORRELATION_ABOVE_LIMIT"] > 0
+    assert any(
+        event["event"] == "CORRELATION_ENTRY_BLOCK"
+        and event["correlation"] == 1.0
+        for event in report["decision_events"]
+    )
     assert report["strategy_promotion_allowed"] is False
     assert report["bybit_live_order_routing_allowed"] is False
