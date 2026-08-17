@@ -6,6 +6,66 @@ on:
       - agent/trading-quality-profit-protection
     paths:
       - '.github/workflows/bybit-crypto-14d-strategy-v2.yml'
+      - '.ruff.toml'
+      - 'tests/.ruff.toml'
+      - 'requirements.lock'
+      - 'app/marketdata/bybit_public_archive.py'
+      - 'app/marketdata/bybit_v5.py'
+      - 'app/strategy/crypto_correlation.py'
+      - 'app/strategy/crypto_execution_risk.py'
+      - 'app/strategy/crypto_entry_economics.py'
+      - 'app/strategy/crypto_perp.py'
+      - 'app/strategy/crypto_profit_runner.py'
+      - 'app/strategy/crypto_runner_admission.py'
+      - 'app/strategy/crypto_session_risk.py'
+      - 'app/strategy/crypto_trade_management.py'
+      - 'tools/replay_bybit_crypto.py'
+      - 'tools/replay_bybit_crypto_runner.py'
+      - 'tools/replay_bybit_crypto_archive.py'
+      - 'tools/research_bybit_crypto_strategy_v2.py'
+      - 'tools/normalize_bybit_crypto_replay.py'
+      - 'tools/evaluate_bybit_crypto_replay.py'
+      - 'tests/test_bybit_crypto_runner_replay.py'
+      - 'tests/test_crypto_correlation.py'
+      - 'tests/test_crypto_execution_risk.py'
+      - 'tests/test_crypto_execution_risk_replay.py'
+      - 'tests/test_crypto_session_risk.py'
+      - 'tests/test_crypto_replay_quality.py'
+      - 'tests/test_crypto_protection_quality.py'
+      - 'tests/test_evaluate_bybit_crypto_replay.py'
+      - 'tests/test_research_bybit_crypto_strategy_v2.py'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/bybit-crypto-14d-strategy-v2.yml'
+      - '.ruff.toml'
+      - 'tests/.ruff.toml'
+      - 'requirements.lock'
+      - 'app/marketdata/bybit_public_archive.py'
+      - 'app/marketdata/bybit_v5.py'
+      - 'app/strategy/crypto_correlation.py'
+      - 'app/strategy/crypto_execution_risk.py'
+      - 'app/strategy/crypto_entry_economics.py'
+      - 'app/strategy/crypto_perp.py'
+      - 'app/strategy/crypto_profit_runner.py'
+      - 'app/strategy/crypto_runner_admission.py'
+      - 'app/strategy/crypto_session_risk.py'
+      - 'app/strategy/crypto_trade_management.py'
+      - 'tools/replay_bybit_crypto.py'
+      - 'tools/replay_bybit_crypto_runner.py'
+      - 'tools/replay_bybit_crypto_archive.py'
+      - 'tools/research_bybit_crypto_strategy_v2.py'
+      - 'tools/normalize_bybit_crypto_replay.py'
+      - 'tools/evaluate_bybit_crypto_replay.py'
+      - 'tests/test_bybit_crypto_runner_replay.py'
+      - 'tests/test_crypto_correlation.py'
+      - 'tests/test_crypto_execution_risk.py'
+      - 'tests/test_crypto_execution_risk_replay.py'
+      - 'tests/test_crypto_session_risk.py'
+      - 'tests/test_crypto_replay_quality.py'
+      - 'tests/test_crypto_protection_quality.py'
+      - 'tests/test_evaluate_bybit_crypto_replay.py'
+      - 'tests/test_research_bybit_crypto_strategy_v2.py'
   workflow_dispatch:
     inputs:
       lookback_days:
@@ -17,8 +77,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: bybit-crypto-14d-strategy-v2-${{ github.ref_name }}
-  cancel-in-progress: false
+  group: bybit-crypto-14d-strategy-v2-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   contract:
@@ -54,6 +114,7 @@ jobs:
             tools/replay_bybit_crypto.py \
             tools/replay_bybit_crypto_runner.py \
             tools/replay_bybit_crypto_archive.py \
+            tools/research_bybit_crypto_strategy_v2.py \
             tools/normalize_bybit_crypto_replay.py \
             tools/evaluate_bybit_crypto_replay.py \
             tests/test_bybit_crypto_runner_replay.py \
@@ -61,7 +122,8 @@ jobs:
             tests/test_crypto_execution_risk.py \
             tests/test_crypto_execution_risk_replay.py \
             tests/test_crypto_session_risk.py \
-            tests/test_evaluate_bybit_crypto_replay.py
+            tests/test_evaluate_bybit_crypto_replay.py \
+            tests/test_research_bybit_crypto_strategy_v2.py
           pytest -q \
             tests/test_bybit_crypto_runner_replay.py \
             tests/test_crypto_correlation.py \
@@ -70,7 +132,8 @@ jobs:
             tests/test_crypto_session_risk.py \
             tests/test_crypto_replay_quality.py \
             tests/test_crypto_protection_quality.py \
-            tests/test_evaluate_bybit_crypto_replay.py
+            tests/test_evaluate_bybit_crypto_replay.py \
+            tests/test_research_bybit_crypto_strategy_v2.py
           python -m compileall -q \
             app/strategy/crypto_correlation.py \
             app/strategy/crypto_execution_risk.py \
@@ -81,7 +144,8 @@ jobs:
             app/strategy/crypto_session_risk.py \
             app/strategy/crypto_trade_management.py \
             tools/replay_bybit_crypto_runner.py \
-            tools/replay_bybit_crypto_archive.py
+            tools/replay_bybit_crypto_archive.py \
+            tools/research_bybit_crypto_strategy_v2.py
 
   replay-14d:
     needs: contract
@@ -154,6 +218,7 @@ jobs:
               'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_SESSION_RISK',
               'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_DIVERSIFIED',
               'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_EXECUTION_RISK',
+              'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_COMBINED_RISK',
           }
           assert required.issubset(candidates)
           assert len(report['archive_dates']) >= 14
@@ -176,6 +241,11 @@ jobs:
           execution = candidates['MIN_20_NET_EDGE_CONDITIONAL_RUNNER_EXECUTION_RISK']
           assert execution['execution_risk']['enabled'] is True
           assert execution['metrics']['risk_budget_breach_count'] == 0
+          combined = candidates['MIN_20_NET_EDGE_CONDITIONAL_RUNNER_COMBINED_RISK']
+          assert combined['session_risk']['enabled'] is True
+          assert combined['correlation_diversification']['enabled'] is True
+          assert combined['execution_risk']['enabled'] is True
+          assert combined['metrics']['risk_budget_breach_count'] == 0
 
           for name in required:
               candidate = candidates[name]
@@ -199,6 +269,7 @@ jobs:
               'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_SESSION_RISK',
               'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_DIVERSIFIED',
               'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_EXECUTION_RISK',
+              'MIN_20_NET_EDGE_CONDITIONAL_RUNNER_COMBINED_RISK',
           ]
           comparison = {}
           for name in names:
@@ -219,6 +290,7 @@ jobs:
               'observed_days': score['observed_days'],
               'observation_window_basis': score['observation_window_basis'],
               'symbols': report['symbols'],
+              'strategy_v2_candidate_contract': report['strategy_v2_candidate_contract'],
               'comparison': comparison,
               'strategy_promotion_allowed': False,
               'live_promotion_allowed': False,
