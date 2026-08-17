@@ -114,7 +114,7 @@ def test_reconciled_orchestrator_blocks_on_unresolved_previous_trade() -> None:
     cycle_called = False
 
     def _reconcile(**kwargs: Any) -> Any:
-        assert kwargs["trade_read_client"] == "trade-reader"
+        assert kwargs["trade_client"] == "trade-reader"
         assert kwargs["accounting_client"] == "account-reader"
         assert kwargs["symbol"] == "BTCUSDT"
         return SimpleNamespace(lifecycle=_lifecycle(allow=False))
