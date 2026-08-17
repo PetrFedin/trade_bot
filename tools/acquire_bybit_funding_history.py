@@ -40,6 +40,7 @@ def acquire_funding_history(
     counts: dict[str, int] = {}
     request_counts: dict[str, int] = {}
     blocked: dict[str, str] = {}
+    blocked_details: dict[str, str] = {}
     for symbol in symbols:
         try:
             history = funding_client.fetch_history(
@@ -49,6 +50,7 @@ def acquire_funding_history(
             )
         except (OSError, RuntimeError, ValueError) as exc:
             blocked[symbol] = type(exc).__name__
+            blocked_details[symbol] = _safe_failure_detail(exc)
             continue
         rows = [
             {
@@ -78,6 +80,7 @@ def acquire_funding_history(
         "record_counts_by_symbol": counts,
         "request_counts_by_symbol": request_counts,
         "blocked_symbols": blocked,
+        "blocked_details_by_symbol": blocked_details,
         "mark_price_evidence_included": False,
         "funding_usdt_impact_calculated": False,
         "strategy_promotion_allowed": False,
@@ -85,6 +88,28 @@ def acquire_funding_history(
         "live_activation_allowed": False,
         "bybit_live_order_routing_allowed": False,
     }
+
+
+def _safe_failure_detail(exc: Exception) -> str:
+    """Keep public-data diagnostics useful without dumping arbitrary exception payloads."""
+
+    message = str(exc).strip()
+    prefixes = (
+        "Bybit funding-history HTTP status ",
+        "Bybit funding-history retCode ",
+        "Bybit funding-history returned invalid JSON",
+        "Bybit funding-history response must be an object",
+        "Bybit funding-history result must be an object",
+        "Bybit funding-history result.list must be an array",
+        "Bybit funding-history daily window reached API limit",
+        "conflicting Bybit funding rates for one funding timestamp",
+    )
+    for prefix in prefixes:
+        if message.startswith(prefix):
+            return message[:160]
+    if isinstance(exc, OSError):
+        return f"NETWORK_{type(exc).__name__}"
+    return type(exc).__name__
 
 
 def _parse_args() -> argparse.Namespace:
