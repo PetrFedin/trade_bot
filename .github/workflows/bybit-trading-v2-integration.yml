@@ -32,6 +32,7 @@ on:
       - 'tests/test_crypto_execution_risk_replay.py'
       - 'tests/test_crypto_liquidation_safety.py'
       - 'tests/test_crypto_trade_quality_diagnostics.py'
+      - 'tests/test_crypto_walk_forward_side_diagnostics.py'
       - 'tests/test_qualify_bybit_crypto_walk_forward.py'
       - 'tests/test_run_bybit_crypto_walk_forward_archive.py'
       - 'tests/test_research_bybit_crypto_strategy_v2.py'
@@ -97,6 +98,7 @@ jobs:
           tests/test_crypto_execution_risk_replay.py
           tests/test_crypto_liquidation_safety.py
           tests/test_crypto_trade_quality_diagnostics.py
+          tests/test_crypto_walk_forward_side_diagnostics.py
           tests/test_qualify_bybit_crypto_walk_forward.py
           tests/test_run_bybit_crypto_walk_forward_archive.py
           tests/test_research_bybit_crypto_strategy_v2.py
@@ -114,6 +116,7 @@ jobs:
           tests/test_crypto_liquidation_safety.py
           tests/test_crypto_session_risk.py
           tests/test_crypto_trade_quality_diagnostics.py
+          tests/test_crypto_walk_forward_side_diagnostics.py
           tests/test_report_bybit_crypto_trade_quality.py
           tests/test_research_bybit_crypto_strategy_v2.py
           tests/test_qualify_bybit_crypto_walk_forward.py
