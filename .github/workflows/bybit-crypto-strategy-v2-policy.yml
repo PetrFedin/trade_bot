@@ -6,8 +6,10 @@ on:
       - agent/trading-quality-profit-protection
     paths:
       - 'research/bybit_crypto_strategy_v2_policy.json'
+      - 'research/bybit_crypto_directional_gate_v1_policy.json'
       - 'tools/validate_bybit_crypto_strategy_v2_policy.py'
       - 'tests/test_validate_bybit_crypto_strategy_v2_policy.py'
+      - 'tests/test_bybit_crypto_directional_gate_policy.py'
       - 'app/strategy/crypto_correlation.py'
       - 'app/strategy/crypto_execution_risk.py'
       - 'app/strategy/crypto_perp.py'
@@ -20,8 +22,10 @@ on:
     branches: [main]
     paths:
       - 'research/bybit_crypto_strategy_v2_policy.json'
+      - 'research/bybit_crypto_directional_gate_v1_policy.json'
       - 'tools/validate_bybit_crypto_strategy_v2_policy.py'
       - 'tests/test_validate_bybit_crypto_strategy_v2_policy.py'
+      - 'tests/test_bybit_crypto_directional_gate_policy.py'
       - 'app/strategy/crypto_correlation.py'
       - 'app/strategy/crypto_execution_risk.py'
       - 'app/strategy/crypto_perp.py'
@@ -58,15 +62,18 @@ jobs:
           python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
           python -m pip check
 
-      - name: Lint policy validator
+      - name: Lint policy validators
         run: >-
           ruff check --output-format=github
           tools/validate_bybit_crypto_strategy_v2_policy.py
           tests/test_validate_bybit_crypto_strategy_v2_policy.py
+          tests/test_bybit_crypto_directional_gate_policy.py
 
-      - name: Validate committed policy against code defaults
+      - name: Validate committed research policies
         run: |
-          pytest -vv tests/test_validate_bybit_crypto_strategy_v2_policy.py
+          pytest -vv \
+            tests/test_validate_bybit_crypto_strategy_v2_policy.py \
+            tests/test_bybit_crypto_directional_gate_policy.py
           PYTHONPATH=. python tools/validate_bybit_crypto_strategy_v2_policy.py
 
       - name: Compile policy boundary
