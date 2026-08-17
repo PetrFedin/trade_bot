@@ -1,5 +1,8 @@
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
+
+import pytest
 
 from app.execution.bybit_demo_cycle import (
     BybitDemoCycleResult,
@@ -11,7 +14,9 @@ from app.execution.bybit_demo_lifecycle_gate import (
 )
 from app.execution.bybit_demo_orchestrator import (
     BybitDemoOrchestratorStatus,
+    BybitDemoPreviousTradeReference,
     execute_guarded_bybit_demo_cycle,
+    execute_reconciled_guarded_bybit_demo_cycle,
 )
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig, CryptoSide, CryptoTradePlan
@@ -95,6 +100,89 @@ def _successful_cycle(*args: Any, **kwargs: Any) -> BybitDemoCycleResult:
         demo_order_writes_enabled=True,
         live_mainnet_order_routing_allowed=False,
     )
+
+
+def _previous_trade() -> BybitDemoPreviousTradeReference:
+    return BybitDemoPreviousTradeReference(
+        symbol="BTCUSDT",
+        entry_side="Buy",
+        entry_order_link_id="ASTRA-DEMO-E-ABC123",
+    )
+
+
+def test_reconciled_orchestrator_blocks_on_unresolved_previous_trade() -> None:
+    cycle_called = False
+
+    def _reconcile(**kwargs: Any) -> Any:
+        assert kwargs["trade_read_client"] == "trade-reader"
+        assert kwargs["accounting_client"] == "account-reader"
+        assert kwargs["symbol"] == "BTCUSDT"
+        return SimpleNamespace(lifecycle=_lifecycle(allow=False))
+
+    def _must_not_run(*args: Any, **kwargs: Any) -> BybitDemoCycleResult:
+        nonlocal cycle_called
+        cycle_called = True
+        raise AssertionError("cycle executor must not run")
+
+    result = execute_reconciled_guarded_bybit_demo_cycle(
+        _trade_plan(),
+        instrument=_instrument(),
+        strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
+        session_state=_session(),
+        client=object(),
+        previous_trade=_previous_trade(),
+        trade_read_client="trade-reader",
+        accounting_client="account-reader",
+        lifecycle_reconciler=_reconcile,
+        cycle_executor=_must_not_run,
+    )
+
+    assert cycle_called is False
+    assert result.status is (
+        BybitDemoOrchestratorStatus.PREVIOUS_TRADE_RECONCILIATION_BLOCKED
+    )
+    assert result.previous_trade_accounting is not None
+    assert result.previous_trade_accounting.lifecycle.next_entry_allowed is False
+    assert result.next_entry_allowed is False
+
+
+def test_reconciled_orchestrator_executes_after_full_previous_accounting() -> None:
+    def _reconcile(**kwargs: Any) -> Any:
+        assert kwargs["entry_side"] == "Buy"
+        assert kwargs["entry_order_link_id"] == "ASTRA-DEMO-E-ABC123"
+        return SimpleNamespace(lifecycle=_lifecycle(allow=True))
+
+    result = execute_reconciled_guarded_bybit_demo_cycle(
+        _trade_plan(),
+        instrument=_instrument(),
+        strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
+        session_state=_session(),
+        client=object(),
+        previous_trade=_previous_trade(),
+        trade_read_client="trade-reader",
+        accounting_client="account-reader",
+        lifecycle_reconciler=_reconcile,
+        cycle_executor=_successful_cycle,
+    )
+
+    assert result.status is BybitDemoOrchestratorStatus.CYCLE_EXECUTED
+    assert result.previous_trade_accounting is not None
+    assert result.previous_trade_accounting.lifecycle.fully_reconciled_net_pnl is True
+    assert result.previous_trade_gate_checked is True
+    assert result.next_entry_allowed is True
+
+
+def test_reconciled_orchestrator_requires_readers_for_previous_trade() -> None:
+    with pytest.raises(ValueError, match="requires trade and accounting readers"):
+        execute_reconciled_guarded_bybit_demo_cycle(
+            _trade_plan(),
+            instrument=_instrument(),
+            strategy_config=CryptoPerpStrategyConfig(target_net_profit_usd=Decimal("20")),
+            session_state=_session(),
+            client=object(),
+            previous_trade=_previous_trade(),
+            cycle_executor=_successful_cycle,
+        )
 
 
 def test_previous_unreconciled_trade_blocks_before_cycle_executor() -> None:
