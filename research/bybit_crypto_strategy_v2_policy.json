@@ -82,8 +82,10 @@
   "post_trade_accounting": {
     "terminal_fill_reconciliation_required": true,
     "account_closed_pnl_reconciliation_required_before_symbol_reuse": true,
+    "funding_reconciliation_required_before_symbol_reuse": true,
     "funding_is_never_assumed_zero_when_unreconciled": true,
-    "fully_reconciled_net_pnl_requires_funding_coverage": true
+    "fully_reconciled_net_pnl_requires_funding_coverage": true,
+    "profit_outcome_requires_fully_reconciled_all_in_pnl": true
   },
   "promotion": {
     "strategy_promotion_allowed": false,
