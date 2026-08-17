@@ -66,6 +66,7 @@ def test_shadow_candidates_are_scored_but_never_live_promoted() -> None:
     baseline = scored["variants"]["TARGET_20_USD"]
     notional_candidate = scored["shadow_candidates"]["MAX_NOTIONAL_3X_EQUITY"]
     runner = scored["strategy_shadow_candidates"]["MIN_20_NET_EDGE_OPEN_ENDED_RUNNER"]
+    assert scored["observation_window_basis"] == "FIRST_TO_LAST_COMPLETED_BAR_ELAPSED_TIME"
     assert baseline["posture"] == "RETUNE_TARGET_FEASIBILITY"
     assert notional_candidate["strategy_promotion_allowed"] is False
     assert notional_candidate["demo_order_writes_allowed"] is False
@@ -82,3 +83,28 @@ def test_shadow_candidates_are_scored_but_never_live_promoted() -> None:
     assert runner["strategy_promotion_allowed"] is False
     assert runner["demo_order_writes_allowed"] is False
     assert runner["live_promotion_allowed"] is False
+
+
+def test_completed_archive_days_are_counted_as_completed_evidence_days() -> None:
+    archive_dates = [f"2026-08-{day:02d}" for day in range(3, 17)]
+    report = {
+        "qualification": "PASS_CRYPTO_HISTORICAL_REPLAY",
+        "source": "BYBIT_OFFICIAL_PUBLIC_TRADE_ARCHIVE_AGGREGATED_5M",
+        "first_completed_bar": "2026-08-03T00:00:00+00:00",
+        "last_completed_bar": "2026-08-16T23:55:00+00:00",
+        "archive_dates": archive_dates,
+        "archive_completed_utc_days_only": True,
+        "opening_equity_usdt": 1000.0,
+        "variants": {"TARGET_20_USD": _variant(accepted=30, trades=30, pnl=40.0)},
+        "strategy_shadow_candidates": {},
+    }
+
+    scored = evaluate_report(report)
+    target = scored["variants"]["TARGET_20_USD"]
+
+    assert scored["observed_days"] == 14.0
+    assert scored["observation_window_basis"] == "COMPLETED_UTC_ARCHIVE_DATES"
+    assert target["observed_days"] == 14.0
+    assert "OBSERVATION_WINDOW_TOO_SHORT" not in target["reasons"]
+    assert target["posture"] == "ELIGIBLE_FOR_DEMO_OBSERVATION"
+    assert target["live_promotion_allowed"] is False
