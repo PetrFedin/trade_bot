@@ -83,25 +83,34 @@ def test_account_mismatch_keeps_symbol_locked_by_default() -> None:
     assert decision.live_mainnet_order_routing_allowed is False
 
 
-def test_reconciled_closed_pnl_can_unlock_while_funding_remains_explicitly_pending() -> None:
+def test_default_gate_keeps_reconciled_closed_pnl_locked_until_funding() -> None:
     decision = evaluate_bybit_demo_lifecycle(_trade(), _account())
 
     assert decision.status is (
         BybitDemoLifecycleStatus.ACCOUNT_PNL_RECONCILED_FUNDING_PENDING
     )
-    assert decision.next_entry_allowed is True
+    assert decision.next_entry_allowed is False
     assert decision.account_closed_pnl_reconciled is True
     assert decision.funding_reconciled is False
     assert decision.fully_reconciled_net_pnl is False
 
 
-def test_strict_funding_policy_keeps_symbol_locked_until_full_accounting() -> None:
-    policy = BybitDemoLifecyclePolicy(require_funding_before_next_entry=True)
-    pending = evaluate_bybit_demo_lifecycle(_trade(), _account(), policy=policy)
+def test_explicit_relaxed_funding_policy_can_unlock_before_full_accounting() -> None:
+    policy = BybitDemoLifecyclePolicy(require_funding_before_next_entry=False)
+    decision = evaluate_bybit_demo_lifecycle(_trade(), _account(), policy=policy)
+
+    assert decision.status is (
+        BybitDemoLifecycleStatus.ACCOUNT_PNL_RECONCILED_FUNDING_PENDING
+    )
+    assert decision.next_entry_allowed is True
+    assert decision.fully_reconciled_net_pnl is False
+
+
+def test_default_funding_policy_unlocks_only_after_full_accounting() -> None:
+    pending = evaluate_bybit_demo_lifecycle(_trade(), _account())
     complete = evaluate_bybit_demo_lifecycle(
         _trade(),
         _account(funding=True),
-        policy=policy,
     )
 
     assert pending.next_entry_allowed is False
