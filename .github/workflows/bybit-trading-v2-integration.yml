@@ -7,9 +7,11 @@ on:
     paths:
       - 'app/execution/bybit_demo.py'
       - 'app/execution/bybit_demo_cycle.py'
+      - 'app/execution/bybit_demo_account_reader.py'
       - 'app/execution/bybit_demo_account_pnl_reconciliation.py'
       - 'app/execution/bybit_demo_funding_reconciliation.py'
       - 'app/execution/bybit_demo_lifecycle_gate.py'
+      - 'app/execution/bybit_demo_post_trade_accounting.py'
       - 'app/execution/bybit_demo_orchestrator.py'
       - 'app/execution/bybit_demo_trade_monitor.py'
       - 'app/strategy/crypto_correlation.py'
@@ -20,9 +22,11 @@ on:
       - 'tools/run_bybit_crypto_walk_forward_archive.py'
       - 'tools/research_bybit_crypto_strategy_v2.py'
       - 'tools/report_bybit_crypto_trade_quality.py'
+      - 'tests/test_bybit_demo_account_reader.py'
       - 'tests/test_bybit_demo_account_pnl_reconciliation.py'
       - 'tests/test_bybit_demo_funding_reconciliation.py'
       - 'tests/test_bybit_demo_lifecycle_gate.py'
+      - 'tests/test_bybit_demo_post_trade_accounting.py'
       - 'tests/test_bybit_demo_orchestrator.py'
       - 'tests/test_bybit_demo_position_parsing.py'
       - 'tests/test_bybit_demo_trade_monitor.py'
@@ -73,9 +77,11 @@ jobs:
           ruff check --output-format=github
           app/execution/bybit_demo.py
           app/execution/bybit_demo_cycle.py
+          app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_pnl_reconciliation.py
           app/execution/bybit_demo_funding_reconciliation.py
           app/execution/bybit_demo_lifecycle_gate.py
+          app/execution/bybit_demo_post_trade_accounting.py
           app/execution/bybit_demo_orchestrator.py
           app/execution/bybit_demo_trade_monitor.py
           app/strategy/crypto_correlation.py
@@ -86,9 +92,11 @@ jobs:
           tools/run_bybit_crypto_walk_forward_archive.py
           tools/research_bybit_crypto_strategy_v2.py
           tools/report_bybit_crypto_trade_quality.py
+          tests/test_bybit_demo_account_reader.py
           tests/test_bybit_demo_account_pnl_reconciliation.py
           tests/test_bybit_demo_funding_reconciliation.py
           tests/test_bybit_demo_lifecycle_gate.py
+          tests/test_bybit_demo_post_trade_accounting.py
           tests/test_bybit_demo_orchestrator.py
           tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_trade_monitor.py
@@ -125,9 +133,11 @@ jobs:
           tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_cycle.py
           tests/test_bybit_demo_trade_monitor.py
+          tests/test_bybit_demo_account_reader.py
           tests/test_bybit_demo_account_pnl_reconciliation.py
           tests/test_bybit_demo_funding_reconciliation.py
           tests/test_bybit_demo_lifecycle_gate.py
+          tests/test_bybit_demo_post_trade_accounting.py
           tests/test_bybit_demo_orchestrator.py
           tests/test_evaluate_bybit_crypto_replay.py
 
@@ -136,9 +146,11 @@ jobs:
           python -m compileall -q
           app/execution/bybit_demo.py
           app/execution/bybit_demo_cycle.py
+          app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_pnl_reconciliation.py
           app/execution/bybit_demo_funding_reconciliation.py
           app/execution/bybit_demo_lifecycle_gate.py
+          app/execution/bybit_demo_post_trade_accounting.py
           app/execution/bybit_demo_orchestrator.py
           app/execution/bybit_demo_trade_monitor.py
           app/strategy/crypto_correlation.py
