@@ -56,12 +56,25 @@ def test_next_open_audit_reports_gap_distribution_without_selecting_threshold() 
     )
 
     assert report["qualification"] == "BYBIT_CRYPTO_NEXT_OPEN_QUALITY_AUDIT"
-    assert report["eligible_trade_plan_count"] > 0
-    assert report["absolute_gap_atr"]["count"] > 0
+    plan_count = report["eligible_trade_plan_count"]
+    assert plan_count > 0
+    assert report["absolute_gap_atr"]["count"] == plan_count
     assert report["absolute_gap_atr"]["p50"] is not None
     assert report["absolute_gap_atr"]["p90"] is not None
     assert report["absolute_gap_atr"]["p95"] is not None
+    quantity = report["execution_quantity_retention_fraction"]
+    assert quantity["count"] == plan_count
+    assert quantity["min"] is not None
+    assert quantity["p05"] is not None
+    assert quantity["p10"] is not None
+    assert quantity["p50"] is not None
+    assert quantity["max"] <= 1.0
+    assert report["execution_expected_edge_ratio_to_planned"]["count"] == plan_count
+    assert report["execution_risk_budget_utilization_fraction"]["count"] == plan_count
+    assert report["execution_quantity_below_95pct_count"] <= plan_count
+    assert report["execution_quantity_below_90pct_count"] <= plan_count
     assert report["gap_threshold_selected"] is False
+    assert report["execution_size_threshold_selected"] is False
     assert report["automatic_execution_gate_activation_allowed"] is False
     assert report["strategy_promotion_allowed"] is False
     assert report["demo_activation_allowed"] is False
