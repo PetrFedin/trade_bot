@@ -206,7 +206,7 @@ def replay_open_ended_crypto_runner(
                     "fixed_target_price": (
                         None
                         if runner_selected
-                        else float(position.plan.target_trigger_price)
+                        else float(position.target_trigger_price)
                     ),
                     "profit_cap_net_profit_usd": None if runner_selected else 20.0,
                     "risk_budget_usdt": float(position.plan.risk_budget_usdt),
@@ -220,7 +220,7 @@ def replay_open_ended_crypto_runner(
                 bar=current_bars[symbol],
                 active_stop_price=position.protection.active_stop_price,
                 active_stop_reason=position.protection.active_stop_reason,
-                target_price=None if runner_selected else position.plan.target_trigger_price,
+                target_price=None if runner_selected else position.target_trigger_price,
             )
             if bar_exit is None:
                 continue
