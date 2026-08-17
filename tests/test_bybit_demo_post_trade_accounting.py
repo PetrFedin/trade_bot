@@ -133,7 +133,7 @@ def _funding_settlement(amount: str = "-0.10") -> dict[str, str]:
     }
 
 
-def test_terminal_trade_runs_closed_pnl_reconciliation_and_unlocks_default_lifecycle() -> None:
+def test_closed_pnl_without_funding_proof_stays_locked_by_default() -> None:
     reader = _Reader((_closed_pnl(),))
 
     result = reconcile_bybit_demo_post_trade_accounting(
@@ -150,7 +150,7 @@ def test_terminal_trade_runs_closed_pnl_reconciliation_and_unlocks_default_lifec
     assert result.lifecycle.status is (
         BybitDemoLifecycleStatus.ACCOUNT_PNL_RECONCILED_FUNDING_PENDING
     )
-    assert result.lifecycle.next_entry_allowed is True
+    assert result.lifecycle.next_entry_allowed is False
     assert result.lifecycle.fully_reconciled_net_pnl is False
     assert result.live_mainnet_order_routing_allowed is False
 
@@ -184,7 +184,6 @@ def test_complete_empty_transaction_log_proves_zero_funding() -> None:
     result = reconcile_bybit_demo_post_trade_accounting(
         _trade(),
         client=reader,
-        lifecycle_policy=BybitDemoLifecyclePolicy(require_funding_before_next_entry=True),
     )
 
     assert result.all_in_pnl is not None
@@ -195,7 +194,7 @@ def test_complete_empty_transaction_log_proves_zero_funding() -> None:
     assert result.lifecycle.next_entry_allowed is True
 
 
-def test_transaction_log_api_failure_stays_pending_and_blocks_strict_lifecycle() -> None:
+def test_transaction_log_api_failure_stays_pending_and_blocks_default_lifecycle() -> None:
     reader = _FundingReader(
         (_closed_pnl(),),
         transaction_error=RuntimeError("remote details are not surfaced"),
@@ -204,7 +203,6 @@ def test_transaction_log_api_failure_stays_pending_and_blocks_strict_lifecycle()
     result = reconcile_bybit_demo_post_trade_accounting(
         _trade(),
         client=reader,
-        lifecycle_policy=BybitDemoLifecyclePolicy(require_funding_before_next_entry=True),
     )
 
     assert result.funding_transaction_log_read_attempted is True
@@ -217,18 +215,8 @@ def test_transaction_log_api_failure_stays_pending_and_blocks_strict_lifecycle()
     assert result.lifecycle.next_entry_allowed is False
 
 
-def test_strict_funding_policy_unlocks_only_after_covered_funding_ledger() -> None:
+def test_explicit_covered_funding_ledger_unlocks_default_lifecycle() -> None:
     reader = _FundingReader((_closed_pnl(),))
-    strict = BybitDemoLifecyclePolicy(require_funding_before_next_entry=True)
-    pending_reader = _FundingReader(
-        (_closed_pnl(),),
-        transaction_error=RuntimeError("blocked"),
-    )
-    pending = reconcile_bybit_demo_post_trade_accounting(
-        _trade(),
-        client=pending_reader,
-        lifecycle_policy=strict,
-    )
     ledger = BybitDemoFundingLedgerWindow(
         coverage_start_ms=0,
         coverage_end_ms=6000,
@@ -245,10 +233,8 @@ def test_strict_funding_policy_unlocks_only_after_covered_funding_ledger() -> No
         _trade(),
         client=reader,
         funding_ledger=ledger,
-        lifecycle_policy=strict,
     )
 
-    assert pending.lifecycle.next_entry_allowed is False
     assert reader.transaction_calls == 0
     assert complete.funding_ledger_source == "SUPPLIED"
     assert complete.all_in_pnl is not None
@@ -256,6 +242,27 @@ def test_strict_funding_policy_unlocks_only_after_covered_funding_ledger() -> No
     assert complete.lifecycle.status is BybitDemoLifecycleStatus.FULLY_RECONCILED
     assert complete.lifecycle.next_entry_allowed is True
     assert complete.lifecycle.fully_reconciled_net_pnl is True
+
+
+def test_relaxed_policy_can_unlock_when_funding_read_is_unavailable() -> None:
+    reader = _FundingReader(
+        (_closed_pnl(),),
+        transaction_error=RuntimeError("blocked"),
+    )
+    relaxed = BybitDemoLifecyclePolicy(require_funding_before_next_entry=False)
+
+    result = reconcile_bybit_demo_post_trade_accounting(
+        _trade(),
+        client=reader,
+        lifecycle_policy=relaxed,
+    )
+
+    assert result.all_in_pnl is None
+    assert result.lifecycle.status is (
+        BybitDemoLifecycleStatus.ACCOUNT_PNL_RECONCILED_FUNDING_PENDING
+    )
+    assert result.lifecycle.next_entry_allowed is True
+    assert result.lifecycle.fully_reconciled_net_pnl is False
 
 
 def test_open_trade_does_not_query_closed_pnl() -> None:
