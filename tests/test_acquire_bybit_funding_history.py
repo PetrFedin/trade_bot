@@ -47,6 +47,7 @@ def test_complete_funding_acquisition_never_claims_usdt_impact_without_marks() -
     assert report["archive_dates"] == ["2026-08-15", "2026-08-16"]
     assert report["record_counts_by_symbol"] == {"BTCUSDT": 1, "ETHUSDT": 1}
     assert report["blocked_symbols"] == {}
+    assert report["blocked_details_by_symbol"] == {}
     assert report["mark_price_evidence_included"] is False
     assert report["funding_usdt_impact_calculated"] is False
     assert report["strategy_promotion_allowed"] is False
@@ -65,4 +66,5 @@ def test_external_access_failure_is_normalized_not_misreported_as_pass() -> None
     assert report["qualification"] == "BLOCKED_BYBIT_FUNDING_EXTERNAL_ACCESS"
     assert report["record_counts_by_symbol"] == {"BTCUSDT": 1}
     assert report["blocked_symbols"] == {"ETHUSDT": "RuntimeError"}
+    assert report["blocked_details_by_symbol"] == {"ETHUSDT": "RuntimeError"}
     assert report["funding_usdt_impact_calculated"] is False
