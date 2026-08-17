@@ -26,10 +26,12 @@ def acquire_funding_history(
     symbols: tuple[str, ...] = _DEFAULT_SYMBOLS,
     lookback_days: int = 14,
     client: BybitFundingHistoryClient | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     if lookback_days < 1:
         raise ValueError("funding acquisition lookback_days must be positive")
-    dates = completed_archive_dates(lookback_days=lookback_days)
+    cutoff = datetime.now(UTC) if now is None else now
+    dates = completed_archive_dates(now=cutoff, lookback_days=lookback_days)
     start = datetime.combine(dates[0], time.min, tzinfo=UTC)
     end = datetime.combine(dates[-1] + timedelta(days=1), time.min, tzinfo=UTC)
     funding_client = BybitFundingHistoryClient() if client is None else client
