@@ -5,6 +5,8 @@ on:
     branches:
       - agent/trading-quality-profit-protection
     paths:
+      - 'app/execution/bybit_demo.py'
+      - 'app/execution/bybit_demo_cycle.py'
       - 'app/execution/bybit_demo_account_pnl_reconciliation.py'
       - 'app/execution/bybit_demo_funding_reconciliation.py'
       - 'app/execution/bybit_demo_lifecycle_gate.py'
@@ -12,6 +14,7 @@ on:
       - 'app/execution/bybit_demo_trade_monitor.py'
       - 'app/strategy/crypto_correlation.py'
       - 'app/strategy/crypto_execution_risk.py'
+      - 'app/strategy/crypto_liquidation_safety.py'
       - 'app/strategy/crypto_trade_quality_diagnostics.py'
       - 'tools/qualify_bybit_crypto_walk_forward.py'
       - 'tools/run_bybit_crypto_walk_forward_archive.py'
@@ -21,10 +24,13 @@ on:
       - 'tests/test_bybit_demo_funding_reconciliation.py'
       - 'tests/test_bybit_demo_lifecycle_gate.py'
       - 'tests/test_bybit_demo_orchestrator.py'
+      - 'tests/test_bybit_demo_position_parsing.py'
       - 'tests/test_bybit_demo_trade_monitor.py'
+      - 'tests/test_bybit_demo_cycle.py'
       - 'tests/test_crypto_correlation.py'
       - 'tests/test_crypto_execution_risk.py'
       - 'tests/test_crypto_execution_risk_replay.py'
+      - 'tests/test_crypto_liquidation_safety.py'
       - 'tests/test_crypto_trade_quality_diagnostics.py'
       - 'tests/test_qualify_bybit_crypto_walk_forward.py'
       - 'tests/test_run_bybit_crypto_walk_forward_archive.py'
@@ -64,6 +70,8 @@ jobs:
       - name: Lint Bybit trading v2 surface
         run: >-
           ruff check --output-format=github
+          app/execution/bybit_demo.py
+          app/execution/bybit_demo_cycle.py
           app/execution/bybit_demo_account_pnl_reconciliation.py
           app/execution/bybit_demo_funding_reconciliation.py
           app/execution/bybit_demo_lifecycle_gate.py
@@ -71,6 +79,7 @@ jobs:
           app/execution/bybit_demo_trade_monitor.py
           app/strategy/crypto_correlation.py
           app/strategy/crypto_execution_risk.py
+          app/strategy/crypto_liquidation_safety.py
           app/strategy/crypto_trade_quality_diagnostics.py
           tools/qualify_bybit_crypto_walk_forward.py
           tools/run_bybit_crypto_walk_forward_archive.py
@@ -80,10 +89,13 @@ jobs:
           tests/test_bybit_demo_funding_reconciliation.py
           tests/test_bybit_demo_lifecycle_gate.py
           tests/test_bybit_demo_orchestrator.py
+          tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_trade_monitor.py
+          tests/test_bybit_demo_cycle.py
           tests/test_crypto_correlation.py
           tests/test_crypto_execution_risk.py
           tests/test_crypto_execution_risk_replay.py
+          tests/test_crypto_liquidation_safety.py
           tests/test_crypto_trade_quality_diagnostics.py
           tests/test_qualify_bybit_crypto_walk_forward.py
           tests/test_run_bybit_crypto_walk_forward_archive.py
@@ -99,6 +111,7 @@ jobs:
           tests/test_crypto_correlation.py
           tests/test_crypto_execution_risk.py
           tests/test_crypto_execution_risk_replay.py
+          tests/test_crypto_liquidation_safety.py
           tests/test_crypto_session_risk.py
           tests/test_crypto_trade_quality_diagnostics.py
           tests/test_report_bybit_crypto_trade_quality.py
@@ -106,6 +119,7 @@ jobs:
           tests/test_qualify_bybit_crypto_walk_forward.py
           tests/test_run_bybit_crypto_walk_forward_archive.py
           tests/test_bybit_demo_controller.py
+          tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_cycle.py
           tests/test_bybit_demo_trade_monitor.py
           tests/test_bybit_demo_account_pnl_reconciliation.py
@@ -117,6 +131,8 @@ jobs:
       - name: Compile integrated boundary
         run: >-
           python -m compileall -q
+          app/execution/bybit_demo.py
+          app/execution/bybit_demo_cycle.py
           app/execution/bybit_demo_account_pnl_reconciliation.py
           app/execution/bybit_demo_funding_reconciliation.py
           app/execution/bybit_demo_lifecycle_gate.py
@@ -124,6 +140,7 @@ jobs:
           app/execution/bybit_demo_trade_monitor.py
           app/strategy/crypto_correlation.py
           app/strategy/crypto_execution_risk.py
+          app/strategy/crypto_liquidation_safety.py
           app/strategy/crypto_trade_quality_diagnostics.py
           tools/qualify_bybit_crypto_walk_forward.py
           tools/run_bybit_crypto_walk_forward_archive.py
