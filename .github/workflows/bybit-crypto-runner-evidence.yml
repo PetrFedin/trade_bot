@@ -4,25 +4,33 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'app/strategy/crypto_correlation.py'
       - 'app/strategy/crypto_profit_runner.py'
+      - 'app/strategy/crypto_runner_admission.py'
+      - 'app/strategy/crypto_session_risk.py'
       - 'app/strategy/crypto_trade_management.py'
       - 'tools/replay_bybit_crypto_runner.py'
       - 'tools/replay_bybit_crypto_archive.py'
       - 'tools/normalize_bybit_crypto_replay.py'
       - 'tools/evaluate_bybit_crypto_replay.py'
       - 'tests/test_bybit_crypto_runner_replay.py'
+      - 'tests/test_crypto_correlation.py'
       - '.github/workflows/bybit-crypto-runner-evidence.yml'
   push:
     branches:
       - agent/trading-quality-profit-protection
     paths:
+      - 'app/strategy/crypto_correlation.py'
       - 'app/strategy/crypto_profit_runner.py'
+      - 'app/strategy/crypto_runner_admission.py'
+      - 'app/strategy/crypto_session_risk.py'
       - 'app/strategy/crypto_trade_management.py'
       - 'tools/replay_bybit_crypto_runner.py'
       - 'tools/replay_bybit_crypto_archive.py'
       - 'tools/normalize_bybit_crypto_replay.py'
       - 'tools/evaluate_bybit_crypto_replay.py'
       - 'tests/test_bybit_crypto_runner_replay.py'
+      - 'tests/test_crypto_correlation.py'
       - '.github/workflows/bybit-crypto-runner-evidence.yml'
   workflow_dispatch:
     inputs:
@@ -61,18 +69,23 @@ jobs:
       - name: Lint runner evidence surface
         run: >-
           ruff check --output-format=github
+          app/strategy/crypto_correlation.py
           app/strategy/crypto_profit_runner.py
+          app/strategy/crypto_runner_admission.py
+          app/strategy/crypto_session_risk.py
           app/strategy/crypto_trade_management.py
           tools/replay_bybit_crypto_runner.py
           tools/replay_bybit_crypto_archive.py
           tools/normalize_bybit_crypto_replay.py
           tools/evaluate_bybit_crypto_replay.py
           tests/test_bybit_crypto_runner_replay.py
+          tests/test_crypto_correlation.py
 
       - name: Test runner replay contract
         run: >-
           pytest -vv
           tests/test_bybit_crypto_runner_replay.py
+          tests/test_crypto_correlation.py
           tests/test_crypto_replay_quality.py
           tests/test_crypto_protection_quality.py
           tests/test_evaluate_bybit_crypto_replay.py
@@ -80,7 +93,10 @@ jobs:
       - name: Compile runner boundary
         run: >-
           python -m compileall -q
+          app/strategy/crypto_correlation.py
           app/strategy/crypto_profit_runner.py
+          app/strategy/crypto_runner_admission.py
+          app/strategy/crypto_session_risk.py
           app/strategy/crypto_trade_management.py
           tools/replay_bybit_crypto_runner.py
           tools/replay_bybit_crypto_archive.py
@@ -141,31 +157,49 @@ jobs:
 
           report = json.loads(Path('artifacts/bybit-runner/report.json').read_text())
           score = json.loads(Path('artifacts/bybit-runner/evidence-scorecard.json').read_text())
-          runner = report['strategy_shadow_candidates']['MIN_20_NET_EDGE_OPEN_ENDED_RUNNER']
-          runner_score = score['strategy_shadow_candidates']['MIN_20_NET_EDGE_OPEN_ENDED_RUNNER']
+          candidates = report['strategy_shadow_candidates']
+          score_candidates = score['strategy_shadow_candidates']
+          runner = candidates['MIN_20_NET_EDGE_OPEN_ENDED_RUNNER']
+          conditional = candidates['MIN_20_NET_EDGE_CONDITIONAL_RUNNER_1_5X']
+          session_risk = candidates['MIN_20_NET_EDGE_CONDITIONAL_RUNNER_SESSION_RISK']
+          diversified = candidates['MIN_20_NET_EDGE_CONDITIONAL_RUNNER_DIVERSIFIED']
+
           assert runner['minimum_entry_net_profit_usd'] == 20.0
           assert runner['runner_activation_net_profit_usd'] == 20.0
           assert runner['runner_initial_protected_net_profit_usd'] == 15.0
           assert runner['profit_cap_net_profit_usd'] is None
           assert runner['fixed_take_profit_enabled'] is False
+          assert runner['unconditional_runner_shadow_explicitly_enabled'] is True
           assert runner['protected_15_is_guaranteed_realized_pnl'] is False
-          assert runner['strategy_promotion_allowed'] is False
-          assert runner['bybit_demo_order_writes_enabled'] is False
-          assert runner['bybit_live_order_routing_allowed'] is False
-          assert runner_score['live_promotion_allowed'] is False
+
+          assert conditional['runner_minimum_expected_edge_multiple'] == 1.5
+          assert conditional['unconditional_runner_shadow_explicitly_enabled'] is False
+          assert session_risk['session_risk']['enabled'] is True
+          assert diversified['correlation_diversification']['enabled'] is True
+
+          for name, candidate in candidates.items():
+              assert candidate['strategy_promotion_allowed'] is False, name
+              assert candidate['bybit_demo_order_writes_enabled'] is False, name
+              assert candidate['bybit_live_order_routing_allowed'] is False, name
+              assert score_candidates[name]['live_promotion_allowed'] is False, name
+
           summary = {
               'archive_dates': report['archive_dates'],
               'symbols': report['symbols'],
               'fixed_20': report['variants']['TARGET_20_USD']['metrics'],
               'fixed_25': report['variants']['TARGET_25_USD']['metrics'],
-              'runner': {
-                  'metrics': runner['metrics'],
-                  'runner_activation_event_count': runner['runner_activation_event_count'],
-                  'protection_quality': runner.get('protection_quality'),
-                  'scorecard': runner_score,
+              'unconditional_runner': runner['metrics'],
+              'conditional_runner': conditional['metrics'],
+              'session_risk_runner': {
+                  'metrics': session_risk['metrics'],
+                  'session_risk': session_risk['session_risk'],
+              },
+              'diversified_runner': {
+                  'metrics': diversified['metrics'],
+                  'correlation_diversification': diversified['correlation_diversification'],
               },
           }
-          print('BYBIT_OPEN_ENDED_RUNNER_COMPARISON=' + json.dumps(summary, sort_keys=True))
+          print('BYBIT_RUNNER_COMPARISON=' + json.dumps(summary, sort_keys=True))
           PY
 
       - name: Upload runner evidence
