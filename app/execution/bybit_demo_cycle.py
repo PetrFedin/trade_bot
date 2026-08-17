@@ -12,16 +12,19 @@ from app.execution.bybit_demo import (
     BybitDemoOrderAck,
     BybitDemoOrderClient,
     BybitDemoPosition,
+    BybitDemoProtectionAck,
     BybitDemoRunnerProtectionAck,
 )
 from app.execution.bybit_demo_controller import (
     plan_bybit_demo_entry,
+    plan_bybit_demo_protection_after_fill,
     plan_bybit_demo_reduce_only_close,
     plan_bybit_demo_runner_protection_after_fill,
 )
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
 from app.strategy.crypto_entry_economics import revalidate_entry_at_actual_taker_fee
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig, CryptoSide, CryptoTradePlan
+from app.strategy.crypto_runner_admission import evaluate_crypto_runner_admission
 from app.strategy.crypto_session_risk import CryptoSessionRiskPolicy, CryptoSessionRiskState
 
 
@@ -49,18 +52,23 @@ class BybitDemoCyclePolicy:
             raise ValueError("Bybit demo reconciliation delay cannot be negative")
 
 
+ProtectionAck = BybitDemoProtectionAck | BybitDemoRunnerProtectionAck
+
+
 @dataclass(frozen=True)
 class BybitDemoCycleResult:
     status: BybitDemoCycleStatus
     reasons: tuple[str, ...]
     entry_ack: BybitDemoOrderAck | None
-    protection_ack: BybitDemoRunnerProtectionAck | None
+    protection_ack: ProtectionAck | None
     flatten_ack: BybitDemoOrderAck | None
     reconciled_position: BybitDemoPosition | None
     next_entry_allowed: bool
     demo_order_writes_enabled: bool
     account_taker_fee_rate: Decimal | None = None
     account_maker_fee_rate: Decimal | None = None
+    exit_mode: str | None = None
+    runner_admission_reasons: tuple[str, ...] = ()
     live_mainnet_order_routing_allowed: bool = False
 
 
@@ -73,6 +81,8 @@ class _DemoClient(Protocol):
     def get_positions(self, *, settle_coin: str = "USDT") -> tuple[BybitDemoPosition, ...]: ...
 
     def place_market_order(self, request: object) -> BybitDemoOrderAck: ...
+
+    def set_full_position_protection(self, request: object) -> BybitDemoProtectionAck: ...
 
     def set_open_ended_position_protection(
         self,
@@ -94,13 +104,14 @@ def execute_bybit_demo_trade_cycle(
     session_policy: CryptoSessionRiskPolicy | None = None,
     sleeper: Sleeper = time.sleep,
 ) -> BybitDemoCycleResult:
-    """Execute one demo-only entry -> reconcile -> uncapped runner protection cycle.
+    """Execute one fail-closed demo entry -> fill reconcile -> conditional exit-protection cycle.
 
-    This function has no mainnet path. Writes are disabled unless an explicit cycle policy
-    enables them. A position is never called protected merely because order creation ACKed.
-    Before an order is submitted, the account-specific taker fee and instrument-normalized
-    quantity must still support the planned net target and risk budget. Successful protection
-    deliberately omits a fixed take-profit ceiling.
+    The same excess-edge rule used by historical research is applied here: a normal accepted
+    >=$20 trade keeps a fixed, cost-aware $20 take-profit unless its expected net edge clears
+    the runner gate. The runner gate is checked with the account fee tier and instrument-sized
+    quantity before entry, then rechecked using the actual reconciled fill. A favorable fill may
+    not upgrade a pre-entry fixed target into a runner; an adverse fill can only downgrade the
+    runner or force a protected reduce-only flatten.
     """
 
     policy = BybitDemoCyclePolicy() if cycle_policy is None else cycle_policy
@@ -164,6 +175,20 @@ def execute_bybit_demo_trade_cycle(
             writes_enabled=True,
         )
 
+    fee_adjusted_plan = replace(
+        trade_plan,
+        notional_usdt=execution_notional,
+        reference_quantity=entry_plan.order.quantity,
+        estimated_round_trip_cost_usdt=fee_decision.modeled_round_trip_cost_usdt,
+        estimated_stop_loss_after_cost_usdt=fee_decision.modeled_stop_loss_after_cost_usdt,
+        required_move_fraction=fee_decision.required_move_fraction,
+        expected_net_edge_usd=fee_decision.modeled_expected_net_edge_usd,
+    )
+    pre_fill_runner_admission = evaluate_crypto_runner_admission(fee_adjusted_plan)
+    planned_exit_mode = (
+        "OPEN_ENDED_RUNNER" if pre_fill_runner_admission.eligible else "FIXED_20_TARGET"
+    )
+
     entry_ack = client.place_market_order(entry_plan.order)
     position = _reconcile_position(
         client,
@@ -178,16 +203,62 @@ def execute_bybit_demo_trade_cycle(
             reasons=("ORDER_ACK_IS_NOT_FILL_CONFIRMATION",),
             entry_ack=entry_ack,
             fee_rate=fee_rate,
+            exit_mode=planned_exit_mode,
+            runner_admission_reasons=pre_fill_runner_admission.reasons,
             writes_enabled=True,
         )
 
-    protection_plan = plan_bybit_demo_runner_protection_after_fill(
-        trade_plan,
-        actual_average_entry_price=position.average_price,
-        actual_filled_quantity=position.size,
-        instrument=instrument,
+    actual_fill_notional = position.average_price * position.size
+    post_fill_fee_decision = revalidate_entry_at_actual_taker_fee(
+        fee_adjusted_plan,
+        execution_notional_usdt=actual_fill_notional,
+        actual_taker_fee_rate=fee_rate.taker_fee_rate,
         strategy_config=effective_strategy_config,
     )
+    post_fill_plan = replace(
+        fee_adjusted_plan,
+        notional_usdt=actual_fill_notional,
+        reference_quantity=position.size,
+        estimated_round_trip_cost_usdt=post_fill_fee_decision.modeled_round_trip_cost_usdt,
+        estimated_stop_loss_after_cost_usdt=(
+            post_fill_fee_decision.modeled_stop_loss_after_cost_usdt
+        ),
+        required_move_fraction=post_fill_fee_decision.required_move_fraction,
+        expected_net_edge_usd=post_fill_fee_decision.modeled_expected_net_edge_usd,
+    )
+    post_fill_runner_admission = evaluate_crypto_runner_admission(post_fill_plan)
+    runner_selected = (
+        pre_fill_runner_admission.eligible
+        and post_fill_runner_admission.eligible
+        and post_fill_fee_decision.eligible
+    )
+    exit_mode = "OPEN_ENDED_RUNNER" if runner_selected else "FIXED_20_TARGET"
+    runner_admission_reasons = tuple(
+        dict.fromkeys(
+            (*pre_fill_runner_admission.reasons, *post_fill_runner_admission.reasons)
+        )
+    )
+    post_fill_invalid_reasons = tuple(
+        f"POST_FILL_{reason}" for reason in post_fill_fee_decision.reasons
+    )
+
+    if runner_selected:
+        protection_plan = plan_bybit_demo_runner_protection_after_fill(
+            post_fill_plan,
+            actual_average_entry_price=position.average_price,
+            actual_filled_quantity=position.size,
+            instrument=instrument,
+            strategy_config=effective_strategy_config,
+        )
+    else:
+        protection_plan = plan_bybit_demo_protection_after_fill(
+            post_fill_plan,
+            actual_average_entry_price=position.average_price,
+            actual_filled_quantity=position.size,
+            instrument=instrument,
+            strategy_config=effective_strategy_config,
+        )
+
     if protection_plan.protection is None:
         return _flatten_after_protection_failure(
             trade_plan,
@@ -196,11 +267,18 @@ def execute_bybit_demo_trade_cycle(
             position=position,
             entry_ack=entry_ack,
             fee_rate=fee_rate,
-            reasons=protection_plan.reasons,
+            exit_mode=exit_mode,
+            runner_admission_reasons=runner_admission_reasons,
+            reasons=tuple(dict.fromkeys((*protection_plan.reasons, *post_fill_invalid_reasons))),
         )
 
     try:
-        protection_ack = client.set_open_ended_position_protection(protection_plan.protection)
+        if runner_selected:
+            protection_ack: ProtectionAck = client.set_open_ended_position_protection(
+                protection_plan.protection
+            )
+        else:
+            protection_ack = client.set_full_position_protection(protection_plan.protection)
     except Exception as exc:  # noqa: BLE001 - protection failure must trigger a close attempt.
         return _flatten_after_protection_failure(
             trade_plan,
@@ -209,10 +287,15 @@ def execute_bybit_demo_trade_cycle(
             position=position,
             entry_ack=entry_ack,
             fee_rate=fee_rate,
+            exit_mode=exit_mode,
+            runner_admission_reasons=runner_admission_reasons,
             reasons=(f"EXCHANGE_PROTECTION_WRITE_FAILED:{type(exc).__name__}",),
         )
 
-    if protection_plan.flatten_required:
+    flatten_reasons = tuple(
+        dict.fromkeys((*protection_plan.reasons, *post_fill_invalid_reasons))
+    )
+    if protection_plan.flatten_required or not post_fill_fee_decision.eligible:
         return _flatten_protected_position(
             trade_plan,
             instrument=instrument,
@@ -221,7 +304,9 @@ def execute_bybit_demo_trade_cycle(
             entry_ack=entry_ack,
             protection_ack=protection_ack,
             fee_rate=fee_rate,
-            reasons=protection_plan.reasons,
+            exit_mode=exit_mode,
+            runner_admission_reasons=runner_admission_reasons,
+            reasons=flatten_reasons,
         )
 
     return _result(
@@ -232,6 +317,8 @@ def execute_bybit_demo_trade_cycle(
         position=position,
         next_entry_allowed=True,
         fee_rate=fee_rate,
+        exit_mode=exit_mode,
+        runner_admission_reasons=runner_admission_reasons,
         writes_enabled=True,
     )
 
@@ -275,6 +362,8 @@ def _flatten_after_protection_failure(
     position: BybitDemoPosition,
     entry_ack: BybitDemoOrderAck,
     fee_rate: BybitDemoFeeRate,
+    exit_mode: str,
+    runner_admission_reasons: tuple[str, ...],
     reasons: tuple[str, ...],
 ) -> BybitDemoCycleResult:
     try:
@@ -291,6 +380,8 @@ def _flatten_after_protection_failure(
             entry_ack=entry_ack,
             position=position,
             fee_rate=fee_rate,
+            exit_mode=exit_mode,
+            runner_admission_reasons=runner_admission_reasons,
             writes_enabled=True,
         )
     return _result(
@@ -300,6 +391,8 @@ def _flatten_after_protection_failure(
         flatten_ack=flatten_ack,
         position=position,
         fee_rate=fee_rate,
+        exit_mode=exit_mode,
+        runner_admission_reasons=runner_admission_reasons,
         writes_enabled=True,
     )
 
@@ -311,8 +404,10 @@ def _flatten_protected_position(
     client: _DemoClient,
     position: BybitDemoPosition,
     entry_ack: BybitDemoOrderAck,
-    protection_ack: BybitDemoRunnerProtectionAck,
+    protection_ack: ProtectionAck,
     fee_rate: BybitDemoFeeRate,
+    exit_mode: str,
+    runner_admission_reasons: tuple[str, ...],
     reasons: tuple[str, ...],
 ) -> BybitDemoCycleResult:
     try:
@@ -330,6 +425,8 @@ def _flatten_protected_position(
             protection_ack=protection_ack,
             position=position,
             fee_rate=fee_rate,
+            exit_mode=exit_mode,
+            runner_admission_reasons=runner_admission_reasons,
             writes_enabled=True,
         )
     return _result(
@@ -340,6 +437,8 @@ def _flatten_protected_position(
         flatten_ack=flatten_ack,
         position=position,
         fee_rate=fee_rate,
+        exit_mode=exit_mode,
+        runner_admission_reasons=runner_admission_reasons,
         writes_enabled=True,
     )
 
@@ -349,11 +448,13 @@ def _result(
     *,
     reasons: tuple[str, ...],
     entry_ack: BybitDemoOrderAck | None = None,
-    protection_ack: BybitDemoRunnerProtectionAck | None = None,
+    protection_ack: ProtectionAck | None = None,
     flatten_ack: BybitDemoOrderAck | None = None,
     position: BybitDemoPosition | None = None,
     next_entry_allowed: bool = False,
     fee_rate: BybitDemoFeeRate | None = None,
+    exit_mode: str | None = None,
+    runner_admission_reasons: tuple[str, ...] = (),
     writes_enabled: bool,
 ) -> BybitDemoCycleResult:
     return BybitDemoCycleResult(
@@ -367,5 +468,7 @@ def _result(
         demo_order_writes_enabled=writes_enabled,
         account_taker_fee_rate=None if fee_rate is None else fee_rate.taker_fee_rate,
         account_maker_fee_rate=None if fee_rate is None else fee_rate.maker_fee_rate,
+        exit_mode=exit_mode,
+        runner_admission_reasons=runner_admission_reasons,
         live_mainnet_order_routing_allowed=False,
     )
