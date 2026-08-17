@@ -7,6 +7,8 @@ from itertools import pairwise
 
 from app.marketdata.bybit_v5 import BybitKlineBar
 
+_CORRELATION_ENDPOINT_TOLERANCE = Decimal("1e-24")
+
 
 @dataclass(frozen=True)
 class CryptoCorrelationPolicy:
@@ -162,4 +164,8 @@ def _pearson(left: Sequence[Decimal], right: Sequence[Decimal]) -> Decimal:
     if left_variance == 0 or right_variance == 0:
         return Decimal("0")
     correlation = covariance / (left_variance.sqrt() * right_variance.sqrt())
+    if correlation >= Decimal("1") - _CORRELATION_ENDPOINT_TOLERANCE:
+        return Decimal("1")
+    if correlation <= Decimal("-1") + _CORRELATION_ENDPOINT_TOLERANCE:
+        return Decimal("-1")
     return max(Decimal("-1"), min(Decimal("1"), correlation))
