@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from decimal import Decimal
+from enum import StrEnum
 from typing import Any, Protocol
 
 from app.execution.bybit_demo import BybitDemoPosition
@@ -25,6 +27,14 @@ from app.execution.bybit_demo_trade_monitor import (
     BybitDemoTradeMonitorResult,
     reconcile_bybit_demo_trade,
 )
+
+
+class BybitDemoProfitOutcomeStatus(StrEnum):
+    TRADE_OPEN = "TRADE_OPEN"
+    ALL_IN_ACCOUNTING_PENDING = "ALL_IN_ACCOUNTING_PENDING"
+    FULLY_RECONCILED_PROFIT = "FULLY_RECONCILED_PROFIT"
+    FULLY_RECONCILED_FLAT = "FULLY_RECONCILED_FLAT"
+    FULLY_RECONCILED_LOSS = "FULLY_RECONCILED_LOSS"
 
 
 class _TradeReadClient(Protocol):
@@ -73,6 +83,34 @@ class BybitDemoPostTradeAccountingResult:
     demo_only: bool = True
     strategy_promotion_allowed: bool = False
     live_mainnet_order_routing_allowed: bool = False
+
+    @property
+    def fully_reconciled_all_in_net_pnl_usdt(self) -> Decimal | None:
+        if (
+            self.all_in_pnl is None
+            or not self.all_in_pnl.fully_reconciled_net_pnl
+            or self.all_in_pnl.all_in_net_pnl_usdt is None
+        ):
+            return None
+        return self.all_in_pnl.all_in_net_pnl_usdt
+
+    @property
+    def profit_outcome_status(self) -> BybitDemoProfitOutcomeStatus:
+        if not self.trade.terminal:
+            return BybitDemoProfitOutcomeStatus.TRADE_OPEN
+        pnl = self.fully_reconciled_all_in_net_pnl_usdt
+        if pnl is None:
+            return BybitDemoProfitOutcomeStatus.ALL_IN_ACCOUNTING_PENDING
+        if pnl > 0:
+            return BybitDemoProfitOutcomeStatus.FULLY_RECONCILED_PROFIT
+        if pnl < 0:
+            return BybitDemoProfitOutcomeStatus.FULLY_RECONCILED_LOSS
+        return BybitDemoProfitOutcomeStatus.FULLY_RECONCILED_FLAT
+
+    @property
+    def closed_in_profit_after_all_reconciled_costs(self) -> bool | None:
+        pnl = self.fully_reconciled_all_in_net_pnl_usdt
+        return None if pnl is None else pnl > 0
 
 
 def reconcile_bybit_demo_trade_lifecycle(
