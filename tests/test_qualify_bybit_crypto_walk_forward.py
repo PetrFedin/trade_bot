@@ -1,10 +1,48 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
 from app.marketdata.bybit_v5 import BybitKlineAcquisition, BybitKlineBar
-from tools.qualify_bybit_crypto_walk_forward import CryptoWalkForwardPolicy, run_crypto_walk_forward
+from tools.qualify_bybit_crypto_walk_forward import (
+    CryptoWalkForwardPolicy,
+    acquire_and_run_crypto_walk_forward,
+    run_crypto_walk_forward,
+)
+
+
+class _ArchiveAcquisition:
+    def __init__(self, klines: BybitKlineAcquisition) -> None:
+        self.klines = klines
+        self.validated = False
+
+    def validate(
+        self,
+        *,
+        requested_symbols: tuple[str, ...],
+        minimum_bars: int,
+    ) -> None:
+        assert requested_symbols == ("BTCUSDT", "ETHUSDT", "SOLUSDT")
+        assert minimum_bars == 25
+        self.validated = True
+
+
+class _ArchiveClient:
+    def __init__(self, acquisition: _ArchiveAcquisition) -> None:
+        self.acquisition = acquisition
+        self.dates: tuple[date, ...] = ()
+
+    def fetch_klines(
+        self,
+        *,
+        symbols: tuple[str, ...],
+        dates: tuple[date, ...],
+        interval_minutes: int,
+    ) -> _ArchiveAcquisition:
+        assert symbols == ("BTCUSDT", "ETHUSDT", "SOLUSDT")
+        assert interval_minutes == 5
+        self.dates = dates
+        return self.acquisition
 
 
 def _acquisition(*, days: int = 4, bars_per_day: int = 60) -> BybitKlineAcquisition:
@@ -81,6 +119,7 @@ def test_walk_forward_scores_combined_and_baseline_without_auto_selection() -> N
 
     decisions = report["candidate_decisions"]
     assert "CONDITIONAL_1_5X" in decisions
+    assert "CONDITIONAL_TIGHT_PROFIT_LOCK" in decisions
     assert "CONDITIONAL_COMBINED_RISK" in decisions
     for decision in decisions.values():
         assert decision["strategy_promotion_allowed"] is False
@@ -90,6 +129,38 @@ def test_walk_forward_scores_combined_and_baseline_without_auto_selection() -> N
     comparison = report["combined_vs_baseline"]
     assert comparison is not None
     assert comparison["automatic_strategy_selection_allowed"] is False
+
+
+def test_direct_archive_helper_uses_completed_cutoff_and_validates_wrapper() -> None:
+    wrapper = _ArchiveAcquisition(_acquisition())
+    client = _ArchiveClient(wrapper)
+
+    report = acquire_and_run_crypto_walk_forward(
+        lookback_days=4,
+        symbols=("BTCUSDT", "ETHUSDT", "SOLUSDT"),
+        opening_equity_usdt=Decimal("1000"),
+        policy=_test_policy(),
+        client=client,  # type: ignore[arg-type]
+        now=datetime(2026, 8, 17, 12, tzinfo=UTC),
+    )
+
+    assert wrapper.validated is True
+    assert client.dates == (
+        date(2026, 8, 13),
+        date(2026, 8, 14),
+        date(2026, 8, 15),
+        date(2026, 8, 16),
+    )
+    assert report["requested_archive_dates"] == [
+        "2026-08-13",
+        "2026-08-14",
+        "2026-08-15",
+        "2026-08-16",
+    ]
+    assert report["strategy_promotion_allowed"] is False
+    assert report["demo_observation_allowed"] is False
+    assert report["live_promotion_allowed"] is False
+    assert report["bybit_live_order_routing_allowed"] is False
 
 
 def test_walk_forward_requires_enough_complete_calendar_days() -> None:
