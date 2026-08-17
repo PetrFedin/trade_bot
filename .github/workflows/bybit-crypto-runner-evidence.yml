@@ -15,8 +15,10 @@ on:
       - 'tools/normalize_bybit_crypto_replay.py'
       - 'tools/evaluate_bybit_crypto_replay.py'
       - 'tools/audit_bybit_crypto_runner_opportunity.py'
+      - 'tools/audit_bybit_crypto_session_risk_interventions.py'
       - 'tests/test_bybit_crypto_runner_replay.py'
       - 'tests/test_audit_bybit_crypto_runner_opportunity.py'
+      - 'tests/test_audit_bybit_crypto_session_risk_interventions.py'
       - 'tests/test_crypto_correlation.py'
       - 'tests/test_crypto_execution_risk.py'
       - 'tests/test_crypto_execution_risk_replay.py'
@@ -36,8 +38,10 @@ on:
       - 'tools/normalize_bybit_crypto_replay.py'
       - 'tools/evaluate_bybit_crypto_replay.py'
       - 'tools/audit_bybit_crypto_runner_opportunity.py'
+      - 'tools/audit_bybit_crypto_session_risk_interventions.py'
       - 'tests/test_bybit_crypto_runner_replay.py'
       - 'tests/test_audit_bybit_crypto_runner_opportunity.py'
+      - 'tests/test_audit_bybit_crypto_session_risk_interventions.py'
       - 'tests/test_crypto_correlation.py'
       - 'tests/test_crypto_execution_risk.py'
       - 'tests/test_crypto_execution_risk_replay.py'
@@ -90,8 +94,10 @@ jobs:
           tools/normalize_bybit_crypto_replay.py
           tools/evaluate_bybit_crypto_replay.py
           tools/audit_bybit_crypto_runner_opportunity.py
+          tools/audit_bybit_crypto_session_risk_interventions.py
           tests/test_bybit_crypto_runner_replay.py
           tests/test_audit_bybit_crypto_runner_opportunity.py
+          tests/test_audit_bybit_crypto_session_risk_interventions.py
           tests/test_crypto_correlation.py
           tests/test_crypto_execution_risk.py
           tests/test_crypto_execution_risk_replay.py
@@ -101,6 +107,7 @@ jobs:
           pytest -vv
           tests/test_bybit_crypto_runner_replay.py
           tests/test_audit_bybit_crypto_runner_opportunity.py
+          tests/test_audit_bybit_crypto_session_risk_interventions.py
           tests/test_crypto_correlation.py
           tests/test_crypto_execution_risk.py
           tests/test_crypto_execution_risk_replay.py
@@ -122,6 +129,7 @@ jobs:
           tools/normalize_bybit_crypto_replay.py
           tools/evaluate_bybit_crypto_replay.py
           tools/audit_bybit_crypto_runner_opportunity.py
+          tools/audit_bybit_crypto_session_risk_interventions.py
 
   archive-replay:
     if: github.event_name != 'pull_request'
@@ -175,6 +183,12 @@ jobs:
             --input artifacts/bybit-runner/report.json \
             --output artifacts/bybit-runner/runner-opportunity.json
 
+      - name: Audit session-risk interventions
+        run: |
+          PYTHONPATH=. python tools/audit_bybit_crypto_session_risk_interventions.py \
+            --input artifacts/bybit-runner/report.json \
+            --output artifacts/bybit-runner/session-risk-interventions.json
+
       - name: Enforce runner research boundary and print comparison
         run: |
           python - <<'PY'
@@ -185,6 +199,9 @@ jobs:
           score = json.loads(Path('artifacts/bybit-runner/evidence-scorecard.json').read_text())
           opportunity = json.loads(
               Path('artifacts/bybit-runner/runner-opportunity.json').read_text()
+          )
+          intervention = json.loads(
+              Path('artifacts/bybit-runner/session-risk-interventions.json').read_text()
           )
           candidates = report['strategy_shadow_candidates']
           score_candidates = score['strategy_shadow_candidates']
@@ -220,6 +237,12 @@ jobs:
           assert combined_opportunity['runner_threshold_retuning_allowed'] is False
           assert combined_opportunity['automatic_runner_activation_allowed'] is False
 
+          assert intervention['attribution_is_observational_not_causal'] is True
+          assert intervention['session_threshold_retuning_allowed'] is False
+          assert intervention['automatic_strategy_activation_allowed'] is False
+          assert intervention['strategy_promotion_allowed'] is False
+          assert intervention['live_promotion_allowed'] is False
+
           for name, candidate in candidates.items():
               assert candidate['strategy_promotion_allowed'] is False, name
               assert candidate['bybit_demo_order_writes_enabled'] is False, name
@@ -246,6 +269,7 @@ jobs:
                   'execution_risk': execution_risk['execution_risk'],
               },
               'combined_runner_opportunity': combined_opportunity,
+              'session_risk_interventions': intervention['candidates'],
           }
           print('BYBIT_RUNNER_COMPARISON=' + json.dumps(summary, sort_keys=True))
           PY
