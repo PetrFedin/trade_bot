@@ -24,7 +24,7 @@ class BybitDemoLifecycleStatus(StrEnum):
 @dataclass(frozen=True)
 class BybitDemoLifecyclePolicy:
     require_account_closed_pnl_before_next_entry: bool = True
-    require_funding_before_next_entry: bool = False
+    require_funding_before_next_entry: bool = True
 
 
 @dataclass(frozen=True)
