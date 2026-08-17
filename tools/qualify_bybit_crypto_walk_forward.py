@@ -355,7 +355,9 @@ def _single_fold_side_metrics(report: dict[str, Any]) -> dict[str, Any]:
             ),
             "fees_usdt": float(fees),
         }
-    observed_sides = {str(trade["side"]).upper() for trade in report["closed_trades"]}
+    observed_sides = {
+        str(trade["side"]).upper() for trade in report["closed_trades"]
+    }
     unexpected = observed_sides - set(_SIDES)
     if unexpected:
         raise ValueError(f"unexpected crypto trade sides in walk-forward: {sorted(unexpected)}")
