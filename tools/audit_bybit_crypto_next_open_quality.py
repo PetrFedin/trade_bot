@@ -44,7 +44,7 @@ def audit_next_open_quality(
     equity_usdt: Decimal = Decimal("1000"),
     config: CryptoPerpStrategyConfig | None = None,
 ) -> dict[str, Any]:
-    """Measure completed-close to next-open gap quality without choosing a threshold."""
+    """Measure next-open gaps and risk-resize severity without choosing a threshold."""
 
     if equity_usdt <= 0:
         raise ValueError("next-open quality audit equity must be positive")
@@ -62,8 +62,13 @@ def audit_next_open_quality(
     absolute_gap_atr: list[Decimal] = []
     chase_gap_atr: list[Decimal] = []
     adverse_gap_atr: list[Decimal] = []
+    quantity_retention: list[Decimal] = []
+    expected_edge_ratio: list[Decimal] = []
+    risk_budget_utilization: list[Decimal] = []
     execution_resize_count = 0
     execution_block_count = 0
+    quantity_below_95pct_count = 0
+    quantity_below_90pct_count = 0
     block_reasons: Counter[str] = Counter()
     plan_count = 0
 
@@ -83,6 +88,7 @@ def audit_next_open_quality(
             )
             if not plan_evaluation.eligible or plan_evaluation.plan is None:
                 continue
+            plan = plan_evaluation.plan
             plan_count += 1
             next_open = grouped[signal.symbol][next_time].open
             raw_gap = next_open / signal.reference_price - Decimal("1")
@@ -96,10 +102,25 @@ def audit_next_open_quality(
                 adverse_gap_atr.append(-gap_atr)
 
             execution = resize_trade_plan_at_next_open(
-                plan_evaluation.plan,
+                plan,
                 raw_next_open_price=next_open,
                 strategy_config=active,
                 policy=execution_policy,
+            )
+            retention = execution.adjusted_quantity / execution.original_quantity
+            quantity_retention.append(retention)
+            if retention < Decimal("0.95"):
+                quantity_below_95pct_count += 1
+            if retention < Decimal("0.90"):
+                quantity_below_90pct_count += 1
+            if plan.expected_net_edge_usd > 0:
+                expected_edge_ratio.append(
+                    execution.modeled_expected_net_edge_usd
+                    / plan.expected_net_edge_usd
+                )
+            risk_budget_utilization.append(
+                execution.modeled_stop_loss_after_cost_usdt
+                / plan.risk_budget_usdt
             )
             if execution.resized:
                 execution_resize_count += 1
@@ -117,11 +138,23 @@ def audit_next_open_quality(
         "execution_risk_resize_count": execution_resize_count,
         "execution_risk_block_count": execution_block_count,
         "execution_risk_block_reasons": dict(block_reasons),
+        "execution_quantity_retention_fraction": _retention_distribution(
+            quantity_retention
+        ),
+        "execution_expected_edge_ratio_to_planned": _retention_distribution(
+            expected_edge_ratio
+        ),
+        "execution_risk_budget_utilization_fraction": _retention_distribution(
+            risk_budget_utilization
+        ),
+        "execution_quantity_below_95pct_count": quantity_below_95pct_count,
+        "execution_quantity_below_90pct_count": quantity_below_90pct_count,
         "directional_gap_contract": (
             "positive = next open moved farther in signal direction; negative = next open moved "
             "against signal direction; value is normalized by completed-bar ATR fraction"
         ),
         "gap_threshold_selected": False,
+        "execution_size_threshold_selected": False,
         "automatic_execution_gate_activation_allowed": False,
         "strategy_promotion_allowed": False,
         "demo_activation_allowed": False,
@@ -179,6 +212,31 @@ def _distribution(values: list[Decimal]) -> dict[str, float | int | None]:
         "p50": float(_nearest_rank(ordered, Decimal("0.50"))),
         "p90": float(_nearest_rank(ordered, Decimal("0.90"))),
         "p95": float(_nearest_rank(ordered, Decimal("0.95"))),
+        "max": float(ordered[-1]),
+    }
+
+
+def _retention_distribution(
+    values: list[Decimal],
+) -> dict[str, float | int | None]:
+    if not values:
+        return {
+            "count": 0,
+            "mean": None,
+            "min": None,
+            "p05": None,
+            "p10": None,
+            "p50": None,
+            "max": None,
+        }
+    ordered = sorted(values)
+    return {
+        "count": len(ordered),
+        "mean": float(sum(ordered, start=_ZERO) / Decimal(len(ordered))),
+        "min": float(ordered[0]),
+        "p05": float(_nearest_rank(ordered, Decimal("0.05"))),
+        "p10": float(_nearest_rank(ordered, Decimal("0.10"))),
+        "p50": float(_nearest_rank(ordered, Decimal("0.50"))),
         "max": float(ordered[-1]),
     }
 
