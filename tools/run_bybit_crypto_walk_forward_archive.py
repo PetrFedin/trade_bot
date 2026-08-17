@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Protocol
@@ -57,6 +57,7 @@ def acquire_archive_and_run_walk_forward(
     opening_equity_usdt: Decimal = Decimal("1000"),
     policy: CryptoWalkForwardPolicy | None = None,
     client: _ArchiveClient | None = None,
+    now: datetime | None = None,
 ) -> dict[str, object]:
     """Acquire completed Bybit archive days once, validate wrapper, then run cold-start folds."""
 
@@ -69,7 +70,8 @@ def acquire_archive_and_run_walk_forward(
         )
     if opening_equity_usdt <= 0:
         raise ValueError("walk-forward opening equity must be positive")
-    dates = completed_archive_dates(lookback_days=lookback_days)
+    cutoff = datetime.now(UTC) if now is None else now
+    dates = completed_archive_dates(now=cutoff, lookback_days=lookback_days)
     archive_client: _ArchiveClient = (
         BybitPublicTradeArchiveClient() if client is None else client
     )
