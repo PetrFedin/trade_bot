@@ -96,6 +96,9 @@ def acquire_archive_and_replay(
             "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_1_5X": v2_candidates[
                 "CONDITIONAL_1_5X"
             ],
+            "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_TIGHT_PROFIT_LOCK": v2_candidates[
+                "CONDITIONAL_TIGHT_PROFIT_LOCK"
+            ],
             "MIN_20_NET_EDGE_CONDITIONAL_RUNNER_SESSION_RISK": v2_candidates[
                 "CONDITIONAL_SESSION_RISK"
             ],
@@ -141,6 +144,10 @@ def acquire_archive_and_replay(
         "The conditional runner is the fail-closed default: it keeps the fixed $20 target unless "
         "pre-entry expected net edge is at least 1.5x the $20 activation amount; only those "
         "excess-edge positions receive an uncapped runner.",
+        "The tighter-profit-lock hypothesis keeps the same entries and break-even trigger but "
+        "arms profit protection at 1.0R and locks 0.5R. It was introduced after trade-quality "
+        "diagnostics exposed MFE giveback, so the same 14-day window is not validation and cannot "
+        "promote this candidate; chronological walk-forward evidence is required.",
         "The session-risk candidate uses the same conditional runner and adds a continuous-window "
         "kill switch for realized loss, peak drawdown, execution cost and consecutive losses. "
         "A flatten decision is executed only at the next bar open and remains research-only; "
