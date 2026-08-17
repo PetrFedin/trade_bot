@@ -4,10 +4,7 @@ from decimal import Decimal
 import pytest
 
 from app.marketdata.bybit_v5 import BybitKlineAcquisition, BybitKlineBar
-from tools.qualify_bybit_crypto_walk_forward import (
-    CryptoWalkForwardPolicy,
-    run_crypto_walk_forward,
-)
+from tools.qualify_bybit_crypto_walk_forward import CryptoWalkForwardPolicy, run_crypto_walk_forward
 
 
 def _acquisition(*, days: int = 4, bars_per_day: int = 60) -> BybitKlineAcquisition:
