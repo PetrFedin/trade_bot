@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'app/execution/bybit_demo_strategy_selector.py'
+      - 'app/execution/bybit_demo_strategy_quality_tracker.py'
       - 'app/execution/bybit_demo_controller.py'
       - 'app/execution/bybit_demo_orchestrator.py'
       - 'app/marketdata/bybit_demo_quotes.py'
@@ -14,12 +15,14 @@ on:
       - 'app/strategy/crypto_session_risk.py'
       - 'tests/test_bybit_demo_quote_guard.py'
       - 'tests/test_bybit_demo_strategy_selector.py'
+      - 'tests/test_bybit_demo_strategy_quality_tracker.py'
       - '.github/workflows/bybit-demo-strategy-selection-quality.yml'
   push:
     branches:
       - agent/trading-quality-profit-protection
     paths:
       - 'app/execution/bybit_demo_strategy_selector.py'
+      - 'app/execution/bybit_demo_strategy_quality_tracker.py'
       - 'app/execution/bybit_demo_controller.py'
       - 'app/execution/bybit_demo_orchestrator.py'
       - 'app/marketdata/bybit_demo_quotes.py'
@@ -29,6 +32,7 @@ on:
       - 'app/strategy/crypto_session_risk.py'
       - 'tests/test_bybit_demo_quote_guard.py'
       - 'tests/test_bybit_demo_strategy_selector.py'
+      - 'tests/test_bybit_demo_strategy_quality_tracker.py'
       - '.github/workflows/bybit-demo-strategy-selection-quality.yml'
 
 permissions:
@@ -62,15 +66,18 @@ jobs:
         run: >-
           ruff check --output-format=github
           app/execution/bybit_demo_strategy_selector.py
+          app/execution/bybit_demo_strategy_quality_tracker.py
           app/marketdata/bybit_demo_quotes.py
           tests/test_bybit_demo_quote_guard.py
           tests/test_bybit_demo_strategy_selector.py
+          tests/test_bybit_demo_strategy_quality_tracker.py
 
       - name: Test completed-bars to guarded-demo handoff
         run: >-
           pytest -vv
           tests/test_bybit_demo_quote_guard.py
           tests/test_bybit_demo_strategy_selector.py
+          tests/test_bybit_demo_strategy_quality_tracker.py
           tests/test_bybit_demo_orchestrator.py
           tests/test_bybit_demo_controller.py
           tests/test_crypto_execution_risk.py
@@ -80,4 +87,5 @@ jobs:
         run: >-
           python -m compileall -q
           app/execution/bybit_demo_strategy_selector.py
+          app/execution/bybit_demo_strategy_quality_tracker.py
           app/marketdata/bybit_demo_quotes.py
