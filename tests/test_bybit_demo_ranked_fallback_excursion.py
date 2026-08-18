@@ -145,7 +145,9 @@ def test_excursion_initialize_failure_is_visible_without_rewriting_trade_result(
         BybitDemoStrategyCycleStatus.GUARDED_ORCHESTRATOR_CALLED
     )
     assert second.excursion_tracking_result is not None
-    assert second.excursion_tracking_result.status is BybitDemoExcursionRuntimeStatus.TRACKING_BLOCKED
+    assert second.excursion_tracking_result.status is (
+        BybitDemoExcursionRuntimeStatus.TRACKING_BLOCKED
+    )
     assert second.excursion_tracking_result.reasons == (
         "EXCURSION_CHECKPOINT_INITIALIZE_FAILED:FileExistsError",
     )
