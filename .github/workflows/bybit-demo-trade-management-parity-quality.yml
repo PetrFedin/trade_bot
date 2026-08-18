@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - 'app/execution/bybit_demo_trade_management_parity.py'
+      - 'app/execution/bybit_demo_trade_management_runtime.py'
       - 'app/execution/bybit_demo_stop_ratchet_client.py'
       - 'app/marketdata/bybit_demo_completed_bars.py'
       - 'app/strategy/crypto_trade_management.py'
       - 'tests/test_bybit_demo_trade_management_parity.py'
+      - 'tests/test_bybit_demo_trade_management_runtime.py'
       - 'tests/test_bybit_demo_stop_ratchet_client.py'
       - 'tests/test_bybit_demo_completed_bars.py'
       - '.github/workflows/bybit-demo-trade-management-parity-quality.yml'
@@ -17,10 +19,12 @@ on:
       - agent/trading-quality-profit-protection
     paths:
       - 'app/execution/bybit_demo_trade_management_parity.py'
+      - 'app/execution/bybit_demo_trade_management_runtime.py'
       - 'app/execution/bybit_demo_stop_ratchet_client.py'
       - 'app/marketdata/bybit_demo_completed_bars.py'
       - 'app/strategy/crypto_trade_management.py'
       - 'tests/test_bybit_demo_trade_management_parity.py'
+      - 'tests/test_bybit_demo_trade_management_runtime.py'
       - 'tests/test_bybit_demo_stop_ratchet_client.py'
       - 'tests/test_bybit_demo_completed_bars.py'
       - '.github/workflows/bybit-demo-trade-management-parity-quality.yml'
@@ -56,9 +60,11 @@ jobs:
         run: >-
           ruff check --output-format=github
           app/execution/bybit_demo_trade_management_parity.py
+          app/execution/bybit_demo_trade_management_runtime.py
           app/execution/bybit_demo_stop_ratchet_client.py
           app/marketdata/bybit_demo_completed_bars.py
           tests/test_bybit_demo_trade_management_parity.py
+          tests/test_bybit_demo_trade_management_runtime.py
           tests/test_bybit_demo_stop_ratchet_client.py
           tests/test_bybit_demo_completed_bars.py
 
@@ -66,6 +72,7 @@ jobs:
         run: >-
           pytest -vv
           tests/test_bybit_demo_trade_management_parity.py
+          tests/test_bybit_demo_trade_management_runtime.py
           tests/test_bybit_demo_stop_ratchet_client.py
           tests/test_bybit_demo_completed_bars.py
           tests/test_crypto_trade_management.py
@@ -74,5 +81,6 @@ jobs:
         run: >-
           python -m compileall -q
           app/execution/bybit_demo_trade_management_parity.py
+          app/execution/bybit_demo_trade_management_runtime.py
           app/execution/bybit_demo_stop_ratchet_client.py
           app/marketdata/bybit_demo_completed_bars.py
