@@ -9,6 +9,7 @@ on:
       - 'app/execution/bybit_demo_controller.py'
       - 'app/execution/bybit_demo_cycle.py'
       - 'app/execution/bybit_demo_strategy_selector.py'
+      - 'app/execution/bybit_demo_strategy_quality_tracker.py'
       - 'app/execution/bybit_demo_account_reader.py'
       - 'app/execution/bybit_demo_account_pnl_reconciliation.py'
       - 'app/execution/bybit_demo_funding_reconciliation.py'
@@ -37,6 +38,7 @@ on:
       - 'tests/test_bybit_demo_orchestrator.py'
       - 'tests/test_bybit_demo_quote_guard.py'
       - 'tests/test_bybit_demo_strategy_selector.py'
+      - 'tests/test_bybit_demo_strategy_quality_tracker.py'
       - 'tests/test_bybit_demo_position_parsing.py'
       - 'tests/test_bybit_demo_trade_monitor.py'
       - 'tests/test_bybit_demo_cycle.py'
@@ -90,6 +92,7 @@ jobs:
           app/execution/bybit_demo_controller.py
           app/execution/bybit_demo_cycle.py
           app/execution/bybit_demo_strategy_selector.py
+          app/execution/bybit_demo_strategy_quality_tracker.py
           app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_pnl_reconciliation.py
           app/execution/bybit_demo_funding_reconciliation.py
@@ -118,6 +121,7 @@ jobs:
           tests/test_bybit_demo_orchestrator.py
           tests/test_bybit_demo_quote_guard.py
           tests/test_bybit_demo_strategy_selector.py
+          tests/test_bybit_demo_strategy_quality_tracker.py
           tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_trade_monitor.py
           tests/test_bybit_demo_cycle.py
@@ -156,6 +160,7 @@ jobs:
           tests/test_bybit_demo_controller.py
           tests/test_bybit_demo_quote_guard.py
           tests/test_bybit_demo_strategy_selector.py
+          tests/test_bybit_demo_strategy_quality_tracker.py
           tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_cycle.py
           tests/test_bybit_demo_trade_monitor.py
@@ -175,6 +180,7 @@ jobs:
           app/execution/bybit_demo_controller.py
           app/execution/bybit_demo_cycle.py
           app/execution/bybit_demo_strategy_selector.py
+          app/execution/bybit_demo_strategy_quality_tracker.py
           app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_pnl_reconciliation.py
           app/execution/bybit_demo_funding_reconciliation.py
