@@ -12,6 +12,7 @@ on:
       - 'app/execution/bybit_demo_strategy_quality_tracker.py'
       - 'app/execution/bybit_demo_account_reader.py'
       - 'app/execution/bybit_demo_account_sized_strategy.py'
+      - 'app/execution/bybit_demo_session_risk_ledger.py'
       - 'app/execution/bybit_demo_account_pnl_reconciliation.py'
       - 'app/execution/bybit_demo_funding_reconciliation.py'
       - 'app/execution/bybit_demo_lifecycle_gate.py'
@@ -33,11 +34,13 @@ on:
       - 'tests/test_bybit_demo_account_reader.py'
       - 'tests/test_bybit_demo_account_info_reader.py'
       - 'tests/test_bybit_demo_account_sized_strategy.py'
+      - 'tests/test_bybit_demo_session_risk_ledger.py'
       - 'tests/test_bybit_demo_account_pnl_reconciliation.py'
       - 'tests/test_bybit_demo_funding_reconciliation.py'
       - 'tests/test_bybit_demo_lifecycle_gate.py'
       - 'tests/test_bybit_demo_post_trade_accounting.py'
       - 'tests/test_bybit_demo_quality_tracker.py'
+      - 'tests/test_bybit_demo_profit_preservation_tracker.py'
       - 'tests/test_bybit_demo_orchestrator.py'
       - 'tests/test_bybit_demo_quote_guard.py'
       - 'tests/test_bybit_demo_strategy_selector.py'
@@ -99,6 +102,7 @@ jobs:
           app/execution/bybit_demo_strategy_quality_tracker.py
           app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_sized_strategy.py
+          app/execution/bybit_demo_session_risk_ledger.py
           app/execution/bybit_demo_account_pnl_reconciliation.py
           app/execution/bybit_demo_funding_reconciliation.py
           app/execution/bybit_demo_lifecycle_gate.py
@@ -120,11 +124,13 @@ jobs:
           tests/test_bybit_demo_account_reader.py
           tests/test_bybit_demo_account_info_reader.py
           tests/test_bybit_demo_account_sized_strategy.py
+          tests/test_bybit_demo_session_risk_ledger.py
           tests/test_bybit_demo_account_pnl_reconciliation.py
           tests/test_bybit_demo_funding_reconciliation.py
           tests/test_bybit_demo_lifecycle_gate.py
           tests/test_bybit_demo_post_trade_accounting.py
           tests/test_bybit_demo_quality_tracker.py
+          tests/test_bybit_demo_profit_preservation_tracker.py
           tests/test_bybit_demo_orchestrator.py
           tests/test_bybit_demo_quote_guard.py
           tests/test_bybit_demo_strategy_selector.py
@@ -173,6 +179,7 @@ jobs:
           tests/test_bybit_demo_account_reader.py
           tests/test_bybit_demo_account_info_reader.py
           tests/test_bybit_demo_account_sized_strategy.py
+          tests/test_bybit_demo_session_risk_ledger.py
           tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_cycle.py
           tests/test_bybit_demo_trade_monitor.py
@@ -181,6 +188,7 @@ jobs:
           tests/test_bybit_demo_lifecycle_gate.py
           tests/test_bybit_demo_post_trade_accounting.py
           tests/test_bybit_demo_quality_tracker.py
+          tests/test_bybit_demo_profit_preservation_tracker.py
           tests/test_bybit_demo_orchestrator.py
           tests/test_evaluate_bybit_crypto_replay.py
 
@@ -194,6 +202,7 @@ jobs:
           app/execution/bybit_demo_strategy_quality_tracker.py
           app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_sized_strategy.py
+          app/execution/bybit_demo_session_risk_ledger.py
           app/execution/bybit_demo_account_pnl_reconciliation.py
           app/execution/bybit_demo_funding_reconciliation.py
           app/execution/bybit_demo_lifecycle_gate.py
