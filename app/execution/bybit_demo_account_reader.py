@@ -14,6 +14,7 @@ from urllib.parse import urlencode
 _DEMO_HOST = "api-demo.bybit.com"
 _RECV_WINDOW_MS = 5000
 _TRANSACTION_LOG_MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+_ALLOWED_MARGIN_MODES = {"ISOLATED_MARGIN", "REGULAR_MARGIN", "PORTFOLIO_MARGIN"}
 
 
 class BybitDemoAccountingTransport(Protocol):
@@ -58,6 +59,21 @@ class BybitDemoWalletBalance:
             raise ValueError("Bybit demo wallet total equity must be positive")
         if self.total_initial_margin_usd < 0 or self.total_maintenance_margin_usd < 0:
             raise ValueError("Bybit demo wallet margin requirements cannot be negative")
+
+
+@dataclass(frozen=True)
+class BybitDemoAccountInfo:
+    margin_mode: str
+    unified_margin_status: int
+    updated_time_ms: int
+
+    def validate(self) -> None:
+        if self.margin_mode not in _ALLOWED_MARGIN_MODES:
+            raise ValueError("Bybit demo account returned unsupported margin mode")
+        if self.unified_margin_status <= 0:
+            raise ValueError("Bybit demo unified margin status must be positive")
+        if self.updated_time_ms < 0:
+            raise ValueError("Bybit demo account updated time cannot be negative")
 
 
 class BybitDemoHttpsAccountingTransport:
@@ -148,6 +164,19 @@ class BybitDemoAccountingClient:
         )
         balance.validate()
         return balance
+
+    def get_account_info(self) -> BybitDemoAccountInfo:
+        result = self._private_get_result(path="/v5/account/info", query={})
+        margin_mode = result.get("marginMode")
+        if not isinstance(margin_mode, str):
+            raise ValueError("Bybit demo account info is missing marginMode")
+        info = BybitDemoAccountInfo(
+            margin_mode=margin_mode,
+            unified_margin_status=_required_int(result, "unifiedMarginStatus"),
+            updated_time_ms=_required_int(result, "updatedTime"),
+        )
+        info.validate()
+        return info
 
     def get_closed_pnl(
         self,
@@ -251,6 +280,25 @@ class BybitDemoAccountingClient:
         path: str,
         query: Mapping[str, str],
     ) -> BybitDemoAccountingPage:
+        result = self._private_get_result(path=path, query=query)
+        raw_rows = result.get("list")
+        if not isinstance(raw_rows, list):
+            raise RuntimeError("Bybit demo accounting result.list must be an array")
+        rows: list[Mapping[str, Any]] = []
+        for row in raw_rows:
+            if not isinstance(row, Mapping):
+                raise RuntimeError("Bybit demo accounting row must be an object")
+            rows.append(dict(row))
+        raw_cursor = result.get("nextPageCursor")
+        cursor = raw_cursor if isinstance(raw_cursor, str) and raw_cursor else None
+        return BybitDemoAccountingPage(tuple(rows), cursor)
+
+    def _private_get_result(
+        self,
+        *,
+        path: str,
+        query: Mapping[str, str],
+    ) -> Mapping[str, Any]:
         query_string = urlencode(sorted(query.items()))
         timestamp = str(self._clock_ms())
         recv_window = str(self._recv_window_ms)
@@ -277,17 +325,7 @@ class BybitDemoAccountingClient:
         result = payload.get("result")
         if not isinstance(result, Mapping):
             raise RuntimeError("Bybit demo accounting result must be an object")
-        raw_rows = result.get("list")
-        if not isinstance(raw_rows, list):
-            raise RuntimeError("Bybit demo accounting result.list must be an array")
-        rows: list[Mapping[str, Any]] = []
-        for row in raw_rows:
-            if not isinstance(row, Mapping):
-                raise RuntimeError("Bybit demo accounting row must be an object")
-            rows.append(dict(row))
-        raw_cursor = result.get("nextPageCursor")
-        cursor = raw_cursor if isinstance(raw_cursor, str) and raw_cursor else None
-        return BybitDemoAccountingPage(tuple(rows), cursor)
+        return result
 
 
 def _wallet_decimal(row: Mapping[str, Any], field: str) -> Decimal:
@@ -300,6 +338,17 @@ def _wallet_decimal(row: Mapping[str, Any], field: str) -> Decimal:
         raise ValueError(f"Bybit demo wallet balance has invalid {field}") from exc
     if not value.is_finite():
         raise ValueError(f"Bybit demo wallet balance has non-finite {field}")
+    return value
+
+
+def _required_int(row: Mapping[str, Any], field: str) -> int:
+    raw = row.get(field)
+    if isinstance(raw, bool) or raw is None:
+        raise ValueError(f"Bybit demo account info is missing {field}")
+    try:
+        value = int(str(raw))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Bybit demo account info has invalid {field}") from exc
     return value
 
 
