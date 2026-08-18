@@ -58,7 +58,15 @@ class BybitDemoCompletedBarClient:
         expected_count = ((last_start_ms - start_ms) // interval_ms) + 1
         if expected_count > 1000:
             raise ValueError("demo completed-bar range exceeds one deterministic kline page")
-        url = f"{BYBIT_DEMO_KLINE_URL}?{urlencode({'category': 'linear', 'symbol': symbol, 'interval': interval, 'start': str(start_ms), 'end': str(end_ms), 'limit': str(expected_count)})}"
+        params = {
+            "category": "linear",
+            "symbol": symbol,
+            "interval": interval,
+            "start": str(start_ms),
+            "end": str(end_ms),
+            "limit": str(expected_count),
+        }
+        url = f"{BYBIT_DEMO_KLINE_URL}?{urlencode(params)}"
         response = self._transport(url, {"Accept": "application/json"})
         if response.status_code != 200:
             raise ValueError(f"Bybit demo kline request failed:{response.status_code}")
