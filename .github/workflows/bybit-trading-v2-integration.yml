@@ -53,6 +53,7 @@ on:
       - 'tests/test_bybit_demo_strategy_selector.py'
       - 'tests/test_bybit_demo_strategy_quality_tracker.py'
       - 'tests/test_bybit_demo_ranked_fallback.py'
+      - 'tests/test_bybit_demo_ranked_fallback_excursion.py'
       - 'tests/test_bybit_demo_protection_client.py'
       - 'tests/test_bybit_demo_protection_reconciliation.py'
       - 'tests/test_bybit_demo_emergency_flatten_reconciliation.py'
@@ -158,6 +159,7 @@ jobs:
           tests/test_bybit_demo_strategy_selector.py
           tests/test_bybit_demo_strategy_quality_tracker.py
           tests/test_bybit_demo_ranked_fallback.py
+          tests/test_bybit_demo_ranked_fallback_excursion.py
           tests/test_bybit_demo_protection_client.py
           tests/test_bybit_demo_protection_reconciliation.py
           tests/test_bybit_demo_emergency_flatten_reconciliation.py
@@ -207,6 +209,7 @@ jobs:
           tests/test_bybit_demo_strategy_selector.py
           tests/test_bybit_demo_strategy_quality_tracker.py
           tests/test_bybit_demo_ranked_fallback.py
+          tests/test_bybit_demo_ranked_fallback_excursion.py
           tests/test_bybit_demo_protection_client.py
           tests/test_bybit_demo_protection_reconciliation.py
           tests/test_bybit_demo_emergency_flatten_reconciliation.py
