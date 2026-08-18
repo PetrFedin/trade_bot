@@ -112,6 +112,31 @@ def test_long_baseline_break_even_ratchet_is_due_after_completed_080r_bar() -> N
     assert decision.demo_stop_ratchet_write_allowed is False
 
 
+def test_actual_entry_fee_moves_net_break_even_and_is_marked_used() -> None:
+    modeled = evaluate_bybit_demo_trade_management_parity(
+        _excursion(),
+        position=_position(),
+        completed_bars_since_entry=(_bar(0, high="104"),),
+        strategy_config=_config(),
+        instrument=_instrument(),
+    )
+    actual_fee = evaluate_bybit_demo_trade_management_parity(
+        _excursion(),
+        position=_position(),
+        completed_bars_since_entry=(_bar(0, high="104"),),
+        strategy_config=_config(),
+        instrument=_instrument(),
+        actual_entry_fee_usdt=Decimal("1"),
+    )
+
+    assert modeled.break_even_price is not None
+    assert actual_fee.break_even_price is not None
+    assert modeled.actual_entry_fee_used is False
+    assert actual_fee.actual_entry_fee_used is True
+    assert actual_fee.break_even_price > modeled.break_even_price
+    assert actual_fee.desired_stop_loss_price == actual_fee.break_even_price
+
+
 def test_long_baseline_profit_lock_ratchets_to_point_35r_after_125r() -> None:
     decision = evaluate_bybit_demo_trade_management_parity(
         _excursion(),
@@ -205,8 +230,41 @@ def test_max_hold_is_detected_from_same_baseline_policy() -> None:
 
     assert decision.action is BybitDemoTradeManagementParityAction.MAX_HOLD_CLOSE_REQUIRED
     assert decision.completed_bar_count == 36
+    assert decision.holding_bar_count == 36
     assert decision.maximum_holding_bars == 36
     assert decision.max_hold_close_required is True
+
+
+def test_entry_bucket_counts_for_max_hold_without_entering_protection_extrema() -> None:
+    bars = tuple(_bar(index, high="101") for index in range(35))
+    decision = evaluate_bybit_demo_trade_management_parity(
+        _excursion(),
+        position=_position(),
+        completed_bars_since_entry=bars,
+        completed_holding_bar_count=36,
+        strategy_config=_config(),
+        instrument=_instrument(),
+    )
+
+    assert decision.action is BybitDemoTradeManagementParityAction.MAX_HOLD_CLOSE_REQUIRED
+    assert decision.completed_bar_count == 35
+    assert decision.holding_bar_count == 36
+    assert decision.maximum_favorable_r == Decimal("0.2")
+
+
+def test_holding_count_gap_blocks_instead_of_hiding_missing_bar_history() -> None:
+    bars = tuple(_bar(index) for index in range(35))
+    decision = evaluate_bybit_demo_trade_management_parity(
+        _excursion(),
+        position=_position(),
+        completed_bars_since_entry=bars,
+        completed_holding_bar_count=37,
+        strategy_config=_config(),
+        instrument=_instrument(),
+    )
+
+    assert decision.action is BybitDemoTradeManagementParityAction.BLOCKED
+    assert decision.reasons == ("HOLDING_BAR_HISTORY_GAP",)
 
 
 def test_partial_or_changed_position_size_blocks_baseline_parity() -> None:
