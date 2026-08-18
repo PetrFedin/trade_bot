@@ -134,6 +134,9 @@ def _quote(
         mark_price=(Decimal(ask) + Decimal(bid)) / Decimal("2"),
         bid_price=Decimal(bid),
         ask_price=Decimal(ask),
+        server_time_ms=1_000_000,
+        received_time_ms=1_000_250,
+        age_ms=250,
     )
     quote.validate()
     return quote
