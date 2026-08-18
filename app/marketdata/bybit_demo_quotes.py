@@ -16,6 +16,46 @@ _DEFAULT_MAXIMUM_QUOTE_AGE_MS = 5_000
 _DEFAULT_MAXIMUM_FUTURE_SKEW_MS = 1_000
 
 
+class BybitDemoQuoteError(ValueError):
+    """Base class for safe, classifiable demo quote failures."""
+
+
+class BybitDemoQuoteHttpError(BybitDemoQuoteError):
+    pass
+
+
+class BybitDemoQuoteApiError(BybitDemoQuoteError):
+    pass
+
+
+class BybitDemoQuoteTimestampError(BybitDemoQuoteError):
+    pass
+
+
+class BybitDemoQuoteStaleError(BybitDemoQuoteTimestampError):
+    pass
+
+
+class BybitDemoQuoteFutureTimestampError(BybitDemoQuoteTimestampError):
+    pass
+
+
+class BybitDemoQuoteShapeError(BybitDemoQuoteError):
+    pass
+
+
+class BybitDemoQuoteSymbolError(BybitDemoQuoteError):
+    pass
+
+
+class BybitDemoQuotePriceError(BybitDemoQuoteError):
+    pass
+
+
+class BybitDemoQuoteCrossedBookError(BybitDemoQuotePriceError):
+    pass
+
+
 @dataclass(frozen=True)
 class BybitDemoMarketQuote:
     symbol: str
@@ -29,7 +69,9 @@ class BybitDemoMarketQuote:
 
     def validate(self) -> None:
         if self.symbol != self.symbol.strip().upper() or not self.symbol.endswith("USDT"):
-            raise ValueError("Bybit demo quote symbol must be normalized USDT")
+            raise BybitDemoQuoteSymbolError(
+                "Bybit demo quote symbol must be normalized USDT"
+            )
         for name, value in (
             ("last_price", self.last_price),
             ("mark_price", self.mark_price),
@@ -37,13 +79,21 @@ class BybitDemoMarketQuote:
             ("ask_price", self.ask_price),
         ):
             if not value.is_finite() or value <= 0:
-                raise ValueError(f"Bybit demo quote {name} must be positive and finite")
+                raise BybitDemoQuotePriceError(
+                    f"Bybit demo quote {name} must be positive and finite"
+                )
         if self.bid_price > self.ask_price:
-            raise ValueError("Bybit demo quote bid cannot exceed ask")
+            raise BybitDemoQuoteCrossedBookError(
+                "Bybit demo quote bid cannot exceed ask"
+            )
         if self.server_time_ms < 0 or self.received_time_ms < 0:
-            raise ValueError("Bybit demo quote timestamps cannot be negative")
+            raise BybitDemoQuoteTimestampError(
+                "Bybit demo quote timestamps cannot be negative"
+            )
         if self.age_ms != self.received_time_ms - self.server_time_ms:
-            raise ValueError("Bybit demo quote age does not reconcile with timestamps")
+            raise BybitDemoQuoteTimestampError(
+                "Bybit demo quote age does not reconcile with timestamps"
+            )
 
 
 @dataclass(frozen=True)
@@ -87,29 +137,37 @@ class BybitDemoMarketQuoteClient:
         response = self._transport(url, {"Accept": "application/json"})
         received_time_ms = self._clock_ms()
         if response.status_code != 200:
-            raise ValueError(f"Bybit demo quote HTTP request failed:{response.status_code}")
+            raise BybitDemoQuoteHttpError(
+                f"Bybit demo quote HTTP request failed:{response.status_code}"
+            )
         if response.payload.get("retCode") != 0:
-            raise ValueError(f"Bybit demo quote API error:{response.payload.get('retMsg')}")
+            raise BybitDemoQuoteApiError("Bybit demo quote API returned non-zero retCode")
         server_time_ms = _non_negative_int(response.payload, "time")
         age_ms = received_time_ms - server_time_ms
         if age_ms > self._maximum_quote_age_ms:
-            raise ValueError("Bybit demo quote response is stale")
+            raise BybitDemoQuoteStaleError("Bybit demo quote response is stale")
         if age_ms < -self._maximum_future_skew_ms:
-            raise ValueError("Bybit demo quote response timestamp is too far in the future")
+            raise BybitDemoQuoteFutureTimestampError(
+                "Bybit demo quote response timestamp is too far in the future"
+            )
 
         result = response.payload.get("result")
         if not isinstance(result, Mapping) or result.get("category") != "linear":
-            raise ValueError("Bybit demo quote response missing linear result")
+            raise BybitDemoQuoteShapeError(
+                "Bybit demo quote response missing linear result"
+            )
         rows = result.get("list")
         if not isinstance(rows, list):
-            raise ValueError("Bybit demo quote response missing list")
+            raise BybitDemoQuoteShapeError("Bybit demo quote response missing list")
         matches = [
             row
             for row in rows
             if isinstance(row, Mapping) and row.get("symbol") == symbol
         ]
         if len(matches) != 1:
-            raise ValueError(f"Bybit demo quote response missing exact {symbol}")
+            raise BybitDemoQuoteSymbolError(
+                f"Bybit demo quote response missing exact {symbol}"
+            )
         row = matches[0]
         quote = BybitDemoMarketQuote(
             symbol=symbol,
@@ -127,53 +185,82 @@ class BybitDemoMarketQuoteClient:
 
 def _validate_symbol(symbol: str) -> None:
     if symbol != symbol.strip().upper() or not symbol.endswith("USDT"):
-        raise ValueError("Bybit demo quote symbol must be normalized USDT linear symbol")
+        raise BybitDemoQuoteSymbolError(
+            "Bybit demo quote symbol must be normalized USDT linear symbol"
+        )
 
 
 def _positive_decimal(row: Mapping[str, Any], field: str) -> Decimal:
     value = row.get(field)
     if value in (None, ""):
-        raise ValueError(f"Bybit demo quote response missing {field}")
+        raise BybitDemoQuotePriceError(
+            f"Bybit demo quote response missing {field}"
+        )
     try:
         parsed = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError) as exc:
-        raise ValueError(f"Bybit demo quote response has invalid {field}") from exc
+        raise BybitDemoQuotePriceError(
+            f"Bybit demo quote response has invalid {field}"
+        ) from exc
     if not parsed.is_finite() or parsed <= 0:
-        raise ValueError(f"Bybit demo quote response has non-positive {field}")
+        raise BybitDemoQuotePriceError(
+            f"Bybit demo quote response has non-positive {field}"
+        )
     return parsed
 
 
 def _non_negative_int(row: Mapping[str, Any], field: str) -> int:
     value = row.get(field)
     if isinstance(value, bool) or value is None or value == "":
-        raise ValueError(f"Bybit demo quote response missing {field}")
+        raise BybitDemoQuoteTimestampError(
+            f"Bybit demo quote response missing {field}"
+        )
     try:
         parsed = int(str(value))
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"Bybit demo quote response has invalid {field}") from exc
+        raise BybitDemoQuoteTimestampError(
+            f"Bybit demo quote response has invalid {field}"
+        ) from exc
     if parsed < 0:
-        raise ValueError(f"Bybit demo quote response has invalid {field}")
+        raise BybitDemoQuoteTimestampError(
+            f"Bybit demo quote response has invalid {field}"
+        )
     return parsed
 
 
 def _https_transport(url: str, headers: Mapping[str, str]) -> BybitDemoQuoteHttpJson:
     parsed = urlsplit(url)
     if parsed.scheme != "https" or parsed.hostname != _BYBIT_DEMO_HOST:
-        raise ValueError("Bybit demo quote transport rejected non-demo endpoint")
+        raise BybitDemoQuoteShapeError(
+            "Bybit demo quote transport rejected non-demo endpoint"
+        )
     if parsed.username is not None or parsed.password is not None or parsed.fragment:
-        raise ValueError("Bybit demo quote transport rejected ambiguous URL authority")
+        raise BybitDemoQuoteShapeError(
+            "Bybit demo quote transport rejected ambiguous URL authority"
+        )
     if parsed.port not in (None, 443):
-        raise ValueError("Bybit demo quote transport requires HTTPS port 443")
+        raise BybitDemoQuoteShapeError(
+            "Bybit demo quote transport requires HTTPS port 443"
+        )
     if parsed.path != _BYBIT_DEMO_TICKERS_PATH:
-        raise ValueError("Bybit demo quote transport rejected non-ticker path")
+        raise BybitDemoQuoteShapeError(
+            "Bybit demo quote transport rejected non-ticker path"
+        )
     target = parsed.path + (f"?{parsed.query}" if parsed.query else "")
     connection = HTTPSConnection(_BYBIT_DEMO_HOST, 443, timeout=10)
     try:
         connection.request("GET", target, headers=dict(headers))
         response = connection.getresponse()
-        payload = json.loads(response.read().decode("utf-8"))
+        try:
+            payload = json.loads(response.read().decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise BybitDemoQuoteShapeError(
+                "Bybit demo quote response returned invalid JSON"
+            ) from exc
         if not isinstance(payload, dict):
-            raise ValueError("Bybit demo quote response must be a JSON object")
+            raise BybitDemoQuoteShapeError(
+                "Bybit demo quote response must be a JSON object"
+            )
         return BybitDemoQuoteHttpJson(
             status_code=response.status,
             headers={key: value for key, value in response.getheaders()},
