@@ -35,7 +35,7 @@ class CryptoPerpStrategyConfig:
     maximum_notional_to_equity: Decimal = Decimal("2.0")
     hard_stop_atr_multiple: Decimal = Decimal("1.0")
     expected_move_atr_multiple: Decimal = Decimal("3.0")
-    target_net_profit_usd: Decimal = Decimal("15")
+    target_net_profit_usd: Decimal = Decimal("20")
     taker_fee_rate: Decimal = Decimal("0.0006")
     slippage_bps_per_fill: Decimal = Decimal("2")
     maximum_concurrent_positions: int = 2
