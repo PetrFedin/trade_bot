@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.execution.bybit_demo import BybitDemoPosition
 from app.execution.bybit_demo_cycle import BybitDemoCyclePolicy
 from app.execution.bybit_demo_orchestrator import (
     BybitDemoOrchestratorResult,
@@ -19,6 +20,7 @@ from app.execution.bybit_demo_strategy_selector import (
 from app.marketdata.bybit_demo_quotes import BybitDemoMarketQuote
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
 from app.marketdata.bybit_v5 import BybitKlineBar
+from app.strategy.crypto_correlation import CryptoCorrelationPolicy
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig
 from app.strategy.crypto_session_risk import CryptoSessionRiskState
 
@@ -66,6 +68,13 @@ def _histories() -> dict[str, tuple[BybitKlineBar, ...]]:
     }
 
 
+def _two_long_histories() -> dict[str, tuple[BybitKlineBar, ...]]:
+    return {
+        "BTCUSDT": _bars("BTCUSDT", (100, 101, 102, 103, 104, 105, 106, 110)),
+        "ETHUSDT": _bars("ETHUSDT", (100, 101, 102, 103, 104, 105, 106, 107)),
+    }
+
+
 def _instrument(symbol: str) -> BybitInstrumentSpec:
     return BybitInstrumentSpec(
         symbol=symbol,
@@ -84,8 +93,9 @@ def _instrument(symbol: str) -> BybitInstrumentSpec:
     )
 
 
-def _instruments() -> dict[str, BybitInstrumentSpec]:
-    return {symbol: _instrument(symbol) for symbol in _histories()}
+def _instruments(*, histories: dict[str, tuple[BybitKlineBar, ...]] | None = None) -> dict[str, BybitInstrumentSpec]:
+    active = _histories() if histories is None else histories
+    return {symbol: _instrument(symbol) for symbol in active}
 
 
 def _session(*, consecutive_losses: int = 0) -> CryptoSessionRiskState:
@@ -101,16 +111,32 @@ def _now() -> datetime:
     return datetime(2026, 8, 18, 0, 40, tzinfo=UTC)
 
 
-def _quote(*, ask: str = "108.1", bid: str = "108.0") -> BybitDemoMarketQuote:
+def _quote(
+    *,
+    symbol: str = "BTCUSDT",
+    ask: str = "108.1",
+    bid: str = "108.0",
+) -> BybitDemoMarketQuote:
     quote = BybitDemoMarketQuote(
-        symbol="BTCUSDT",
-        last_price=Decimal("108.05"),
-        mark_price=Decimal("108.04"),
+        symbol=symbol,
+        last_price=(Decimal(ask) + Decimal(bid)) / Decimal("2"),
+        mark_price=(Decimal(ask) + Decimal(bid)) / Decimal("2"),
         bid_price=Decimal(bid),
         ask_price=Decimal(ask),
     )
     quote.validate()
     return quote
+
+
+def _position(symbol: str) -> BybitDemoPosition:
+    return BybitDemoPosition(
+        symbol=symbol,
+        side="Buy",
+        size=Decimal("1"),
+        average_price=Decimal("100"),
+        unrealised_pnl=Decimal("0"),
+        liquidation_price=Decimal("50"),
+    )
 
 
 class _QuoteClient:
@@ -123,6 +149,18 @@ class _QuoteClient:
     def get_quote(self, *, symbol: str) -> BybitDemoMarketQuote:
         self.calls.append(symbol)
         return self.quote
+
+
+class _DemoClient:
+    live_mainnet_order_routing_allowed = False
+
+    def __init__(self, *positions: BybitDemoPosition) -> None:
+        self.positions = positions
+        self.position_reads = 0
+
+    def get_positions(self) -> tuple[BybitDemoPosition, ...]:
+        self.position_reads += 1
+        return self.positions
 
 
 def _orchestrator(observed: dict[str, object]):
@@ -138,6 +176,14 @@ def _orchestrator(observed: dict[str, object]):
         )
 
     return fake
+
+
+def _relaxed_correlation() -> CryptoCorrelationPolicy:
+    return CryptoCorrelationPolicy(
+        lookback_bars=3,
+        minimum_return_observations=2,
+        maximum_pairwise_correlation=Decimal("1"),
+    )
 
 
 def test_demo_strategy_selector_bridges_completed_bars_to_one_demo_ready_plan() -> None:
@@ -202,6 +248,76 @@ def test_demo_strategy_selector_requires_instrument_preflight() -> None:
     assert btc.demo_preflight_reasons == ("BYBIT_INSTRUMENT_SPEC_UNAVAILABLE",)
 
 
+def test_open_top_ranked_symbol_is_excluded_before_selecting_next_candidate() -> None:
+    histories = _two_long_histories()
+    baseline = select_bybit_demo_trade_plan(
+        histories,
+        instruments=_instruments(histories=histories),
+        strategy_config=_config(),
+        session_state=_session(),
+        now=_now(),
+    )
+    assert baseline.selected_trade_plan is not None
+    assert baseline.selected_trade_plan.symbol == "BTCUSDT"
+
+    selection = select_bybit_demo_trade_plan(
+        histories,
+        instruments=_instruments(histories=histories),
+        strategy_config=_config(),
+        session_state=_session(),
+        now=_now(),
+        correlation_policy=_relaxed_correlation(),
+        open_position_symbols=("BTCUSDT",),
+        portfolio_state_checked=True,
+    )
+
+    assert selection.status is BybitDemoStrategySelectionStatus.SELECTED
+    assert selection.selected_trade_plan is not None
+    assert selection.selected_trade_plan.symbol == "ETHUSDT"
+    assert selection.open_position_symbols == ("BTCUSDT",)
+    btc = next(row for row in selection.candidate_audit if row.symbol == "BTCUSDT")
+    assert btc.portfolio_reasons == ("PREEXISTING_SYMBOL_POSITION_EXCLUDED",)
+
+
+def test_correlation_guard_blocks_next_candidate_against_open_portfolio() -> None:
+    histories = _two_long_histories()
+    selection = select_bybit_demo_trade_plan(
+        histories,
+        instruments=_instruments(histories=histories),
+        strategy_config=_config(),
+        session_state=_session(),
+        now=_now(),
+        correlation_policy=CryptoCorrelationPolicy(
+            lookback_bars=3,
+            minimum_return_observations=2,
+            maximum_pairwise_correlation=Decimal("0.10"),
+        ),
+        open_position_symbols=("BTCUSDT",),
+        portfolio_state_checked=True,
+    )
+
+    assert selection.status is BybitDemoStrategySelectionStatus.NO_EXECUTABLE_PLAN
+    assert selection.correlation_block_count == 1
+    eth = next(row for row in selection.candidate_audit if row.symbol == "ETHUSDT")
+    assert eth.portfolio_reasons == ("PAIRWISE_CORRELATION_ABOVE_LIMIT",)
+    assert eth.correlation_blocking_symbol == "BTCUSDT"
+
+
+def test_portfolio_concurrency_blocks_selection_before_entry() -> None:
+    selection = select_bybit_demo_trade_plan(
+        _two_long_histories(),
+        instruments=_instruments(histories=_two_long_histories()),
+        strategy_config=_config(),
+        session_state=_session(),
+        now=_now(),
+        open_position_symbols=("BTCUSDT", "ETHUSDT"),
+        portfolio_state_checked=True,
+    )
+    assert selection.status is BybitDemoStrategySelectionStatus.PORTFOLIO_CONCURRENCY_BLOCKED
+    assert selection.selected_trade_plan is None
+    assert selection.reasons == ("MAXIMUM_CONCURRENT_POSITIONS_REACHED",)
+
+
 def test_selected_plan_is_passed_to_existing_guarded_orchestrator_without_bypass() -> None:
     observed: dict[str, object] = {}
     result = execute_selected_reconciled_guarded_bybit_demo_cycle(
@@ -235,6 +351,7 @@ def test_explicit_demo_write_path_rechecks_executable_quote_before_orchestrator(
     )
     assert base_selection.selected_trade_plan is not None
     original_quantity = base_selection.selected_trade_plan.reference_quantity
+    client = _DemoClient()
 
     result = execute_selected_reconciled_guarded_bybit_demo_cycle(
         _histories(),
@@ -242,14 +359,16 @@ def test_explicit_demo_write_path_rechecks_executable_quote_before_orchestrator(
         strategy_config=_config(),
         session_state=_session(),
         now=_now(),
-        client=object(),
+        client=client,
         cycle_policy=BybitDemoCyclePolicy(writes_enabled=True),
         quote_client=quote_client,
         orchestrator=_orchestrator(observed),
     )
 
     assert result.status is BybitDemoStrategyCycleStatus.GUARDED_ORCHESTRATOR_CALLED
+    assert client.position_reads == 1
     assert quote_client.calls == ["BTCUSDT"]
+    assert result.selection.portfolio_state_checked is True
     assert result.pre_entry_quote_checked is True
     assert result.pre_entry_quote_price == Decimal("108.1")
     assert result.pre_entry_modeled_entry_price is not None
@@ -257,6 +376,65 @@ def test_explicit_demo_write_path_rechecks_executable_quote_before_orchestrator(
     assert result.pre_entry_adjusted_quantity <= original_quantity
     assert result.selection.selected_trade_plan is observed["plan"]
     assert result.pre_entry_quote_reasons == ()
+
+
+def test_explicit_write_path_selects_next_symbol_when_top_symbol_is_open() -> None:
+    histories = _two_long_histories()
+    client = _DemoClient(_position("BTCUSDT"))
+    quote_client = _QuoteClient(_quote(symbol="ETHUSDT", ask="107.1", bid="107.0"))
+    observed: dict[str, object] = {}
+
+    result = execute_selected_reconciled_guarded_bybit_demo_cycle(
+        histories,
+        instruments=_instruments(histories=histories),
+        strategy_config=_config(),
+        session_state=_session(),
+        now=_now(),
+        client=client,
+        cycle_policy=BybitDemoCyclePolicy(writes_enabled=True),
+        correlation_policy=_relaxed_correlation(),
+        quote_client=quote_client,
+        orchestrator=_orchestrator(observed),
+    )
+
+    assert result.status is BybitDemoStrategyCycleStatus.GUARDED_ORCHESTRATOR_CALLED
+    assert result.selection.selected_trade_plan is not None
+    assert result.selection.selected_trade_plan.symbol == "ETHUSDT"
+    assert result.selection.open_position_symbols == ("BTCUSDT",)
+    assert quote_client.calls == ["ETHUSDT"]
+    assert getattr(observed["plan"], "symbol") == "ETHUSDT"
+
+
+def test_explicit_write_path_blocks_if_portfolio_state_cannot_be_read() -> None:
+    class BrokenPortfolioClient:
+        live_mainnet_order_routing_allowed = False
+
+        def get_positions(self) -> tuple[BybitDemoPosition, ...]:
+            raise TimeoutError("demo positions")
+
+    called = False
+
+    def should_not_run(*_: object, **__: object) -> BybitDemoOrchestratorResult:
+        nonlocal called
+        called = True
+        raise AssertionError("orchestrator must not run without portfolio state")
+
+    result = execute_selected_reconciled_guarded_bybit_demo_cycle(
+        _histories(),
+        instruments=_instruments(),
+        strategy_config=_config(),
+        session_state=_session(),
+        now=_now(),
+        client=BrokenPortfolioClient(),
+        cycle_policy=BybitDemoCyclePolicy(writes_enabled=True),
+        quote_client=_QuoteClient(_quote()),
+        orchestrator=should_not_run,
+    )
+
+    assert called is False
+    assert result.status is BybitDemoStrategyCycleStatus.PORTFOLIO_STATE_BLOCKED
+    assert result.selection.status is BybitDemoStrategySelectionStatus.PORTFOLIO_STATE_BLOCKED
+    assert result.selection.reasons == ("DEMO_PORTFOLIO_READ_FAILED:TimeoutError",)
 
 
 def test_explicit_demo_write_path_blocks_when_quote_read_fails() -> None:
@@ -279,7 +457,7 @@ def test_explicit_demo_write_path_blocks_when_quote_read_fails() -> None:
         strategy_config=_config(),
         session_state=_session(),
         now=_now(),
-        client=object(),
+        client=_DemoClient(),
         cycle_policy=BybitDemoCyclePolicy(writes_enabled=True),
         quote_client=BrokenQuoteClient(),
         orchestrator=should_not_run,
@@ -292,14 +470,7 @@ def test_explicit_demo_write_path_blocks_when_quote_read_fails() -> None:
 
 
 def test_explicit_demo_write_path_blocks_when_quote_destroys_minimum_edge() -> None:
-    low_quote = BybitDemoMarketQuote(
-        symbol="BTCUSDT",
-        last_price=Decimal("10"),
-        mark_price=Decimal("10"),
-        bid_price=Decimal("9.9"),
-        ask_price=Decimal("10"),
-    )
-    low_quote.validate()
+    low_quote = _quote(ask="10", bid="9.9")
     called = False
 
     def should_not_run(*_: object, **__: object) -> BybitDemoOrchestratorResult:
@@ -313,7 +484,7 @@ def test_explicit_demo_write_path_blocks_when_quote_destroys_minimum_edge() -> N
         strategy_config=_config(),
         session_state=_session(),
         now=_now(),
-        client=object(),
+        client=_DemoClient(),
         cycle_policy=BybitDemoCyclePolicy(writes_enabled=True),
         quote_client=_QuoteClient(low_quote),
         orchestrator=should_not_run,
@@ -337,7 +508,7 @@ def test_explicit_demo_write_path_rejects_mainnet_capable_quote_reader() -> None
             strategy_config=_config(),
             session_state=_session(),
             now=_now(),
-            client=object(),
+            client=_DemoClient(),
             cycle_policy=BybitDemoCyclePolicy(writes_enabled=True),
             quote_client=UnsafeQuoteClient(),
             orchestrator=_orchestrator({}),

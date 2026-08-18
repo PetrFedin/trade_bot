@@ -20,6 +20,10 @@ from app.execution.bybit_demo_orchestrator import (
 from app.marketdata.bybit_demo_quotes import BybitDemoMarketQuoteClient
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
 from app.marketdata.bybit_v5 import BybitKlineBar
+from app.strategy.crypto_correlation import (
+    CryptoCorrelationPolicy,
+    evaluate_crypto_correlation,
+)
 from app.strategy.crypto_execution_risk import (
     CryptoExecutionRiskPolicy,
     resize_trade_plan_at_next_open,
@@ -45,11 +49,14 @@ from app.strategy.crypto_session_risk import (
 class BybitDemoStrategySelectionStatus(StrEnum):
     SELECTED = "SELECTED"
     SESSION_RISK_BLOCKED = "SESSION_RISK_BLOCKED"
+    PORTFOLIO_STATE_BLOCKED = "PORTFOLIO_STATE_BLOCKED"
+    PORTFOLIO_CONCURRENCY_BLOCKED = "PORTFOLIO_CONCURRENCY_BLOCKED"
     NO_EXECUTABLE_PLAN = "NO_EXECUTABLE_PLAN"
 
 
 class BybitDemoStrategyCycleStatus(StrEnum):
     NO_TRADE = "NO_TRADE"
+    PORTFOLIO_STATE_BLOCKED = "PORTFOLIO_STATE_BLOCKED"
     PRE_ENTRY_QUOTE_BLOCKED = "PRE_ENTRY_QUOTE_BLOCKED"
     GUARDED_ORCHESTRATOR_CALLED = "GUARDED_ORCHESTRATOR_CALLED"
 
@@ -64,6 +71,9 @@ class BybitDemoStrategyCandidateAudit:
     plan_reasons: tuple[str, ...]
     demo_preflight_eligible: bool
     demo_preflight_reasons: tuple[str, ...]
+    portfolio_reasons: tuple[str, ...] = ()
+    correlation_blocking_symbol: str | None = None
+    correlation: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -78,6 +88,9 @@ class BybitDemoStrategySelection:
     economic_shadow_selected_symbol: str | None
     economic_shadow_selected_side: str | None
     economic_shadow_differs_from_current: bool
+    open_position_symbols: tuple[str, ...] = ()
+    correlation_block_count: int = 0
+    portfolio_state_checked: bool = False
     economic_shadow_activation_allowed: bool = False
     order_write_performed: bool = False
     demo_only: bool = True
@@ -115,8 +128,11 @@ def select_bybit_demo_trade_plan(
     now: datetime,
     interval_minutes: int = 5,
     session_policy: CryptoSessionRiskPolicy | None = None,
+    correlation_policy: CryptoCorrelationPolicy | None = None,
+    open_position_symbols: Sequence[str] = (),
+    portfolio_state_checked: bool = False,
 ) -> BybitDemoStrategySelection:
-    """Select one demo-ready trade plan from synchronized completed bars without writing orders."""
+    """Select one demo-ready plan from completed bars and current portfolio state."""
 
     strategy_config.validate()
     session_state.validate()
@@ -125,24 +141,30 @@ def select_bybit_demo_trade_plan(
         now=now,
         interval_minutes=interval_minutes,
     )
-    risk = evaluate_crypto_session_risk(session_state, session_policy)
-    if not risk.new_entries_allowed:
-        return BybitDemoStrategySelection(
-            status=BybitDemoStrategySelectionStatus.SESSION_RISK_BLOCKED,
-            reasons=risk.reasons,
-            selected_trade_plan=None,
-            selected_entry_preflight=None,
-            selected_signal_rank=None,
-            candidate_audit=(),
-            executable_candidate_count=0,
-            economic_shadow_selected_symbol=None,
-            economic_shadow_selected_side=None,
-            economic_shadow_differs_from_current=False,
+    open_symbols = _validated_open_position_symbols(open_position_symbols)
+    if len(open_symbols) >= strategy_config.maximum_concurrent_positions:
+        return _selection_without_plan(
+            BybitDemoStrategySelectionStatus.PORTFOLIO_CONCURRENCY_BLOCKED,
+            reasons=("MAXIMUM_CONCURRENT_POSITIONS_REACHED",),
+            open_position_symbols=open_symbols,
+            portfolio_state_checked=portfolio_state_checked,
         )
 
+    risk = evaluate_crypto_session_risk(session_state, session_policy)
+    if not risk.new_entries_allowed:
+        return _selection_without_plan(
+            BybitDemoStrategySelectionStatus.SESSION_RISK_BLOCKED,
+            reasons=risk.reasons,
+            open_position_symbols=open_symbols,
+            portfolio_state_checked=portfolio_state_checked,
+        )
+
+    active_correlation = CryptoCorrelationPolicy() if correlation_policy is None else correlation_policy
+    active_correlation.validate()
     rankings = rank_crypto_signals(dict(bars_by_symbol), strategy_config)
     audits: list[BybitDemoStrategyCandidateAudit] = []
     executable: list[tuple[int, CryptoPositionCandidate, BybitDemoEntryPlan]] = []
+    correlation_block_count = 0
     for signal_rank, evaluation in enumerate(rankings, start=1):
         if evaluation.signal is None:
             audits.append(
@@ -155,6 +177,49 @@ def select_bybit_demo_trade_plan(
                     plan_reasons=(),
                     demo_preflight_eligible=False,
                     demo_preflight_reasons=(),
+                )
+            )
+            continue
+
+        if evaluation.symbol in open_symbols:
+            audits.append(
+                BybitDemoStrategyCandidateAudit(
+                    signal_rank=signal_rank,
+                    symbol=evaluation.symbol,
+                    signal_eligible=True,
+                    signal_reasons=(),
+                    plan_eligible=False,
+                    plan_reasons=(),
+                    demo_preflight_eligible=False,
+                    demo_preflight_reasons=(),
+                    portfolio_reasons=("PREEXISTING_SYMBOL_POSITION_EXCLUDED",),
+                )
+            )
+            continue
+
+        correlation = evaluate_crypto_correlation(
+            evaluation.symbol,
+            selected_symbols=open_symbols,
+            histories=bars_by_symbol,
+            policy=active_correlation,
+        )
+        if not correlation.eligible:
+            correlation_block_count += 1
+            audits.append(
+                BybitDemoStrategyCandidateAudit(
+                    signal_rank=signal_rank,
+                    symbol=evaluation.symbol,
+                    signal_eligible=True,
+                    signal_reasons=(),
+                    plan_eligible=False,
+                    plan_reasons=(),
+                    demo_preflight_eligible=False,
+                    demo_preflight_reasons=(),
+                    portfolio_reasons=(
+                        correlation.reason or "CORRELATION_DIVERSIFICATION_BLOCK",
+                    ),
+                    correlation_blocking_symbol=correlation.blocking_symbol,
+                    correlation=correlation.correlation,
                 )
             )
             continue
@@ -224,17 +289,13 @@ def select_bybit_demo_trade_plan(
             )
 
     if not executable:
-        return BybitDemoStrategySelection(
-            status=BybitDemoStrategySelectionStatus.NO_EXECUTABLE_PLAN,
+        return _selection_without_plan(
+            BybitDemoStrategySelectionStatus.NO_EXECUTABLE_PLAN,
             reasons=("NO_DEMO_EXECUTABLE_CRYPTO_PLAN",),
-            selected_trade_plan=None,
-            selected_entry_preflight=None,
-            selected_signal_rank=None,
             candidate_audit=tuple(audits),
-            executable_candidate_count=0,
-            economic_shadow_selected_symbol=None,
-            economic_shadow_selected_side=None,
-            economic_shadow_differs_from_current=False,
+            open_position_symbols=open_symbols,
+            correlation_block_count=correlation_block_count,
+            portfolio_state_checked=portfolio_state_checked,
         )
 
     current_rank, current_candidate, current_preflight = min(
@@ -261,6 +322,9 @@ def select_bybit_demo_trade_plan(
         economic_shadow_selected_symbol=economic.plan.symbol,
         economic_shadow_selected_side=economic.plan.side.value,
         economic_shadow_differs_from_current=differs,
+        open_position_symbols=open_symbols,
+        correlation_block_count=correlation_block_count,
+        portfolio_state_checked=portfolio_state_checked,
         economic_shadow_activation_allowed=False,
         order_write_performed=False,
         demo_only=True,
@@ -284,6 +348,7 @@ def execute_selected_reconciled_guarded_bybit_demo_cycle(
     lifecycle_policy: BybitDemoLifecyclePolicy | None = None,
     cycle_policy: BybitDemoCyclePolicy | None = None,
     session_policy: CryptoSessionRiskPolicy | None = None,
+    correlation_policy: CryptoCorrelationPolicy | None = None,
     execution_risk_policy: CryptoExecutionRiskPolicy | None = None,
     quote_client: Any | None = None,
     interval_minutes: int = 5,
@@ -291,6 +356,29 @@ def execute_selected_reconciled_guarded_bybit_demo_cycle(
     orchestrator: Orchestrator = execute_reconciled_guarded_bybit_demo_cycle,
 ) -> BybitDemoStrategyCycleResult:
     """Bridge completed-bar selection into the existing fail-closed demo orchestrator."""
+
+    active_cycle_policy = BybitDemoCyclePolicy() if cycle_policy is None else cycle_policy
+    active_cycle_policy.validate()
+    open_symbols: tuple[str, ...] = ()
+    portfolio_checked = False
+    if active_cycle_policy.writes_enabled:
+        if getattr(client, "live_mainnet_order_routing_allowed", False):
+            raise ValueError("demo strategy selector rejected a mainnet-capable order client")
+        portfolio_checked = True
+        try:
+            open_symbols = _open_position_symbols(client.get_positions())
+        except Exception as exc:  # noqa: BLE001 - unresolved portfolio state must block writes.
+            reasons = (f"DEMO_PORTFOLIO_READ_FAILED:{type(exc).__name__}",)
+            selection = _selection_without_plan(
+                BybitDemoStrategySelectionStatus.PORTFOLIO_STATE_BLOCKED,
+                reasons=reasons,
+                portfolio_state_checked=True,
+            )
+            return BybitDemoStrategyCycleResult(
+                status=BybitDemoStrategyCycleStatus.PORTFOLIO_STATE_BLOCKED,
+                selection=selection,
+                orchestrator_result=None,
+            )
 
     selection = select_bybit_demo_trade_plan(
         bars_by_symbol,
@@ -300,6 +388,9 @@ def execute_selected_reconciled_guarded_bybit_demo_cycle(
         now=now,
         interval_minutes=interval_minutes,
         session_policy=session_policy,
+        correlation_policy=correlation_policy,
+        open_position_symbols=open_symbols,
+        portfolio_state_checked=portfolio_checked,
     )
     plan = selection.selected_trade_plan
     if plan is None:
@@ -312,8 +403,6 @@ def execute_selected_reconciled_guarded_bybit_demo_cycle(
     if instrument is None:
         raise AssertionError("selected demo strategy plan lost its instrument specification")
 
-    active_cycle_policy = BybitDemoCyclePolicy() if cycle_policy is None else cycle_policy
-    active_cycle_policy.validate()
     quote_checked = False
     quote_price = None
     modeled_entry_price = None
@@ -330,6 +419,9 @@ def execute_selected_reconciled_guarded_bybit_demo_cycle(
         quote_checked = True
         try:
             quote = quote_reader.get_quote(symbol=plan.symbol)
+            quote.validate()
+            if quote.symbol != plan.symbol:
+                raise ValueError("Bybit demo executable quote symbol mismatch")
         except Exception as exc:  # noqa: BLE001 - missing executable quote must block any write.
             quote_reasons = (f"PRE_ENTRY_QUOTE_READ_FAILED:{type(exc).__name__}",)
             return BybitDemoStrategyCycleResult(
@@ -472,6 +564,56 @@ def execute_selected_reconciled_guarded_bybit_demo_cycle(
         strategy_promotion_allowed=False,
         live_mainnet_order_routing_allowed=False,
     )
+
+
+def _selection_without_plan(
+    status: BybitDemoStrategySelectionStatus,
+    *,
+    reasons: tuple[str, ...],
+    candidate_audit: tuple[BybitDemoStrategyCandidateAudit, ...] = (),
+    open_position_symbols: tuple[str, ...] = (),
+    correlation_block_count: int = 0,
+    portfolio_state_checked: bool = False,
+) -> BybitDemoStrategySelection:
+    return BybitDemoStrategySelection(
+        status=status,
+        reasons=reasons,
+        selected_trade_plan=None,
+        selected_entry_preflight=None,
+        selected_signal_rank=None,
+        candidate_audit=candidate_audit,
+        executable_candidate_count=0,
+        economic_shadow_selected_symbol=None,
+        economic_shadow_selected_side=None,
+        economic_shadow_differs_from_current=False,
+        open_position_symbols=open_position_symbols,
+        correlation_block_count=correlation_block_count,
+        portfolio_state_checked=portfolio_state_checked,
+    )
+
+
+def _validated_open_position_symbols(symbols: Sequence[str]) -> tuple[str, ...]:
+    normalized = tuple(symbols)
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("Bybit demo open position symbols must be unique")
+    if any(symbol != symbol.strip().upper() or not symbol.endswith("USDT") for symbol in normalized):
+        raise ValueError("Bybit demo open position symbols must be normalized USDT symbols")
+    return tuple(sorted(normalized))
+
+
+def _open_position_symbols(positions: Sequence[Any]) -> tuple[str, ...]:
+    open_symbols: list[str] = []
+    for position in positions:
+        symbol = getattr(position, "symbol", None)
+        size = getattr(position, "size", None)
+        if not isinstance(symbol, str) or not isinstance(size, Decimal):
+            raise ValueError("Bybit demo portfolio position has invalid symbol/size")
+        if not size.is_finite() or size < 0:
+            raise ValueError("Bybit demo portfolio position size must be finite and non-negative")
+        if size == 0:
+            continue
+        open_symbols.append(symbol)
+    return _validated_open_position_symbols(open_symbols)
 
 
 def _validate_completed_histories(
