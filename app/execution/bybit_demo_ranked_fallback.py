@@ -270,6 +270,7 @@ def summarize_bybit_demo_ranked_fallback_quality(
         "account_fee_read_failures_are_never_retried": True,
         "fallback_never_relaxes_entry_thresholds": True,
         "fallback_occurs_before_entry_ack_only": True,
+        "fallback_selection_is_not_realized_profit": True,
         "strategy_promotion_allowed": False,
         "live_mainnet_order_routing_allowed": False,
     }
@@ -292,7 +293,10 @@ def _retryable_account_fee_reasons(
     if result.status is not BybitDemoStrategyCycleStatus.GUARDED_ORCHESTRATOR_CALLED:
         return None
     orchestrator = result.orchestrator_result
-    if orchestrator is None or orchestrator.status is not BybitDemoOrchestratorStatus.CYCLE_EXECUTED:
+    if (
+        orchestrator is None
+        or orchestrator.status is not BybitDemoOrchestratorStatus.CYCLE_EXECUTED
+    ):
         return None
     cycle = orchestrator.cycle_result
     if cycle is None or cycle.status is not BybitDemoCycleStatus.ENTRY_BLOCKED:
@@ -323,12 +327,17 @@ def _ranked_result(
         and selected_plan is not None
         and not candidates_exhausted
     )
+    final_symbol = (
+        None
+        if candidates_exhausted or selected_plan is None
+        else selected_plan.symbol
+    )
     return BybitDemoRankedFallbackResult(
         cycle_result=cycle_result,
         fallback_attempts=tuple(attempts),
         selected_after_fallback=selected_after_fallback,
         candidates_exhausted=candidates_exhausted,
-        final_selected_symbol=None if selected_plan is None else selected_plan.symbol,
+        final_selected_symbol=final_symbol,
         demo_only=True,
         strategy_promotion_allowed=False,
         live_mainnet_order_routing_allowed=False,
