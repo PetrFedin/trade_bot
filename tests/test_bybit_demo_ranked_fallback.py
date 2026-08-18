@@ -81,18 +81,6 @@ def _success(symbol: str) -> SimpleNamespace:
     )
 
 
-def _no_trade() -> SimpleNamespace:
-    return SimpleNamespace(
-        status=BybitDemoStrategyCycleStatus.NO_TRADE,
-        selection=_selection(None),
-        orchestrator_result=None,
-        pre_entry_quote_reasons=(),
-        pre_entry_quote_price=None,
-        pre_entry_modeled_entry_price=None,
-        live_mainnet_order_routing_allowed=False,
-    )
-
-
 def _run(sequence: list[object]):
     calls: list[tuple[str, ...]] = []
 
@@ -141,7 +129,10 @@ def test_actual_fee_economics_block_falls_back_before_entry_ack() -> None:
     assert calls == [("BTCUSDT", "ETHUSDT"), ("ETHUSDT",)]
     assert result.selected_after_fallback is True
     assert result.final_selected_symbol == "ETHUSDT"
-    assert result.fallback_attempts[0].stage is BybitDemoCandidateFallbackStage.ACCOUNT_FEE_ECONOMICS
+    assert (
+        result.fallback_attempts[0].stage
+        is BybitDemoCandidateFallbackStage.ACCOUNT_FEE_ECONOMICS
+    )
 
 
 def test_quote_read_failure_never_retries_another_symbol() -> None:
@@ -185,6 +176,7 @@ def test_exhausted_candidates_stop_without_relaxing_thresholds() -> None:
     assert calls == [("BTCUSDT", "ETHUSDT"), ("ETHUSDT",)]
     assert result.selected_after_fallback is False
     assert result.candidates_exhausted is True
+    assert result.final_selected_symbol is None
     assert len(result.fallback_attempts) == 2
 
 
@@ -274,4 +266,5 @@ def test_ranked_fallback_quality_tracks_rejections_without_calling_them_profit()
     assert quality["fallback_stage_counts"] == {"PRE_ENTRY_QUOTE": 1}
     assert quality["fallback_never_relaxes_entry_thresholds"] is True
     assert quality["fallback_occurs_before_entry_ack_only"] is True
+    assert quality["fallback_selection_is_not_realized_profit"] is True
     assert quality["strategy_promotion_allowed"] is False
