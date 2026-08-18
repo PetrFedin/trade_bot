@@ -6,11 +6,13 @@ on:
     paths:
       - 'app/execution/bybit_demo_protection_client.py'
       - 'app/execution/bybit_demo_protection_reconciliation.py'
+      - 'app/execution/bybit_demo_protection_quality_tracker.py'
       - 'app/execution/bybit_demo_controller.py'
       - 'app/execution/bybit_demo_cycle.py'
       - 'app/execution/bybit_demo_orchestrator.py'
       - 'tests/test_bybit_demo_protection_client.py'
       - 'tests/test_bybit_demo_protection_reconciliation.py'
+      - 'tests/test_bybit_demo_protection_quality_tracker.py'
       - '.github/workflows/bybit-demo-protection-reconciliation-quality.yml'
   push:
     branches:
@@ -18,11 +20,13 @@ on:
     paths:
       - 'app/execution/bybit_demo_protection_client.py'
       - 'app/execution/bybit_demo_protection_reconciliation.py'
+      - 'app/execution/bybit_demo_protection_quality_tracker.py'
       - 'app/execution/bybit_demo_controller.py'
       - 'app/execution/bybit_demo_cycle.py'
       - 'app/execution/bybit_demo_orchestrator.py'
       - 'tests/test_bybit_demo_protection_client.py'
       - 'tests/test_bybit_demo_protection_reconciliation.py'
+      - 'tests/test_bybit_demo_protection_quality_tracker.py'
       - '.github/workflows/bybit-demo-protection-reconciliation-quality.yml'
 
 permissions:
@@ -57,14 +61,17 @@ jobs:
           ruff check --output-format=github
           app/execution/bybit_demo_protection_client.py
           app/execution/bybit_demo_protection_reconciliation.py
+          app/execution/bybit_demo_protection_quality_tracker.py
           tests/test_bybit_demo_protection_client.py
           tests/test_bybit_demo_protection_reconciliation.py
+          tests/test_bybit_demo_protection_quality_tracker.py
 
       - name: Test protection state proof and fail-closed flatten
         run: >-
           pytest -vv
           tests/test_bybit_demo_protection_client.py
           tests/test_bybit_demo_protection_reconciliation.py
+          tests/test_bybit_demo_protection_quality_tracker.py
           tests/test_bybit_demo_controller.py
           tests/test_bybit_demo_cycle.py
 
@@ -73,3 +80,4 @@ jobs:
           python -m compileall -q
           app/execution/bybit_demo_protection_client.py
           app/execution/bybit_demo_protection_reconciliation.py
+          app/execution/bybit_demo_protection_quality_tracker.py
