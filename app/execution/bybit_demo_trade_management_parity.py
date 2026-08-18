@@ -18,6 +18,9 @@ from app.strategy.crypto_trade_management import (
     update_protection_after_completed_bar,
 )
 
+_BPS = Decimal("10000")
+_ONE = Decimal("1")
+
 
 class BybitDemoTradeManagementParityAction(StrEnum):
     BLOCKED = "BLOCKED"
@@ -44,6 +47,7 @@ class BybitDemoTradeManagementParityDecision:
     exit_mode: str | None
     fixed_take_profit_preserved: bool
     runner_trailing_preserved: bool
+    actual_entry_fee_used: bool
     stop_never_widens: bool = True
     completed_bar_only: bool = True
     baseline_research_policy_only: bool = True
@@ -62,15 +66,18 @@ def evaluate_bybit_demo_trade_management_parity(
     instrument: BybitInstrumentSpec,
     protection_policy: CryptoProtectionPolicy | None = None,
     completed_holding_bar_count: int | None = None,
+    actual_entry_fee_usdt: Decimal | None = None,
 ) -> BybitDemoTradeManagementParityDecision:
     """Rebuild baseline research stop management from completed bars for one demo position.
 
     The evaluator is intentionally stateless. Replaying all safe completed bars after the actual
     fill makes a restart unable to erase a previously reached 0.80R/1.25R protection threshold.
     A caller may count the entry bucket for holding-time without feeding its pre-fill high/low into
-    protection math by passing ``completed_holding_bar_count=len(bars)+1``. The rejected tighter
-    profit-lock candidate is never selected. Exchange-native runner trailing remains intact; this
-    layer compares only the independent full-position stop-loss field.
+    protection math by passing ``completed_holding_bar_count=len(bars)+1``. If actual entry fees
+    are available from executions they replace modeled historical entry fees in the break-even
+    trigger while the current configured taker fee remains the conservative expected exit fee.
+    The rejected tighter profit-lock candidate is never selected. Exchange-native runner trailing
+    remains intact; this layer compares only the independent full-position stop-loss field.
     """
 
     instrument.validate()
@@ -78,10 +85,17 @@ def evaluate_bybit_demo_trade_management_parity(
     policy = CryptoProtectionPolicy() if protection_policy is None else protection_policy
     policy.validate()
     _validate_baseline_policy(policy)
+    _validate_actual_entry_fee(actual_entry_fee_usdt)
 
     reasons = _basis_reasons(excursion, position, instrument)
     if reasons:
-        return _blocked(excursion, position, policy, reasons)
+        return _blocked(
+            excursion,
+            position,
+            policy,
+            reasons,
+            actual_entry_fee_used=actual_entry_fee_usdt is not None,
+        )
     bars = tuple(completed_bars_since_entry)
     holding_bar_count = (
         len(bars) if completed_holding_bar_count is None else completed_holding_bar_count
@@ -98,6 +112,7 @@ def evaluate_bybit_demo_trade_management_parity(
             count_reasons,
             bar_count=len(bars),
             holding_bar_count=holding_bar_count,
+            actual_entry_fee_used=actual_entry_fee_usdt is not None,
         )
     bar_reasons = _bar_reasons(bars, symbol=excursion.symbol)
     if bar_reasons:
@@ -108,6 +123,7 @@ def evaluate_bybit_demo_trade_management_parity(
             bar_reasons,
             bar_count=len(bars),
             holding_bar_count=holding_bar_count,
+            actual_entry_fee_used=actual_entry_fee_usdt is not None,
         )
     if position.stop_loss_price is None:
         return _blocked(
@@ -117,6 +133,7 @@ def evaluate_bybit_demo_trade_management_parity(
             ("EXCHANGE_STOP_LOSS_UNAVAILABLE",),
             bar_count=len(bars),
             holding_bar_count=holding_bar_count,
+            actual_entry_fee_used=actual_entry_fee_usdt is not None,
         )
 
     exit_mode = _exit_mode(position)
@@ -128,6 +145,7 @@ def evaluate_bybit_demo_trade_management_parity(
             ("EXCHANGE_PROTECTION_MODE_UNRESOLVED",),
             bar_count=len(bars),
             holding_bar_count=holding_bar_count,
+            actual_entry_fee_used=actual_entry_fee_usdt is not None,
         )
 
     hard_stop_raw = _hard_stop_price(
@@ -139,12 +157,10 @@ def evaluate_bybit_demo_trade_management_parity(
         excursion.side.value,
         hard_stop_raw,
     )
-    break_even_raw = modeled_raw_trigger_for_net_profit(
-        side=excursion.side,
-        actual_average_entry_price=excursion.entry_price,
-        actual_filled_quantity=excursion.initial_quantity,
-        desired_net_profit_usd=Decimal("0"),
+    break_even_raw = _break_even_trigger(
+        excursion=excursion,
         strategy_config=strategy_config,
+        actual_entry_fee_usdt=actual_entry_fee_usdt,
     )
     break_even = instrument.normalize_protective_stop_price(
         excursion.side.value,
@@ -209,6 +225,7 @@ def evaluate_bybit_demo_trade_management_parity(
         exit_mode=exit_mode,
         fixed_take_profit_preserved=exit_mode == "FIXED_20_TARGET",
         runner_trailing_preserved=exit_mode == "OPEN_ENDED_RUNNER",
+        actual_entry_fee_used=actual_entry_fee_usdt is not None,
     )
 
 
@@ -291,6 +308,37 @@ def _hard_stop_price(
     return entry_price - move if side is CryptoSide.LONG else entry_price + move
 
 
+def _break_even_trigger(
+    *,
+    excursion: BybitDemoTradeExcursionState,
+    strategy_config: CryptoPerpStrategyConfig,
+    actual_entry_fee_usdt: Decimal | None,
+) -> Decimal:
+    if actual_entry_fee_usdt is None:
+        return modeled_raw_trigger_for_net_profit(
+            side=excursion.side,
+            actual_average_entry_price=excursion.entry_price,
+            actual_filled_quantity=excursion.initial_quantity,
+            desired_net_profit_usd=Decimal("0"),
+            strategy_config=strategy_config,
+        )
+    fee = strategy_config.taker_fee_rate
+    slippage = strategy_config.slippage_bps_per_fill / _BPS
+    quantity = excursion.initial_quantity
+    entry = excursion.entry_price
+    if excursion.side is CryptoSide.LONG:
+        exit_execution = (quantity * entry + actual_entry_fee_usdt) / (
+            quantity * (_ONE - fee)
+        )
+        return exit_execution / (_ONE - slippage)
+    exit_execution = (quantity * entry - actual_entry_fee_usdt) / (
+        quantity * (_ONE + fee)
+    )
+    if exit_execution <= 0:
+        raise ValueError("actual-fee short break-even requires positive exit price")
+    return exit_execution / (_ONE + slippage)
+
+
 def _more_protective(
     *,
     side: CryptoSide,
@@ -308,6 +356,13 @@ def _validate_baseline_policy(policy: CryptoProtectionPolicy) -> None:
         )
 
 
+def _validate_actual_entry_fee(value: Decimal | None) -> None:
+    if value is None:
+        return
+    if not value.is_finite() or value < 0:
+        raise ValueError("actual demo entry fee must be non-negative and finite")
+
+
 def _blocked(
     excursion: BybitDemoTradeExcursionState,
     position: BybitDemoProtectionPosition,
@@ -316,6 +371,7 @@ def _blocked(
     *,
     bar_count: int = 0,
     holding_bar_count: int | None = None,
+    actual_entry_fee_used: bool = False,
 ) -> BybitDemoTradeManagementParityDecision:
     resolved_holding_count = bar_count if holding_bar_count is None else holding_bar_count
     return BybitDemoTradeManagementParityDecision(
@@ -334,4 +390,5 @@ def _blocked(
         exit_mode=_exit_mode(position),
         fixed_take_profit_preserved=False,
         runner_trailing_preserved=False,
+        actual_entry_fee_used=actual_entry_fee_used,
     )
