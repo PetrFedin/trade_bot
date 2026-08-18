@@ -16,6 +16,7 @@ on:
       - 'app/execution/bybit_demo_protection_quality_tracker.py'
       - 'app/execution/bybit_demo_excursion_tracker.py'
       - 'app/execution/bybit_demo_excursion_store.py'
+      - 'app/execution/bybit_demo_excursion_runtime.py'
       - 'app/execution/bybit_demo_account_reader.py'
       - 'app/execution/bybit_demo_account_sized_strategy.py'
       - 'app/execution/bybit_demo_session_risk_ledger.py'
@@ -58,6 +59,7 @@ on:
       - 'tests/test_bybit_demo_protection_quality_tracker.py'
       - 'tests/test_bybit_demo_excursion_tracker.py'
       - 'tests/test_bybit_demo_excursion_store.py'
+      - 'tests/test_bybit_demo_excursion_runtime.py'
       - 'tests/test_bybit_demo_position_parsing.py'
       - 'tests/test_bybit_demo_trade_monitor.py'
       - 'tests/test_bybit_demo_cycle.py'
@@ -119,6 +121,7 @@ jobs:
           app/execution/bybit_demo_protection_quality_tracker.py
           app/execution/bybit_demo_excursion_tracker.py
           app/execution/bybit_demo_excursion_store.py
+          app/execution/bybit_demo_excursion_runtime.py
           app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_sized_strategy.py
           app/execution/bybit_demo_session_risk_ledger.py
@@ -161,11 +164,12 @@ jobs:
           tests/test_bybit_demo_protection_quality_tracker.py
           tests/test_bybit_demo_excursion_tracker.py
           tests/test_bybit_demo_excursion_store.py
+          tests/test_bybit_demo_excursion_runtime.py
           tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_trade_monitor.py
           tests/test_bybit_demo_cycle.py
           tests/test_crypto_default_net_target.py
-          tests/test_crypto_entry_side_policy.py
+          tests/test_crypto_entry_side_policy.py'
           tests/test_crypto_position_selection.py
           tests/test_crypto_correlation.py
           tests/test_crypto_execution_risk.py
@@ -209,6 +213,7 @@ jobs:
           tests/test_bybit_demo_protection_quality_tracker.py
           tests/test_bybit_demo_excursion_tracker.py
           tests/test_bybit_demo_excursion_store.py
+          tests/test_bybit_demo_excursion_runtime.py
           tests/test_bybit_demo_account_reader.py
           tests/test_bybit_demo_account_info_reader.py
           tests/test_bybit_demo_account_sized_strategy.py
@@ -239,6 +244,7 @@ jobs:
           app/execution/bybit_demo_protection_quality_tracker.py
           app/execution/bybit_demo_excursion_tracker.py
           app/execution/bybit_demo_excursion_store.py
+          app/execution/bybit_demo_excursion_runtime.py
           app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_sized_strategy.py
           app/execution/bybit_demo_session_risk_ledger.py
