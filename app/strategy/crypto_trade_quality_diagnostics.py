@@ -6,6 +6,12 @@ from decimal import Decimal
 from typing import Any
 
 _ZERO = Decimal("0")
+_MFE_REFERENCE_LEVELS_R = (
+    Decimal("0.5"),
+    Decimal("1.0"),
+    Decimal("1.5"),
+    Decimal("2.0"),
+)
 
 
 def diagnose_crypto_replay_quality(report: Mapping[str, Any]) -> dict[str, Any]:
@@ -83,6 +89,10 @@ def diagnose_crypto_replay_quality(report: Mapping[str, Any]) -> dict[str, Any]:
         "by_symbol": by_symbol,
         "by_side": by_side,
         "trade_count": len(rows),
+        "profit_preservation_reference_levels_r": [
+            float(value) for value in _MFE_REFERENCE_LEVELS_R
+        ],
+        "profit_preservation_breakpoints_are_diagnostic_only": True,
         "strategy_selection_allowed": False,
         "threshold_retuning_allowed": False,
         "strategy_promotion_allowed": False,
@@ -125,6 +135,12 @@ def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "average_mfe_capture_ratio": None,
             "average_mfe_giveback_r": None,
             "positive_mfe_lost_trade_count": 0,
+            "positive_mfe_non_positive_close_fraction": None,
+            "mfe_at_least_half_r_nonpositive_close_count": 0,
+            "mfe_at_least_one_r_nonpositive_close_count": 0,
+            "mfe_at_least_one_and_half_r_nonpositive_close_count": 0,
+            "mfe_at_least_two_r_nonpositive_close_count": 0,
+            "average_mfe_giveback_r_on_nonpositive_close": None,
             "average_edge_realization_ratio": None,
             "fees_usdt": 0.0,
         }
@@ -145,6 +161,9 @@ def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
     gross_profit = sum(positive, start=_ZERO)
     gross_loss = sum(negative, start=_ZERO)
     count = Decimal(len(rows))
+    nonpositive = [row for row in rows if row["net_pnl_usdt"] <= 0]
+    positive_mfe_nonpositive = [row for row in nonpositive if row["mfe_r"] > 0]
+    nonpositive_giveback = [row["mfe_giveback_r"] for row in nonpositive]
     return {
         "trade_count": len(rows),
         "winning_trade_count": len(positive),
@@ -171,8 +190,35 @@ def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "average_mfe_giveback_r": float(
             sum((row["mfe_giveback_r"] for row in rows), start=_ZERO) / count
         ),
-        "positive_mfe_lost_trade_count": sum(
-            1 for row in rows if row["mfe_r"] > 0 and row["net_pnl_usdt"] <= 0
+        "positive_mfe_lost_trade_count": len(positive_mfe_nonpositive),
+        "positive_mfe_non_positive_close_fraction": (
+            None
+            if not nonpositive
+            else float(Decimal(len(positive_mfe_nonpositive)) / Decimal(len(nonpositive)))
+        ),
+        "mfe_at_least_half_r_nonpositive_close_count": _mfe_nonpositive_count(
+            nonpositive,
+            minimum_mfe_r=Decimal("0.5"),
+        ),
+        "mfe_at_least_one_r_nonpositive_close_count": _mfe_nonpositive_count(
+            nonpositive,
+            minimum_mfe_r=Decimal("1.0"),
+        ),
+        "mfe_at_least_one_and_half_r_nonpositive_close_count": _mfe_nonpositive_count(
+            nonpositive,
+            minimum_mfe_r=Decimal("1.5"),
+        ),
+        "mfe_at_least_two_r_nonpositive_close_count": _mfe_nonpositive_count(
+            nonpositive,
+            minimum_mfe_r=Decimal("2.0"),
+        ),
+        "average_mfe_giveback_r_on_nonpositive_close": (
+            None
+            if not nonpositive_giveback
+            else float(
+                sum(nonpositive_giveback, start=_ZERO)
+                / Decimal(len(nonpositive_giveback))
+            )
         ),
         "average_edge_realization_ratio": (
             None
@@ -185,3 +231,11 @@ def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
             sum((row["fees_usdt"] for row in rows), start=_ZERO)
         ),
     }
+
+
+def _mfe_nonpositive_count(
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    minimum_mfe_r: Decimal,
+) -> int:
+    return sum(1 for row in rows if row["mfe_r"] >= minimum_mfe_r)
