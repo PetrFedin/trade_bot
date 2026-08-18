@@ -39,6 +39,7 @@ class CryptoPerpStrategyConfig:
     taker_fee_rate: Decimal = Decimal("0.0006")
     slippage_bps_per_fill: Decimal = Decimal("2")
     maximum_concurrent_positions: int = 2
+    allowed_entry_sides: tuple[CryptoSide, ...] = (CryptoSide.LONG, CryptoSide.SHORT)
 
     def validate(self) -> None:
         positive_ints = (
@@ -80,6 +81,12 @@ class CryptoPerpStrategyConfig:
             raise ValueError("taker fee rate must be in [0, 1)")
         if not _ZERO < self.risk_fraction_per_trade < _ONE:
             raise ValueError("risk_fraction_per_trade must be in (0, 1)")
+        if not self.allowed_entry_sides:
+            raise ValueError("crypto strategy must allow at least one entry side")
+        if len(set(self.allowed_entry_sides)) != len(self.allowed_entry_sides):
+            raise ValueError("crypto strategy allowed entry sides must be unique")
+        if any(not isinstance(side, CryptoSide) for side in self.allowed_entry_sides):
+            raise ValueError("crypto strategy allowed entry sides must use CryptoSide")
 
     def with_target(self, target_usd: Decimal) -> CryptoPerpStrategyConfig:
         return replace(self, target_net_profit_usd=target_usd)
@@ -206,6 +213,8 @@ def evaluate_crypto_signal(
         reasons.append("QUALITY_SCORE_BELOW_MINIMUM")
     if breakout_strength < Decimal("-0.50"):
         reasons.append("TOO_FAR_FROM_DIRECTIONAL_BREAKOUT")
+    if not reasons and side not in config.allowed_entry_sides:
+        reasons.append("ENTRY_SIDE_DISABLED_BY_POLICY")
     if reasons:
         return CryptoSignalEvaluation(symbol, False, tuple(reasons), None)
 
