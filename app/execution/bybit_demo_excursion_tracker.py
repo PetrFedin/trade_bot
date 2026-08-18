@@ -258,12 +258,12 @@ def _price_r(
 ) -> Decimal:
     if price <= 0:
         raise ValueError("demo excursion price must be positive")
-    move = (
-        price / entry_price - Decimal("1")
+    signed_move = (
+        price - entry_price
         if side is CryptoSide.LONG
-        else entry_price / price - Decimal("1")
+        else entry_price - price
     )
-    return move / stop_fraction
+    return signed_move / (entry_price * stop_fraction)
 
 
 def _gross_pnl(
