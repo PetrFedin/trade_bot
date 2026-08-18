@@ -7,6 +7,7 @@ import json
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
 from urllib.parse import urlencode
 
@@ -29,6 +30,34 @@ class BybitDemoAccountingTransport(Protocol):
 class BybitDemoAccountingPage:
     rows: tuple[Mapping[str, Any], ...]
     next_page_cursor: str | None
+
+
+@dataclass(frozen=True)
+class BybitDemoWalletBalance:
+    total_equity_usd: Decimal
+    total_wallet_balance_usd: Decimal
+    total_margin_balance_usd: Decimal
+    total_available_balance_usd: Decimal
+    total_perp_upl_usd: Decimal
+    total_initial_margin_usd: Decimal
+    total_maintenance_margin_usd: Decimal
+
+    def validate(self) -> None:
+        values = (
+            self.total_equity_usd,
+            self.total_wallet_balance_usd,
+            self.total_margin_balance_usd,
+            self.total_available_balance_usd,
+            self.total_perp_upl_usd,
+            self.total_initial_margin_usd,
+            self.total_maintenance_margin_usd,
+        )
+        if any(not value.is_finite() for value in values):
+            raise ValueError("Bybit demo wallet balance fields must be finite")
+        if self.total_equity_usd <= 0:
+            raise ValueError("Bybit demo wallet total equity must be positive")
+        if self.total_initial_margin_usd < 0 or self.total_maintenance_margin_usd < 0:
+            raise ValueError("Bybit demo wallet margin requirements cannot be negative")
 
 
 class BybitDemoHttpsAccountingTransport:
@@ -95,6 +124,30 @@ class BybitDemoAccountingClient:
             (lambda: int(time.time() * 1000)) if clock_ms is None else clock_ms
         )
         self._recv_window_ms = recv_window_ms
+
+    def get_wallet_balance(self) -> BybitDemoWalletBalance:
+        page = self._private_get_page(
+            path="/v5/account/wallet-balance",
+            query={"accountType": "UNIFIED"},
+        )
+        if page.next_page_cursor is not None:
+            raise RuntimeError("Bybit demo wallet balance unexpectedly returned a cursor")
+        if len(page.rows) != 1:
+            raise RuntimeError("Bybit demo wallet balance must return exactly one account row")
+        row = page.rows[0]
+        if row.get("accountType") != "UNIFIED":
+            raise RuntimeError("Bybit demo wallet balance returned a non-UNIFIED account")
+        balance = BybitDemoWalletBalance(
+            total_equity_usd=_wallet_decimal(row, "totalEquity"),
+            total_wallet_balance_usd=_wallet_decimal(row, "totalWalletBalance"),
+            total_margin_balance_usd=_wallet_decimal(row, "totalMarginBalance"),
+            total_available_balance_usd=_wallet_decimal(row, "totalAvailableBalance"),
+            total_perp_upl_usd=_wallet_decimal(row, "totalPerpUPL"),
+            total_initial_margin_usd=_wallet_decimal(row, "totalInitialMargin"),
+            total_maintenance_margin_usd=_wallet_decimal(row, "totalMaintenanceMargin"),
+        )
+        balance.validate()
+        return balance
 
     def get_closed_pnl(
         self,
@@ -235,6 +288,19 @@ class BybitDemoAccountingClient:
         raw_cursor = result.get("nextPageCursor")
         cursor = raw_cursor if isinstance(raw_cursor, str) and raw_cursor else None
         return BybitDemoAccountingPage(tuple(rows), cursor)
+
+
+def _wallet_decimal(row: Mapping[str, Any], field: str) -> Decimal:
+    raw = row.get(field)
+    if raw in (None, ""):
+        raise ValueError(f"Bybit demo wallet balance is missing {field}")
+    try:
+        value = Decimal(str(raw))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(f"Bybit demo wallet balance has invalid {field}") from exc
+    if not value.is_finite():
+        raise ValueError(f"Bybit demo wallet balance has non-finite {field}")
+    return value
 
 
 def _validate_symbol(symbol: str) -> None:

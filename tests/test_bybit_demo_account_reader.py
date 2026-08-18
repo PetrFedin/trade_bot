@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 from collections.abc import Mapping
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -32,6 +33,99 @@ def _page(rows: list[dict[str, str]], cursor: str = "") -> dict[str, object]:
             "nextPageCursor": cursor,
         },
     }
+
+
+def _wallet_page(
+    *,
+    account_type: str = "UNIFIED",
+    overrides: Mapping[str, str] | None = None,
+) -> dict[str, object]:
+    row = {
+        "accountType": account_type,
+        "totalEquity": "1002.50",
+        "totalWalletBalance": "1000.00",
+        "totalMarginBalance": "1002.50",
+        "totalAvailableBalance": "812.25",
+        "totalPerpUPL": "2.50",
+        "totalInitialMargin": "175.00",
+        "totalMaintenanceMargin": "15.25",
+    }
+    if overrides is not None:
+        row.update(overrides)
+    return {"retCode": 0, "result": {"list": [row]}}
+
+
+def test_wallet_balance_reader_signs_and_parses_unified_equity() -> None:
+    transport = _FakeTransport([_wallet_page()])
+    client = BybitDemoAccountingClient(
+        api_key="key",
+        api_secret="secret",
+        transport=transport,
+        clock_ms=lambda: 1234567890,
+        recv_window_ms=5000,
+    )
+
+    balance = client.get_wallet_balance()
+
+    assert balance.total_equity_usd == Decimal("1002.50")
+    assert balance.total_wallet_balance_usd == Decimal("1000.00")
+    assert balance.total_margin_balance_usd == Decimal("1002.50")
+    assert balance.total_available_balance_usd == Decimal("812.25")
+    assert balance.total_perp_upl_usd == Decimal("2.50")
+    assert balance.total_initial_margin_usd == Decimal("175.00")
+    assert balance.total_maintenance_margin_usd == Decimal("15.25")
+    path, query, headers = transport.calls[0]
+    assert path == "/v5/account/wallet-balance"
+    assert query == "accountType=UNIFIED"
+    payload = "1234567890" + "key" + "5000" + query
+    expected = hmac.new(
+        b"secret",
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    assert headers["X-BAPI-SIGN"] == expected
+    assert client.live_mainnet_order_routing_allowed is False
+    assert client.order_writes_supported is False
+    assert not hasattr(client, "place_order")
+
+
+def test_wallet_balance_reader_fails_closed_on_invalid_account_shape() -> None:
+    multiple = _wallet_page()
+    assert isinstance(multiple["result"], dict)
+    multiple["result"]["list"].append(
+        {
+            "accountType": "UNIFIED",
+            "totalEquity": "1",
+        }
+    )
+    client = BybitDemoAccountingClient(
+        api_key="key",
+        api_secret="secret",
+        transport=_FakeTransport([multiple]),
+    )
+    with pytest.raises(RuntimeError, match="exactly one account row"):
+        client.get_wallet_balance()
+
+    client = BybitDemoAccountingClient(
+        api_key="key",
+        api_secret="secret",
+        transport=_FakeTransport([_wallet_page(account_type="CONTRACT")]),
+    )
+    with pytest.raises(RuntimeError, match="non-UNIFIED"):
+        client.get_wallet_balance()
+
+
+@pytest.mark.parametrize("bad_equity", ["", "NaN", "Infinity", "0", "-1"])
+def test_wallet_balance_reader_rejects_unusable_total_equity(bad_equity: str) -> None:
+    client = BybitDemoAccountingClient(
+        api_key="key",
+        api_secret="secret",
+        transport=_FakeTransport(
+            [_wallet_page(overrides={"totalEquity": bad_equity})]
+        ),
+    )
+    with pytest.raises(ValueError):
+        client.get_wallet_balance()
 
 
 def test_closed_pnl_reader_signs_exact_demo_get_contract() -> None:
