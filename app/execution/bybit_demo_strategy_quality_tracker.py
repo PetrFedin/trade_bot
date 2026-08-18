@@ -32,7 +32,7 @@ def summarize_bybit_demo_strategy_cycle_quality(
     guarded_orchestrator_count = 0
     portfolio_state_checked_count = 0
     cycles_with_open_positions_count = 0
-    correlation_block_count = 0
+    correlation_shadow_block_count = 0
     economic_comparable_count = 0
     economic_disagreement_count = 0
     selected_plan_count = 0
@@ -46,12 +46,16 @@ def summarize_bybit_demo_strategy_cycle_quality(
             raise ValueError("demo strategy quality tracker rejected mainnet-capable selection")
         if cycle.selection.order_write_performed:
             raise ValueError("demo strategy selection unexpectedly claims it wrote an order")
+        if not cycle.selection.correlation_shadow_only:
+            raise ValueError("demo strategy correlation evidence must remain shadow-only")
+        if cycle.selection.correlation_demo_activation_allowed:
+            raise ValueError("demo strategy correlation evidence cannot activate demo selection")
 
         cycle_status_counts[cycle.status.value] += 1
         selection_status_counts[cycle.selection.status.value] += 1
         selection_reason_counts.update(cycle.selection.reasons)
         quote_block_reason_counts.update(cycle.pre_entry_quote_reasons)
-        correlation_block_count += cycle.selection.correlation_block_count
+        correlation_shadow_block_count += cycle.selection.correlation_block_count
         if cycle.selection.portfolio_state_checked:
             portfolio_state_checked_count += 1
         if cycle.selection.open_position_symbols:
@@ -122,7 +126,7 @@ def summarize_bybit_demo_strategy_cycle_quality(
         "portfolio_state_blocked_count": portfolio_state_blocked_count,
         "portfolio_concurrency_blocked_count": concurrency_block_count,
         "cycles_with_open_positions_count": cycles_with_open_positions_count,
-        "correlation_block_count": correlation_block_count,
+        "correlation_shadow_block_count": correlation_shadow_block_count,
         "no_executable_plan_count": no_executable_plan_count,
         "pre_entry_quote_checked_count": quote_checked_count,
         "pre_entry_quote_blocked_count": quote_block_count,
@@ -155,6 +159,8 @@ def summarize_bybit_demo_strategy_cycle_quality(
         "open_position_symbol_counts": dict(sorted(open_position_symbol_counts.items())),
         "selected_symbol_counts": dict(sorted(selected_symbol_counts.items())),
         "selected_side_counts": dict(sorted(selected_side_counts.items())),
+        "correlation_shadow_only": True,
+        "correlation_demo_activation_allowed": False,
         "economic_shadow_activation_allowed": False,
         "pre_entry_quality_is_not_realized_profit": True,
         "strategy_promotion_allowed": False,
