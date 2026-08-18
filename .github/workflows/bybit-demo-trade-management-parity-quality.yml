@@ -7,11 +7,13 @@ on:
       - 'app/execution/bybit_demo_trade_management_parity.py'
       - 'app/execution/bybit_demo_trade_management_runtime.py'
       - 'app/execution/bybit_demo_stop_ratchet_client.py'
+      - 'app/execution/bybit_demo_max_hold_close.py'
       - 'app/marketdata/bybit_demo_completed_bars.py'
       - 'app/strategy/crypto_trade_management.py'
       - 'tests/test_bybit_demo_trade_management_parity.py'
       - 'tests/test_bybit_demo_trade_management_runtime.py'
       - 'tests/test_bybit_demo_stop_ratchet_client.py'
+      - 'tests/test_bybit_demo_max_hold_close.py'
       - 'tests/test_bybit_demo_completed_bars.py'
       - '.github/workflows/bybit-demo-trade-management-parity-quality.yml'
   push:
@@ -21,11 +23,13 @@ on:
       - 'app/execution/bybit_demo_trade_management_parity.py'
       - 'app/execution/bybit_demo_trade_management_runtime.py'
       - 'app/execution/bybit_demo_stop_ratchet_client.py'
+      - 'app/execution/bybit_demo_max_hold_close.py'
       - 'app/marketdata/bybit_demo_completed_bars.py'
       - 'app/strategy/crypto_trade_management.py'
       - 'tests/test_bybit_demo_trade_management_parity.py'
       - 'tests/test_bybit_demo_trade_management_runtime.py'
       - 'tests/test_bybit_demo_stop_ratchet_client.py'
+      - 'tests/test_bybit_demo_max_hold_close.py'
       - 'tests/test_bybit_demo_completed_bars.py'
       - '.github/workflows/bybit-demo-trade-management-parity-quality.yml'
 
@@ -62,10 +66,12 @@ jobs:
           app/execution/bybit_demo_trade_management_parity.py
           app/execution/bybit_demo_trade_management_runtime.py
           app/execution/bybit_demo_stop_ratchet_client.py
+          app/execution/bybit_demo_max_hold_close.py
           app/marketdata/bybit_demo_completed_bars.py
           tests/test_bybit_demo_trade_management_parity.py
           tests/test_bybit_demo_trade_management_runtime.py
           tests/test_bybit_demo_stop_ratchet_client.py
+          tests/test_bybit_demo_max_hold_close.py
           tests/test_bybit_demo_completed_bars.py
 
       - name: Test completed-bar baseline parity and stop-only writes
@@ -74,6 +80,7 @@ jobs:
           tests/test_bybit_demo_trade_management_parity.py
           tests/test_bybit_demo_trade_management_runtime.py
           tests/test_bybit_demo_stop_ratchet_client.py
+          tests/test_bybit_demo_max_hold_close.py
           tests/test_bybit_demo_completed_bars.py
           tests/test_crypto_trade_management.py
 
@@ -83,4 +90,5 @@ jobs:
           app/execution/bybit_demo_trade_management_parity.py
           app/execution/bybit_demo_trade_management_runtime.py
           app/execution/bybit_demo_stop_ratchet_client.py
+          app/execution/bybit_demo_max_hold_close.py
           app/marketdata/bybit_demo_completed_bars.py
