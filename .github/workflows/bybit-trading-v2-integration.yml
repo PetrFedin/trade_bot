@@ -6,7 +6,9 @@ on:
       - agent/trading-quality-profit-protection
     paths:
       - 'app/execution/bybit_demo.py'
+      - 'app/execution/bybit_demo_controller.py'
       - 'app/execution/bybit_demo_cycle.py'
+      - 'app/execution/bybit_demo_strategy_selector.py'
       - 'app/execution/bybit_demo_account_reader.py'
       - 'app/execution/bybit_demo_account_pnl_reconciliation.py'
       - 'app/execution/bybit_demo_funding_reconciliation.py'
@@ -15,6 +17,8 @@ on:
       - 'app/execution/bybit_demo_quality_tracker.py'
       - 'app/execution/bybit_demo_orchestrator.py'
       - 'app/execution/bybit_demo_trade_monitor.py'
+      - 'app/strategy/crypto_perp.py'
+      - 'app/strategy/crypto_position_selection.py'
       - 'app/strategy/crypto_correlation.py'
       - 'app/strategy/crypto_execution_risk.py'
       - 'app/strategy/crypto_liquidation_safety.py'
@@ -30,9 +34,12 @@ on:
       - 'tests/test_bybit_demo_post_trade_accounting.py'
       - 'tests/test_bybit_demo_quality_tracker.py'
       - 'tests/test_bybit_demo_orchestrator.py'
+      - 'tests/test_bybit_demo_strategy_selector.py'
       - 'tests/test_bybit_demo_position_parsing.py'
       - 'tests/test_bybit_demo_trade_monitor.py'
       - 'tests/test_bybit_demo_cycle.py'
+      - 'tests/test_crypto_entry_side_policy.py'
+      - 'tests/test_crypto_position_selection.py'
       - 'tests/test_crypto_correlation.py'
       - 'tests/test_crypto_execution_risk.py'
       - 'tests/test_crypto_execution_risk_replay.py'
@@ -78,7 +85,9 @@ jobs:
         run: >-
           ruff check --output-format=github
           app/execution/bybit_demo.py
+          app/execution/bybit_demo_controller.py
           app/execution/bybit_demo_cycle.py
+          app/execution/bybit_demo_strategy_selector.py
           app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_pnl_reconciliation.py
           app/execution/bybit_demo_funding_reconciliation.py
@@ -87,6 +96,8 @@ jobs:
           app/execution/bybit_demo_quality_tracker.py
           app/execution/bybit_demo_orchestrator.py
           app/execution/bybit_demo_trade_monitor.py
+          app/strategy/crypto_perp.py
+          app/strategy/crypto_position_selection.py
           app/strategy/crypto_correlation.py
           app/strategy/crypto_execution_risk.py
           app/strategy/crypto_liquidation_safety.py
@@ -102,9 +113,12 @@ jobs:
           tests/test_bybit_demo_post_trade_accounting.py
           tests/test_bybit_demo_quality_tracker.py
           tests/test_bybit_demo_orchestrator.py
+          tests/test_bybit_demo_strategy_selector.py
           tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_trade_monitor.py
           tests/test_bybit_demo_cycle.py
+          tests/test_crypto_entry_side_policy.py
+          tests/test_crypto_position_selection.py
           tests/test_crypto_correlation.py
           tests/test_crypto_execution_risk.py
           tests/test_crypto_execution_risk_replay.py
@@ -122,6 +136,8 @@ jobs:
           tests/test_bybit_crypto_core.py
           tests/test_bybit_crypto_replay.py
           tests/test_bybit_crypto_runner_replay.py
+          tests/test_crypto_entry_side_policy.py
+          tests/test_crypto_position_selection.py
           tests/test_crypto_correlation.py
           tests/test_crypto_execution_risk.py
           tests/test_crypto_execution_risk_replay.py
@@ -134,6 +150,7 @@ jobs:
           tests/test_qualify_bybit_crypto_walk_forward.py
           tests/test_run_bybit_crypto_walk_forward_archive.py
           tests/test_bybit_demo_controller.py
+          tests/test_bybit_demo_strategy_selector.py
           tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_cycle.py
           tests/test_bybit_demo_trade_monitor.py
@@ -150,7 +167,9 @@ jobs:
         run: >-
           python -m compileall -q
           app/execution/bybit_demo.py
+          app/execution/bybit_demo_controller.py
           app/execution/bybit_demo_cycle.py
+          app/execution/bybit_demo_strategy_selector.py
           app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_pnl_reconciliation.py
           app/execution/bybit_demo_funding_reconciliation.py
@@ -159,6 +178,8 @@ jobs:
           app/execution/bybit_demo_quality_tracker.py
           app/execution/bybit_demo_orchestrator.py
           app/execution/bybit_demo_trade_monitor.py
+          app/strategy/crypto_perp.py
+          app/strategy/crypto_position_selection.py
           app/strategy/crypto_correlation.py
           app/strategy/crypto_execution_risk.py
           app/strategy/crypto_liquidation_safety.py
