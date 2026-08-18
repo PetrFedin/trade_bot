@@ -4,7 +4,6 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
