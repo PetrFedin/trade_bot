@@ -76,6 +76,14 @@ def test_quality_diagnostic_tracks_mfe_giveback_and_edge_realization() -> None:
     assert quality["overall"]["total_net_pnl_usdt"] == 15.0
     assert quality["overall"]["profit_factor"] == 4.0
     assert quality["overall"]["positive_mfe_lost_trade_count"] == 1
+    assert quality["overall"]["positive_mfe_non_positive_close_fraction"] == 1.0
+    assert quality["overall"]["mfe_at_least_half_r_nonpositive_close_count"] == 1
+    assert quality["overall"]["mfe_at_least_one_r_nonpositive_close_count"] == 1
+    assert quality["overall"]["mfe_at_least_one_and_half_r_nonpositive_close_count"] == 0
+    assert quality["overall"]["mfe_at_least_two_r_nonpositive_close_count"] == 0
+    assert quality["overall"]["average_mfe_giveback_r_on_nonpositive_close"] == 1.0
+    assert quality["profit_preservation_reference_levels_r"] == [0.5, 1.0, 1.5, 2.0]
+    assert quality["profit_preservation_breakpoints_are_diagnostic_only"] is True
     assert quality["by_exit_mode"]["FIXED_20_TARGET"]["trade_count"] == 1
     assert quality["by_exit_mode"]["OPEN_ENDED_RUNNER"]["trade_count"] == 1
     assert quality["by_exit_reason"]["NET_TARGET"]["average_mfe_capture_ratio"] == 0.8
@@ -108,3 +116,4 @@ def test_quality_diagnostic_tolerates_closed_trade_without_entry_event() -> None
     quality = diagnose_crypto_replay_quality(report)
     assert quality["by_exit_mode"]["UNKNOWN"]["trade_count"] == 1
     assert quality["overall"]["average_edge_realization_ratio"] is None
+    assert quality["overall"]["positive_mfe_non_positive_close_fraction"] is None
