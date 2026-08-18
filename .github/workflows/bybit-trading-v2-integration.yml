@@ -169,7 +169,7 @@ jobs:
           tests/test_bybit_demo_trade_monitor.py
           tests/test_bybit_demo_cycle.py
           tests/test_crypto_default_net_target.py
-          tests/test_crypto_entry_side_policy.py'
+          tests/test_crypto_entry_side_policy.py
           tests/test_crypto_position_selection.py
           tests/test_crypto_correlation.py
           tests/test_crypto_execution_risk.py
