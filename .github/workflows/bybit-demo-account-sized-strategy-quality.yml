@@ -7,22 +7,28 @@ on:
     paths:
       - 'app/execution/bybit_demo_account_sized_strategy.py'
       - 'app/execution/bybit_demo_account_reader.py'
+      - 'app/execution/bybit_demo_session_risk_ledger.py'
       - 'app/execution/bybit_demo_strategy_selector.py'
+      - 'app/execution/bybit_demo_post_trade_accounting.py'
       - 'app/strategy/crypto_session_risk.py'
       - 'tests/test_bybit_demo_account_sized_strategy.py'
       - 'tests/test_bybit_demo_account_reader.py'
       - 'tests/test_bybit_demo_account_info_reader.py'
+      - 'tests/test_bybit_demo_session_risk_ledger.py'
       - '.github/workflows/bybit-demo-account-sized-strategy-quality.yml'
   pull_request:
     branches: [main]
     paths:
       - 'app/execution/bybit_demo_account_sized_strategy.py'
       - 'app/execution/bybit_demo_account_reader.py'
+      - 'app/execution/bybit_demo_session_risk_ledger.py'
       - 'app/execution/bybit_demo_strategy_selector.py'
+      - 'app/execution/bybit_demo_post_trade_accounting.py'
       - 'app/strategy/crypto_session_risk.py'
       - 'tests/test_bybit_demo_account_sized_strategy.py'
       - 'tests/test_bybit_demo_account_reader.py'
       - 'tests/test_bybit_demo_account_info_reader.py'
+      - 'tests/test_bybit_demo_session_risk_ledger.py'
       - '.github/workflows/bybit-demo-account-sized-strategy-quality.yml'
 
 permissions:
@@ -57,21 +63,27 @@ jobs:
           ruff check --output-format=github
           app/execution/bybit_demo_account_sized_strategy.py
           app/execution/bybit_demo_account_reader.py
+          app/execution/bybit_demo_session_risk_ledger.py
+          app/execution/bybit_demo_post_trade_accounting.py
           tests/test_bybit_demo_account_sized_strategy.py
           tests/test_bybit_demo_account_reader.py
           tests/test_bybit_demo_account_info_reader.py
+          tests/test_bybit_demo_session_risk_ledger.py
 
-      - name: Test account equity and margin-mode pre-entry guard
+      - name: Test account equity and reconciled session-risk pre-entry guard
         run: >-
           pytest -vv
           tests/test_bybit_demo_account_sized_strategy.py
           tests/test_bybit_demo_account_reader.py
           tests/test_bybit_demo_account_info_reader.py
+          tests/test_bybit_demo_session_risk_ledger.py
           tests/test_bybit_demo_strategy_selector.py
           tests/test_crypto_session_risk.py
+          tests/test_bybit_demo_post_trade_accounting.py
 
       - name: Compile account-sized demo strategy boundary
         run: >-
           python -m compileall -q
           app/execution/bybit_demo_account_sized_strategy.py
           app/execution/bybit_demo_account_reader.py
+          app/execution/bybit_demo_session_risk_ledger.py
