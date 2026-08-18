@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
@@ -37,12 +38,18 @@ class BybitDemoProtectionStateReason(StrEnum):
 class BybitDemoProtectionReconciliationPolicy:
     attempts: int = 3
     delay_seconds: float = 0.10
+    flatten_attempts: int = 4
+    flatten_delay_seconds: float = 0.25
 
     def validate(self) -> None:
         if self.attempts < 1:
             raise ValueError("protection reconciliation attempts must be positive")
         if self.delay_seconds < 0:
             raise ValueError("protection reconciliation delay cannot be negative")
+        if self.flatten_attempts < 1:
+            raise ValueError("emergency flatten reconciliation attempts must be positive")
+        if self.flatten_delay_seconds < 0:
+            raise ValueError("emergency flatten reconciliation delay cannot be negative")
 
 
 @dataclass(frozen=True)
@@ -56,12 +63,26 @@ class BybitDemoProtectionStateDecision:
 
 
 @dataclass(frozen=True)
+class BybitDemoEmergencyFlattenDecision:
+    position_closed: bool
+    reason: str
+    attempts_used: int
+    residual_size: Decimal | None
+    live_mainnet_order_routing_allowed: bool = False
+
+
+@dataclass(frozen=True)
 class BybitDemoProtectionReconciledOrchestratorResult(BybitDemoOrchestratorResult):
     protection_state_checked: bool = False
     protection_state_reconciled: bool = False
     protection_state_reason: str | None = None
     protection_reconciliation_attempts: int = 0
     runner_active_price_observable: bool = False
+    emergency_flatten_requested: bool = False
+    emergency_flatten_position_closed: bool | None = None
+    emergency_flatten_reconciliation_attempts: int = 0
+    emergency_flatten_residual_size: Decimal | None = None
+    emergency_flatten_reconciliation_reason: str | None = None
 
 
 Sleeper = Callable[[float], None]
@@ -133,7 +154,7 @@ def evaluate_bybit_demo_exchange_protection(
     trade_plan: CryptoTradePlan,
     protection_ack: ProtectionAck,
 ) -> BybitDemoProtectionStateDecision:
-    expected_side = "Buy" if trade_plan.side is CryptoSide.LONG else "Sell"
+    expected_side = _position_side(trade_plan.side)
     matching = tuple(
         position
         for position in positions
@@ -184,6 +205,69 @@ def evaluate_bybit_demo_exchange_protection(
     return _decision(True, BybitDemoProtectionStateReason.VERIFIED, position)
 
 
+def reconcile_bybit_demo_emergency_flatten(
+    *,
+    client: Any,
+    trade_plan: CryptoTradePlan,
+    policy: BybitDemoProtectionReconciliationPolicy | None = None,
+    sleeper: Sleeper = time.sleep,
+) -> BybitDemoEmergencyFlattenDecision:
+    """Confirm a reduce-only emergency close from current position state, not order ACK."""
+
+    active = BybitDemoProtectionReconciliationPolicy() if policy is None else policy
+    active.validate()
+    if not getattr(client, "protection_state_read_supported", False):
+        raise ValueError("emergency flatten reconciliation requires position-state reads")
+    if getattr(client, "live_mainnet_order_routing_allowed", False):
+        raise ValueError("emergency flatten reconciliation rejected mainnet-capable client")
+
+    expected_side = _position_side(trade_plan.side)
+    residual_size: Decimal | None = None
+    successful_read = False
+    last_error_type: str | None = None
+    for attempt in range(1, active.flatten_attempts + 1):
+        try:
+            positions = client.get_positions(settle_coin="USDT")
+        except Exception as exc:  # noqa: BLE001 - unresolved close state must remain fail-closed.
+            last_error_type = type(exc).__name__
+            if attempt < active.flatten_attempts and active.flatten_delay_seconds > 0:
+                sleeper(active.flatten_delay_seconds)
+            continue
+
+        successful_read = True
+        matching = tuple(
+            position
+            for position in positions
+            if position.symbol == trade_plan.symbol
+            and position.side == expected_side
+            and position.size > 0
+        )
+        if not matching:
+            return BybitDemoEmergencyFlattenDecision(
+                position_closed=True,
+                reason="EMERGENCY_FLATTEN_CONFIRMED_CLOSED",
+                attempts_used=attempt,
+                residual_size=Decimal("0"),
+            )
+        residual_size = sum(
+            (position.size for position in matching),
+            start=Decimal("0"),
+        )
+        if attempt < active.flatten_attempts and active.flatten_delay_seconds > 0:
+            sleeper(active.flatten_delay_seconds)
+
+    if not successful_read and last_error_type is not None:
+        reason = f"EMERGENCY_FLATTEN_POSITION_READ_FAILED:{last_error_type}"
+    else:
+        reason = "EMERGENCY_FLATTEN_RESIDUAL_POSITION"
+    return BybitDemoEmergencyFlattenDecision(
+        position_closed=False,
+        reason=reason,
+        attempts_used=active.flatten_attempts,
+        residual_size=residual_size,
+    )
+
+
 def execute_protection_reconciled_guarded_bybit_demo_cycle(
     trade_plan: CryptoTradePlan,
     *,
@@ -196,6 +280,12 @@ def execute_protection_reconciled_guarded_bybit_demo_cycle(
 ) -> BybitDemoProtectionReconciledOrchestratorResult:
     """Run the existing orchestrator, then prove protection before accepting PROTECTED state."""
 
+    active_policy = (
+        BybitDemoProtectionReconciliationPolicy()
+        if protection_reconciliation_policy is None
+        else protection_reconciliation_policy
+    )
+    active_policy.validate()
     if not getattr(client, "protection_state_read_supported", False):
         raise ValueError("canonical demo writes require protection-state read capability")
     if getattr(client, "live_mainnet_order_routing_allowed", False):
@@ -219,7 +309,7 @@ def execute_protection_reconciled_guarded_bybit_demo_cycle(
         client=client,
         trade_plan=trade_plan,
         protection_ack=cycle.protection_ack,
-        policy=protection_reconciliation_policy,
+        policy=active_policy,
         sleeper=protection_sleeper,
     )
     if not verification.reconciled or verification.position is None:
@@ -237,6 +327,8 @@ def execute_protection_reconciled_guarded_bybit_demo_cycle(
             verification=verification,
             reason=reason,
             open_quantity=open_quantity,
+            policy=active_policy,
+            sleeper=protection_sleeper,
         )
 
     fresh_position = verification.position
@@ -249,6 +341,8 @@ def execute_protection_reconciled_guarded_bybit_demo_cycle(
             verification=verification,
             reason="POST_PROTECTION_ENTRY_PRICE_UNAVAILABLE",
             open_quantity=fresh_position.size,
+            policy=active_policy,
+            sleeper=protection_sleeper,
         )
     liquidation = evaluate_crypto_liquidation_safety(
         side=trade_plan.side,
@@ -265,6 +359,8 @@ def execute_protection_reconciled_guarded_bybit_demo_cycle(
             verification=verification,
             reason=f"POST_PROTECTION_{liquidation.reason.value}",
             open_quantity=fresh_position.size,
+            policy=active_policy,
+            sleeper=protection_sleeper,
         )
 
     verified_cycle = replace(
@@ -287,7 +383,9 @@ def _flatten_untrusted_position(
     client: Any,
     verification: BybitDemoProtectionStateDecision,
     reason: str,
-    open_quantity: Any,
+    open_quantity: Decimal,
+    policy: BybitDemoProtectionReconciliationPolicy,
+    sleeper: Sleeper,
 ) -> BybitDemoProtectionReconciledOrchestratorResult:
     cycle = base.cycle_result
     if cycle is None:
@@ -316,10 +414,22 @@ def _flatten_untrusted_position(
             verification=verification,
         )
 
+    flatten = reconcile_bybit_demo_emergency_flatten(
+        client=client,
+        trade_plan=trade_plan,
+        policy=policy,
+        sleeper=sleeper,
+    )
+    reasons = (reason,)
+    if not flatten.position_closed:
+        reasons = (
+            reason,
+            f"EMERGENCY_FLATTEN_UNCONFIRMED:{flatten.reason}",
+        )
     flattened_cycle = replace(
         cycle,
         status=BybitDemoCycleStatus.PROTECTION_FAILED_FLATTEN_REQUESTED,
-        reasons=(reason,),
+        reasons=reasons,
         flatten_ack=flatten_ack,
         next_entry_allowed=False,
     )
@@ -331,7 +441,13 @@ def _flatten_untrusted_position(
             next_entry_allowed=False,
         ),
         verification=verification,
+        emergency_flatten_requested=True,
+        flatten=flatten,
     )
+
+
+def _position_side(side: CryptoSide) -> str:
+    return "Buy" if side is CryptoSide.LONG else "Sell"
 
 
 def _decision(
@@ -352,6 +468,8 @@ def _wrap(
     base: BybitDemoOrchestratorResult,
     *,
     verification: BybitDemoProtectionStateDecision | None = None,
+    emergency_flatten_requested: bool = False,
+    flatten: BybitDemoEmergencyFlattenDecision | None = None,
 ) -> BybitDemoProtectionReconciledOrchestratorResult:
     return BybitDemoProtectionReconciledOrchestratorResult(
         status=base.status,
@@ -373,5 +491,18 @@ def _wrap(
         ),
         runner_active_price_observable=(
             False if verification is None else verification.runner_active_price_observable
+        ),
+        emergency_flatten_requested=emergency_flatten_requested,
+        emergency_flatten_position_closed=(
+            None if flatten is None else flatten.position_closed
+        ),
+        emergency_flatten_reconciliation_attempts=(
+            0 if flatten is None else flatten.attempts_used
+        ),
+        emergency_flatten_residual_size=(
+            None if flatten is None else flatten.residual_size
+        ),
+        emergency_flatten_reconciliation_reason=(
+            None if flatten is None else flatten.reason
         ),
     )
