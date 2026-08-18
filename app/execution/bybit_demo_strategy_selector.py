@@ -91,6 +91,8 @@ class BybitDemoStrategySelection:
     open_position_symbols: tuple[str, ...] = ()
     correlation_block_count: int = 0
     portfolio_state_checked: bool = False
+    correlation_shadow_only: bool = True
+    correlation_demo_activation_allowed: bool = False
     economic_shadow_activation_allowed: bool = False
     order_write_performed: bool = False
     demo_only: bool = True
@@ -207,26 +209,16 @@ def select_bybit_demo_trade_plan(
             histories=bars_by_symbol,
             policy=active_correlation,
         )
+        correlation_reasons: tuple[str, ...] = ()
+        correlation_blocking_symbol = None
+        correlation_value = None
         if not correlation.eligible:
             correlation_block_count += 1
-            audits.append(
-                BybitDemoStrategyCandidateAudit(
-                    signal_rank=signal_rank,
-                    symbol=evaluation.symbol,
-                    signal_eligible=True,
-                    signal_reasons=(),
-                    plan_eligible=False,
-                    plan_reasons=(),
-                    demo_preflight_eligible=False,
-                    demo_preflight_reasons=(),
-                    portfolio_reasons=(
-                        correlation.reason or "CORRELATION_DIVERSIFICATION_BLOCK",
-                    ),
-                    correlation_blocking_symbol=correlation.blocking_symbol,
-                    correlation=correlation.correlation,
-                )
+            correlation_reasons = (
+                correlation.reason or "CORRELATION_DIVERSIFICATION_BLOCK",
             )
-            continue
+            correlation_blocking_symbol = correlation.blocking_symbol
+            correlation_value = correlation.correlation
 
         plan_evaluation = build_trade_plan(
             evaluation.signal,
@@ -244,6 +236,9 @@ def select_bybit_demo_trade_plan(
                     plan_reasons=plan_evaluation.reasons,
                     demo_preflight_eligible=False,
                     demo_preflight_reasons=(),
+                    portfolio_reasons=correlation_reasons,
+                    correlation_blocking_symbol=correlation_blocking_symbol,
+                    correlation=correlation_value,
                 )
             )
             continue
@@ -261,6 +256,9 @@ def select_bybit_demo_trade_plan(
                     plan_reasons=(),
                     demo_preflight_eligible=False,
                     demo_preflight_reasons=("BYBIT_INSTRUMENT_SPEC_UNAVAILABLE",),
+                    portfolio_reasons=correlation_reasons,
+                    correlation_blocking_symbol=correlation_blocking_symbol,
+                    correlation=correlation_value,
                 )
             )
             continue
@@ -281,6 +279,9 @@ def select_bybit_demo_trade_plan(
                 plan_reasons=(),
                 demo_preflight_eligible=preflight.eligible,
                 demo_preflight_reasons=preflight.reasons,
+                portfolio_reasons=correlation_reasons,
+                correlation_blocking_symbol=correlation_blocking_symbol,
+                correlation=correlation_value,
             )
         )
         if preflight.eligible:
@@ -329,6 +330,8 @@ def select_bybit_demo_trade_plan(
         open_position_symbols=open_symbols,
         correlation_block_count=correlation_block_count,
         portfolio_state_checked=portfolio_state_checked,
+        correlation_shadow_only=True,
+        correlation_demo_activation_allowed=False,
         economic_shadow_activation_allowed=False,
         order_write_performed=False,
         demo_only=True,
@@ -593,6 +596,8 @@ def _selection_without_plan(
         open_position_symbols=open_position_symbols,
         correlation_block_count=correlation_block_count,
         portfolio_state_checked=portfolio_state_checked,
+        correlation_shadow_only=True,
+        correlation_demo_activation_allowed=False,
     )
 
 
