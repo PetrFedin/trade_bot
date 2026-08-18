@@ -38,6 +38,7 @@ class BybitDemoTradeManagementParityDecision:
     maximum_favorable_r: Decimal
     maximum_adverse_r: Decimal
     completed_bar_count: int
+    holding_bar_count: int
     maximum_holding_bars: int
     max_hold_close_required: bool
     exit_mode: str | None
@@ -60,14 +61,16 @@ def evaluate_bybit_demo_trade_management_parity(
     strategy_config: CryptoPerpStrategyConfig,
     instrument: BybitInstrumentSpec,
     protection_policy: CryptoProtectionPolicy | None = None,
+    completed_holding_bar_count: int | None = None,
 ) -> BybitDemoTradeManagementParityDecision:
     """Rebuild baseline research stop management from completed bars for one demo position.
 
-    The evaluator is intentionally stateless. Replaying all completed bars since the actual fill
-    makes a restart unable to erase a previously reached 0.80R/1.25R protection threshold. It
-    computes only the baseline research break-even/profit-lock policy. The rejected tighter
-    profit-lock candidate is never selected here. Exchange-native runner trailing remains intact;
-    this layer only compares the independent full-position stop-loss field.
+    The evaluator is intentionally stateless. Replaying all safe completed bars after the actual
+    fill makes a restart unable to erase a previously reached 0.80R/1.25R protection threshold.
+    A caller may count the entry bucket for holding-time without feeding its pre-fill high/low into
+    protection math by passing ``completed_holding_bar_count=len(bars)+1``. The rejected tighter
+    profit-lock candidate is never selected. Exchange-native runner trailing remains intact; this
+    layer compares only the independent full-position stop-loss field.
     """
 
     instrument.validate()
@@ -80,9 +83,32 @@ def evaluate_bybit_demo_trade_management_parity(
     if reasons:
         return _blocked(excursion, position, policy, reasons)
     bars = tuple(completed_bars_since_entry)
+    holding_bar_count = (
+        len(bars) if completed_holding_bar_count is None else completed_holding_bar_count
+    )
+    count_reasons = _holding_count_reasons(
+        protection_bar_count=len(bars),
+        holding_bar_count=holding_bar_count,
+    )
+    if count_reasons:
+        return _blocked(
+            excursion,
+            position,
+            policy,
+            count_reasons,
+            bar_count=len(bars),
+            holding_bar_count=holding_bar_count,
+        )
     bar_reasons = _bar_reasons(bars, symbol=excursion.symbol)
     if bar_reasons:
-        return _blocked(excursion, position, policy, bar_reasons, bar_count=len(bars))
+        return _blocked(
+            excursion,
+            position,
+            policy,
+            bar_reasons,
+            bar_count=len(bars),
+            holding_bar_count=holding_bar_count,
+        )
     if position.stop_loss_price is None:
         return _blocked(
             excursion,
@@ -90,6 +116,7 @@ def evaluate_bybit_demo_trade_management_parity(
             policy,
             ("EXCHANGE_STOP_LOSS_UNAVAILABLE",),
             bar_count=len(bars),
+            holding_bar_count=holding_bar_count,
         )
 
     exit_mode = _exit_mode(position)
@@ -100,6 +127,7 @@ def evaluate_bybit_demo_trade_management_parity(
             policy,
             ("EXCHANGE_PROTECTION_MODE_UNRESOLVED",),
             bar_count=len(bars),
+            holding_bar_count=holding_bar_count,
         )
 
     hard_stop_raw = _hard_stop_price(
@@ -143,7 +171,7 @@ def evaluate_bybit_demo_trade_management_parity(
         excursion.side.value,
         state.active_stop_price,
     )
-    max_hold = len(bars) >= policy.maximum_holding_bars
+    max_hold = holding_bar_count >= policy.maximum_holding_bars
     ratchet_required = _more_protective(
         side=excursion.side,
         candidate=desired_stop,
@@ -175,6 +203,7 @@ def evaluate_bybit_demo_trade_management_parity(
         maximum_favorable_r=state.maximum_favorable_r,
         maximum_adverse_r=state.maximum_adverse_r,
         completed_bar_count=len(bars),
+        holding_bar_count=holding_bar_count,
         maximum_holding_bars=policy.maximum_holding_bars,
         max_hold_close_required=max_hold,
         exit_mode=exit_mode,
@@ -207,6 +236,20 @@ def _basis_reasons(
     if excursion.stop_fraction <= 0:
         reasons.append("INVALID_STOP_FRACTION")
     return tuple(dict.fromkeys(reasons))
+
+
+def _holding_count_reasons(
+    *,
+    protection_bar_count: int,
+    holding_bar_count: int,
+) -> tuple[str, ...]:
+    if holding_bar_count < 0:
+        return ("HOLDING_BAR_COUNT_NEGATIVE",)
+    if holding_bar_count < protection_bar_count:
+        return ("HOLDING_BAR_COUNT_BELOW_PROTECTION_HISTORY",)
+    if holding_bar_count > protection_bar_count + 1:
+        return ("HOLDING_BAR_HISTORY_GAP",)
+    return ()
 
 
 def _bar_reasons(
@@ -272,7 +315,9 @@ def _blocked(
     reasons: tuple[str, ...],
     *,
     bar_count: int = 0,
+    holding_bar_count: int | None = None,
 ) -> BybitDemoTradeManagementParityDecision:
+    resolved_holding_count = bar_count if holding_bar_count is None else holding_bar_count
     return BybitDemoTradeManagementParityDecision(
         action=BybitDemoTradeManagementParityAction.BLOCKED,
         reasons=reasons,
@@ -283,6 +328,7 @@ def _blocked(
         maximum_favorable_r=Decimal("0"),
         maximum_adverse_r=Decimal("0"),
         completed_bar_count=bar_count,
+        holding_bar_count=resolved_holding_count,
         maximum_holding_bars=policy.maximum_holding_bars,
         max_hold_close_required=False,
         exit_mode=_exit_mode(position),
