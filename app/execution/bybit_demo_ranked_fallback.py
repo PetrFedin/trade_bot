@@ -13,6 +13,12 @@ from app.execution.bybit_demo_account_sized_strategy import (
     execute_account_sized_reconciled_guarded_bybit_demo_cycle,
 )
 from app.execution.bybit_demo_cycle import BybitDemoCyclePolicy, BybitDemoCycleStatus
+from app.execution.bybit_demo_excursion_runtime import (
+    BybitDemoExcursionRuntimeResult,
+    BybitDemoExcursionRuntimeStatus,
+    initialize_bybit_demo_excursion_from_strategy_cycle,
+)
+from app.execution.bybit_demo_excursion_store import BybitDemoExcursionStore
 from app.execution.bybit_demo_orchestrator import BybitDemoOrchestratorStatus
 from app.execution.bybit_demo_protection_reconciliation import (
     execute_protection_reconciled_guarded_bybit_demo_cycle,
@@ -68,6 +74,7 @@ class BybitDemoResilientAccountSizedCycleResult:
     selected_after_fallback: bool
     candidates_exhausted: bool
     final_selected_symbol: str | None
+    excursion_tracking_result: BybitDemoExcursionRuntimeResult | None = None
     demo_only: bool = True
     strategy_promotion_allowed: bool = False
     live_mainnet_order_routing_allowed: bool = False
@@ -177,6 +184,7 @@ def execute_resilient_account_sized_reconciled_guarded_bybit_demo_cycle(
     now: datetime,
     client: Any,
     accounting_client: Any | None,
+    excursion_store: BybitDemoExcursionStore | None = None,
     account_sized_executor: AccountSizedExecutor = (
         execute_account_sized_reconciled_guarded_bybit_demo_cycle
     ),
@@ -188,17 +196,18 @@ def execute_resilient_account_sized_reconciled_guarded_bybit_demo_cycle(
     """Canonical account-refreshed demo path with bounded ranked pre-order fallback.
 
     Explicit writes additionally require protection-aware position reads and automatically use
-    the protection-reconciled orchestrator. Dry-run behavior stays account-independent and does
-    not require the protection reader.
+    the protection-reconciled orchestrator. If a diagnostics-only excursion store is supplied,
+    a successfully protected position is checkpointed after the strategy cycle so later mark
+    observations can preserve MFE/MAE/giveback across restarts. Tracking never alters the already
+    completed order/protection result and carries no strategy-promotion or mainnet permission.
     """
 
     if "strategy_cycle_executor" in account_sized_kwargs:
         raise ValueError("resilient demo cycle owns the strategy_cycle_executor boundary")
+    _validate_optional_excursion_store(excursion_store)
 
     cycle_policy = account_sized_kwargs.get("cycle_policy")
-    active_cycle_policy = (
-        BybitDemoCyclePolicy() if cycle_policy is None else cycle_policy
-    )
+    active_cycle_policy = BybitDemoCyclePolicy() if cycle_policy is None else cycle_policy
     active_cycle_policy.validate()
     if active_cycle_policy.writes_enabled:
         if "orchestrator" in account_sized_kwargs:
@@ -242,12 +251,17 @@ def execute_resilient_account_sized_reconciled_guarded_bybit_demo_cycle(
         raise ValueError("account-sized demo executor called strategy selection more than once")
 
     ranked = ranked_holder[0] if ranked_holder else None
+    excursion_tracking = _initialize_optional_excursion_tracking(
+        account_result,
+        excursion_store=excursion_store,
+    )
     return BybitDemoResilientAccountSizedCycleResult(
         account_sized_result=account_result,
         fallback_attempts=() if ranked is None else ranked.fallback_attempts,
         selected_after_fallback=False if ranked is None else ranked.selected_after_fallback,
         candidates_exhausted=False if ranked is None else ranked.candidates_exhausted,
         final_selected_symbol=None if ranked is None else ranked.final_selected_symbol,
+        excursion_tracking_result=excursion_tracking,
         demo_only=True,
         strategy_promotion_allowed=False,
         live_mainnet_order_routing_allowed=False,
@@ -261,6 +275,7 @@ def summarize_bybit_demo_ranked_fallback_quality(
     reason_counts: Counter[str] = Counter()
     rejected_symbol_counts: Counter[str] = Counter()
     final_symbol_counts: Counter[str] = Counter()
+    excursion_status_counts: Counter[str] = Counter()
     selected_after_fallback_count = 0
     candidates_exhausted_count = 0
 
@@ -275,6 +290,11 @@ def summarize_bybit_demo_ranked_fallback_quality(
             candidates_exhausted_count += 1
         if result.final_selected_symbol is not None:
             final_symbol_counts[result.final_selected_symbol] += 1
+        excursion = getattr(result, "excursion_tracking_result", None)
+        if excursion is not None:
+            if excursion.live_mainnet_order_routing_allowed:
+                raise ValueError("ranked fallback quality rejected live excursion diagnostics")
+            excursion_status_counts[excursion.status.value] += 1
         for attempt in result.fallback_attempts:
             stage_counts[attempt.stage.value] += 1
             reason_counts.update(attempt.reasons)
@@ -290,12 +310,14 @@ def summarize_bybit_demo_ranked_fallback_quality(
         "fallback_reason_counts": dict(sorted(reason_counts.items())),
         "rejected_symbol_counts": dict(sorted(rejected_symbol_counts.items())),
         "final_selected_symbol_counts": dict(sorted(final_symbol_counts.items())),
+        "excursion_tracking_status_counts": dict(sorted(excursion_status_counts.items())),
         "quote_read_failures_are_never_retried": True,
         "account_fee_read_failures_are_never_retried": True,
         "fallback_never_relaxes_entry_thresholds": True,
         "fallback_occurs_before_entry_ack_only": True,
         "fallback_selection_is_not_realized_profit": True,
         "explicit_writes_require_exchange_protection_reconciliation": True,
+        "excursion_tracking_is_diagnostics_only": True,
         "strategy_promotion_allowed": False,
         "live_mainnet_order_routing_allowed": False,
     }
@@ -363,6 +385,38 @@ def _ranked_result(
         strategy_promotion_allowed=False,
         live_mainnet_order_routing_allowed=False,
     )
+
+
+def _initialize_optional_excursion_tracking(
+    account_result: BybitDemoAccountSizedCycleResult,
+    *,
+    excursion_store: BybitDemoExcursionStore | None,
+) -> BybitDemoExcursionRuntimeResult | None:
+    if excursion_store is None:
+        return None
+    strategy_cycle = getattr(account_result, "strategy_cycle_result", None)
+    if strategy_cycle is None:
+        return None
+    tracking = initialize_bybit_demo_excursion_from_strategy_cycle(
+        strategy_cycle,
+        store=excursion_store,
+    )
+    if tracking.live_mainnet_order_routing_allowed:
+        raise ValueError("resilient demo cycle received live excursion tracking result")
+    if tracking.status is BybitDemoExcursionRuntimeStatus.TRACKING_BLOCKED:
+        return tracking
+    return tracking
+
+
+def _validate_optional_excursion_store(
+    excursion_store: BybitDemoExcursionStore | None,
+) -> None:
+    if excursion_store is None:
+        return
+    if getattr(excursion_store, "live_mainnet_order_routing_allowed", True) is not False:
+        raise ValueError("resilient demo cycle rejected mainnet-capable excursion store")
+    if getattr(excursion_store, "order_writes_supported", True) is not False:
+        raise ValueError("resilient demo cycle requires diagnostics-only excursion store")
 
 
 def _reject_live_cycle(result: BybitDemoStrategyCycleResult) -> None:
