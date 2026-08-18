@@ -5,8 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.execution.bybit_demo_cycle import BybitDemoCycleStatus
+from app.execution.bybit_demo_cycle import BybitDemoCyclePolicy, BybitDemoCycleStatus
 from app.execution.bybit_demo_orchestrator import BybitDemoOrchestratorStatus
+from app.execution.bybit_demo_protection_reconciliation import (
+    execute_protection_reconciled_guarded_bybit_demo_cycle,
+)
 from app.execution.bybit_demo_ranked_fallback import (
     BybitDemoCandidateFallbackStage,
     execute_resilient_account_sized_reconciled_guarded_bybit_demo_cycle,
@@ -229,6 +232,57 @@ def test_resilient_account_wrapper_preserves_account_refresh_boundary() -> None:
     assert result.live_mainnet_order_routing_allowed is False
 
 
+def test_resilient_explicit_writes_require_protection_capability_before_account_cycle() -> None:
+    called = False
+
+    def account_executor(*_args: object, **_kwargs: object):
+        nonlocal called
+        called = True
+        raise AssertionError("account cycle must not be called")
+
+    with pytest.raises(ValueError, match="protection-state read capability"):
+        execute_resilient_account_sized_reconciled_guarded_bybit_demo_cycle(
+            {},
+            instruments={},
+            strategy_config=object(),
+            session_state=object(),
+            now=object(),
+            client=object(),
+            accounting_client=object(),
+            cycle_policy=BybitDemoCyclePolicy(writes_enabled=True),
+            account_sized_executor=account_executor,
+        )
+
+    assert called is False
+
+
+def test_resilient_explicit_writes_inject_protection_reconciled_orchestrator() -> None:
+    observed: dict[str, object] = {}
+
+    class ProtectionClient:
+        protection_state_read_supported = True
+        live_mainnet_order_routing_allowed = False
+
+    def account_executor(*_args: object, **kwargs: object):
+        observed["orchestrator"] = kwargs["orchestrator"]
+        return SimpleNamespace(live_mainnet_order_routing_allowed=False)
+
+    result = execute_resilient_account_sized_reconciled_guarded_bybit_demo_cycle(
+        {},
+        instruments={},
+        strategy_config=object(),
+        session_state=object(),
+        now=object(),
+        client=ProtectionClient(),
+        accounting_client=object(),
+        cycle_policy=BybitDemoCyclePolicy(writes_enabled=True),
+        account_sized_executor=account_executor,
+    )
+
+    assert observed["orchestrator"] is execute_protection_reconciled_guarded_bybit_demo_cycle
+    assert result.live_mainnet_order_routing_allowed is False
+
+
 def test_resilient_account_wrapper_owns_strategy_executor_boundary() -> None:
     with pytest.raises(ValueError, match="owns the strategy_cycle_executor boundary"):
         execute_resilient_account_sized_reconciled_guarded_bybit_demo_cycle(
@@ -267,4 +321,5 @@ def test_ranked_fallback_quality_tracks_rejections_without_calling_them_profit()
     assert quality["fallback_never_relaxes_entry_thresholds"] is True
     assert quality["fallback_occurs_before_entry_ack_only"] is True
     assert quality["fallback_selection_is_not_realized_profit"] is True
+    assert quality["explicit_writes_require_exchange_protection_reconciliation"] is True
     assert quality["strategy_promotion_allowed"] is False
