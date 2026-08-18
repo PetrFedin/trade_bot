@@ -18,6 +18,7 @@ from app.execution.bybit_demo_orchestrator import (
 )
 from app.execution.bybit_demo_protection_client import BybitDemoProtectionPosition
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
+from app.strategy.crypto_liquidation_safety import evaluate_crypto_liquidation_safety
 from app.strategy.crypto_perp import CryptoSide, CryptoTradePlan
 
 
@@ -221,21 +222,80 @@ def execute_protection_reconciled_guarded_bybit_demo_cycle(
         policy=protection_reconciliation_policy,
         sleeper=protection_sleeper,
     )
-    if verification.reconciled:
-        verified_cycle = replace(
-            cycle,
-            reconciled_position=verification.position,
+    if not verification.reconciled or verification.position is None:
+        reason = f"EXCHANGE_PROTECTION_STATE_UNVERIFIED:{verification.reason}"
+        open_quantity = (
+            cycle.reconciled_position.size
+            if verification.position is None
+            else verification.position.size
         )
-        return _wrap(
-            replace(base, cycle_result=verified_cycle),
+        return _flatten_untrusted_position(
+            base,
+            trade_plan=trade_plan,
+            instrument=instrument,
+            client=client,
             verification=verification,
+            reason=reason,
+            open_quantity=open_quantity,
         )
 
-    reason = f"EXCHANGE_PROTECTION_STATE_UNVERIFIED:{verification.reason}"
+    fresh_position = verification.position
+    if fresh_position.average_price is None:
+        return _flatten_untrusted_position(
+            base,
+            trade_plan=trade_plan,
+            instrument=instrument,
+            client=client,
+            verification=verification,
+            reason="POST_PROTECTION_ENTRY_PRICE_UNAVAILABLE",
+            open_quantity=fresh_position.size,
+        )
+    liquidation = evaluate_crypto_liquidation_safety(
+        side=trade_plan.side,
+        entry_price=fresh_position.average_price,
+        hard_stop_price=cycle.protection_ack.stop_loss_price,
+        liquidation_price=fresh_position.liquidation_price,
+    )
+    if not liquidation.safe:
+        return _flatten_untrusted_position(
+            base,
+            trade_plan=trade_plan,
+            instrument=instrument,
+            client=client,
+            verification=verification,
+            reason=f"POST_PROTECTION_{liquidation.reason.value}",
+            open_quantity=fresh_position.size,
+        )
+
+    verified_cycle = replace(
+        cycle,
+        reconciled_position=fresh_position,
+        liquidation_safety_reason=liquidation.reason.value,
+        stop_to_liquidation_r=liquidation.stop_to_liquidation_r,
+    )
+    return _wrap(
+        replace(base, cycle_result=verified_cycle),
+        verification=verification,
+    )
+
+
+def _flatten_untrusted_position(
+    base: BybitDemoOrchestratorResult,
+    *,
+    trade_plan: CryptoTradePlan,
+    instrument: BybitInstrumentSpec,
+    client: Any,
+    verification: BybitDemoProtectionStateDecision,
+    reason: str,
+    open_quantity: Any,
+) -> BybitDemoProtectionReconciledOrchestratorResult:
+    cycle = base.cycle_result
+    if cycle is None:
+        raise ValueError("protection flatten requires a cycle result")
     try:
         close = plan_bybit_demo_reduce_only_close(
             trade_plan,
-            open_quantity=cycle.reconciled_position.size,
+            open_quantity=open_quantity,
             instrument=instrument,
         )
         flatten_ack = client.place_market_order(close)
