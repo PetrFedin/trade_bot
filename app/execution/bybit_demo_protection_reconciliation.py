@@ -420,16 +420,10 @@ def _flatten_untrusted_position(
         policy=policy,
         sleeper=sleeper,
     )
-    reasons = (reason,)
-    if not flatten.position_closed:
-        reasons = (
-            reason,
-            f"EMERGENCY_FLATTEN_UNCONFIRMED:{flatten.reason}",
-        )
     flattened_cycle = replace(
         cycle,
         status=BybitDemoCycleStatus.PROTECTION_FAILED_FLATTEN_REQUESTED,
-        reasons=reasons,
+        reasons=(reason,),
         flatten_ack=flatten_ack,
         next_entry_allowed=False,
     )
