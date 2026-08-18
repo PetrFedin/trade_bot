@@ -21,7 +21,7 @@ from app.marketdata.bybit_demo_quotes import BybitDemoMarketQuote
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
 from app.marketdata.bybit_v5 import BybitKlineBar
 from app.strategy.crypto_correlation import CryptoCorrelationPolicy
-from app.strategy.crypto_perp import CryptoPerpStrategyConfig
+from app.strategy.crypto_perp import CryptoPerpStrategyConfig, CryptoTradePlan
 from app.strategy.crypto_session_risk import CryptoSessionRiskState
 
 
@@ -93,7 +93,10 @@ def _instrument(symbol: str) -> BybitInstrumentSpec:
     )
 
 
-def _instruments(*, histories: dict[str, tuple[BybitKlineBar, ...]] | None = None) -> dict[str, BybitInstrumentSpec]:
+def _instruments(
+    *,
+    histories: dict[str, tuple[BybitKlineBar, ...]] | None = None,
+) -> dict[str, BybitInstrumentSpec]:
     active = _histories() if histories is None else histories
     return {symbol: _instrument(symbol) for symbol in active}
 
@@ -304,9 +307,10 @@ def test_correlation_guard_blocks_next_candidate_against_open_portfolio() -> Non
 
 
 def test_portfolio_concurrency_blocks_selection_before_entry() -> None:
+    histories = _two_long_histories()
     selection = select_bybit_demo_trade_plan(
-        _two_long_histories(),
-        instruments=_instruments(histories=_two_long_histories()),
+        histories,
+        instruments=_instruments(histories=histories),
         strategy_config=_config(),
         session_state=_session(),
         now=_now(),
@@ -402,7 +406,9 @@ def test_explicit_write_path_selects_next_symbol_when_top_symbol_is_open() -> No
     assert result.selection.selected_trade_plan.symbol == "ETHUSDT"
     assert result.selection.open_position_symbols == ("BTCUSDT",)
     assert quote_client.calls == ["ETHUSDT"]
-    assert getattr(observed["plan"], "symbol") == "ETHUSDT"
+    observed_plan = observed["plan"]
+    assert isinstance(observed_plan, CryptoTradePlan)
+    assert observed_plan.symbol == "ETHUSDT"
 
 
 def test_explicit_write_path_blocks_if_portfolio_state_cannot_be_read() -> None:
