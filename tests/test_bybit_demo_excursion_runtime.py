@@ -80,13 +80,13 @@ def _entry_fill() -> dict[str, str]:
     }
 
 
-def _exit_fill(*, price: str = "102") -> dict[str, str]:
+def _exit_fill(*, price: str = "102", quantity: str = "2") -> dict[str, str]:
     return {
         "symbol": "BTCUSDT",
-        "execId": "exit-fill",
+        "execId": f"exit-fill-{quantity}",
         "orderLinkId": "ASTRA-DEMO-X-EXCURSION",
         "side": "Sell",
-        "execQty": "2",
+        "execQty": quantity,
         "execPrice": price,
         "execFee": "0.1",
         "execTime": "2000",
@@ -96,9 +96,16 @@ def _exit_fill(*, price: str = "102") -> dict[str, str]:
 class _TradeClient:
     live_mainnet_order_routing_allowed = False
 
-    def __init__(self, *, terminal: bool = False, remaining: str = "2") -> None:
+    def __init__(
+        self,
+        *,
+        terminal: bool = False,
+        remaining: str = "2",
+        closed_quantity: str = "0",
+    ) -> None:
         self.terminal = terminal
         self.remaining = Decimal(remaining)
+        self.closed_quantity = Decimal(closed_quantity)
 
     def get_executions(
         self,
@@ -113,6 +120,11 @@ class _TradeClient:
             return (_entry_fill(),)
         if self.terminal:
             return (_entry_fill(), _exit_fill())
+        if self.closed_quantity > 0:
+            return (
+                _entry_fill(),
+                _exit_fill(quantity=str(self.closed_quantity)),
+            )
         return (_entry_fill(),)
 
     def get_positions(self, *, settle_coin: str = "USDT"):
@@ -180,7 +192,7 @@ def test_open_poll_reconciles_trade_and_persists_observed_peak(tmp_path) -> None
     assert store.load().revision == result.checkpoint.revision
 
 
-def test_partial_close_observation_keeps_initial_basis(tmp_path) -> None:
+def test_confirmed_partial_close_keeps_initial_excursion_basis(tmp_path) -> None:
     store = JsonFileBybitDemoExcursionStore(tmp_path / "excursion.json")
     initialize_bybit_demo_excursion_from_strategy_cycle(
         _protected_strategy_cycle(),
@@ -189,13 +201,41 @@ def test_partial_close_observation_keeps_initial_basis(tmp_path) -> None:
 
     result = advance_bybit_demo_excursion_tracking(
         store=store,
-        trade_client=_TradeClient(remaining="1"),
+        trade_client=_TradeClient(remaining="1", closed_quantity="1"),
+        quote_client=_QuoteClient("105"),
+    )
+
+    assert result.status is BybitDemoExcursionRuntimeStatus.OPEN_OBSERVED
+    assert result.trade is not None
+    assert result.trade.status.value == "PARTIALLY_CLOSED"
+    assert result.checkpoint is not None
+    state = result.checkpoint.state
+    assert state.initial_quantity == Decimal("2")
+    assert state.current_quantity == Decimal("1")
+    assert state.partial_close_seen is True
+    assert state.observed_peak_favorable_r == Decimal("1")
+    assert state.projected_initial_quantity_gross_pnl_usdt == Decimal("10")
+    assert state.current_quantity_gross_pnl_usdt == Decimal("5")
+
+
+def test_unproven_partial_close_blocks_excursion_update(tmp_path) -> None:
+    store = JsonFileBybitDemoExcursionStore(tmp_path / "excursion.json")
+    initialized = initialize_bybit_demo_excursion_from_strategy_cycle(
+        _protected_strategy_cycle(),
+        store=store,
+    )
+    assert initialized.checkpoint is not None
+
+    result = advance_bybit_demo_excursion_tracking(
+        store=store,
+        trade_client=_TradeClient(remaining="1", closed_quantity="0"),
         quote_client=_QuoteClient("105"),
     )
 
     assert result.status is BybitDemoExcursionRuntimeStatus.TRACKING_BLOCKED
     assert result.trade is not None
     assert "POSITION_AND_EXECUTION_QUANTITY_MISMATCH" in result.trade.reasons
+    assert store.load().revision == initialized.checkpoint.revision
 
 
 def test_terminal_evidence_is_two_phase_and_checkpoint_survives_until_ack(tmp_path) -> None:
