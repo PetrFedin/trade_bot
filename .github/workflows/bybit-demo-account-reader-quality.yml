@@ -7,12 +7,14 @@ on:
     paths:
       - 'app/execution/bybit_demo_account_reader.py'
       - 'tests/test_bybit_demo_account_reader.py'
+      - 'tests/test_bybit_demo_account_info_reader.py'
       - '.github/workflows/bybit-demo-account-reader-quality.yml'
   pull_request:
     branches: [main]
     paths:
       - 'app/execution/bybit_demo_account_reader.py'
       - 'tests/test_bybit_demo_account_reader.py'
+      - 'tests/test_bybit_demo_account_info_reader.py'
       - '.github/workflows/bybit-demo-account-reader-quality.yml'
 
 permissions:
@@ -47,9 +49,13 @@ jobs:
           ruff check --output-format=github
           app/execution/bybit_demo_account_reader.py
           tests/test_bybit_demo_account_reader.py
+          tests/test_bybit_demo_account_info_reader.py
 
       - name: Test signed GET-only accounting boundary
-        run: pytest -vv tests/test_bybit_demo_account_reader.py
+        run: >-
+          pytest -vv
+          tests/test_bybit_demo_account_reader.py
+          tests/test_bybit_demo_account_info_reader.py
 
       - name: Compile accounting reader
         run: >-
