@@ -11,6 +11,8 @@ on:
       - 'app/execution/bybit_demo_strategy_selector.py'
       - 'app/execution/bybit_demo_strategy_quality_tracker.py'
       - 'app/execution/bybit_demo_ranked_fallback.py'
+      - 'app/execution/bybit_demo_protection_client.py'
+      - 'app/execution/bybit_demo_protection_reconciliation.py'
       - 'app/execution/bybit_demo_account_reader.py'
       - 'app/execution/bybit_demo_account_sized_strategy.py'
       - 'app/execution/bybit_demo_session_risk_ledger.py'
@@ -47,6 +49,8 @@ on:
       - 'tests/test_bybit_demo_strategy_selector.py'
       - 'tests/test_bybit_demo_strategy_quality_tracker.py'
       - 'tests/test_bybit_demo_ranked_fallback.py'
+      - 'tests/test_bybit_demo_protection_client.py'
+      - 'tests/test_bybit_demo_protection_reconciliation.py'
       - 'tests/test_bybit_demo_position_parsing.py'
       - 'tests/test_bybit_demo_trade_monitor.py'
       - 'tests/test_bybit_demo_cycle.py'
@@ -103,6 +107,8 @@ jobs:
           app/execution/bybit_demo_strategy_selector.py
           app/execution/bybit_demo_strategy_quality_tracker.py
           app/execution/bybit_demo_ranked_fallback.py
+          app/execution/bybit_demo_protection_client.py
+          app/execution/bybit_demo_protection_reconciliation.py
           app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_sized_strategy.py
           app/execution/bybit_demo_session_risk_ledger.py
@@ -139,6 +145,8 @@ jobs:
           tests/test_bybit_demo_strategy_selector.py
           tests/test_bybit_demo_strategy_quality_tracker.py
           tests/test_bybit_demo_ranked_fallback.py
+          tests/test_bybit_demo_protection_client.py
+          tests/test_bybit_demo_protection_reconciliation.py
           tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_trade_monitor.py
           tests/test_bybit_demo_cycle.py
@@ -181,6 +189,8 @@ jobs:
           tests/test_bybit_demo_strategy_selector.py
           tests/test_bybit_demo_strategy_quality_tracker.py
           tests/test_bybit_demo_ranked_fallback.py
+          tests/test_bybit_demo_protection_client.py
+          tests/test_bybit_demo_protection_reconciliation.py
           tests/test_bybit_demo_account_reader.py
           tests/test_bybit_demo_account_info_reader.py
           tests/test_bybit_demo_account_sized_strategy.py
@@ -206,6 +216,8 @@ jobs:
           app/execution/bybit_demo_strategy_selector.py
           app/execution/bybit_demo_strategy_quality_tracker.py
           app/execution/bybit_demo_ranked_fallback.py
+          app/execution/bybit_demo_protection_client.py
+          app/execution/bybit_demo_protection_reconciliation.py
           app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_sized_strategy.py
           app/execution/bybit_demo_session_risk_ledger.py
