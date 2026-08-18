@@ -159,7 +159,11 @@ def select_bybit_demo_trade_plan(
             portfolio_state_checked=portfolio_state_checked,
         )
 
-    active_correlation = CryptoCorrelationPolicy() if correlation_policy is None else correlation_policy
+    active_correlation = (
+        CryptoCorrelationPolicy()
+        if correlation_policy is None
+        else correlation_policy
+    )
     active_correlation.validate()
     rankings = rank_crypto_signals(dict(bars_by_symbol), strategy_config)
     audits: list[BybitDemoStrategyCandidateAudit] = []
@@ -596,7 +600,10 @@ def _validated_open_position_symbols(symbols: Sequence[str]) -> tuple[str, ...]:
     normalized = tuple(symbols)
     if len(set(normalized)) != len(normalized):
         raise ValueError("Bybit demo open position symbols must be unique")
-    if any(symbol != symbol.strip().upper() or not symbol.endswith("USDT") for symbol in normalized):
+    if any(
+        symbol != symbol.strip().upper() or not symbol.endswith("USDT")
+        for symbol in normalized
+    ):
         raise ValueError("Bybit demo open position symbols must be normalized USDT symbols")
     return tuple(sorted(normalized))
 
