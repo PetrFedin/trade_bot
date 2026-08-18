@@ -30,6 +30,7 @@ on:
       - 'tests/test_bybit_demo_cycle.py'
       - 'tests/test_bybit_instruments.py'
       - 'tests/test_crypto_correlation.py'
+      - 'tests/test_crypto_default_net_target.py'
       - 'tests/test_crypto_execution_risk.py'
       - 'tests/test_crypto_execution_risk_replay.py'
       - 'tests/test_crypto_evidence.py'
@@ -99,6 +100,7 @@ jobs:
           tests/test_bybit_demo_cycle.py
           tests/test_bybit_instruments.py
           tests/test_crypto_correlation.py
+          tests/test_crypto_default_net_target.py
           tests/test_crypto_execution_risk.py
           tests/test_crypto_execution_risk_replay.py
           tests/test_crypto_evidence.py
@@ -124,6 +126,7 @@ jobs:
             tests/test_bybit_demo_cycle.py \
             tests/test_bybit_instruments.py \
             tests/test_crypto_correlation.py \
+            tests/test_crypto_default_net_target.py \
             tests/test_crypto_execution_risk.py \
             tests/test_crypto_execution_risk_replay.py \
             tests/test_crypto_evidence.py \
