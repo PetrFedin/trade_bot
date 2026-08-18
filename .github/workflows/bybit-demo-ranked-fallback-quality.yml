@@ -8,8 +8,15 @@ on:
       - 'app/execution/bybit_demo_account_sized_strategy.py'
       - 'app/execution/bybit_demo_strategy_selector.py'
       - 'app/execution/bybit_demo_cycle.py'
+      - 'app/execution/bybit_demo_excursion_tracker.py'
+      - 'app/execution/bybit_demo_excursion_store.py'
+      - 'app/execution/bybit_demo_excursion_runtime.py'
       - 'app/strategy/crypto_entry_economics.py'
       - 'tests/test_bybit_demo_ranked_fallback.py'
+      - 'tests/test_bybit_demo_ranked_fallback_excursion.py'
+      - 'tests/test_bybit_demo_excursion_tracker.py'
+      - 'tests/test_bybit_demo_excursion_store.py'
+      - 'tests/test_bybit_demo_excursion_runtime.py'
       - '.github/workflows/bybit-demo-ranked-fallback-quality.yml'
   push:
     branches:
@@ -19,8 +26,15 @@ on:
       - 'app/execution/bybit_demo_account_sized_strategy.py'
       - 'app/execution/bybit_demo_strategy_selector.py'
       - 'app/execution/bybit_demo_cycle.py'
+      - 'app/execution/bybit_demo_excursion_tracker.py'
+      - 'app/execution/bybit_demo_excursion_store.py'
+      - 'app/execution/bybit_demo_excursion_runtime.py'
       - 'app/strategy/crypto_entry_economics.py'
       - 'tests/test_bybit_demo_ranked_fallback.py'
+      - 'tests/test_bybit_demo_ranked_fallback_excursion.py'
+      - 'tests/test_bybit_demo_excursion_tracker.py'
+      - 'tests/test_bybit_demo_excursion_store.py'
+      - 'tests/test_bybit_demo_excursion_runtime.py'
       - '.github/workflows/bybit-demo-ranked-fallback-quality.yml'
 
 permissions:
@@ -54,12 +68,23 @@ jobs:
         run: >-
           ruff check --output-format=github
           app/execution/bybit_demo_ranked_fallback.py
+          app/execution/bybit_demo_excursion_tracker.py
+          app/execution/bybit_demo_excursion_store.py
+          app/execution/bybit_demo_excursion_runtime.py
           tests/test_bybit_demo_ranked_fallback.py
+          tests/test_bybit_demo_ranked_fallback_excursion.py
+          tests/test_bybit_demo_excursion_tracker.py
+          tests/test_bybit_demo_excursion_store.py
+          tests/test_bybit_demo_excursion_runtime.py
 
       - name: Test ranked pre-order fallback safety
         run: >-
           pytest -vv
           tests/test_bybit_demo_ranked_fallback.py
+          tests/test_bybit_demo_ranked_fallback_excursion.py
+          tests/test_bybit_demo_excursion_tracker.py
+          tests/test_bybit_demo_excursion_store.py
+          tests/test_bybit_demo_excursion_runtime.py
           tests/test_bybit_demo_strategy_selector.py
           tests/test_bybit_demo_account_sized_strategy.py
           tests/test_crypto_entry_economics.py
@@ -68,3 +93,6 @@ jobs:
         run: >-
           python -m compileall -q
           app/execution/bybit_demo_ranked_fallback.py
+          app/execution/bybit_demo_excursion_tracker.py
+          app/execution/bybit_demo_excursion_store.py
+          app/execution/bybit_demo_excursion_runtime.py
