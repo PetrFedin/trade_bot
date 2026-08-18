@@ -7,7 +7,13 @@ import pytest
 
 from app.marketdata.bybit_demo_quotes import (
     BybitDemoMarketQuoteClient,
+    BybitDemoQuoteCrossedBookError,
+    BybitDemoQuoteFutureTimestampError,
     BybitDemoQuoteHttpJson,
+    BybitDemoQuotePriceError,
+    BybitDemoQuoteStaleError,
+    BybitDemoQuoteSymbolError,
+    BybitDemoQuoteTimestampError,
 )
 
 
@@ -77,7 +83,7 @@ def test_demo_quote_client_fails_closed_on_crossed_book() -> None:
     def transport(_: str, __: dict[str, str]) -> BybitDemoQuoteHttpJson:
         return BybitDemoQuoteHttpJson(200, {}, _payload(bid="101", ask="100"))
 
-    with pytest.raises(ValueError, match="bid cannot exceed ask"):
+    with pytest.raises(BybitDemoQuoteCrossedBookError, match="bid cannot exceed ask"):
         _client(transport).get_quote(symbol="BTCUSDT")
 
 
@@ -93,13 +99,13 @@ def test_demo_quote_client_requires_exact_symbol_and_positive_prices() -> None:
         row["symbol"] = "ETHUSDT"
         return BybitDemoQuoteHttpJson(200, {}, payload)
 
-    with pytest.raises(ValueError, match="missing exact BTCUSDT"):
+    with pytest.raises(BybitDemoQuoteSymbolError, match="missing exact BTCUSDT"):
         _client(missing_symbol).get_quote(symbol="BTCUSDT")
 
     def zero_bid(_: str, __: dict[str, str]) -> BybitDemoQuoteHttpJson:
         return BybitDemoQuoteHttpJson(200, {}, _payload(bid="0"))
 
-    with pytest.raises(ValueError, match="non-positive bid1Price"):
+    with pytest.raises(BybitDemoQuotePriceError, match="non-positive bid1Price"):
         _client(zero_bid).get_quote(symbol="BTCUSDT")
 
 
@@ -111,7 +117,7 @@ def test_demo_quote_client_rejects_stale_server_timestamp() -> None:
             _payload(server_time_ms=990_000),
         )
 
-    with pytest.raises(ValueError, match="stale"):
+    with pytest.raises(BybitDemoQuoteStaleError, match="stale"):
         _client(stale, clock_ms=1_000_001, maximum_quote_age_ms=5_000).get_quote(
             symbol="BTCUSDT"
         )
@@ -125,7 +131,7 @@ def test_demo_quote_client_rejects_timestamp_too_far_in_future() -> None:
             _payload(server_time_ms=1_002_000),
         )
 
-    with pytest.raises(ValueError, match="too far in the future"):
+    with pytest.raises(BybitDemoQuoteFutureTimestampError, match="too far in the future"):
         _client(
             future,
             clock_ms=1_000_000,
@@ -139,5 +145,5 @@ def test_demo_quote_client_rejects_missing_response_time() -> None:
         payload.pop("time")
         return BybitDemoQuoteHttpJson(200, {}, payload)
 
-    with pytest.raises(ValueError, match="missing time"):
+    with pytest.raises(BybitDemoQuoteTimestampError, match="missing time"):
         _client(missing_time).get_quote(symbol="BTCUSDT")
