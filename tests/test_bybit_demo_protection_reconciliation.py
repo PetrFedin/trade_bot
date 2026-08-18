@@ -69,6 +69,9 @@ def _instrument() -> BybitInstrumentSpec:
 
 def _position(
     *,
+    size: Decimal = Decimal("0.01"),
+    average_price: Decimal | None = Decimal("100000"),
+    liquidation_price: Decimal | None = Decimal("97000"),
     take_profit: Decimal | None = Decimal("102000"),
     stop_loss: Decimal | None = Decimal("99500"),
     trailing: Decimal | None = None,
@@ -76,10 +79,10 @@ def _position(
     return BybitDemoProtectionPosition(
         symbol="BTCUSDT",
         side="Buy",
-        size=Decimal("0.01"),
-        average_price=Decimal("100000"),
+        size=size,
+        average_price=average_price,
         unrealised_pnl=Decimal("0"),
-        liquidation_price=Decimal("97000"),
+        liquidation_price=liquidation_price,
         take_profit_price=take_profit,
         stop_loss_price=stop_loss,
         trailing_stop_distance=trailing,
@@ -215,8 +218,17 @@ def test_protection_reconciliation_retries_eventual_consistency() -> None:
     assert client.reads == 2
 
 
-def test_unverified_exchange_protection_triggers_reduce_only_flatten() -> None:
-    client = _Client([(_position(stop_loss=Decimal("99400")),)])
+def test_unverified_exchange_protection_uses_fresh_size_for_reduce_only_flatten() -> None:
+    client = _Client(
+        [
+            (
+                _position(
+                    size=Decimal("0.006"),
+                    stop_loss=Decimal("99400"),
+                ),
+            )
+        ]
+    )
 
     result = execute_protection_reconciled_guarded_bybit_demo_cycle(
         _trade_plan(),
@@ -240,6 +252,7 @@ def test_unverified_exchange_protection_triggers_reduce_only_flatten() -> None:
     assert result.cycle_result.flatten_ack is not None
     assert len(client.orders) == 1
     assert client.orders[0].reduce_only is True
+    assert client.orders[0].quantity == Decimal("0.006")
 
 
 def test_protection_read_failure_also_flattens_fail_closed() -> None:
@@ -265,6 +278,37 @@ def test_protection_read_failure_also_flattens_fail_closed() -> None:
     assert client.orders[0].reduce_only is True
 
 
+def test_fresh_post_protection_liquidation_risk_still_forces_flatten() -> None:
+    client = _Client(
+        [
+            (
+                _position(liquidation_price=Decimal("99750")),
+            )
+        ]
+    )
+
+    result = execute_protection_reconciled_guarded_bybit_demo_cycle(
+        _trade_plan(),
+        instrument=_instrument(),
+        client=client,
+        protection_reconciliation_policy=BybitDemoProtectionReconciliationPolicy(
+            attempts=1,
+            delay_seconds=0,
+        ),
+        base_orchestrator=lambda *_args, **_kwargs: _base_orchestrator_result(
+            _fixed_ack()
+        ),
+    )
+
+    assert result.protection_state_reconciled is True
+    assert result.cycle_result is not None
+    assert result.cycle_result.status is BybitDemoCycleStatus.PROTECTION_FAILED_FLATTEN_REQUESTED
+    assert result.cycle_result.reasons == (
+        "POST_PROTECTION_LIQUIDATION_NOT_BEYOND_HARD_STOP",
+    )
+    assert client.orders[0].reduce_only is True
+
+
 def test_verified_protection_preserves_protected_cycle_without_extra_order() -> None:
     client = _Client([(_position(),)])
 
@@ -287,6 +331,8 @@ def test_verified_protection_preserves_protected_cycle_without_extra_order() -> 
     assert result.next_entry_allowed is True
     assert result.cycle_result is not None
     assert result.cycle_result.status is BybitDemoCycleStatus.PROTECTED
+    assert result.cycle_result.liquidation_safety_reason == "SAFE"
+    assert result.cycle_result.stop_to_liquidation_r is not None
     assert client.orders == []
 
 
