@@ -11,6 +11,7 @@ on:
       - 'app/execution/bybit_demo_strategy_selector.py'
       - 'app/execution/bybit_demo_strategy_quality_tracker.py'
       - 'app/execution/bybit_demo_account_reader.py'
+      - 'app/execution/bybit_demo_account_sized_strategy.py'
       - 'app/execution/bybit_demo_account_pnl_reconciliation.py'
       - 'app/execution/bybit_demo_funding_reconciliation.py'
       - 'app/execution/bybit_demo_lifecycle_gate.py'
@@ -30,6 +31,8 @@ on:
       - 'tools/research_bybit_crypto_strategy_v2.py'
       - 'tools/report_bybit_crypto_trade_quality.py'
       - 'tests/test_bybit_demo_account_reader.py'
+      - 'tests/test_bybit_demo_account_info_reader.py'
+      - 'tests/test_bybit_demo_account_sized_strategy.py'
       - 'tests/test_bybit_demo_account_pnl_reconciliation.py'
       - 'tests/test_bybit_demo_funding_reconciliation.py'
       - 'tests/test_bybit_demo_lifecycle_gate.py'
@@ -42,6 +45,7 @@ on:
       - 'tests/test_bybit_demo_position_parsing.py'
       - 'tests/test_bybit_demo_trade_monitor.py'
       - 'tests/test_bybit_demo_cycle.py'
+      - 'tests/test_crypto_default_net_target.py'
       - 'tests/test_crypto_entry_side_policy.py'
       - 'tests/test_crypto_position_selection.py'
       - 'tests/test_crypto_correlation.py'
@@ -94,6 +98,7 @@ jobs:
           app/execution/bybit_demo_strategy_selector.py
           app/execution/bybit_demo_strategy_quality_tracker.py
           app/execution/bybit_demo_account_reader.py
+          app/execution/bybit_demo_account_sized_strategy.py
           app/execution/bybit_demo_account_pnl_reconciliation.py
           app/execution/bybit_demo_funding_reconciliation.py
           app/execution/bybit_demo_lifecycle_gate.py
@@ -113,6 +118,8 @@ jobs:
           tools/research_bybit_crypto_strategy_v2.py
           tools/report_bybit_crypto_trade_quality.py
           tests/test_bybit_demo_account_reader.py
+          tests/test_bybit_demo_account_info_reader.py
+          tests/test_bybit_demo_account_sized_strategy.py
           tests/test_bybit_demo_account_pnl_reconciliation.py
           tests/test_bybit_demo_funding_reconciliation.py
           tests/test_bybit_demo_lifecycle_gate.py
@@ -125,6 +132,7 @@ jobs:
           tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_trade_monitor.py
           tests/test_bybit_demo_cycle.py
+          tests/test_crypto_default_net_target.py
           tests/test_crypto_entry_side_policy.py
           tests/test_crypto_position_selection.py
           tests/test_crypto_correlation.py
@@ -144,6 +152,7 @@ jobs:
           tests/test_bybit_crypto_core.py
           tests/test_bybit_crypto_replay.py
           tests/test_bybit_crypto_runner_replay.py
+          tests/test_crypto_default_net_target.py
           tests/test_crypto_entry_side_policy.py
           tests/test_crypto_position_selection.py
           tests/test_crypto_correlation.py
@@ -161,10 +170,12 @@ jobs:
           tests/test_bybit_demo_quote_guard.py
           tests/test_bybit_demo_strategy_selector.py
           tests/test_bybit_demo_strategy_quality_tracker.py
+          tests/test_bybit_demo_account_reader.py
+          tests/test_bybit_demo_account_info_reader.py
+          tests/test_bybit_demo_account_sized_strategy.py
           tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_cycle.py
           tests/test_bybit_demo_trade_monitor.py
-          tests/test_bybit_demo_account_reader.py
           tests/test_bybit_demo_account_pnl_reconciliation.py
           tests/test_bybit_demo_funding_reconciliation.py
           tests/test_bybit_demo_lifecycle_gate.py
@@ -182,6 +193,7 @@ jobs:
           app/execution/bybit_demo_strategy_selector.py
           app/execution/bybit_demo_strategy_quality_tracker.py
           app/execution/bybit_demo_account_reader.py
+          app/execution/bybit_demo_account_sized_strategy.py
           app/execution/bybit_demo_account_pnl_reconciliation.py
           app/execution/bybit_demo_funding_reconciliation.py
           app/execution/bybit_demo_lifecycle_gate.py
