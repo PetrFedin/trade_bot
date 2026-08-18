@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.execution.bybit_demo_cycle import BybitDemoCyclePolicy
 from app.execution.bybit_demo_orchestrator import (
     BybitDemoOrchestratorResult,
     BybitDemoOrchestratorStatus,
@@ -15,6 +16,7 @@ from app.execution.bybit_demo_strategy_selector import (
     execute_selected_reconciled_guarded_bybit_demo_cycle,
     select_bybit_demo_trade_plan,
 )
+from app.marketdata.bybit_demo_quotes import BybitDemoMarketQuote
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
 from app.marketdata.bybit_v5 import BybitKlineBar
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig
@@ -99,6 +101,45 @@ def _now() -> datetime:
     return datetime(2026, 8, 18, 0, 40, tzinfo=UTC)
 
 
+def _quote(*, ask: str = "108.1", bid: str = "108.0") -> BybitDemoMarketQuote:
+    quote = BybitDemoMarketQuote(
+        symbol="BTCUSDT",
+        last_price=Decimal("108.05"),
+        mark_price=Decimal("108.04"),
+        bid_price=Decimal(bid),
+        ask_price=Decimal(ask),
+    )
+    quote.validate()
+    return quote
+
+
+class _QuoteClient:
+    live_mainnet_order_routing_allowed = False
+
+    def __init__(self, quote: BybitDemoMarketQuote) -> None:
+        self.quote = quote
+        self.calls: list[str] = []
+
+    def get_quote(self, *, symbol: str) -> BybitDemoMarketQuote:
+        self.calls.append(symbol)
+        return self.quote
+
+
+def _orchestrator(observed: dict[str, object]):
+    def fake(plan: object, **kwargs: object) -> BybitDemoOrchestratorResult:
+        observed["plan"] = plan
+        observed["instrument"] = kwargs["instrument"]
+        return BybitDemoOrchestratorResult(
+            status=BybitDemoOrchestratorStatus.CYCLE_EXECUTED,
+            reasons=("TEST_GUARDED_PATH",),
+            cycle_result=None,
+            previous_trade_gate_checked=False,
+            next_entry_allowed=False,
+        )
+
+    return fake
+
+
 def test_demo_strategy_selector_bridges_completed_bars_to_one_demo_ready_plan() -> None:
     selection = select_bybit_demo_trade_plan(
         _histories(),
@@ -163,17 +204,37 @@ def test_demo_strategy_selector_requires_instrument_preflight() -> None:
 
 def test_selected_plan_is_passed_to_existing_guarded_orchestrator_without_bypass() -> None:
     observed: dict[str, object] = {}
+    result = execute_selected_reconciled_guarded_bybit_demo_cycle(
+        _histories(),
+        instruments=_instruments(),
+        strategy_config=_config(),
+        session_state=_session(),
+        now=_now(),
+        client=object(),
+        orchestrator=_orchestrator(observed),
+    )
 
-    def fake_orchestrator(plan: object, **kwargs: object) -> BybitDemoOrchestratorResult:
-        observed["plan"] = plan
-        observed["instrument"] = kwargs["instrument"]
-        return BybitDemoOrchestratorResult(
-            status=BybitDemoOrchestratorStatus.CYCLE_EXECUTED,
-            reasons=("TEST_GUARDED_PATH",),
-            cycle_result=None,
-            previous_trade_gate_checked=False,
-            next_entry_allowed=False,
-        )
+    assert result.status is BybitDemoStrategyCycleStatus.GUARDED_ORCHESTRATOR_CALLED
+    assert result.selection.selected_trade_plan is observed["plan"]
+    assert isinstance(observed["instrument"], BybitInstrumentSpec)
+    assert result.orchestrator_result is not None
+    assert result.orchestrator_result.reasons == ("TEST_GUARDED_PATH",)
+    assert result.pre_entry_quote_checked is False
+    assert result.live_mainnet_order_routing_allowed is False
+
+
+def test_explicit_demo_write_path_rechecks_executable_quote_before_orchestrator() -> None:
+    observed: dict[str, object] = {}
+    quote_client = _QuoteClient(_quote())
+    base_selection = select_bybit_demo_trade_plan(
+        _histories(),
+        instruments=_instruments(),
+        strategy_config=_config(),
+        session_state=_session(),
+        now=_now(),
+    )
+    assert base_selection.selected_trade_plan is not None
+    original_quantity = base_selection.selected_trade_plan.reference_quantity
 
     result = execute_selected_reconciled_guarded_bybit_demo_cycle(
         _histories(),
@@ -182,12 +243,102 @@ def test_selected_plan_is_passed_to_existing_guarded_orchestrator_without_bypass
         session_state=_session(),
         now=_now(),
         client=object(),
-        orchestrator=fake_orchestrator,
+        cycle_policy=BybitDemoCyclePolicy(writes_enabled=True),
+        quote_client=quote_client,
+        orchestrator=_orchestrator(observed),
     )
 
     assert result.status is BybitDemoStrategyCycleStatus.GUARDED_ORCHESTRATOR_CALLED
+    assert quote_client.calls == ["BTCUSDT"]
+    assert result.pre_entry_quote_checked is True
+    assert result.pre_entry_quote_price == Decimal("108.1")
+    assert result.pre_entry_modeled_entry_price is not None
+    assert result.pre_entry_adjusted_quantity is not None
+    assert result.pre_entry_adjusted_quantity <= original_quantity
     assert result.selection.selected_trade_plan is observed["plan"]
-    assert isinstance(observed["instrument"], BybitInstrumentSpec)
-    assert result.orchestrator_result is not None
-    assert result.orchestrator_result.reasons == ("TEST_GUARDED_PATH",)
-    assert result.live_mainnet_order_routing_allowed is False
+    assert result.pre_entry_quote_reasons == ()
+
+
+def test_explicit_demo_write_path_blocks_when_quote_read_fails() -> None:
+    class BrokenQuoteClient:
+        live_mainnet_order_routing_allowed = False
+
+        def get_quote(self, *, symbol: str) -> BybitDemoMarketQuote:
+            raise TimeoutError(symbol)
+
+    called = False
+
+    def should_not_run(*_: object, **__: object) -> BybitDemoOrchestratorResult:
+        nonlocal called
+        called = True
+        raise AssertionError("orchestrator must not run after quote-read failure")
+
+    result = execute_selected_reconciled_guarded_bybit_demo_cycle(
+        _histories(),
+        instruments=_instruments(),
+        strategy_config=_config(),
+        session_state=_session(),
+        now=_now(),
+        client=object(),
+        cycle_policy=BybitDemoCyclePolicy(writes_enabled=True),
+        quote_client=BrokenQuoteClient(),
+        orchestrator=should_not_run,
+    )
+
+    assert called is False
+    assert result.status is BybitDemoStrategyCycleStatus.PRE_ENTRY_QUOTE_BLOCKED
+    assert result.pre_entry_quote_checked is True
+    assert result.pre_entry_quote_reasons == ("PRE_ENTRY_QUOTE_READ_FAILED:TimeoutError",)
+
+
+def test_explicit_demo_write_path_blocks_when_quote_destroys_minimum_edge() -> None:
+    low_quote = BybitDemoMarketQuote(
+        symbol="BTCUSDT",
+        last_price=Decimal("10"),
+        mark_price=Decimal("10"),
+        bid_price=Decimal("9.9"),
+        ask_price=Decimal("10"),
+    )
+    low_quote.validate()
+    called = False
+
+    def should_not_run(*_: object, **__: object) -> BybitDemoOrchestratorResult:
+        nonlocal called
+        called = True
+        raise AssertionError("orchestrator must not run after quote economics fail")
+
+    result = execute_selected_reconciled_guarded_bybit_demo_cycle(
+        _histories(),
+        instruments=_instruments(),
+        strategy_config=_config(),
+        session_state=_session(),
+        now=_now(),
+        client=object(),
+        cycle_policy=BybitDemoCyclePolicy(writes_enabled=True),
+        quote_client=_QuoteClient(low_quote),
+        orchestrator=should_not_run,
+    )
+
+    assert called is False
+    assert result.status is BybitDemoStrategyCycleStatus.PRE_ENTRY_QUOTE_BLOCKED
+    assert result.pre_entry_quote_checked is True
+    assert result.pre_entry_quote_price == Decimal("10")
+    assert "NEXT_OPEN_EXPECTED_NET_PROFIT_BELOW_TARGET" in result.pre_entry_quote_reasons
+
+
+def test_explicit_demo_write_path_rejects_mainnet_capable_quote_reader() -> None:
+    class UnsafeQuoteClient:
+        live_mainnet_order_routing_allowed = True
+
+    with pytest.raises(ValueError, match="mainnet-capable quote reader"):
+        execute_selected_reconciled_guarded_bybit_demo_cycle(
+            _histories(),
+            instruments=_instruments(),
+            strategy_config=_config(),
+            session_state=_session(),
+            now=_now(),
+            client=object(),
+            cycle_policy=BybitDemoCyclePolicy(writes_enabled=True),
+            quote_client=UnsafeQuoteClient(),
+            orchestrator=_orchestrator({}),
+        )

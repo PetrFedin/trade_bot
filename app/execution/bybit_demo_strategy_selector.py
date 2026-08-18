@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
@@ -16,10 +17,16 @@ from app.execution.bybit_demo_orchestrator import (
     BybitDemoPreviousTradeReference,
     execute_reconciled_guarded_bybit_demo_cycle,
 )
+from app.marketdata.bybit_demo_quotes import BybitDemoMarketQuoteClient
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
 from app.marketdata.bybit_v5 import BybitKlineBar
+from app.strategy.crypto_execution_risk import (
+    CryptoExecutionRiskPolicy,
+    resize_trade_plan_at_next_open,
+)
 from app.strategy.crypto_perp import (
     CryptoPerpStrategyConfig,
+    CryptoSide,
     CryptoTradePlan,
     build_trade_plan,
     rank_crypto_signals,
@@ -43,6 +50,7 @@ class BybitDemoStrategySelectionStatus(StrEnum):
 
 class BybitDemoStrategyCycleStatus(StrEnum):
     NO_TRADE = "NO_TRADE"
+    PRE_ENTRY_QUOTE_BLOCKED = "PRE_ENTRY_QUOTE_BLOCKED"
     GUARDED_ORCHESTRATOR_CALLED = "GUARDED_ORCHESTRATOR_CALLED"
 
 
@@ -82,6 +90,13 @@ class BybitDemoStrategyCycleResult:
     status: BybitDemoStrategyCycleStatus
     selection: BybitDemoStrategySelection
     orchestrator_result: BybitDemoOrchestratorResult | None
+    pre_entry_quote_checked: bool = False
+    pre_entry_quote_price: Decimal | None = None
+    pre_entry_modeled_entry_price: Decimal | None = None
+    pre_entry_quote_resized: bool = False
+    pre_entry_original_quantity: Decimal | None = None
+    pre_entry_adjusted_quantity: Decimal | None = None
+    pre_entry_quote_reasons: tuple[str, ...] = ()
     demo_only: bool = True
     strategy_promotion_allowed: bool = False
     live_mainnet_order_routing_allowed: bool = False
@@ -226,9 +241,7 @@ def select_bybit_demo_trade_plan(
         executable,
         key=lambda item: item[0],
     )
-    economic_ranked = rank_crypto_position_candidates(
-        item[1] for item in executable
-    )
+    economic_ranked = rank_crypto_position_candidates(item[1] for item in executable)
     economic = economic_ranked[0]
     differs = (
         len(executable) >= 2
@@ -271,6 +284,8 @@ def execute_selected_reconciled_guarded_bybit_demo_cycle(
     lifecycle_policy: BybitDemoLifecyclePolicy | None = None,
     cycle_policy: BybitDemoCyclePolicy | None = None,
     session_policy: CryptoSessionRiskPolicy | None = None,
+    execution_risk_policy: CryptoExecutionRiskPolicy | None = None,
+    quote_client: Any | None = None,
     interval_minutes: int = 5,
     sleeper: Sleeper = time.sleep,
     orchestrator: Orchestrator = execute_reconciled_guarded_bybit_demo_cycle,
@@ -296,8 +311,137 @@ def execute_selected_reconciled_guarded_bybit_demo_cycle(
     instrument = instruments.get(plan.symbol)
     if instrument is None:
         raise AssertionError("selected demo strategy plan lost its instrument specification")
+
+    active_cycle_policy = BybitDemoCyclePolicy() if cycle_policy is None else cycle_policy
+    active_cycle_policy.validate()
+    quote_checked = False
+    quote_price = None
+    modeled_entry_price = None
+    quote_resized = False
+    original_quantity = None
+    adjusted_quantity = None
+    quote_reasons: tuple[str, ...] = ()
+    final_plan = plan
+
+    if active_cycle_policy.writes_enabled:
+        quote_reader = BybitDemoMarketQuoteClient() if quote_client is None else quote_client
+        if getattr(quote_reader, "live_mainnet_order_routing_allowed", False):
+            raise ValueError("demo strategy quote guard rejected a mainnet-capable quote reader")
+        quote_checked = True
+        try:
+            quote = quote_reader.get_quote(symbol=plan.symbol)
+        except Exception as exc:  # noqa: BLE001 - missing executable quote must block any write.
+            quote_reasons = (f"PRE_ENTRY_QUOTE_READ_FAILED:{type(exc).__name__}",)
+            return BybitDemoStrategyCycleResult(
+                status=BybitDemoStrategyCycleStatus.PRE_ENTRY_QUOTE_BLOCKED,
+                selection=selection,
+                orchestrator_result=None,
+                pre_entry_quote_checked=True,
+                pre_entry_quote_reasons=quote_reasons,
+            )
+        quote_price = quote.ask_price if plan.side is CryptoSide.LONG else quote.bid_price
+        execution = resize_trade_plan_at_next_open(
+            plan,
+            raw_next_open_price=quote_price,
+            strategy_config=strategy_config,
+            policy=execution_risk_policy,
+        )
+        modeled_entry_price = execution.actual_entry_price
+        original_quantity = execution.original_quantity
+        adjusted_quantity = execution.adjusted_quantity
+        quote_resized = execution.resized
+        if not execution.eligible or execution.adjusted_plan is None:
+            quote_reasons = execution.reasons
+            return BybitDemoStrategyCycleResult(
+                status=BybitDemoStrategyCycleStatus.PRE_ENTRY_QUOTE_BLOCKED,
+                selection=selection,
+                orchestrator_result=None,
+                pre_entry_quote_checked=True,
+                pre_entry_quote_price=quote_price,
+                pre_entry_modeled_entry_price=modeled_entry_price,
+                pre_entry_quote_resized=quote_resized,
+                pre_entry_original_quantity=original_quantity,
+                pre_entry_adjusted_quantity=adjusted_quantity,
+                pre_entry_quote_reasons=quote_reasons,
+            )
+
+        quote_preflight = plan_bybit_demo_entry(
+            execution.adjusted_plan,
+            instrument=instrument,
+            session_state=session_state,
+            session_policy=session_policy,
+        )
+        if not quote_preflight.eligible or quote_preflight.order is None:
+            quote_reasons = quote_preflight.reasons or ("PRE_ENTRY_QUOTE_INSTRUMENT_REJECTED",)
+            return BybitDemoStrategyCycleResult(
+                status=BybitDemoStrategyCycleStatus.PRE_ENTRY_QUOTE_BLOCKED,
+                selection=selection,
+                orchestrator_result=None,
+                pre_entry_quote_checked=True,
+                pre_entry_quote_price=quote_price,
+                pre_entry_modeled_entry_price=modeled_entry_price,
+                pre_entry_quote_resized=quote_resized,
+                pre_entry_original_quantity=original_quantity,
+                pre_entry_adjusted_quantity=adjusted_quantity,
+                pre_entry_quote_reasons=quote_reasons,
+            )
+
+        quantized_plan = replace(
+            execution.adjusted_plan,
+            reference_quantity=quote_preflight.order.quantity,
+        )
+        final_execution = resize_trade_plan_at_next_open(
+            quantized_plan,
+            raw_next_open_price=quote_price,
+            strategy_config=strategy_config,
+            policy=execution_risk_policy,
+        )
+        modeled_entry_price = final_execution.actual_entry_price
+        adjusted_quantity = final_execution.adjusted_quantity
+        quote_resized = adjusted_quantity < plan.reference_quantity
+        if not final_execution.eligible or final_execution.adjusted_plan is None:
+            quote_reasons = final_execution.reasons
+            return BybitDemoStrategyCycleResult(
+                status=BybitDemoStrategyCycleStatus.PRE_ENTRY_QUOTE_BLOCKED,
+                selection=selection,
+                orchestrator_result=None,
+                pre_entry_quote_checked=True,
+                pre_entry_quote_price=quote_price,
+                pre_entry_modeled_entry_price=modeled_entry_price,
+                pre_entry_quote_resized=quote_resized,
+                pre_entry_original_quantity=original_quantity,
+                pre_entry_adjusted_quantity=adjusted_quantity,
+                pre_entry_quote_reasons=quote_reasons,
+            )
+        final_plan = final_execution.adjusted_plan
+        final_preflight = plan_bybit_demo_entry(
+            final_plan,
+            instrument=instrument,
+            session_state=session_state,
+            session_policy=session_policy,
+        )
+        if not final_preflight.eligible or final_preflight.order is None:
+            quote_reasons = final_preflight.reasons or ("PRE_ENTRY_QUOTE_INSTRUMENT_REJECTED",)
+            return BybitDemoStrategyCycleResult(
+                status=BybitDemoStrategyCycleStatus.PRE_ENTRY_QUOTE_BLOCKED,
+                selection=selection,
+                orchestrator_result=None,
+                pre_entry_quote_checked=True,
+                pre_entry_quote_price=quote_price,
+                pre_entry_modeled_entry_price=modeled_entry_price,
+                pre_entry_quote_resized=quote_resized,
+                pre_entry_original_quantity=original_quantity,
+                pre_entry_adjusted_quantity=adjusted_quantity,
+                pre_entry_quote_reasons=quote_reasons,
+            )
+        selection = replace(
+            selection,
+            selected_trade_plan=final_plan,
+            selected_entry_preflight=final_preflight,
+        )
+
     result = orchestrator(
-        plan,
+        final_plan,
         instrument=instrument,
         strategy_config=strategy_config,
         session_state=session_state,
@@ -307,7 +451,7 @@ def execute_selected_reconciled_guarded_bybit_demo_cycle(
         accounting_client=accounting_client,
         funding_ledger=funding_ledger,
         lifecycle_policy=lifecycle_policy,
-        cycle_policy=cycle_policy,
+        cycle_policy=active_cycle_policy,
         session_policy=session_policy,
         sleeper=sleeper,
     )
@@ -317,6 +461,13 @@ def execute_selected_reconciled_guarded_bybit_demo_cycle(
         status=BybitDemoStrategyCycleStatus.GUARDED_ORCHESTRATOR_CALLED,
         selection=selection,
         orchestrator_result=result,
+        pre_entry_quote_checked=quote_checked,
+        pre_entry_quote_price=quote_price,
+        pre_entry_modeled_entry_price=modeled_entry_price,
+        pre_entry_quote_resized=quote_resized,
+        pre_entry_original_quantity=original_quantity,
+        pre_entry_adjusted_quantity=adjusted_quantity,
+        pre_entry_quote_reasons=quote_reasons,
         demo_only=True,
         strategy_promotion_allowed=False,
         live_mainnet_order_routing_allowed=False,

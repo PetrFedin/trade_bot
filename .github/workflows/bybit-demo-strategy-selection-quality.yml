@@ -7,9 +7,12 @@ on:
       - 'app/execution/bybit_demo_strategy_selector.py'
       - 'app/execution/bybit_demo_controller.py'
       - 'app/execution/bybit_demo_orchestrator.py'
+      - 'app/marketdata/bybit_demo_quotes.py'
       - 'app/strategy/crypto_perp.py'
       - 'app/strategy/crypto_position_selection.py'
+      - 'app/strategy/crypto_execution_risk.py'
       - 'app/strategy/crypto_session_risk.py'
+      - 'tests/test_bybit_demo_quote_guard.py'
       - 'tests/test_bybit_demo_strategy_selector.py'
       - '.github/workflows/bybit-demo-strategy-selection-quality.yml'
   push:
@@ -19,9 +22,12 @@ on:
       - 'app/execution/bybit_demo_strategy_selector.py'
       - 'app/execution/bybit_demo_controller.py'
       - 'app/execution/bybit_demo_orchestrator.py'
+      - 'app/marketdata/bybit_demo_quotes.py'
       - 'app/strategy/crypto_perp.py'
       - 'app/strategy/crypto_position_selection.py'
+      - 'app/strategy/crypto_execution_risk.py'
       - 'app/strategy/crypto_session_risk.py'
+      - 'tests/test_bybit_demo_quote_guard.py'
       - 'tests/test_bybit_demo_strategy_selector.py'
       - '.github/workflows/bybit-demo-strategy-selection-quality.yml'
 
@@ -56,17 +62,22 @@ jobs:
         run: >-
           ruff check --output-format=github
           app/execution/bybit_demo_strategy_selector.py
+          app/marketdata/bybit_demo_quotes.py
+          tests/test_bybit_demo_quote_guard.py
           tests/test_bybit_demo_strategy_selector.py
 
       - name: Test completed-bars to guarded-demo handoff
         run: >-
           pytest -vv
+          tests/test_bybit_demo_quote_guard.py
           tests/test_bybit_demo_strategy_selector.py
           tests/test_bybit_demo_orchestrator.py
           tests/test_bybit_demo_controller.py
+          tests/test_crypto_execution_risk.py
           tests/test_crypto_position_selection.py
 
       - name: Compile demo strategy selection boundary
         run: >-
           python -m compileall -q
           app/execution/bybit_demo_strategy_selector.py
+          app/marketdata/bybit_demo_quotes.py
