@@ -12,8 +12,11 @@ from app.execution.bybit_demo_account_sized_strategy import (
     BybitDemoAccountSizedCycleResult,
     execute_account_sized_reconciled_guarded_bybit_demo_cycle,
 )
-from app.execution.bybit_demo_cycle import BybitDemoCycleStatus
+from app.execution.bybit_demo_cycle import BybitDemoCyclePolicy, BybitDemoCycleStatus
 from app.execution.bybit_demo_orchestrator import BybitDemoOrchestratorStatus
+from app.execution.bybit_demo_protection_reconciliation import (
+    execute_protection_reconciled_guarded_bybit_demo_cycle,
+)
 from app.execution.bybit_demo_strategy_selector import (
     BybitDemoStrategyCycleResult,
     BybitDemoStrategyCycleStatus,
@@ -182,10 +185,31 @@ def execute_resilient_account_sized_reconciled_guarded_bybit_demo_cycle(
     ),
     **account_sized_kwargs: Any,
 ) -> BybitDemoResilientAccountSizedCycleResult:
-    """Canonical account-refreshed demo path with bounded ranked pre-order fallback."""
+    """Canonical account-refreshed demo path with bounded ranked pre-order fallback.
+
+    Explicit writes additionally require protection-aware position reads and automatically use
+    the protection-reconciled orchestrator. Dry-run behavior stays account-independent and does
+    not require the protection reader.
+    """
 
     if "strategy_cycle_executor" in account_sized_kwargs:
         raise ValueError("resilient demo cycle owns the strategy_cycle_executor boundary")
+
+    cycle_policy = account_sized_kwargs.get("cycle_policy")
+    active_cycle_policy = (
+        BybitDemoCyclePolicy() if cycle_policy is None else cycle_policy
+    )
+    active_cycle_policy.validate()
+    if active_cycle_policy.writes_enabled:
+        if "orchestrator" in account_sized_kwargs:
+            raise ValueError("resilient demo writes own the protection orchestrator boundary")
+        if not getattr(client, "protection_state_read_supported", False):
+            raise ValueError(
+                "resilient demo writes require protection-state read capability"
+            )
+        account_sized_kwargs["orchestrator"] = (
+            execute_protection_reconciled_guarded_bybit_demo_cycle
+        )
 
     ranked_holder: list[BybitDemoRankedFallbackResult] = []
 
@@ -271,6 +295,7 @@ def summarize_bybit_demo_ranked_fallback_quality(
         "fallback_never_relaxes_entry_thresholds": True,
         "fallback_occurs_before_entry_ack_only": True,
         "fallback_selection_is_not_realized_profit": True,
+        "explicit_writes_require_exchange_protection_reconciliation": True,
         "strategy_promotion_allowed": False,
         "live_mainnet_order_routing_allowed": False,
     }
@@ -327,11 +352,7 @@ def _ranked_result(
         and selected_plan is not None
         and not candidates_exhausted
     )
-    final_symbol = (
-        None
-        if candidates_exhausted or selected_plan is None
-        else selected_plan.symbol
-    )
+    final_symbol = None if candidates_exhausted or selected_plan is None else selected_plan.symbol
     return BybitDemoRankedFallbackResult(
         cycle_result=cycle_result,
         fallback_attempts=tuple(attempts),
