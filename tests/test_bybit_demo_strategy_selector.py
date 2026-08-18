@@ -75,6 +75,14 @@ def _two_long_histories() -> dict[str, tuple[BybitKlineBar, ...]]:
     }
 
 
+def _correlated_long_histories() -> dict[str, tuple[BybitKlineBar, ...]]:
+    closes = (100, 101, 102, 103, 104, 105, 106, 110)
+    return {
+        "BTCUSDT": _bars("BTCUSDT", closes),
+        "ETHUSDT": _bars("ETHUSDT", closes),
+    }
+
+
 def _instrument(symbol: str) -> BybitInstrumentSpec:
     return BybitInstrumentSpec(
         symbol=symbol,
@@ -282,8 +290,8 @@ def test_open_top_ranked_symbol_is_excluded_before_selecting_next_candidate() ->
     assert btc.portfolio_reasons == ("PREEXISTING_SYMBOL_POSITION_EXCLUDED",)
 
 
-def test_correlation_guard_blocks_next_candidate_against_open_portfolio() -> None:
-    histories = _two_long_histories()
+def test_correlation_shadow_records_concentration_without_demo_activation() -> None:
+    histories = _correlated_long_histories()
     selection = select_bybit_demo_trade_plan(
         histories,
         instruments=_instruments(histories=histories),
@@ -299,11 +307,16 @@ def test_correlation_guard_blocks_next_candidate_against_open_portfolio() -> Non
         portfolio_state_checked=True,
     )
 
-    assert selection.status is BybitDemoStrategySelectionStatus.NO_EXECUTABLE_PLAN
+    assert selection.status is BybitDemoStrategySelectionStatus.SELECTED
+    assert selection.selected_trade_plan is not None
+    assert selection.selected_trade_plan.symbol == "ETHUSDT"
     assert selection.correlation_block_count == 1
     eth = next(row for row in selection.candidate_audit if row.symbol == "ETHUSDT")
     assert eth.portfolio_reasons == ("PAIRWISE_CORRELATION_ABOVE_LIMIT",)
     assert eth.correlation_blocking_symbol == "BTCUSDT"
+    assert eth.correlation == Decimal("1")
+    assert selection.correlation_shadow_only is True
+    assert selection.correlation_demo_activation_allowed is False
 
 
 def test_portfolio_concurrency_blocks_selection_before_entry() -> None:
