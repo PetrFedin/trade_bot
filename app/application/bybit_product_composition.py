@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from functools import partial
 from time import time
-from typing import Any, Callable
+from typing import Callable
 
 from app.execution.bybit_demo_account_reader import BybitDemoAccountingClient
 from app.execution.bybit_demo_attributed_runtime import (
@@ -15,6 +16,9 @@ from app.execution.bybit_demo_broker_truth import BybitDemoBrokerTruthClient
 from app.execution.bybit_demo_cycle import BybitDemoCyclePolicy
 from app.execution.bybit_demo_managed_trade_poll import BybitDemoManagedTradePollPolicy
 from app.execution.bybit_demo_max_hold_close import BybitDemoMaxHoldClosePolicy
+from app.execution.bybit_demo_session_risk_ledger import (
+    start_bybit_demo_session_risk_ledger,
+)
 from app.execution.bybit_demo_stop_ratchet_client import BybitDemoStopRatchetClient
 from app.execution.bybit_demo_trade_management_runtime import (
     BybitDemoTradeManagementRuntimePolicy,
@@ -90,10 +94,7 @@ class BybitProductCycleExecutor:
 
         active_checkpoint = self._active_checkpoint_hint()
         symbols = list(self.config.symbols)
-        if (
-            active_checkpoint is not None
-            and active_checkpoint.state.symbol not in symbols
-        ):
+        if active_checkpoint is not None and active_checkpoint.state.symbol not in symbols:
             symbols.append(active_checkpoint.state.symbol)
         instruments = self.instrument_client.fetch_symbols(tuple(symbols))
 
@@ -150,7 +151,6 @@ class BybitProductCycleExecutor:
             terminal_handoff=terminal_handoff,
             cycle_policy=BybitDemoCyclePolicy(writes_enabled=writes_enabled),
             session_ledger=session_ledger,
-            interval_minutes=5,
         )
 
     def _active_checkpoint_hint(self):
@@ -303,10 +303,6 @@ def bootstrap_bybit_product_session(config: BybitProductConfig) -> Decimal:
                 "session bootstrap requires broker and local trading state to be fully flat"
             )
         wallet = accounting.get_wallet_balance()
-        from app.execution.bybit_demo_session_risk_ledger import (
-            start_bybit_demo_session_risk_ledger,
-        )
-
         session_store.initialize(
             start_bybit_demo_session_risk_ledger(
                 opening_equity_usdt=wallet.total_equity_usd,
