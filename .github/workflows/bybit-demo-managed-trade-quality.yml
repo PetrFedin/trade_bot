@@ -4,6 +4,8 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'app/execution/bybit_demo_entry_provenance.py'
+      - 'app/execution/bybit_demo_entry_provenance_store.py'
       - 'app/execution/bybit_demo_managed_trade_poll.py'
       - 'app/execution/bybit_demo_terminal_evidence_store.py'
       - 'app/execution/bybit_demo_terminal_handoff.py'
@@ -15,16 +17,21 @@ on:
       - 'app/execution/bybit_demo_max_hold_close.py'
       - 'app/execution/bybit_demo_post_trade_accounting.py'
       - 'app/execution/bybit_demo_profit_preservation_evidence.py'
+      - 'tests/test_bybit_demo_entry_provenance.py'
+      - 'tests/test_bybit_demo_entry_provenance_store.py'
       - 'tests/test_bybit_demo_managed_trade_poll.py'
       - 'tests/test_bybit_demo_terminal_evidence_store.py'
       - 'tests/test_bybit_demo_terminal_handoff.py'
       - 'tests/test_bybit_demo_runtime_lease.py'
       - 'tests/test_bybit_demo_trading_runtime.py'
+      - 'tests/test_bybit_demo_trading_runtime_provenance.py'
       - '.github/workflows/bybit-demo-managed-trade-quality.yml'
   push:
     branches:
       - agent/trading-quality-profit-protection
     paths:
+      - 'app/execution/bybit_demo_entry_provenance.py'
+      - 'app/execution/bybit_demo_entry_provenance_store.py'
       - 'app/execution/bybit_demo_managed_trade_poll.py'
       - 'app/execution/bybit_demo_terminal_evidence_store.py'
       - 'app/execution/bybit_demo_terminal_handoff.py'
@@ -36,11 +43,14 @@ on:
       - 'app/execution/bybit_demo_max_hold_close.py'
       - 'app/execution/bybit_demo_post_trade_accounting.py'
       - 'app/execution/bybit_demo_profit_preservation_evidence.py'
+      - 'tests/test_bybit_demo_entry_provenance.py'
+      - 'tests/test_bybit_demo_entry_provenance_store.py'
       - 'tests/test_bybit_demo_managed_trade_poll.py'
       - 'tests/test_bybit_demo_terminal_evidence_store.py'
       - 'tests/test_bybit_demo_terminal_handoff.py'
       - 'tests/test_bybit_demo_runtime_lease.py'
       - 'tests/test_bybit_demo_trading_runtime.py'
+      - 'tests/test_bybit_demo_trading_runtime_provenance.py'
       - '.github/workflows/bybit-demo-managed-trade-quality.yml'
 
 permissions:
@@ -73,25 +83,33 @@ jobs:
       - name: Lint managed trade lifecycle
         run: >-
           ruff check --output-format=github
+          app/execution/bybit_demo_entry_provenance.py
+          app/execution/bybit_demo_entry_provenance_store.py
           app/execution/bybit_demo_managed_trade_poll.py
           app/execution/bybit_demo_terminal_evidence_store.py
           app/execution/bybit_demo_terminal_handoff.py
           app/execution/bybit_demo_runtime_lease.py
           app/execution/bybit_demo_trading_runtime.py
+          tests/test_bybit_demo_entry_provenance.py
+          tests/test_bybit_demo_entry_provenance_store.py
           tests/test_bybit_demo_managed_trade_poll.py
           tests/test_bybit_demo_terminal_evidence_store.py
           tests/test_bybit_demo_terminal_handoff.py
           tests/test_bybit_demo_runtime_lease.py
           tests/test_bybit_demo_trading_runtime.py
+          tests/test_bybit_demo_trading_runtime_provenance.py
 
       - name: Test managed trade lifecycle
         run: >-
           pytest -vv
+          tests/test_bybit_demo_entry_provenance.py
+          tests/test_bybit_demo_entry_provenance_store.py
           tests/test_bybit_demo_managed_trade_poll.py
           tests/test_bybit_demo_terminal_evidence_store.py
           tests/test_bybit_demo_terminal_handoff.py
           tests/test_bybit_demo_runtime_lease.py
           tests/test_bybit_demo_trading_runtime.py
+          tests/test_bybit_demo_trading_runtime_provenance.py
           tests/test_bybit_demo_trade_management_runtime.py
           tests/test_bybit_demo_max_hold_close.py
           tests/test_bybit_demo_excursion_runtime.py
@@ -101,6 +119,8 @@ jobs:
       - name: Compile managed trade lifecycle
         run: >-
           python -m compileall -q
+          app/execution/bybit_demo_entry_provenance.py
+          app/execution/bybit_demo_entry_provenance_store.py
           app/execution/bybit_demo_managed_trade_poll.py
           app/execution/bybit_demo_terminal_evidence_store.py
           app/execution/bybit_demo_terminal_handoff.py
