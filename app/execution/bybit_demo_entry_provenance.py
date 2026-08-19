@@ -96,7 +96,11 @@ def build_bybit_demo_entry_decision_provenance(
         return None
     if cycle.live_mainnet_order_routing_allowed:
         raise ValueError("entry provenance rejected a mainnet-capable protected cycle")
-    if cycle.entry_ack is None or not cycle.entry_ack.accepted or cycle.entry_ack.live_mainnet_order:
+    if (
+        cycle.entry_ack is None
+        or not cycle.entry_ack.accepted
+        or cycle.entry_ack.live_mainnet_order
+    ):
         raise ValueError("protected demo entry provenance requires a safe accepted entry ACK")
     position = cycle.reconciled_position
     if position is None or position.average_price is None or position.size <= 0:
