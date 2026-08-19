@@ -7,6 +7,7 @@ on:
       - 'app/execution/bybit_demo_entry_provenance.py'
       - 'app/execution/bybit_demo_entry_provenance_store.py'
       - 'app/execution/bybit_demo_trade_attribution.py'
+      - 'app/execution/bybit_demo_attributed_runtime.py'
       - 'app/execution/bybit_demo_managed_trade_poll.py'
       - 'app/execution/bybit_demo_terminal_evidence_store.py'
       - 'app/execution/bybit_demo_terminal_handoff.py'
@@ -21,6 +22,7 @@ on:
       - 'tests/test_bybit_demo_entry_provenance.py'
       - 'tests/test_bybit_demo_entry_provenance_store.py'
       - 'tests/test_bybit_demo_trade_attribution.py'
+      - 'tests/test_bybit_demo_attributed_runtime.py'
       - 'tests/test_bybit_demo_managed_trade_poll.py'
       - 'tests/test_bybit_demo_terminal_evidence_store.py'
       - 'tests/test_bybit_demo_terminal_handoff.py'
@@ -35,6 +37,7 @@ on:
       - 'app/execution/bybit_demo_entry_provenance.py'
       - 'app/execution/bybit_demo_entry_provenance_store.py'
       - 'app/execution/bybit_demo_trade_attribution.py'
+      - 'app/execution/bybit_demo_attributed_runtime.py'
       - 'app/execution/bybit_demo_managed_trade_poll.py'
       - 'app/execution/bybit_demo_terminal_evidence_store.py'
       - 'app/execution/bybit_demo_terminal_handoff.py'
@@ -49,6 +52,7 @@ on:
       - 'tests/test_bybit_demo_entry_provenance.py'
       - 'tests/test_bybit_demo_entry_provenance_store.py'
       - 'tests/test_bybit_demo_trade_attribution.py'
+      - 'tests/test_bybit_demo_attributed_runtime.py'
       - 'tests/test_bybit_demo_managed_trade_poll.py'
       - 'tests/test_bybit_demo_terminal_evidence_store.py'
       - 'tests/test_bybit_demo_terminal_handoff.py'
@@ -90,6 +94,7 @@ jobs:
           app/execution/bybit_demo_entry_provenance.py
           app/execution/bybit_demo_entry_provenance_store.py
           app/execution/bybit_demo_trade_attribution.py
+          app/execution/bybit_demo_attributed_runtime.py
           app/execution/bybit_demo_managed_trade_poll.py
           app/execution/bybit_demo_terminal_evidence_store.py
           app/execution/bybit_demo_terminal_handoff.py
@@ -98,6 +103,7 @@ jobs:
           tests/test_bybit_demo_entry_provenance.py
           tests/test_bybit_demo_entry_provenance_store.py
           tests/test_bybit_demo_trade_attribution.py
+          tests/test_bybit_demo_attributed_runtime.py
           tests/test_bybit_demo_managed_trade_poll.py
           tests/test_bybit_demo_terminal_evidence_store.py
           tests/test_bybit_demo_terminal_handoff.py
@@ -111,6 +117,7 @@ jobs:
           tests/test_bybit_demo_entry_provenance.py
           tests/test_bybit_demo_entry_provenance_store.py
           tests/test_bybit_demo_trade_attribution.py
+          tests/test_bybit_demo_attributed_runtime.py
           tests/test_bybit_demo_managed_trade_poll.py
           tests/test_bybit_demo_terminal_evidence_store.py
           tests/test_bybit_demo_terminal_handoff.py
@@ -129,6 +136,7 @@ jobs:
           app/execution/bybit_demo_entry_provenance.py
           app/execution/bybit_demo_entry_provenance_store.py
           app/execution/bybit_demo_trade_attribution.py
+          app/execution/bybit_demo_attributed_runtime.py
           app/execution/bybit_demo_managed_trade_poll.py
           app/execution/bybit_demo_terminal_evidence_store.py
           app/execution/bybit_demo_terminal_handoff.py
