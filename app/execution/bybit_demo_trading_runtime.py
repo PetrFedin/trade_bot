@@ -6,6 +6,11 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Protocol
 
+from app.execution.bybit_demo_entry_provenance import (
+    BybitDemoEntryDecisionProvenance,
+    build_bybit_demo_entry_decision_provenance,
+)
+from app.execution.bybit_demo_entry_provenance_store import BybitDemoEntryProvenanceReceipt
 from app.execution.bybit_demo_excursion_store import BybitDemoExcursionStore
 from app.execution.bybit_demo_managed_trade_poll import (
     BybitDemoManagedTradePollPhase,
@@ -47,6 +52,9 @@ class BybitDemoTradingRuntimeResult:
     runtime_lease_acquired: bool
     runtime_lease_released: bool
     next_entry_allowed: bool
+    entry_provenance: BybitDemoEntryDecisionProvenance | None = None
+    entry_provenance_receipt: BybitDemoEntryProvenanceReceipt | None = None
+    entry_provenance_persisted: bool = False
     same_invocation_additional_entry_allowed: bool = False
     demo_only: bool = True
     strategy_promotion_allowed: bool = False
@@ -63,9 +71,25 @@ class BybitDemoRuntimeLeaseStore(Protocol):
     def release(self, *, owner_token: str) -> None: ...
 
 
+class BybitDemoEntryProvenanceStore(Protocol):
+    live_mainnet_order_routing_allowed: bool
+    order_writes_supported: bool
+    immutable_records: bool
+    realized_pnl_storage_allowed: bool
+
+    def persist(
+        self,
+        provenance: BybitDemoEntryDecisionProvenance,
+    ) -> BybitDemoEntryProvenanceReceipt: ...
+
+
 EntryExecutor = Callable[..., BybitDemoResilientAccountSizedCycleResult]
 ManagedPoller = Callable[..., BybitDemoManagedTradePollResult]
 TerminalHandoff = Callable[..., BybitDemoTerminalHandoffResult]
+BuildEntryProvenance = Callable[
+    [BybitDemoResilientAccountSizedCycleResult],
+    BybitDemoEntryDecisionProvenance | None,
+]
 
 
 def run_bybit_demo_trading_runtime(
@@ -83,6 +107,7 @@ def run_bybit_demo_trading_runtime(
     quote_client: Any,
     runtime_lease: BybitDemoRuntimeLeaseStore,
     terminal_evidence_store: Any | None = None,
+    entry_provenance_store: BybitDemoEntryProvenanceStore | None = None,
     managed_policy: BybitDemoManagedTradePollPolicy | None = None,
     entry_executor: EntryExecutor = (
         execute_resilient_account_sized_reconciled_guarded_bybit_demo_cycle
@@ -90,6 +115,9 @@ def run_bybit_demo_trading_runtime(
     managed_poller: ManagedPoller = poll_bybit_demo_managed_trade,
     terminal_handoff: TerminalHandoff = (
         persist_and_acknowledge_bybit_demo_terminal_evidence
+    ),
+    build_entry_provenance: BuildEntryProvenance = (
+        build_bybit_demo_entry_decision_provenance
     ),
     **entry_kwargs: Any,
 ) -> BybitDemoTradingRuntimeResult:
@@ -100,9 +128,11 @@ def run_bybit_demo_trading_runtime(
     wins over new signal selection. Only a missing checkpoint can reach the existing resilient
     entry path. Corrupt checkpoint state blocks trading instead of being treated as no position.
 
-    Fully reconciled terminal evidence can be persisted and acknowledged in the same invocation,
-    but even a successful handoff never starts a replacement trade before the lease is released.
-    A later invocation may attempt a new entry after it independently observes no checkpoint.
+    If an immutable entry-provenance store is supplied, a newly protected entry is joined to its
+    outcome-free selection/execution facts after the entry cycle completes. Provenance persistence
+    is diagnostic and cannot retroactively alter a protected position. Fully reconciled terminal
+    evidence can be persisted and acknowledged in the same invocation, but even a successful
+    handoff never starts a replacement trade before the lease is released.
     """
 
     strategy_config.validate()
@@ -115,6 +145,7 @@ def run_bybit_demo_trading_runtime(
         quote_client=quote_client,
         completed_bar_client=completed_bar_client,
         terminal_evidence_store=terminal_evidence_store,
+        entry_provenance_store=entry_provenance_store,
     )
 
     try:
@@ -149,10 +180,12 @@ def run_bybit_demo_trading_runtime(
             completed_bar_client=completed_bar_client,
             quote_client=quote_client,
             terminal_evidence_store=terminal_evidence_store,
+            entry_provenance_store=entry_provenance_store,
             managed_policy=managed_policy,
             entry_executor=entry_executor,
             managed_poller=managed_poller,
             terminal_handoff=terminal_handoff,
+            build_entry_provenance=build_entry_provenance,
             entry_kwargs=entry_kwargs,
         )
     except Exception as exc:  # noqa: BLE001 - unexpected runtime errors must not escape the lease.
@@ -172,6 +205,9 @@ def run_bybit_demo_trading_runtime(
             entry_result=operation.entry_result,
             managed_poll=operation.managed_poll,
             terminal_handoff=operation.terminal_handoff,
+            entry_provenance=operation.entry_provenance,
+            entry_provenance_receipt=operation.entry_provenance_receipt,
+            entry_provenance_persisted=operation.entry_provenance_persisted,
             runtime_lease_acquired=True,
             runtime_lease_released=False,
         )
@@ -181,6 +217,9 @@ def run_bybit_demo_trading_runtime(
         entry_result=operation.entry_result,
         managed_poll=operation.managed_poll,
         terminal_handoff=operation.terminal_handoff,
+        entry_provenance=operation.entry_provenance,
+        entry_provenance_receipt=operation.entry_provenance_receipt,
+        entry_provenance_persisted=operation.entry_provenance_persisted,
         runtime_lease_acquired=True,
         runtime_lease_released=True,
         next_entry_allowed=operation.next_entry_allowed,
@@ -201,10 +240,12 @@ def _run_under_lease(
     completed_bar_client: Any,
     quote_client: Any,
     terminal_evidence_store: Any | None,
+    entry_provenance_store: BybitDemoEntryProvenanceStore | None,
     managed_policy: BybitDemoManagedTradePollPolicy | None,
     entry_executor: EntryExecutor,
     managed_poller: ManagedPoller,
     terminal_handoff: TerminalHandoff,
+    build_entry_provenance: BuildEntryProvenance,
     entry_kwargs: Mapping[str, Any],
 ) -> BybitDemoTradingRuntimeResult:
     try:
@@ -233,9 +274,27 @@ def _run_under_lease(
             **dict(entry_kwargs),
         )
         _reject_live_result(entry, name="entry cycle")
+        provenance = None
+        receipt = None
+        reasons: tuple[str, ...] = ()
+        if entry_provenance_store is not None:
+            try:
+                provenance = build_entry_provenance(entry)
+            except Exception as exc:  # noqa: BLE001 - diagnostics failure cannot rewrite the trade.
+                reasons = (f"ENTRY_PROVENANCE_BUILD_FAILED:{type(exc).__name__}",)
+            if provenance is not None and not reasons:
+                try:
+                    receipt = entry_provenance_store.persist(provenance)
+                    _reject_live_result(receipt, name="entry provenance receipt")
+                except Exception as exc:  # noqa: BLE001 - keep protected trade state authoritative.
+                    reasons = (f"ENTRY_PROVENANCE_PERSIST_FAILED:{type(exc).__name__}",)
         return _result(
             BybitDemoTradingRuntimeStatus.ENTRY_CYCLE_EXECUTED,
+            reasons=reasons,
             entry_result=entry,
+            entry_provenance=provenance,
+            entry_provenance_receipt=receipt,
+            entry_provenance_persisted=receipt is not None,
             runtime_lease_acquired=True,
             runtime_lease_released=False,
         )
@@ -313,6 +372,7 @@ def _validate_dependencies(
     quote_client: Any,
     completed_bar_client: Any,
     terminal_evidence_store: Any | None,
+    entry_provenance_store: BybitDemoEntryProvenanceStore | None,
 ) -> None:
     if getattr(excursion_store, "live_mainnet_order_routing_allowed", True) is not False:
         raise ValueError("demo trading runtime rejected mainnet-capable excursion store")
@@ -340,6 +400,15 @@ def _validate_dependencies(
             raise ValueError("demo trading runtime rejected mainnet-capable evidence store")
         if getattr(terminal_evidence_store, "order_writes_supported", True) is not False:
             raise ValueError("demo trading runtime requires diagnostics-only evidence store")
+    if entry_provenance_store is not None:
+        if entry_provenance_store.live_mainnet_order_routing_allowed:
+            raise ValueError("demo trading runtime rejected mainnet-capable provenance store")
+        if entry_provenance_store.order_writes_supported:
+            raise ValueError("demo trading runtime requires diagnostics-only provenance store")
+        if not entry_provenance_store.immutable_records:
+            raise ValueError("demo trading runtime requires immutable provenance records")
+        if entry_provenance_store.realized_pnl_storage_allowed:
+            raise ValueError("demo trading runtime forbids realized PnL in entry provenance")
 
 
 def _reject_live_result(value: object, *, name: str) -> None:
@@ -354,6 +423,9 @@ def _result(
     entry_result: BybitDemoResilientAccountSizedCycleResult | None = None,
     managed_poll: BybitDemoManagedTradePollResult | None = None,
     terminal_handoff: BybitDemoTerminalHandoffResult | None = None,
+    entry_provenance: BybitDemoEntryDecisionProvenance | None = None,
+    entry_provenance_receipt: BybitDemoEntryProvenanceReceipt | None = None,
+    entry_provenance_persisted: bool = False,
     runtime_lease_acquired: bool,
     runtime_lease_released: bool,
     next_entry_allowed: bool = False,
@@ -364,6 +436,9 @@ def _result(
         entry_result=entry_result,
         managed_poll=managed_poll,
         terminal_handoff=terminal_handoff,
+        entry_provenance=entry_provenance,
+        entry_provenance_receipt=entry_provenance_receipt,
+        entry_provenance_persisted=entry_provenance_persisted,
         runtime_lease_acquired=runtime_lease_acquired,
         runtime_lease_released=runtime_lease_released,
         next_entry_allowed=next_entry_allowed,
