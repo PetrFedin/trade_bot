@@ -13,7 +13,6 @@ from app.execution.bybit_demo_excursion_store import BybitDemoExcursionStore
 from app.execution.bybit_demo_max_hold_close import (
     BybitDemoMaxHoldClosePolicy,
     BybitDemoMaxHoldCloseResult,
-    BybitDemoMaxHoldCloseStatus,
     execute_bybit_demo_max_hold_close,
 )
 from app.execution.bybit_demo_post_trade_accounting import (
@@ -37,6 +36,7 @@ from app.strategy.crypto_perp import CryptoPerpStrategyConfig
 class BybitDemoManagedTradePollPhase(StrEnum):
     TRACKING_BLOCKED = "TRACKING_BLOCKED"
     OPEN_MANAGED = "OPEN_MANAGED"
+    CLOSE_RECONCILIATION_REQUIRED = "CLOSE_RECONCILIATION_REQUIRED"
     MAX_HOLD_ACTION = "MAX_HOLD_ACTION"
     TERMINAL_ACCOUNTING_PENDING = "TERMINAL_ACCOUNTING_PENDING"
     TERMINAL_EVIDENCE_READY = "TERMINAL_EVIDENCE_READY"
@@ -160,6 +160,14 @@ def poll_bybit_demo_managed_trade(
     )
     _reject_live_result(management, name="management")
 
+    if management.status is BybitDemoTradeManagementRuntimeStatus.POSITION_CLOSED:
+        return _result(
+            BybitDemoManagedTradePollPhase.CLOSE_RECONCILIATION_REQUIRED,
+            excursion=excursion,
+            management=management,
+            reasons=management.reasons,
+        )
+
     if management.status is BybitDemoTradeManagementRuntimeStatus.MAX_HOLD_CLOSE_REQUIRED:
         max_hold = run_max_hold_close(
             management,
@@ -235,16 +243,26 @@ def _terminal_result(
             client=accounting_client,
             funding_ledger=funding_ledger,
         )
-        _reject_live_result(accounting, name="accounting")
+    except Exception as exc:  # noqa: BLE001 - terminal checkpoint must survive read failures.
+        return _result(
+            BybitDemoManagedTradePollPhase.TERMINAL_ACCOUNTING_PENDING,
+            excursion=excursion,
+            reasons=(f"TERMINAL_ACCOUNTING_FAILED:{type(exc).__name__}",),
+            terminal_ack_required=True,
+        )
+    _reject_live_result(accounting, name="accounting")
+
+    try:
         evidence = build_profit_evidence(excursion.final, accounting)
-        _reject_live_result(evidence, name="profit evidence")
     except Exception as exc:  # noqa: BLE001 - terminal checkpoint must survive evidence failures.
         return _result(
             BybitDemoManagedTradePollPhase.TERMINAL_ACCOUNTING_PENDING,
             excursion=excursion,
-            reasons=(f"TERMINAL_ACCOUNTING_OR_EVIDENCE_FAILED:{type(exc).__name__}",),
+            accounting=accounting,
+            reasons=(f"TERMINAL_PROFIT_EVIDENCE_FAILED:{type(exc).__name__}",),
             terminal_ack_required=True,
         )
+    _reject_live_result(evidence, name="profit evidence")
 
     fully_reconciled = evidence.fully_reconciled_all_in
     phase = (
