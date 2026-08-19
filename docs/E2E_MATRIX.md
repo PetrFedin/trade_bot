@@ -1,171 +1,205 @@
 # ASTRA Trade Bot — End-to-End Readiness Matrix
 
-This document is the source of truth for product-readiness claims. A capability is not marked PASS merely because code exists; it must have an executable qualification gate and credible evidence. Scores are deliberately conservative: deterministic CI cannot substitute for external broker evidence, authoritative historical-data coverage, GitHub server-side enforcement or elapsed soak time.
+This document is the current source of truth for product-readiness claims. Code existence is never a PASS by itself: the exact revision must have executable qualification and credible evidence. Deterministic CI does not replace broker evidence, elapsed soak time, server-side repository governance or independent strategy evidence.
 
-## Current product state
+## Scope and release boundary
 
-| Capability | Current state | Evidence / gate | Score | To reach or retain >= 8/10 |
-|---|---|---|---:|---|
-| Architecture cohesion | QUALIFIED DETERMINISTICALLY | stable `domain`, `marketdata`, `strategy`, `risk`, `portfolio`, `oms`, `execution`, `application`, `observability`; one composition root for SQLite and PostgreSQL; shared durable OMS, order-mutation, risk and portfolio stores; consolidated `main`; complete regression green | 8.0 | retain >=8 by retiring duplicated versioned domain/runtime models and keeping broker/deployment adapters behind the stable composition boundary |
-| Real external integration | BLOCKED BY CREDENTIAL EVIDENCE | real Alpaca Paper REST + WebSocket workflow is implemented and was actually invoked; it failed at the explicit credential gate before network access because repository Alpaca secrets are absent | 4.0 | configure protected Paper credentials; repeated successful REST/WebSocket evidence; controlled Paper mutation drill; disconnect/recovery evidence and broker SLO history |
-| Trading logic | STRONG PARTIAL — MANIFESTED SAMPLE + CAPITAL-MATCHED BASELINES | deterministic long-only validation strategy; no-lookahead next-bar backtester; fees/slippage/drawdown; walk-forward OOS windows; hash-locked 60-row AAPL observed-price snapshot across three named regimes; upstream Git blob + snapshot/canonical SHA provenance; predeclared strategy thresholds; versioned `capital_matched_buy_hold_v1` acceptance benchmark using the same quantity/capital/fee/slippage; raw asset and cash baselines retained separately; canonical-main evidence | 7.0 | authoritative/licensed historical source; broader multi-asset and multi-cycle regime coverage; independently sourced benchmark data where appropriate; predeclared activity/trade-coverage requirements; production-calibrated acceptance thresholds |
-| Portfolio management | QUALIFIED DETERMINISTICALLY | fee-aware cash/positions, realized/unrealized P&L/equity, idempotent fills, broker reconciliation, stock splits/dividends, SQLite replay/snapshots, PostgreSQL 16 append-only event journal, restart replay, snapshots and concurrent duplicate-event idempotency | 8.0 | retain >=8 with real broker corporate-action/reconciliation evidence; add multi-currency/tax lifecycle only when product scope requires it |
-| Risk management | QUALIFIED DETERMINISTICALLY | exposure, kill switch, freshness, execution-quality, loss/drawdown/turnover, liquidity, concentration and volatility guardrails plus immutable SQLite/PostgreSQL risk-decision hash chain wired into the actual paper planning path; PostgreSQL concurrent writers serialize through a locked chain head | 8.0 | retain >=8 through scenario/property testing and production-calibrated thresholds; real Paper evidence remains a separate paper-readiness gate |
-| OMS / execution state | QUALIFIED DETERMINISTICALLY | transactional SQLite + PostgreSQL 16 OMS, row locking, append-only events, deterministic client IDs, durable submit and mutation outboxes, monotonic fills, at-most-one submit, at-most-one cancel/replace attempt, `STARTED` before broker mutation, GET-only ambiguity/restart recovery, active-mutation fencing, broker-ID rotation handling, read-only reconciliation and repeated deterministic fault campaigns on canonical `main` | 8.5 | retain >=8 with real broker cancel/replace fault evidence and operational SLO history; scheduled deterministic campaigns support regression confidence but do not replace external soak evidence |
-| Release process | STRONG PARTIAL — SIGNED PROVENANCE + OWNERSHIP; PROTECTION DISABLED | canonical `main`, stable package identity, hash-locked `requirements.lock`, lock freshness verification, Ruff/Bandit/dependency audit, exact Node24-native GitHub Action SHA pins, CI supply-chain policy, wheel/sdist + release manifest + SPDX SBOM, signed SLSA build provenance and signed SBOM attestation, machine-validated artifact release/rollback ownership; GitHub branch summary reports `main` protection disabled and required status checks off, with drift checked in CI | 7.9 | enable and independently verify server-side branch protection/required reviews; execute a signed version-matched release tag; preserve externally verifiable attestations; keep independent live approval separate from technical artifact ownership |
-| Paper-operation readiness | STRONG PARTIAL | paper safety, trading E2E, immutable risk evidence, PostgreSQL portfolio/OMS durability, at-most-once submit, deterministic cancel/replace recovery, operational SLO and composition-root gates pass on `main`; repeated fault campaign also passes on `main` across SQLite and PostgreSQL | 7.8 | credentialed Alpaca Paper read-only PASS; controlled real Paper mutation/recovery drill; 14–30 day external soak with clean reconciliation/SLO evidence |
-| Live trading readiness | BLOCKED | all product qualification paths keep external/live routing disabled; real Paper prerequisites, server-side release governance and independent live-pilot controls are incomplete | 2.0 | every live-critical upstream capability >=8 with external evidence; independent approval; tiny-capital pilot controls; production secrets/KMS; real-time reconciliation; global kill switch |
+There are two different boundaries that must not be conflated:
 
-## Verified evidence snapshots
+- `main` is the stable product baseline and remains the eventual protected production integration branch.
+- `agent/trading-quality-profit-protection` / PR #41 is the current Bybit integration/incubator snapshot. It is intentionally large and **must not be merged directly as a production release unit**.
 
-### Manifested observed-price strategy qualification
+The last code-changing qualification checkpoint before this matrix update is `64555e096682af2601aa64322dd1cfdb786215bd`. On that checkpoint:
 
-Canonical `main` evidence after benchmark-correctness repair:
+- `stable-core-quality` passed Ruff, Bandit, dependency audit and compile;
+- `postgres-oms-e2e` passed canonical OMS, Bybit entry recovery, Bybit operator-control, runtime fencing, evidence/session-risk and SQLite parity on PostgreSQL 16;
+- `release-integrity` passed the complete deterministic regression, locked dependency audit, build, SPDX SBOM, release manifest and release safety invariants.
 
-- commit: `b1bb27d79fdf50d0885d1cae2e3b1837c6746ab8`;
-- workflow run: `31441661579`;
-- status: `success`;
-- dataset: AAPL, 60 daily observations split into three non-overlapping 20-session windows;
-- dataset canonical SHA-256: `4242262f4d5d79352a43ec5cdc81f3a9d52953fd5ca2f230b3fabf890d33a256`;
-- manifest SHA-256: `b5ba54d458413e68d94771cb5c475e33e3834038c2f678e733916107ef8cb0be`;
-- upstream repository/path: `plotly/datasets` / `finance-charts-apple.csv`;
-- upstream Git blob: `7b1bab3953bb5cdf47e84de1048ca04b0c991987`;
-- source classification: `THIRD_PARTY_SAMPLE_NON_AUTHORITATIVE`;
-- benchmark mode: `capital_matched_buy_hold_v1`;
-- retained artifact: `9083061322`;
-- artifact digest: `sha256:c05cc14a45e8d6e43f0ffed79de98ab28a8e7c821bc9be6a76cd04ec4805a155`.
+This evidence qualifies deterministic behavior only. It does **not** authorize live/mainnet routing or real capital.
 
-The original acceptance thresholds were not relaxed during the benchmark repair: target quantity 1, opening cash 10,000, $0.50 fee per fill, 5 bps slippage, 10/5/5 train/test/step bars, two windows per regime, 10% maximum drawdown, and -3% floors for mean OOS and mean excess return. The policy now additionally requires the versioned benchmark semantics.
+## Current product-readiness summary
 
-The acceptance benchmark is capital-matched buy-and-hold: it buys the same target quantity at the first OOS close using the same entry slippage and fee, leaves unused capital in cash, and marks the holding to the final OOS close. Raw AAPL price return is evidence only; it is no longer directly subtracted from a one-share strategy portfolio return. A zero-return cash control is also emitted.
+| Capability | Current state | Evidence / interpretation | Remaining gate |
+|---|---|---|---|
+| Research / backtesting | STRONG PARTIAL | no-lookahead research framework, fixed strategy contracts, cost-aware replay, walk-forward and prospective experiments | more months, more trades, multi-regime forward evidence, full funding/mark history, confidence intervals and stress |
+| Current crypto strategy edge | RESEARCH CANDIDATE ONLY | 28d `CONDITIONAL_COMBINED_RISK` about +34.62 USDT, PF about 1.307, 3/4 positive folds, worst fold DD about 3.55%, no risk-budget breaches | substantially larger independent forward sample and regime coverage before capital promotion |
+| LONG / SHORT policy | ACTIVE BOTH SIDES | LONG historical performance is stronger and SHORT historical performance is weak, but that is a hypothesis only; no post-hoc SHORT disable is allowed | finish the predeclared prospective directional experiment before any policy change |
+| Runner | ARCHITECTURALLY READY, EDGE UNPROVEN | frozen 1.5x admission gate and runner-management lifecycle exist; recent opportunity evidence produced no runner admissions | prove incremental portfolio expectancy prospectively; do not weaken gate for frequency |
+| Position selection | SHADOW / EVIDENCE INSUFFICIENT | economic ranking exists, but recent audit had no simultaneously comparable executable candidates | accumulate real comparable candidate moments before changing production ordering |
+| Canonical service runtime | STRONG PARTIAL | one packaged Bybit product CLI/composition/supervisor exists with config validation, startup reconciliation, continuous loop and graceful shutdown | make this the sole operational Bybit path, finish operator/health wiring and fault/soak qualification |
+| Canonical OMS convergence | STRONG PARTIAL | new Bybit ENTRY now uses canonical PostgreSQL OMS state transitions, durable submit claim, deterministic `orderLinkId`, at-most-once POST and GET-only ambiguity recovery | converge remaining protection/close/execution accounting events onto the canonical lifecycle without duplicating risk logic |
+| PostgreSQL authority | STRONG PARTIAL | runtime lease/fencing, excursion checkpoint, entry provenance, terminal evidence, session-risk state, canonical entry OMS and operator-control state are durable in PostgreSQL | finish remaining reconciliation/accounting/operational authority and backup/restore qualification |
+| Distributed fencing | QUALIFIED DETERMINISTICALLY | PostgreSQL runtime lease/fencing and canonical OMS locking are covered by real PostgreSQL E2E | prove restart/failover behavior in deployment fault campaigns |
+| Startup recovery | STRONG PARTIAL | startup broker truth reconciliation exists; unresolved Bybit ENTRY submissions block new entries; ambiguous ENTRY is recovered by GET using `orderLinkId` | complete lifecycle adoption for filled/partial/cancelled recovered orders and prove crash/restart campaigns end-to-end |
+| ENTRY mutation uncertainty | QUALIFIED DETERMINISTICALLY | `SUBMIT_STARTED` is durable before POST; no automatic resubmit; broker read can adopt ACK; unresolved truth becomes durable `UNCERTAIN`; startup remains blocked | operational reconciliation workflow for all non-terminal uncertainty and live broker evidence |
+| Private WS + REST truth | STRONG PARTIAL | private stream monitor exists for reaction/health; reconnect/event boundaries force REST reconciliation; REST remains broker truth | sequence/gap/clock/rate-limit/network-partition fault evidence and sustained external soak |
+| Operator-control persistence | QUALIFIED DETERMINISTICALLY | PostgreSQL `RUNNING / PAUSED / READ_ONLY / KILLED`, append-only action history, actor/reason and separate `clear-kill`; real PostgreSQL E2E is green | wire the durable snapshot into the canonical supervisor and CLI controls; prove active-trade protection remains available while entries are blocked |
+| Operational observability | PARTIAL | structured JSON logging, REST health recorder and fail-closed readiness assembler exist; missing measurements do not become fake zeros | wire all authoritative inputs, expose metrics/traces, alerting and dashboard; prove SLOs under fault campaigns |
+| Configuration | STRONG PARTIAL | canonical Bybit config schema validates environment, broker, endpoints, DB and write/mainnet capability boundaries | finish production secrets/KMS contract and deployment-specific validation |
+| Secrets / production key boundary | BLOCKED FOR PRODUCTION | live/mainnet routing remains fail-closed | separate Bybit subaccount, trade-only key, withdrawals disabled, IP allowlist, rotation and secret-manager/KMS evidence |
+| Release artifacts / supply chain | STRONG PARTIAL | locked dependencies, audit, pinned Actions policy, build, SBOM, manifest, provenance/attestation gates exist | protected main, required reviews/checks, version-matched signed production tag and bounded release PRs |
+| GitHub main governance | BLOCKED | live branch summary reports `protected=false` and required status-check enforcement off | enable server-side branch protection, PR-only merge, required checks/reviews, no force-push and independently verify |
+| PR / change-unit governance | BLOCKED | PR #41 is an integration snapshot with hundreds of commits/files | freeze the snapshot and continue production consolidation in focused stacked PRs |
+| Historical all-in accounting evidence | PARTIAL / EXTERNAL DATA BLOCKER | actual demo lifecycle includes fees, closed-PnL and funding reconciliation; workflows fail closed when external historical funding/mark evidence is unavailable | obtain defensible funding-time mark coverage and repeat all-in historical qualification |
+| Tiny-capital pilot readiness | NOT READY | deterministic execution quality is improving, but P0/P1 operations and independent edge evidence are incomplete | all production-operation gates plus separate pilot approval |
+| Unattended real-money production | BLOCKED | mainnet capability remains disabled by contract | Definition of Done below plus independent live release decision |
 
-Observed regime results from the corrected canonical evidence:
+## Canonical Bybit runtime contract
 
-- `rising_2015_q4`: mean strategy OOS `-0.000152531749925`, mean capital-matched benchmark `-0.000152531749925`, mean raw-asset return `-0.00760026780686976355577945215`, mean excess `0E-14`, worst drawdown `0.0005791003`, 2 trades;
-- `drawdown_2016_spring`: mean strategy OOS `0`, mean capital-matched benchmark `-0.000494520050075`, mean raw-asset return `-0.04182874335654989023420567406`, mean excess `0.000494520050075`, worst drawdown `0`, **0 trades**;
-- `range_2016_q4`: mean strategy OOS `-0.00005804210000`, mean capital-matched benchmark `0.00015406379995`, mean raw-asset return `0.01985912869689507644215529458`, mean excess `-0.00021210589995`, worst drawdown `0.00010558650015`, 2 trades.
-
-The benchmark repair materially changes interpretation. For example, the drawdown regime no longer reports roughly +4.18% excess for a one-share strategy merely because the asset fell roughly 4.18%; the comparable excess is about +0.049% of portfolio capital. Likewise the range-regime excess is about -0.021%, not -1.99%.
-
-This is evidence that qualification machinery is reproducible on observed prices under predeclared costs, thresholds and benchmark semantics. It is **not** evidence of a profitable production strategy: the strategy is approximately flat in these windows, one regime qualified by avoiding trades, the sample contains one asset and only 60 observations, and the source is intentionally classified as non-authoritative.
-
-### Deterministic order-lifecycle fault campaign
-
-Canonical `main` evidence:
-
-- commit: `8dce54a1cf1eccfc7152ef141619f35c8a1e0e81`;
-- workflow run: `31335919400`;
-- status: `success`;
-- PR/push campaign strength: 25 repeated SQLite submit/mutation cycles and 8 repeated PostgreSQL mutation-durability/fencing cycles;
-- retained artifact: `9044324636`;
-- artifact digest: `sha256:f0731e880fadc75b3333702c4cb72bc60fd683a3b57cfb39c6efe6ead1fa6869`;
-- nightly configuration: 100 SQLite cycles and 25 PostgreSQL cycles.
-
-This evidence increases deterministic confidence in at-most-once submit/cancel/replace behavior, GET-only ambiguity/restart recovery, monotonic fill adoption and durable mutation fencing. It is not a substitute for a credentialed broker mutation drill or elapsed external soak time.
-
-### Signed release provenance
-
-First qualified signed provenance on canonical `main`:
-
-- commit: `3dc298b4f6d8fba504e560762d101cae6d4070bc`;
-- workflow run: `31336212403`;
-- SLSA build-provenance attestation ID: `39704670`;
-- signed SBOM attestation ID: `39704671`;
-- retained evidence artifact: `9044407752`;
-- artifact digest: `sha256:50638e11323333a99e46dca19b39a57901986b5bb6392353232b94824136f2c3`.
-
-The attestation job runs only after trusted `main`/tag pushes and verifies SHA-256 checksums after artifact transfer and before signing. Pull-request qualification remains read-only and does not receive OIDC/attestation write privileges.
-
-### Release ownership and branch-state governance
-
-Canonical `main` evidence with live branch-summary drift verification:
-
-- commit: `9cf92a9993d9fd54896e5696115f673633d3ac2a`;
-- workflow run: `31440945455`;
-- status: `success`;
-- technical artifact release owner: `@PetrFedin`;
-- technical rollback owner: `@PetrFedin`;
-- independent live approver: unassigned;
-- branch-protection verification: `VERIFIED_DISABLED`;
-- observed `main` protection: disabled;
-- observed required status-check enforcement: `off`;
-- live release allowed: `false`;
-- retained evidence artifact: `9082811204`;
-- artifact digest: `sha256:deb125851a0ca2db9486c342b723cb957cde2b87cb759d3d510423a8c1d5f672`.
-
-The `release-governance` workflow re-queries the GitHub `main` branch summary on every qualifying PR/main run and fails on drift. The dedicated protection-detail endpoint is not used as proof, so detailed CODEOWNER/repository-ruleset claims are not inferred.
-
-## Security qualification
-
-The stable product core is required to pass Ruff, Bandit, dependency auditing, compile checks and the complete deterministic pytest regression. During the hardening cycle, `pip-audit` found `PYSEC-2026-3552` in the installed `cryptography 49.0.0` line. The project dependency contract and V108 architecture audit were upgraded to require `cryptography>=50,<51` instead of suppressing the advisory. Current release and product gates install the hash-locked dependency graph, require exact Node24-native GitHub Action commit SHAs for operational workflows, generate signed build/SBOM attestations on trusted `main`/tag pushes, validate release ownership, and keep live/production execution flags fail-closed.
-
-## Current deterministic E2E chain
+The target runtime is one product path:
 
 ```text
-validated market data
-  -> data-quality gate
-  -> deterministic strategy target
-  -> order intent
-  -> pre-trade risk evaluation
-  -> immutable risk-decision evidence (approved or rejected)
-  -> deterministic client order id
-  -> durable OMS create
-  -> durable risk approval
-  -> durable submit outbox
-  -> persist SUBMIT_STARTED before network mutation
-  -> at-most-one Paper POST
-  -> GET-only ambiguity/restart recovery
-  -> broker acknowledgement / monotonic fill state
-  -> optional durable cancel/replace request
-  -> persist mutation STARTED before DELETE/PATCH
-  -> at-most-one Paper DELETE/PATCH
-  -> GET-only mutation ambiguity/restart recovery
-  -> preserve effective limit price / rotated broker order id
-  -> append-only portfolio event journal
-  -> cash / position / realized P&L / unrealized P&L / income / equity
-  -> deterministic portfolio replay / snapshot
-  -> read-only broker-truth reconciliation
-  -> operational readiness / SLO gate
+market data
+  -> strategy / candidate generation (LONG and SHORT)
+  -> selection
+  -> canonical risk boundary
+  -> fresh executable-price / account-economics recheck
+  -> canonical durable order intent / OMS
+  -> Bybit broker adapter
+  -> broker execution / private-stream reaction
+  -> REST broker-truth reconciliation
+  -> portfolio / protection / management
+  -> terminal execution reconciliation
+  -> account closed-PnL reconciliation
+  -> funding reconciliation
+  -> fully reconciled all-in PnL
+  -> immutable attribution / evidence
 ```
 
-## PostgreSQL qualification evidence
+Safety invariants:
 
-Dedicated PostgreSQL 16 gates validate OMS row locking, durable outbox behavior, duplicate broker-event idempotency, monotonic fills and append-only OMS events. The order-mutation gate additionally validates migration replay, active-mutation fencing, cancel/replace persistence, broker-ID rotation, concurrent request conflicts and an append-only mutation-event trigger on a real PostgreSQL service. The order-lifecycle fault campaign repeatedly reuses these qualified mutation scenarios against PostgreSQL 16. Separate PostgreSQL 16 gates validate immutable risk evidence with concurrent writers and an append-only portfolio journal with replay, snapshots and concurrent duplicate-event suppression. SQLite remains useful for deterministic/local qualification but is no longer the only durable backend for OMS, order mutations, risk evidence or portfolio state.
+- unsafe capability rejection is never downgraded to an ordinary retryable diagnostics error;
+- unknown mutation state blocks new money-moving actions;
+- quantity may shrink after fresh-price recheck but may not grow beyond approved risk;
+- broker ACK is not proof of a protected position or completed close;
+- an ambiguous ENTRY is never blindly resubmitted after durable `SUBMIT_STARTED`;
+- REST is authoritative broker truth; private WebSocket data is a reaction/health layer;
+- pause/read-only/kill must block new entries without abandoning protection/management of an already open trade;
+- actual fees and funding are part of final all-in PnL;
+- research candidates cannot automatically change production strategy policy;
+- live/mainnet routing remains disabled during the current consolidation phase.
 
-## External Paper chain
+## Current strategy evidence boundary
 
-The repository contains a separate real-network qualification workflow. It is intentionally not conflated with deterministic CI.
+The active research source remains `CONDITIONAL_COMBINED_RISK` and continues to evaluate both LONG and SHORT opportunities.
 
-```text
-GitHub environment: alpaca-paper
-  -> explicit Alpaca Paper credentials
-  -> TLS-verified Alpaca Paper REST account/open-order reads
-  -> Alpaca Paper trade_updates WebSocket authentication/listen handshake
-  -> redacted evidence artifact
-  -> assert writes disabled
-  -> assert external_order_routing_allowed = false
-  -> assert live_trading_allowed = false
-```
+Current evidence is useful but insufficient for production capital:
 
-The workflow has been invoked in GitHub Actions, but the repository currently exposes no required Alpaca secrets to the job. It therefore fails at the credential preflight before making a broker network request. Until a credentialed run succeeds, **real external integration remains unqualified**.
+- roughly 28 days of four non-overlapping 7d cold-start walk-forward folds;
+- aggregate PnL about +34.62 USDT;
+- PF about 1.307;
+- 3/4 positive folds;
+- worst fold drawdown about 3.55%;
+- no observed risk-budget breaches in that qualification;
+- LONG positive while SHORT negative in the observed sample.
 
-## Release-governance boundary
+The LONG-only idea is a **prospective shadow experiment**, not an active policy. Its predeclared validation window is 2026-08-17 through 2026-09-13. Until that window is complete and acceptance gates are met, SHORT remains enabled in the active research contract.
 
-Repository-side provenance, lock, dependency, action-pin, release-evidence and technical ownership controls are executable and qualified. The GitHub `main` branch summary provides positive evidence that server-side branch protection is currently **disabled**, rather than merely unverified. The governance workflow continuously compares the recorded expectation with the GitHub branch summary. Required review / CODEOWNER / detailed ruleset state is not claimed from the unavailable protection-detail endpoint. Independent live approval also remains unassigned. See `docs/RELEASE_GOVERNANCE.md`.
+No result here claims that every trade can or should close profitably. The objective is positive net expectancy after costs, retained favorable excursion when available and bounded downside.
 
-## Hard live blockers
+## CI / evidence tiers
 
-Live routing must remain disabled while any of these are true:
+### Fast PR gate
 
-- external Paper REST/WebSocket qualification has no successful credentialed evidence;
-- no controlled stable-OMS cancel/replace mutation/recovery drill exists against the real Paper broker;
-- no 14–30 day external Paper soak has completed cleanly;
-- no authoritative, representative multi-asset/multi-cycle historical-data strategy qualification exists; the current 60-row AAPL sample is deliberately non-authoritative and insufficient for production strategy claims;
-- strategy activity/trade-coverage requirements are not yet a separately predeclared acceptance contract; the current drawdown regime has zero trades;
-- GitHub `main` server-side branch protection is currently disabled and required-review enforcement is not qualified;
-- no version-matched release tag has completed the signed provenance path;
-- independent live approver / live-pilot approval and tiny-capital controls are absent.
+- Ruff / static quality;
+- focused unit tests;
+- affected integration tests;
+- configuration and security basics.
 
-## Definition of >=8/10
+### Full PR gate
 
-A score of 8 or above requires implemented behavior, executable automated verification, realistic environment evidence where applicable, documented failure behavior, explicit operational ownership and no known P0/P1 correctness gap in that capability. A deterministic score of 8 in one subsystem never overrides missing external evidence in another subsystem and never authorizes live trading by itself.
+- complete deterministic regression;
+- PostgreSQL durability/fencing/recovery tests;
+- Bybit lifecycle/protection/accounting integration;
+- stable-core security/quality.
+
+### Scheduled evidence
+
+- 14d/28d and later multi-cycle walk-forward;
+- prospective directional evidence;
+- funding/mark acquisition;
+- restart/network/latency/liquidity fault campaigns;
+- forward qualification soak.
+
+### Release gate
+
+- exact-head full regression;
+- PostgreSQL state/recovery qualification;
+- security/dependency lock;
+- build + SBOM + manifest + provenance;
+- exact strategy-policy hashes;
+- migration manifest;
+- server-side branch/review governance verification;
+- immutable version-matched release tag.
+
+## P0 status
+
+| P0 item | Status |
+|---|---|
+| attributed-runtime safety failures | CLOSED on current integration line |
+| exact-head stable/full regression | GREEN at code checkpoint `64555e096682af2601aa64322dd1cfdb786215bd`; every later revision must requalify |
+| unsafe capability vs retryable diagnostics separation | CLOSED for the attributed-runtime defect that triggered the audit |
+| managed/full Bybit CI coverage | ACTIVE and green on qualified checkpoints |
+| freeze PR #41 as integration snapshot | NEXT GOVERNANCE ACTION |
+| protect `main` with server-side required checks/reviews | BLOCKED — protection currently disabled and cannot be claimed from CI alone |
+| README / Release / E2E drift | README and release process aligned; this matrix update closes the remaining major drift |
+| enable mainnet | FORBIDDEN / NOT PART OF P0 |
+
+## P1 status
+
+| P1 item | Status |
+|---|---|
+| one canonical Bybit service entrypoint | IMPLEMENTED, needs final operational qualification |
+| Bybit lifecycle -> stable OMS | ENTRY integrated; remaining lifecycle convergence incomplete |
+| authoritative PostgreSQL state | MAJOR PORTION IMPLEMENTED; remaining operational/accounting convergence incomplete |
+| distributed lease + fencing | IMPLEMENTED / real-Postgres qualified |
+| startup reconciliation | IMPLEMENTED / recovery coverage expanding |
+| private WS + REST truth | IMPLEMENTED foundation / external fault evidence incomplete |
+| central config schema | IMPLEMENTED |
+| `.env.example` | verify/retain as configuration documentation; it is not a production secret store |
+| secrets/KMS | NOT COMPLETE |
+| structured JSON logging | IMPLEMENTED foundation |
+| Prometheus/OpenTelemetry | NOT COMPLETE |
+| alerting | NOT COMPLETE |
+| operator control plane | durable state IMPLEMENTED; runtime/CLI wiring NEXT |
+| backup + restore | NOT QUALIFIED |
+| crash/restart/network fault campaign | PARTIAL deterministic coverage; full product campaign incomplete |
+
+## P2 evidence still required
+
+Before real capital, the project still needs:
+
+- multiple months of independent forward qualification;
+- materially larger closed-trade sample;
+- completion of the predeclared LONG-only hypothesis test without disabling SHORT early;
+- regime diagnostics before any regime-aware strategy changes;
+- signal -> quote -> order ACK -> fill latency/slippage attribution;
+- real comparable-position selection evidence;
+- defensible historical funding/mark coverage;
+- multi-cycle walk-forward;
+- bootstrap/confidence intervals;
+- transaction-cost, latency, slippage and liquidity stress;
+- predeclared strategy kill criteria;
+- shadow challenger evidence separated from production activation.
+
+## Definition of Done before production-ready claim
+
+All of the following must be true at the same time:
+
+1. exact release head is 100% green;
+2. `main` is server-side protected with required checks and independent review enforcement;
+3. Bybit authoritative state is durable in PostgreSQL;
+4. distributed fencing is proven;
+5. restart recovery is proven end-to-end;
+6. private WS reaction + REST broker-truth reconciliation is proven under disconnect/gap/fault cases;
+7. production secrets use least privilege and secret-manager/KMS controls;
+8. observability, metrics/tracing and alerts are running;
+9. operator pause/read-only/kill controls are wired and qualified;
+10. no unexplained account/position deltas remain;
+11. forward qualification soak is at least 30 clean days;
+12. forward trade sample is sufficient for the predeclared statistical gates;
+13. strategy passes prospective evidence gates without post-hoc rule changes;
+14. all-in PnL uses actual fees and funding;
+15. a tiny-capital pilot is approved as a separate release decision.
+
+Until every applicable gate is satisfied, `live_mainnet_order_routing_allowed=false` remains the required product posture.
