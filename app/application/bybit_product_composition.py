@@ -23,6 +23,11 @@ from app.execution.bybit_demo_stop_ratchet_client import BybitDemoStopRatchetCli
 from app.execution.bybit_demo_trade_management_runtime import (
     BybitDemoTradeManagementRuntimePolicy,
 )
+from app.execution.bybit_observed_rest import (
+    ObservedBybitDemoAccountingClient,
+    ObservedBybitDemoBrokerTruthClient,
+    ObservedBybitDemoStopRatchetClient,
+)
 from app.execution.bybit_postgres_evidence_state import (
     PostgresBybitDemoEntryProvenanceStore,
     PostgresBybitDemoSessionRiskLedgerStore,
@@ -42,6 +47,7 @@ from app.marketdata.bybit_demo_completed_bars import BybitDemoCompletedBarClient
 from app.marketdata.bybit_demo_quotes import BybitDemoMarketQuoteClient
 from app.marketdata.bybit_instruments import BybitInstrumentClient
 from app.marketdata.bybit_v5 import interval_milliseconds, last_completed_kline_end_ms
+from app.observability.bybit_runtime_health import BybitRestHealthRecorder
 from app.runtime.bybit_product_config import BybitProductConfig
 from app.runtime.bybit_product_service import (
     BybitProductServiceResult,
@@ -207,6 +213,7 @@ class BybitProductComposition:
     startup_reconciler: BybitProductStartupReconciler
     cycle_executor: BybitProductCycleExecutor
     private_stream_monitor: BybitPrivateStreamMonitor
+    rest_health_recorder: BybitRestHealthRecorder
     live_mainnet_order_routing_allowed: bool = False
 
     def run(
@@ -242,17 +249,21 @@ def build_bybit_product_composition(
         config.database_url,
         runtime_lease=runtime_lease,
     )
-    trade_client = BybitDemoStopRatchetClient(
+    rest_health = BybitRestHealthRecorder()
+    trade_client = ObservedBybitDemoStopRatchetClient(
         api_key=config.api_key,
         api_secret=config.api_secret,
+        rest_health_sink=rest_health,
     )
-    accounting_client = BybitDemoAccountingClient(
+    accounting_client = ObservedBybitDemoAccountingClient(
         api_key=config.api_key,
         api_secret=config.api_secret,
+        rest_health_sink=rest_health,
     )
-    startup_broker = BybitDemoBrokerTruthClient(
+    startup_broker = ObservedBybitDemoBrokerTruthClient(
         api_key=config.api_key,
         api_secret=config.api_secret,
+        rest_health_sink=rest_health,
     )
     private_stream = BybitPrivateStreamMonitor(
         api_key=config.api_key,
@@ -282,6 +293,7 @@ def build_bybit_product_composition(
         ),
         cycle_executor=cycle,
         private_stream_monitor=private_stream,
+        rest_health_recorder=rest_health,
     )
 
 
