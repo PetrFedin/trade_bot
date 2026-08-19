@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Mapping
 from urllib.parse import urlsplit
 
 _BYBIT_DEMO_REST = "https://api-demo.bybit.com"
@@ -66,7 +66,9 @@ class BybitProductConfig:
             private_ws_url=source.get(
                 "BYBIT_PRIVATE_WS_URL", _BYBIT_DEMO_PRIVATE_WS
             ).strip(),
-            public_ws_url=source.get("BYBIT_PUBLIC_WS_URL", _BYBIT_PUBLIC_LINEAR_WS).strip(),
+            public_ws_url=source.get(
+                "BYBIT_PUBLIC_WS_URL", _BYBIT_PUBLIC_LINEAR_WS
+            ).strip(),
             trading_writes_enabled=_parse_bool(
                 source.get("TRADING_WRITES_ENABLED", "false"),
                 name="TRADING_WRITES_ENABLED",
@@ -103,21 +105,26 @@ class BybitProductConfig:
     ) -> None:
         if self.environment != "demo":
             raise BybitProductConfigError(
-                "only ASTRA_ENV=demo is qualified; real-money promotion requires a separate adapter"
+                "only ASTRA_ENV=demo is qualified; "
+                "real-money promotion requires a separate adapter"
             )
         if self.broker != "bybit":
-            raise BybitProductConfigError("ASTRA_BROKER must be bybit for the Bybit product runtime")
+            raise BybitProductConfigError(
+                "ASTRA_BROKER must be bybit for the Bybit product runtime"
+            )
         if self.mainnet_enabled:
             raise BybitProductConfigError("MAINNET_ENABLED must remain false")
         if self.rest_url != _BYBIT_DEMO_REST:
             raise BybitProductConfigError("Bybit REST endpoint must remain api-demo.bybit.com")
         if self.private_ws_url != _BYBIT_DEMO_PRIVATE_WS:
             raise BybitProductConfigError(
-                "Bybit private WebSocket endpoint must remain stream-demo.bybit.com/v5/private"
+                "Bybit private WebSocket endpoint must remain "
+                "stream-demo.bybit.com/v5/private"
             )
         if self.public_ws_url != _BYBIT_PUBLIC_LINEAR_WS:
             raise BybitProductConfigError(
-                "Bybit public linear WebSocket endpoint must remain stream.bybit.com/v5/public/linear"
+                "Bybit public linear WebSocket endpoint must remain "
+                "stream.bybit.com/v5/public/linear"
             )
         if require_credentials and (not self.api_key.strip() or not self.api_secret.strip()):
             raise BybitProductConfigError("Bybit credentials are required")
@@ -125,7 +132,10 @@ class BybitProductConfig:
             _validate_postgres_url(self.database_url)
         elif self.database_url:
             _validate_postgres_url(self.database_url)
-        if isinstance(self.poll_interval_ms, bool) or not 100 <= self.poll_interval_ms <= 60_000:
+        if (
+            isinstance(self.poll_interval_ms, bool)
+            or not 100 <= self.poll_interval_ms <= 60_000
+        ):
             raise BybitProductConfigError("poll interval must be within [100, 60000] ms")
         if (
             isinstance(self.shutdown_grace_seconds, bool)
