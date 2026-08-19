@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from decimal import Decimal
@@ -8,13 +9,14 @@ import pytest
 from app.execution.bybit_demo_session_risk_ledger import (
     BybitDemoSessionRiskLedger,
     BybitDemoSessionTradeOutcome,
+    observe_bybit_demo_session_equity,
 )
 from app.execution.bybit_demo_session_risk_store import (
     JsonFileBybitDemoSessionRiskLedgerStore,
 )
 
 
-def _ledger(*, pnl: str = "-5") -> BybitDemoSessionRiskLedger:
+def _ledger(*, pnl: str = "-5", peak: str | None = None) -> BybitDemoSessionRiskLedger:
     return BybitDemoSessionRiskLedger(
         opening_equity_usdt=Decimal("1000"),
         outcomes=(
@@ -27,6 +29,7 @@ def _ledger(*, pnl: str = "-5") -> BybitDemoSessionRiskLedger:
                 execution_fees_usdt=Decimal("1.25"),
             ),
         ),
+        peak_equity_usdt=None if peak is None else Decimal(peak),
     )
 
 
@@ -49,6 +52,58 @@ def test_session_risk_store_round_trips_and_updates_by_revision(tmp_path: Path) 
     assert reloaded == updated
     assert updated.revision != initial.revision
     assert reloaded.ledger.outcomes[0].all_in_net_pnl_usdt == Decimal("-3")
+    assert reloaded.ledger.peak_equity_usdt == Decimal("1000")
+
+
+def test_session_risk_store_persists_wallet_high_water_across_restart(tmp_path: Path) -> None:
+    store = JsonFileBybitDemoSessionRiskLedgerStore(tmp_path / "session.json")
+    initial = store.initialize(_ledger())
+    observed = observe_bybit_demo_session_equity(
+        initial.ledger,
+        current_equity_usdt=Decimal("1125"),
+    )
+    store.save(observed, expected_revision=initial.revision)
+
+    restarted = JsonFileBybitDemoSessionRiskLedgerStore(store.path)
+    loaded = restarted.load(expected_opening_equity_usdt=Decimal("1000"))
+    state = loaded.ledger.to_session_risk_state(current_equity_usdt=Decimal("1000"))
+
+    assert loaded.ledger.peak_equity_usdt == Decimal("1125")
+    assert state.peak_equity_usdt == Decimal("1125")
+
+
+def test_session_risk_store_loads_legacy_schema_without_peak_field(tmp_path: Path) -> None:
+    path = tmp_path / "legacy-session.json"
+    ledger_payload = {
+        "opening_equity_usdt": "1000",
+        "outcomes": [],
+    }
+    canonical = json.dumps(
+        ledger_payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    revision = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    envelope = {
+        "schema_version": 1,
+        "kind": "BYBIT_DEMO_SESSION_RISK_LEDGER",
+        "demo_only": True,
+        "live_mainnet_order_routing_allowed": False,
+        "ledger_revision_sha256": revision,
+        "ledger": ledger_payload,
+    }
+    path.write_text(
+        json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n",
+        encoding="utf-8",
+    )
+
+    store = JsonFileBybitDemoSessionRiskLedgerStore(path)
+    loaded = store.load(expected_opening_equity_usdt=Decimal("1000"))
+
+    assert loaded.revision == revision
+    assert loaded.ledger.peak_equity_usdt is None
+    assert loaded.ledger.effective_peak_equity_usdt == Decimal("1000")
 
 
 def test_session_risk_store_never_auto_initializes_missing_checkpoint(tmp_path: Path) -> None:
