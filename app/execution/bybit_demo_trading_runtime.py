@@ -42,6 +42,10 @@ class BybitDemoTradingRuntimeStatus(StrEnum):
     TERMINAL_HANDOFF_COMPLETE = "TERMINAL_HANDOFF_COMPLETE"
 
 
+class BybitDemoTradingRuntimeSafetyError(ValueError):
+    """Hard capability violation that must survive diagnostics wrappers and lease cleanup."""
+
+
 @dataclass(frozen=True)
 class BybitDemoTradingRuntimeResult:
     status: BybitDemoTradingRuntimeStatus
@@ -164,9 +168,11 @@ def run_bybit_demo_trading_runtime(
             runtime_lease_acquired=False,
             runtime_lease_released=False,
         )
-    _reject_live_result(lease, name="runtime lease")
 
+    operation: BybitDemoTradingRuntimeResult | None = None
+    safety_error: BybitDemoTradingRuntimeSafetyError | None = None
     try:
+        _reject_live_result(lease, name="runtime lease")
         operation = _run_under_lease(
             bars_by_symbol,
             instruments=instruments,
@@ -188,7 +194,9 @@ def run_bybit_demo_trading_runtime(
             build_entry_provenance=build_entry_provenance,
             entry_kwargs=entry_kwargs,
         )
-    except Exception as exc:  # noqa: BLE001 - unexpected runtime errors must not escape the lease.
+    except BybitDemoTradingRuntimeSafetyError as exc:
+        safety_error = exc
+    except Exception as exc:  # noqa: BLE001 - operational errors become fail-closed diagnostics.
         operation = _result(
             BybitDemoTradingRuntimeStatus.RUNTIME_BLOCKED,
             reasons=(f"DEMO_TRADING_RUNTIME_OPERATION_FAILED:{type(exc).__name__}",),
@@ -199,6 +207,12 @@ def run_bybit_demo_trading_runtime(
     try:
         runtime_lease.release(owner_token=lease.owner_token)
     except Exception as exc:  # noqa: BLE001 - uncertain lease ownership blocks subsequent trading.
+        if safety_error is not None:
+            raise RuntimeError(
+                "demo runtime lease release failed while propagating safety rejection"
+            ) from exc
+        if operation is None:
+            raise RuntimeError("demo trading runtime lost operation before lease release") from exc
         return _result(
             BybitDemoTradingRuntimeStatus.RUNTIME_BLOCKED,
             reasons=(f"DEMO_RUNTIME_LEASE_RELEASE_FAILED:{type(exc).__name__}",),
@@ -211,6 +225,11 @@ def run_bybit_demo_trading_runtime(
             runtime_lease_acquired=True,
             runtime_lease_released=False,
         )
+
+    if safety_error is not None:
+        raise safety_error
+    if operation is None:
+        raise RuntimeError("demo trading runtime completed without an operation result")
     return _result(
         operation.status,
         reasons=operation.reasons,
@@ -283,11 +302,13 @@ def _run_under_lease(
             except Exception as exc:  # noqa: BLE001 - diagnostics failure cannot rewrite the trade.
                 reasons = (f"ENTRY_PROVENANCE_BUILD_FAILED:{type(exc).__name__}",)
             if provenance is not None and not reasons:
+                _reject_live_result(provenance, name="entry provenance")
                 try:
                     receipt = entry_provenance_store.persist(provenance)
-                    _reject_live_result(receipt, name="entry provenance receipt")
                 except Exception as exc:  # noqa: BLE001 - keep protected trade state authoritative.
                     reasons = (f"ENTRY_PROVENANCE_PERSIST_FAILED:{type(exc).__name__}",)
+                if receipt is not None:
+                    _reject_live_result(receipt, name="entry provenance receipt")
         return _result(
             BybitDemoTradingRuntimeStatus.ENTRY_CYCLE_EXECUTED,
             reasons=reasons,
@@ -413,7 +434,9 @@ def _validate_dependencies(
 
 def _reject_live_result(value: object, *, name: str) -> None:
     if getattr(value, "live_mainnet_order_routing_allowed", True) is not False:
-        raise ValueError(f"demo trading runtime rejected mainnet-capable {name}")
+        raise BybitDemoTradingRuntimeSafetyError(
+            f"demo trading runtime rejected mainnet-capable {name}"
+        )
 
 
 def _result(
