@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
 
 from app.execution.bybit_demo_entry_provenance import BybitDemoEntryDecisionProvenance
 from app.execution.bybit_demo_entry_provenance_store import (
@@ -206,29 +205,32 @@ class PostgresBybitDemoSessionRiskLedgerStore(_PostgresStore):
 
     _LEDGER_KEY = "default"
 
+    def load_current(self) -> BybitDemoSessionRiskLedgerCheckpoint:
+        """Load the authoritative opening equity from the ledger itself.
+
+        Normal product runtime uses this method so an environment variable cannot silently reset or
+        redefine session loss history. First-time creation remains a separate explicit bootstrap.
+        """
+
+        row = self._load_row()
+        checkpoint = _decode_session_checkpoint(str(row["envelope_text"]))
+        if checkpoint.revision != str(row["revision_sha256"]):
+            raise ValueError("session-risk database checksum mismatch")
+        stored_opening = Decimal(str(row["opening_equity_usdt"]))
+        if checkpoint.ledger.opening_equity_usdt != stored_opening:
+            raise ValueError("session-risk payload opening equity mismatch")
+        checkpoint.validate()
+        return checkpoint
+
     def load(
         self,
         *,
         expected_opening_equity_usdt: Decimal,
     ) -> BybitDemoSessionRiskLedgerCheckpoint:
         _validate_opening_equity(expected_opening_equity_usdt)
-        with self._connect() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """SELECT opening_equity_usdt, revision_sha256, envelope_text
-                    FROM astra_bybit_session_risk_ledger WHERE ledger_key=%s""",
-                    (self._LEDGER_KEY,),
-                )
-                row = cursor.fetchone()
-        if row is None:
-            raise FileNotFoundError(self._LEDGER_KEY)
-        if Decimal(str(row["opening_equity_usdt"])) != expected_opening_equity_usdt:
-            raise ValueError("session-risk opening equity mismatch")
-        checkpoint = _decode_session_checkpoint(str(row["envelope_text"]))
-        if checkpoint.revision != str(row["revision_sha256"]):
-            raise ValueError("session-risk database checksum mismatch")
+        checkpoint = self.load_current()
         if checkpoint.ledger.opening_equity_usdt != expected_opening_equity_usdt:
-            raise ValueError("session-risk payload opening equity mismatch")
+            raise ValueError("session-risk opening equity mismatch")
         return checkpoint
 
     def initialize(
@@ -305,6 +307,19 @@ class PostgresBybitDemoSessionRiskLedgerStore(_PostgresStore):
         checkpoint = _decode_session_checkpoint(envelope)
         checkpoint.validate()
         return checkpoint
+
+    def _load_row(self):
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT opening_equity_usdt, revision_sha256, envelope_text
+                    FROM astra_bybit_session_risk_ledger WHERE ledger_key=%s""",
+                    (self._LEDGER_KEY,),
+                )
+                row = cursor.fetchone()
+        if row is None:
+            raise FileNotFoundError(self._LEDGER_KEY)
+        return row
 
 
 def _validate_opening_equity(value: Decimal) -> None:
