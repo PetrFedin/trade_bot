@@ -13,6 +13,8 @@ on:
       - 'app/execution/bybit_demo_ranked_fallback.py'
       - 'app/execution/bybit_demo_entry_provenance.py'
       - 'app/execution/bybit_demo_entry_provenance_store.py'
+      - 'app/execution/bybit_demo_trade_attribution.py'
+      - 'app/execution/bybit_demo_attributed_runtime.py'
       - 'app/execution/bybit_demo_protection_client.py'
       - 'app/execution/bybit_demo_protection_reconciliation.py'
       - 'app/execution/bybit_demo_protection_quality_tracker.py'
@@ -71,6 +73,8 @@ on:
       - 'tests/test_bybit_demo_ranked_fallback_excursion.py'
       - 'tests/test_bybit_demo_entry_provenance.py'
       - 'tests/test_bybit_demo_entry_provenance_store.py'
+      - 'tests/test_bybit_demo_trade_attribution.py'
+      - 'tests/test_bybit_demo_attributed_runtime.py'
       - 'tests/test_bybit_demo_protection_client.py'
       - 'tests/test_bybit_demo_protection_reconciliation.py'
       - 'tests/test_bybit_demo_emergency_flatten_reconciliation.py'
@@ -147,6 +151,8 @@ jobs:
           app/execution/bybit_demo_ranked_fallback.py
           app/execution/bybit_demo_entry_provenance.py
           app/execution/bybit_demo_entry_provenance_store.py
+          app/execution/bybit_demo_trade_attribution.py
+          app/execution/bybit_demo_attributed_runtime.py
           app/execution/bybit_demo_protection_client.py
           app/execution/bybit_demo_protection_reconciliation.py
           app/execution/bybit_demo_protection_quality_tracker.py
@@ -205,6 +211,8 @@ jobs:
           tests/test_bybit_demo_ranked_fallback_excursion.py
           tests/test_bybit_demo_entry_provenance.py
           tests/test_bybit_demo_entry_provenance_store.py
+          tests/test_bybit_demo_trade_attribution.py
+          tests/test_bybit_demo_attributed_runtime.py
           tests/test_bybit_demo_protection_client.py
           tests/test_bybit_demo_protection_reconciliation.py
           tests/test_bybit_demo_emergency_flatten_reconciliation.py
@@ -268,6 +276,8 @@ jobs:
           tests/test_bybit_demo_ranked_fallback_excursion.py
           tests/test_bybit_demo_entry_provenance.py
           tests/test_bybit_demo_entry_provenance_store.py
+          tests/test_bybit_demo_trade_attribution.py
+          tests/test_bybit_demo_attributed_runtime.py
           tests/test_bybit_demo_protection_client.py
           tests/test_bybit_demo_protection_reconciliation.py
           tests/test_bybit_demo_emergency_flatten_reconciliation.py
@@ -314,6 +324,8 @@ jobs:
           app/execution/bybit_demo_ranked_fallback.py
           app/execution/bybit_demo_entry_provenance.py
           app/execution/bybit_demo_entry_provenance_store.py
+          app/execution/bybit_demo_trade_attribution.py
+          app/execution/bybit_demo_attributed_runtime.py
           app/execution/bybit_demo_protection_client.py
           app/execution/bybit_demo_protection_reconciliation.py
           app/execution/bybit_demo_protection_quality_tracker.py
