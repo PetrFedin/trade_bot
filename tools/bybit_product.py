@@ -8,6 +8,11 @@ from collections.abc import Mapping, Sequence
 from threading import Event
 from types import FrameType
 
+from app.application.bybit_operator_control import (
+    BybitOperatorAction,
+    BybitOperatorSnapshot,
+    PostgresBybitOperatorControl,
+)
 from app.application.bybit_product_composition import (
     bootstrap_bybit_product_session,
     build_bybit_product_composition,
@@ -26,6 +31,7 @@ _SERVICE_EXIT_CODES = {
     BybitProductServiceStatus.STARTUP_FAILED: 21,
     BybitProductServiceStatus.CYCLE_FAILED: 22,
 }
+_OPERATOR_MUTATIONS = frozenset({"pause", "resume", "read-only", "kill", "clear-kill"})
 
 
 class _StopController:
@@ -42,7 +48,7 @@ class _StopController:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="astra-bybit-product",
-        description="Run the canonical fail-closed ASTRA Bybit product runtime.",
+        description="Run and operate the canonical fail-closed ASTRA Bybit product runtime.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser(
@@ -53,6 +59,24 @@ def _parser() -> argparse.ArgumentParser:
         "bootstrap-session",
         help="Initialize the session-risk ledger while broker and local state are flat.",
     )
+    operator = commands.add_parser(
+        "operator",
+        help="Inspect or change durable PostgreSQL operator safety state.",
+    )
+    operator_commands = operator.add_subparsers(dest="operator_command", required=True)
+    operator_commands.add_parser("status", help="Show the current durable operator state.")
+    history = operator_commands.add_parser("history", help="Show append-only operator actions.")
+    history.add_argument("--limit", type=int, default=100)
+    for name, help_text in (
+        ("pause", "Block new entries while preserving active-trade safety management."),
+        ("resume", "Allow new entries after explicit operator review."),
+        ("read-only", "Enter read-only mode for broker/runtime investigation."),
+        ("kill", "Engage the durable kill state for new risk."),
+        ("clear-kill", "Clear KILLED to PAUSED; a separate resume is still required."),
+    ):
+        action = operator_commands.add_parser(name, help=help_text)
+        action.add_argument("--actor", required=True)
+        action.add_argument("--reason", required=True)
     return parser
 
 
@@ -107,16 +131,95 @@ def _logger(config: BybitProductConfig) -> StructuredJsonEventLogger:
     return StructuredJsonEventLogger(level=config.log_level)
 
 
+def _operator_control(config: BybitProductConfig) -> PostgresBybitOperatorControl:
+    return PostgresBybitOperatorControl(config.database_url)
+
+
+def _operator_snapshot_report(
+    snapshot: BybitOperatorSnapshot,
+    *,
+    status: str,
+) -> dict[str, object]:
+    if snapshot.live_mainnet_order_routing_allowed is not False:
+        raise ValueError("operator snapshot unexpectedly permits mainnet routing")
+    if snapshot.active_trade_safety_management_allowed is not True:
+        raise ValueError("operator snapshot disabled active-trade safety management")
+    return {
+        "status": status,
+        "mode": snapshot.mode.value,
+        "generation": snapshot.generation,
+        "updated_at": snapshot.updated_at.isoformat(),
+        "updated_by": snapshot.updated_by,
+        "reason": snapshot.reason,
+        "new_entries_allowed": snapshot.new_entries_allowed,
+        "read_only_mode": snapshot.read_only_mode,
+        "kill_switch_engaged": snapshot.kill_switch_engaged,
+        "active_trade_safety_management_allowed": (
+            snapshot.active_trade_safety_management_allowed
+        ),
+        "live_mainnet_order_routing_allowed": False,
+    }
+
+
+def _operator_action_report(action: BybitOperatorAction) -> dict[str, object]:
+    return {
+        "action_id": action.action_id,
+        "generation": action.generation,
+        "from_mode": action.from_mode.value,
+        "to_mode": action.to_mode.value,
+        "actor": action.actor,
+        "reason": action.reason,
+        "occurred_at": action.occurred_at.isoformat(),
+    }
+
+
+def _run_operator_command(
+    args: argparse.Namespace,
+    config: BybitProductConfig,
+) -> int:
+    control = _operator_control(config)
+    if control.live_mainnet_order_routing_allowed is not False:
+        raise ValueError("operator control unexpectedly permits mainnet routing")
+    command = str(args.operator_command)
+    if command == "status":
+        _emit(_operator_snapshot_report(control.inspect(), status="OPERATOR_STATE"))
+        return 0
+    if command == "history":
+        actions = control.history(limit=args.limit)
+        _emit(
+            {
+                "status": "OPERATOR_HISTORY",
+                "actions": [_operator_action_report(action) for action in actions],
+                "live_mainnet_order_routing_allowed": False,
+            }
+        )
+        return 0
+    if command not in _OPERATOR_MUTATIONS:
+        raise ValueError(f"unsupported operator command: {command}")
+    operations = {
+        "pause": control.pause,
+        "resume": control.resume,
+        "read-only": control.enter_read_only,
+        "kill": control.kill,
+        "clear-kill": control.clear_kill,
+    }
+    snapshot = operations[command](actor=args.actor, reason=args.reason)
+    _emit(_operator_snapshot_report(snapshot, status="OPERATOR_UPDATED"))
+    return 0
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
     env: Mapping[str, str] | None = None,
 ) -> int:
     args = _parser().parse_args(argv)
+    operator_only = args.command == "operator"
 
     try:
         config = BybitProductConfig.from_env(
             env,
+            require_credentials=not operator_only,
             require_universe=args.command == "run",
         )
     except BybitProductConfigError as exc:
@@ -130,6 +233,9 @@ def main(
             error=True,
         )
         return _CONFIG_ERROR_EXIT
+
+    if operator_only:
+        return _run_operator_command(args, config)
 
     logger = _logger(config)
     if args.command == "bootstrap-session":
