@@ -244,7 +244,8 @@ class PostgresBybitOperatorControl:
                         return current
                     if current.mode not in allowed_from:
                         raise RuntimeError(
-                            f"operator transition {current.mode.value}->{target.value} is not allowed"
+                            f"operator transition {current.mode.value}->{target.value} "
+                            "is not allowed"
                         )
                     next_generation = current.generation + 1
                     cursor.execute(
