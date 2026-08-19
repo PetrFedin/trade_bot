@@ -59,7 +59,11 @@ class JsonFileBybitDemoRuntimeLease:
         self._reject_symlink()
         owner_token = secrets.token_hex(32)
         created_time_ms = self._clock_ms()
-        if isinstance(created_time_ms, bool) or created_time_ms < 0:
+        if (
+            isinstance(created_time_ms, bool)
+            or not isinstance(created_time_ms, int)
+            or created_time_ms < 0
+        ):
             raise ValueError("demo runtime lease clock must return a non-negative integer")
         lease = BybitDemoRuntimeLease(
             owner_token=owner_token,
