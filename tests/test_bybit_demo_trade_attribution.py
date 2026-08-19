@@ -6,10 +6,10 @@ from decimal import Decimal
 import pytest
 
 from app.execution.bybit_demo_entry_provenance import BybitDemoEntryDecisionProvenance
+from app.execution.bybit_demo_post_trade_accounting import BybitDemoProfitOutcomeStatus
 from app.execution.bybit_demo_profit_preservation_evidence import (
     BybitDemoProfitPreservationEvidence,
 )
-from app.execution.bybit_demo_post_trade_accounting import BybitDemoProfitOutcomeStatus
 from app.execution.bybit_demo_ranked_fallback import (
     BybitDemoCandidateFallbackAttempt,
     BybitDemoCandidateFallbackStage,
