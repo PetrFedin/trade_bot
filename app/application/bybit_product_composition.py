@@ -305,7 +305,7 @@ class BybitProductCycleExecutor:
         try:
             self.market_data_observation_hook()
         except Exception:  # noqa: BLE001 - telemetry cannot replace valid market data.
-            pass
+            return
 
 
 @dataclass(frozen=True)

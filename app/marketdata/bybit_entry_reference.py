@@ -93,5 +93,5 @@ class BybitEntryReferenceQuoteClient(BybitDemoMarketQuoteClient):
             try:
                 self.observation_hook()
             except Exception:  # noqa: BLE001 - telemetry must not replace valid market data.
-                pass
+                return quote
         return quote
