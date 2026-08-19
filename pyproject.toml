@@ -29,6 +29,7 @@ dev = [
 ]
 
 [project.scripts]
+astra-bybit-product = "tools.bybit_product:main"
 astra-external-paper-readonly = "tools.external_paper_readonly:main"
 astra-platform-v105 = "tools.platform_v105:main"
 astra-architecture-audit-v105 = "tools.architecture_audit_v105:main"
