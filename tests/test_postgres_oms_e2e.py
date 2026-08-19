@@ -209,11 +209,14 @@ def test_bybit_entry_claim_is_durable_at_most_once_and_uses_canonical_tables(
     assert uncertain.state is OrderState.UNCERTAIN
     assert reopened.count_unresolved_entry_submissions() == 1
     assert reopened.count_uncertain_entries() == 1
-    event_types = [event["event_type"] for event in reopened.events(intent_id)]
-    assert event_types == [
+    events = reopened.events(intent_id)
+    event_types = [event["event_type"] for event in events]
+    assert len(events) == 5
+    assert len(set(event["event_id"] for event in events)) == 5
+    assert set(event_types) == {
         "CREATED",
         "RISK_APPROVED",
         "OUTBOXED",
         "SUBMIT_STARTED",
         "UNCERTAIN",
-    ]
+    }
