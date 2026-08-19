@@ -3,10 +3,18 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
 
 from app.execution.bybit_demo_entry_provenance import BybitDemoEntryDecisionProvenance
+from app.execution.bybit_demo_ranked_fallback import (
+    BybitDemoCandidateFallbackAttempt,
+    BybitDemoCandidateFallbackStage,
+)
+from app.strategy.crypto_perp import CryptoSide
 
 _SCHEMA_VERSION = 1
 _KIND = "BYBIT_DEMO_ENTRY_DECISION_PROVENANCE"
@@ -17,6 +25,13 @@ class BybitDemoEntryProvenanceReceipt:
     entry_order_link_id: str
     record_sha256: str
     idempotent_existing_record: bool
+    live_mainnet_order_routing_allowed: bool = False
+
+
+@dataclass(frozen=True)
+class BybitDemoEntryProvenanceRecord:
+    provenance: BybitDemoEntryDecisionProvenance
+    record_sha256: str
     live_mainnet_order_routing_allowed: bool = False
 
 
@@ -88,6 +103,30 @@ class JsonFileBybitDemoEntryProvenanceStore:
             idempotent_existing_record=False,
         )
 
+    def load(self, *, entry_order_link_id: str) -> BybitDemoEntryProvenanceRecord:
+        """Load and fully validate the immutable provenance for one demo entry."""
+
+        _validate_entry_order_link_id(entry_order_link_id)
+        self._reject_unsafe_root()
+        target = self._record_path(entry_order_link_id)
+        if target.is_symlink():
+            raise ValueError("entry provenance record cannot be a symlink")
+        try:
+            raw = target.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise RuntimeError("entry provenance record could not be read") from exc
+        record, _canonical, record_sha = _decode_record(raw)
+        if _required_text(record, "entry_order_link_id") != entry_order_link_id:
+            raise ValueError("entry provenance record entry orderLinkId mismatch")
+        provenance = _provenance_from_payload(record)
+        _validate_provenance(provenance)
+        return BybitDemoEntryProvenanceRecord(
+            provenance=provenance,
+            record_sha256=record_sha,
+        )
+
     def _load_and_compare(
         self,
         path: Path,
@@ -100,7 +139,7 @@ class JsonFileBybitDemoEntryProvenanceStore:
             raw = path.read_text(encoding="utf-8")
         except OSError as exc:
             raise RuntimeError("entry provenance record could not be read") from exc
-        canonical, stored_sha = _decode_record(raw)
+        _record, canonical, stored_sha = _decode_record(raw)
         if canonical != expected_canonical:
             raise RuntimeError("entry provenance conflict for existing entry orderLinkId")
         return BybitDemoEntryProvenanceReceipt(
@@ -153,7 +192,7 @@ def _encode_record(
     return canonical, envelope + "\n", record_sha
 
 
-def _decode_record(raw: str) -> tuple[str, str]:
+def _decode_record(raw: str) -> tuple[dict[str, Any], str, str]:
     try:
         envelope = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -177,12 +216,11 @@ def _decode_record(raw: str) -> tuple[str, str]:
     record_sha = hashlib.sha256(canonical.encode()).hexdigest()
     if envelope.get("record_sha256") != record_sha:
         raise ValueError("entry provenance record checksum mismatch")
-    return canonical, record_sha
+    return record, canonical, record_sha
 
 
 def _validate_provenance(provenance: BybitDemoEntryDecisionProvenance) -> None:
-    if not provenance.entry_order_link_id.startswith("ASTRA-DEMO-"):
-        raise ValueError("entry provenance requires ASTRA-DEMO orderLinkId")
+    _validate_entry_order_link_id(provenance.entry_order_link_id)
     if provenance.live_mainnet_order_routing_allowed:
         raise ValueError("entry provenance store rejected live-capable provenance")
     if provenance.realized_pnl_used_for_selection:
@@ -193,10 +231,205 @@ def _validate_provenance(provenance: BybitDemoEntryDecisionProvenance) -> None:
         raise ValueError("entry provenance cannot authorize strategy promotion")
     if provenance.selected_signal_rank < 1 or provenance.executable_candidate_count < 1:
         raise ValueError("entry provenance selection rank/count are invalid")
+    if provenance.candidate_audit_count < provenance.executable_candidate_count:
+        raise ValueError("entry provenance candidate audit cannot be smaller than executable set")
     if provenance.actual_average_entry_price <= 0 or provenance.actual_filled_quantity <= 0:
         raise ValueError("entry provenance actual fill must be positive")
     if provenance.actual_fill_notional_usdt <= 0:
         raise ValueError("entry provenance actual notional must be positive")
+    if provenance.account_taker_fee_rate < 0:
+        raise ValueError("entry provenance account taker fee cannot be negative")
+    if provenance.exit_mode not in {"FIXED_20_TARGET", "OPEN_ENDED_RUNNER"}:
+        raise ValueError("entry provenance exit mode is unsupported")
+    retention = provenance.pre_entry_quantity_retention_fraction
+    if retention is not None and not Decimal("0") < retention <= Decimal("1"):
+        raise ValueError("entry provenance quantity retention must be within (0, 1]")
+
+
+def _validate_entry_order_link_id(entry_order_link_id: str) -> None:
+    if not entry_order_link_id.startswith("ASTRA-DEMO-"):
+        raise ValueError("entry provenance requires ASTRA-DEMO orderLinkId")
+
+
+def _provenance_from_payload(
+    record: Mapping[str, Any],
+) -> BybitDemoEntryDecisionProvenance:
+    try:
+        side = CryptoSide(_required_text(record, "side"))
+    except ValueError as exc:
+        raise ValueError("entry provenance record has invalid side") from exc
+    fallback_attempts = _fallback_attempts(record)
+    return BybitDemoEntryDecisionProvenance(
+        entry_order_link_id=_required_text(record, "entry_order_link_id"),
+        symbol=_required_text(record, "symbol"),
+        side=side,
+        decision_time=_required_text(record, "decision_time"),
+        selected_signal_rank=_required_int(record, "selected_signal_rank"),
+        executable_candidate_count=_required_int(record, "executable_candidate_count"),
+        candidate_audit_count=_required_int(record, "candidate_audit_count"),
+        economic_shadow_selected_symbol=_optional_text(
+            record,
+            "economic_shadow_selected_symbol",
+        ),
+        economic_shadow_selected_side=_optional_text(
+            record,
+            "economic_shadow_selected_side",
+        ),
+        economic_shadow_differs_from_current=_required_bool(
+            record,
+            "economic_shadow_differs_from_current",
+        ),
+        selected_after_fallback=_required_bool(record, "selected_after_fallback"),
+        fallback_attempts=fallback_attempts,
+        expected_net_edge_usd=_required_decimal(record, "expected_net_edge_usd"),
+        risk_budget_usdt=_required_decimal(record, "risk_budget_usdt"),
+        quality_score=_required_decimal(record, "quality_score"),
+        target_net_profit_usd=_required_decimal(record, "target_net_profit_usd"),
+        planned_reference_price=_required_decimal(record, "planned_reference_price"),
+        planned_reference_quantity=_required_decimal(record, "planned_reference_quantity"),
+        planned_notional_usdt=_required_decimal(record, "planned_notional_usdt"),
+        modeled_round_trip_cost_usdt=_required_decimal(
+            record,
+            "modeled_round_trip_cost_usdt",
+        ),
+        pre_entry_quote_price=_optional_decimal_value(record, "pre_entry_quote_price"),
+        pre_entry_modeled_entry_price=_optional_decimal_value(
+            record,
+            "pre_entry_modeled_entry_price",
+        ),
+        pre_entry_original_quantity=_optional_decimal_value(
+            record,
+            "pre_entry_original_quantity",
+        ),
+        pre_entry_adjusted_quantity=_optional_decimal_value(
+            record,
+            "pre_entry_adjusted_quantity",
+        ),
+        pre_entry_quote_resized=_required_bool(record, "pre_entry_quote_resized"),
+        pre_entry_quantity_retention_fraction=_optional_decimal_value(
+            record,
+            "pre_entry_quantity_retention_fraction",
+        ),
+        actual_average_entry_price=_required_decimal(record, "actual_average_entry_price"),
+        actual_filled_quantity=_required_decimal(record, "actual_filled_quantity"),
+        actual_fill_notional_usdt=_required_decimal(record, "actual_fill_notional_usdt"),
+        actual_fill_adverse_slippage_bps_vs_modeled_entry=_optional_decimal_value(
+            record,
+            "actual_fill_adverse_slippage_bps_vs_modeled_entry",
+        ),
+        account_taker_fee_rate=_required_decimal(record, "account_taker_fee_rate"),
+        exit_mode=_required_text(record, "exit_mode"),
+        runner_admission_reasons=_required_text_tuple(record, "runner_admission_reasons"),
+        liquidation_safety_reason=_optional_text(record, "liquidation_safety_reason"),
+        stop_to_liquidation_r=_optional_decimal_value(record, "stop_to_liquidation_r"),
+        effective_account_equity_usdt=_required_decimal(
+            record,
+            "effective_account_equity_usdt",
+        ),
+        effective_peak_equity_usdt=_required_decimal(
+            record,
+            "effective_peak_equity_usdt",
+        ),
+        margin_mode=_optional_text(record, "margin_mode"),
+        realized_pnl_used_for_selection=_required_bool(
+            record,
+            "realized_pnl_used_for_selection",
+        ),
+        diagnostics_only=_required_bool(record, "diagnostics_only"),
+        automatic_selector_retuning_allowed=_required_bool(
+            record,
+            "automatic_selector_retuning_allowed",
+        ),
+        strategy_promotion_allowed=_required_bool(record, "strategy_promotion_allowed"),
+        live_mainnet_order_routing_allowed=_required_bool(
+            record,
+            "live_mainnet_order_routing_allowed",
+        ),
+    )
+
+
+def _fallback_attempts(
+    record: Mapping[str, Any],
+) -> tuple[BybitDemoCandidateFallbackAttempt, ...]:
+    value = record.get("fallback_attempts")
+    if not isinstance(value, list):
+        raise ValueError("entry provenance record fallback_attempts must be a list")
+    attempts: list[BybitDemoCandidateFallbackAttempt] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise ValueError("entry provenance fallback attempt must be an object")
+        try:
+            stage = BybitDemoCandidateFallbackStage(_required_text(item, "stage"))
+        except ValueError as exc:
+            raise ValueError("entry provenance record has invalid fallback stage") from exc
+        attempts.append(
+            BybitDemoCandidateFallbackAttempt(
+                symbol=_required_text(item, "symbol"),
+                side=_required_text(item, "side"),
+                stage=stage,
+                reasons=_required_text_tuple(item, "reasons"),
+                quote_price=_optional_decimal_value(item, "quote_price"),
+                modeled_entry_price=_optional_decimal_value(item, "modeled_entry_price"),
+            )
+        )
+    return tuple(attempts)
+
+
+def _required_text(record: Mapping[str, Any], field: str) -> str:
+    value = record.get(field)
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"entry provenance record missing text field:{field}")
+    return value
+
+
+def _optional_text(record: Mapping[str, Any], field: str) -> str | None:
+    value = record.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"entry provenance record invalid optional text field:{field}")
+    return value
+
+
+def _required_bool(record: Mapping[str, Any], field: str) -> bool:
+    value = record.get(field)
+    if not isinstance(value, bool):
+        raise ValueError(f"entry provenance record invalid bool field:{field}")
+    return value
+
+
+def _required_int(record: Mapping[str, Any], field: str) -> int:
+    value = record.get(field)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"entry provenance record invalid integer field:{field}")
+    return value
+
+
+def _required_decimal(record: Mapping[str, Any], field: str) -> Decimal:
+    value = _optional_decimal_value(record, field)
+    if value is None:
+        raise ValueError(f"entry provenance record missing decimal field:{field}")
+    return value
+
+
+def _optional_decimal_value(record: Mapping[str, Any], field: str) -> Decimal | None:
+    value = record.get(field)
+    if value is None:
+        return None
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(f"entry provenance record invalid decimal field:{field}") from exc
+    if not parsed.is_finite():
+        raise ValueError(f"entry provenance record non-finite decimal field:{field}")
+    return parsed
+
+
+def _required_text_tuple(record: Mapping[str, Any], field: str) -> tuple[str, ...]:
+    value = record.get(field)
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f"entry provenance record invalid text list field:{field}")
+    return tuple(value)
 
 
 def _provenance_payload(
@@ -222,8 +455,8 @@ def _provenance_payload(
                 "side": attempt.side,
                 "stage": attempt.stage.value,
                 "reasons": list(attempt.reasons),
-                "quote_price": _optional_decimal(attempt.quote_price),
-                "modeled_entry_price": _optional_decimal(attempt.modeled_entry_price),
+                "quote_price": _optional_decimal_text(attempt.quote_price),
+                "modeled_entry_price": _optional_decimal_text(attempt.modeled_entry_price),
             }
             for attempt in provenance.fallback_attempts
         ],
@@ -235,31 +468,31 @@ def _provenance_payload(
         "planned_reference_quantity": str(provenance.planned_reference_quantity),
         "planned_notional_usdt": str(provenance.planned_notional_usdt),
         "modeled_round_trip_cost_usdt": str(provenance.modeled_round_trip_cost_usdt),
-        "pre_entry_quote_price": _optional_decimal(provenance.pre_entry_quote_price),
-        "pre_entry_modeled_entry_price": _optional_decimal(
+        "pre_entry_quote_price": _optional_decimal_text(provenance.pre_entry_quote_price),
+        "pre_entry_modeled_entry_price": _optional_decimal_text(
             provenance.pre_entry_modeled_entry_price
         ),
-        "pre_entry_original_quantity": _optional_decimal(
+        "pre_entry_original_quantity": _optional_decimal_text(
             provenance.pre_entry_original_quantity
         ),
-        "pre_entry_adjusted_quantity": _optional_decimal(
+        "pre_entry_adjusted_quantity": _optional_decimal_text(
             provenance.pre_entry_adjusted_quantity
         ),
         "pre_entry_quote_resized": provenance.pre_entry_quote_resized,
-        "pre_entry_quantity_retention_fraction": _optional_decimal(
+        "pre_entry_quantity_retention_fraction": _optional_decimal_text(
             provenance.pre_entry_quantity_retention_fraction
         ),
         "actual_average_entry_price": str(provenance.actual_average_entry_price),
         "actual_filled_quantity": str(provenance.actual_filled_quantity),
         "actual_fill_notional_usdt": str(provenance.actual_fill_notional_usdt),
-        "actual_fill_adverse_slippage_bps_vs_modeled_entry": _optional_decimal(
+        "actual_fill_adverse_slippage_bps_vs_modeled_entry": _optional_decimal_text(
             provenance.actual_fill_adverse_slippage_bps_vs_modeled_entry
         ),
         "account_taker_fee_rate": str(provenance.account_taker_fee_rate),
         "exit_mode": provenance.exit_mode,
         "runner_admission_reasons": list(provenance.runner_admission_reasons),
         "liquidation_safety_reason": provenance.liquidation_safety_reason,
-        "stop_to_liquidation_r": _optional_decimal(provenance.stop_to_liquidation_r),
+        "stop_to_liquidation_r": _optional_decimal_text(provenance.stop_to_liquidation_r),
         "effective_account_equity_usdt": str(provenance.effective_account_equity_usdt),
         "effective_peak_equity_usdt": str(provenance.effective_peak_equity_usdt),
         "margin_mode": provenance.margin_mode,
@@ -271,5 +504,5 @@ def _provenance_payload(
     }
 
 
-def _optional_decimal(value: object | None) -> str | None:
+def _optional_decimal_text(value: object | None) -> str | None:
     return None if value is None else str(value)
