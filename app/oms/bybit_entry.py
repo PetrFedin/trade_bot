@@ -11,6 +11,7 @@ from app.oms.store import DurableOmsStore, OrderRecord, OrderState
 
 _BYBIT_ENTRY_PREFIX = "ASTRA-DEMO-E-"
 _BYBIT_OUTBOX_TOPIC = "bybit_order_submit"
+_OPERATOR_MODES = frozenset({"RUNNING", "PAUSED", "READ_ONLY", "KILLED"})
 _UNRESOLVED_ENTRY_STATES = (
     OrderState.OUTBOXED,
     OrderState.SUBMIT_STARTED,
@@ -61,6 +62,49 @@ class PostgresBybitEntryOms(PostgresOmsStore):
                     if current.client_order_id != client_order_id:
                         raise ValueError("Bybit OMS client order id changed")
 
+                    if current.state in {OrderState.CREATED, OrderState.RISK_APPROVED}:
+                        operator_mode, operator_generation = self._entry_operator_authority(cursor)
+                        if operator_mode != "RUNNING":
+                            if current.state is not OrderState.CREATED:
+                                raise RuntimeError(
+                                    "Bybit OMS operator blocked a non-atomic RISK_APPROVED entry"
+                                )
+                            DurableOmsStore._validate_transition(
+                                current.state,
+                                OrderState.REJECTED,
+                            )
+                            cursor.execute(
+                                """UPDATE astra_oms_orders
+                                SET state=%s, version=version+1, updated_at=%s
+                                WHERE intent_id=%s""",
+                                (OrderState.REJECTED.value, moment, intent.intent_id),
+                            )
+                            self._append_event(
+                                cursor,
+                                event_id=(
+                                    f"bybit-operator-blocked:{intent.intent_id}:"
+                                    f"{operator_generation}"
+                                ),
+                                intent_id=intent.intent_id,
+                                event_type=OrderState.REJECTED.value,
+                                payload={
+                                    "broker": self.broker_name,
+                                    "reason": "OPERATOR_NEW_ENTRY_BLOCKED",
+                                    "operator_mode": operator_mode,
+                                    "operator_generation": operator_generation,
+                                    "network_mutation_attempted": False,
+                                },
+                                occurred_at=moment,
+                            )
+                            return BybitEntrySubmissionClaim(
+                                record=self._load_for_update(cursor, intent.intent_id),
+                                mutation_allowed=False,
+                                claimed_now=False,
+                            )
+                    else:
+                        operator_mode = None
+                        operator_generation = None
+
                     if current.state is OrderState.CREATED:
                         DurableOmsStore._validate_transition(
                             current.state,
@@ -81,6 +125,8 @@ class PostgresBybitEntryOms(PostgresOmsStore):
                                 "broker": self.broker_name,
                                 "risk_source": "PREAPPROVED_BYBIT_ENTRY_PIPELINE",
                                 "risk_recalculated_by_oms": False,
+                                "operator_mode": operator_mode,
+                                "operator_generation": operator_generation,
                             },
                             occurred_at=moment,
                         )
@@ -163,6 +209,23 @@ class PostgresBybitEntryOms(PostgresOmsStore):
                         mutation_allowed=False,
                         claimed_now=False,
                     )
+
+    @staticmethod
+    def _entry_operator_authority(cursor) -> tuple[str, int]:
+        cursor.execute(
+            """SELECT mode, generation
+            FROM astra_bybit_operator_state
+            WHERE singleton=TRUE
+            FOR SHARE"""
+        )
+        row = cursor.fetchone()
+        if row is None:
+            raise RuntimeError("Bybit operator state is not initialized")
+        mode = str(row["mode"])
+        generation = int(row["generation"])
+        if mode not in _OPERATOR_MODES or generation <= 0:
+            raise ValueError("Bybit operator state is invalid")
+        return mode, generation
 
     def mark_acknowledged(
         self,
