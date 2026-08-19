@@ -347,7 +347,7 @@ class BybitPrivateStreamMonitor:
             timeout = max(0.1, self._policy.heartbeat_seconds - (now - last_ping))
             try:
                 raw = connection.recv(timeout=timeout)
-            except TimeoutError:
+            except TimeoutError as exc:
                 now = self._monotonic()
                 with self._lock:
                     last_message = self._last_message_monotonic
@@ -355,7 +355,9 @@ class BybitPrivateStreamMonitor:
                     last_message is None
                     or now - last_message > self._policy.stale_after_seconds
                 ):
-                    raise BybitPrivateStreamError("private stream heartbeat is stale")
+                    raise BybitPrivateStreamError(
+                        "private stream heartbeat is stale"
+                    ) from exc
                 connection.send(json.dumps({"op": "ping"}, separators=(",", ":")))
                 last_ping = now
                 continue
