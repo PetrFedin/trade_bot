@@ -78,7 +78,7 @@ def _record(root: Path) -> Path:
     return rows[0]
 
 
-def test_entry_provenance_store_is_immutable_outcome_free_and_idempotent(tmp_path: Path) -> None:
+def test_entry_provenance_store_is_immutable_and_idempotent(tmp_path: Path) -> None:
     store = JsonFileBybitDemoEntryProvenanceStore(tmp_path / "entry-provenance")
 
     first = store.persist(_provenance())
@@ -99,7 +99,7 @@ def test_entry_provenance_store_is_immutable_outcome_free_and_idempotent(tmp_pat
     assert "all_in_net_pnl_usdt" not in envelope["record"]
 
 
-def test_same_entry_id_with_changed_selection_evidence_cannot_be_overwritten(tmp_path: Path) -> None:
+def test_same_entry_id_with_changed_selection_cannot_be_overwritten(tmp_path: Path) -> None:
     store = JsonFileBybitDemoEntryProvenanceStore(tmp_path / "entry-provenance")
     store.persist(_provenance())
     changed = replace(_provenance(), selected_signal_rank=2)
