@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import os
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
