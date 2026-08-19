@@ -7,9 +7,19 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from http.client import HTTPSConnection
+from functools import partial
+from http.client import HTTPException, HTTPSConnection
 from typing import Any
 from urllib.parse import urlencode, urlsplit
+
+from app.execution.bybit_rest_policy import (
+    BybitRestPolicy,
+    BybitRestProtocolError,
+    SleepFn,
+    mutation_transport_error,
+    raise_for_bybit_response,
+    run_bybit_read_with_retry,
+)
 
 _BYBIT_DEMO_HOST = "api-demo.bybit.com"
 _BYBIT_DEMO_BASE_URL = f"https://{_BYBIT_DEMO_HOST}"
@@ -166,8 +176,8 @@ ClockMs = Callable[[], int]
 class BybitDemoOrderClient:
     """Authenticated Bybit V5 client that can only reach api-demo.bybit.com.
 
-    This intentionally has no configurable host and no mainnet order method. Live routing
-    requires a separate future adapter and an explicit promotion process.
+    Reads use bounded retry for transient transport/rate/server failures. Money-moving POSTs are
+    never retried automatically: an ambiguous response must be resolved through broker truth.
     """
 
     def __init__(
@@ -178,16 +188,26 @@ class BybitDemoOrderClient:
         recv_window_ms: int = 5000,
         transport: Transport | None = None,
         clock_ms: ClockMs | None = None,
+        rest_policy: BybitRestPolicy | None = None,
+        sleep_fn: SleepFn = time.sleep,
     ) -> None:
         if not api_key.strip() or not api_secret.strip():
             raise ValueError("Bybit demo API key and secret are required")
         if not 1000 <= recv_window_ms <= 10_000:
             raise ValueError("Bybit recv window must be within [1000, 10000] ms")
+        active_policy = BybitRestPolicy() if rest_policy is None else rest_policy
+        active_policy.validate()
         self._api_key = api_key.strip()
         self._api_secret = api_secret.strip()
         self._recv_window = str(recv_window_ms)
-        self._transport = _https_transport if transport is None else transport
+        self._rest_policy = active_policy
+        self._transport = (
+            partial(_https_transport, timeout_seconds=active_policy.request_timeout_seconds)
+            if transport is None
+            else transport
+        )
         self._clock_ms = (lambda: int(time.time() * 1000)) if clock_ms is None else clock_ms
+        self._sleep_fn = sleep_fn
 
     @property
     def environment(self) -> str:
@@ -373,13 +393,21 @@ class BybitDemoOrderClient:
         return tuple(rows)
 
     def _signed_get(self, path: str, params: Mapping[str, str]) -> BybitDemoHttpJson:
+        return run_bybit_read_with_retry(
+            lambda: self._signed_get_once(path, params),
+            policy=self._rest_policy,
+            sleep_fn=self._sleep_fn,
+            clock_ms=self._clock_ms,
+        )
+
+    def _signed_get_once(self, path: str, params: Mapping[str, str]) -> BybitDemoHttpJson:
         query = urlencode(params)
         timestamp = str(self._clock_ms())
         signature = self._signature(timestamp, query)
         headers = self._headers(timestamp, signature)
         url = f"{_BYBIT_DEMO_BASE_URL}{path}?{query}"
         response = self._transport("GET", url, headers, None)
-        return _validate_response(response)
+        return _validate_response(response, mutation=False)
 
     def _signed_post(self, path: str, payload: Mapping[str, Any]) -> BybitDemoHttpJson:
         body = json.dumps(payload, separators=(",", ":"), sort_keys=True)
@@ -387,8 +415,11 @@ class BybitDemoOrderClient:
         signature = self._signature(timestamp, body)
         headers = self._headers(timestamp, signature) | {"Content-Type": "application/json"}
         url = f"{_BYBIT_DEMO_BASE_URL}{path}"
-        response = self._transport("POST", url, headers, body)
-        return _validate_response(response)
+        try:
+            response = self._transport("POST", url, headers, body)
+        except (OSError, HTTPException) as exc:
+            raise mutation_transport_error(exc) from exc
+        return _validate_response(response, mutation=True)
 
     def _signature(self, timestamp: str, query_or_body: str) -> str:
         plain = timestamp + self._api_key + self._recv_window + query_or_body
@@ -408,11 +439,17 @@ class BybitDemoOrderClient:
         }
 
 
-def _validate_response(response: BybitDemoHttpJson) -> BybitDemoHttpJson:
-    if response.status_code != 200:
-        raise ValueError(f"Bybit demo HTTP request failed:{response.status_code}")
-    if response.payload.get("retCode") != 0:
-        raise ValueError(f"Bybit demo API error:{response.payload.get('retMsg')}")
+def _validate_response(
+    response: BybitDemoHttpJson,
+    *,
+    mutation: bool = False,
+) -> BybitDemoHttpJson:
+    raise_for_bybit_response(
+        status_code=response.status_code,
+        headers=response.headers,
+        payload=response.payload,
+        mutation=mutation,
+    )
     return response
 
 
@@ -482,6 +519,8 @@ def _https_transport(
     url: str,
     headers: Mapping[str, str],
     body: str | None,
+    *,
+    timeout_seconds: float = 10.0,
 ) -> BybitDemoHttpJson:
     parsed = urlsplit(url)
     if parsed.scheme != "https" or parsed.hostname != _BYBIT_DEMO_HOST:
@@ -494,17 +533,37 @@ def _https_transport(
         raise ValueError("Bybit demo transport rejected non-allowlisted path")
     if method not in {"GET", "POST"}:
         raise ValueError("Bybit demo transport rejected unsupported HTTP method")
+    if not 0 < timeout_seconds <= 60:
+        raise ValueError("Bybit demo transport timeout must be within (0, 60] seconds")
     target = parsed.path + (f"?{parsed.query}" if parsed.query else "")
-    connection = HTTPSConnection(_BYBIT_DEMO_HOST, 443, timeout=30)
+    connection = HTTPSConnection(_BYBIT_DEMO_HOST, 443, timeout=timeout_seconds)
     try:
         connection.request(method, target, body=body, headers=dict(headers))
         response = connection.getresponse()
-        payload = json.loads(response.read().decode("utf-8"))
+        raw_body = response.read()
+        response_headers = {key: value for key, value in response.getheaders()}
+        try:
+            payload = json.loads(raw_body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            if response.status != 200:
+                payload = {}
+            else:
+                raise BybitRestProtocolError(
+                    "Bybit REST returned invalid JSON",
+                    retryable_read=False,
+                    ambiguous_mutation=method == "POST",
+                    http_status=response.status,
+                ) from exc
         if not isinstance(payload, dict):
-            raise ValueError("Bybit demo response must be a JSON object")
+            raise BybitRestProtocolError(
+                "Bybit REST response must be a JSON object",
+                retryable_read=False,
+                ambiguous_mutation=method == "POST",
+                http_status=response.status,
+            )
         return BybitDemoHttpJson(
             status_code=response.status,
-            headers={key: value for key, value in response.getheaders()},
+            headers=response_headers,
             payload=payload,
         )
     finally:

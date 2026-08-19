@@ -11,10 +11,25 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
 from urllib.parse import urlencode
 
+from app.execution.bybit_rest_policy import (
+    BybitRestPolicy,
+    BybitRestProtocolError,
+    SleepFn,
+    raise_for_bybit_response,
+    run_bybit_read_with_retry,
+)
+
 _DEMO_HOST = "api-demo.bybit.com"
 _RECV_WINDOW_MS = 5000
 _TRANSACTION_LOG_MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 _ALLOWED_MARGIN_MODES = {"ISOLATED_MARGIN", "REGULAR_MARGIN", "PORTFOLIO_MARGIN"}
+
+
+@dataclass(frozen=True)
+class BybitDemoAccountingHttpJson:
+    status_code: int
+    headers: Mapping[str, str]
+    payload: Mapping[str, Any]
 
 
 class BybitDemoAccountingTransport(Protocol):
@@ -24,7 +39,7 @@ class BybitDemoAccountingTransport(Protocol):
         path: str,
         query_string: str,
         headers: Mapping[str, str],
-    ) -> Mapping[str, Any]: ...
+    ) -> Mapping[str, Any] | BybitDemoAccountingHttpJson: ...
 
 
 @dataclass(frozen=True)
@@ -83,32 +98,57 @@ class BybitDemoHttpsAccountingTransport:
     live_mainnet_order_routing_allowed = False
     order_writes_supported = False
 
+    def __init__(self, *, timeout_seconds: float = 10.0) -> None:
+        if not 0 < timeout_seconds <= 60:
+            raise ValueError("Bybit demo accounting timeout must be within (0, 60] seconds")
+        self._timeout_seconds = timeout_seconds
+
     def get(
         self,
         *,
         path: str,
         query_string: str,
         headers: Mapping[str, str],
-    ) -> Mapping[str, Any]:
+    ) -> BybitDemoAccountingHttpJson:
         if not path.startswith("/v5/") or "?" in path or "#" in path:
             raise ValueError("Bybit demo accounting path must be a plain V5 path")
         target = path if not query_string else f"{path}?{query_string}"
-        connection = http.client.HTTPSConnection(_DEMO_HOST, 443, timeout=10)
+        connection = http.client.HTTPSConnection(
+            _DEMO_HOST,
+            443,
+            timeout=self._timeout_seconds,
+        )
         try:
             connection.request("GET", target, headers=dict(headers))
             response = connection.getresponse()
             body = response.read()
+            response_headers = {key: value for key, value in response.getheaders()}
         finally:
             connection.close()
-        if response.status != 200:
-            raise RuntimeError(f"Bybit demo accounting HTTP status {response.status}")
         try:
             payload = json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise RuntimeError("Bybit demo accounting returned invalid JSON") from exc
+            if response.status != 200:
+                payload = {}
+            else:
+                raise BybitRestProtocolError(
+                    "Bybit demo accounting returned invalid JSON",
+                    retryable_read=False,
+                    ambiguous_mutation=False,
+                    http_status=response.status,
+                ) from exc
         if not isinstance(payload, dict):
-            raise RuntimeError("Bybit demo accounting response must be an object")
-        return payload
+            raise BybitRestProtocolError(
+                "Bybit demo accounting response must be an object",
+                retryable_read=False,
+                ambiguous_mutation=False,
+                http_status=response.status,
+            )
+        return BybitDemoAccountingHttpJson(
+            status_code=response.status,
+            headers=response_headers,
+            payload=payload,
+        )
 
 
 class BybitDemoAccountingClient:
@@ -126,20 +166,30 @@ class BybitDemoAccountingClient:
         transport: BybitDemoAccountingTransport | None = None,
         clock_ms: Callable[[], int] | None = None,
         recv_window_ms: int = _RECV_WINDOW_MS,
+        rest_policy: BybitRestPolicy | None = None,
+        sleep_fn: SleepFn = time.sleep,
     ) -> None:
         if not api_key or not api_secret:
             raise ValueError("Bybit demo accounting credentials cannot be empty")
         if not 1000 <= recv_window_ms <= 10000:
             raise ValueError("Bybit demo accounting recv window must be within [1000, 10000]")
+        active_policy = BybitRestPolicy() if rest_policy is None else rest_policy
+        active_policy.validate()
         self._api_key = api_key
         self._api_secret = api_secret
+        self._rest_policy = active_policy
         self._transport = (
-            BybitDemoHttpsAccountingTransport() if transport is None else transport
+            BybitDemoHttpsAccountingTransport(
+                timeout_seconds=active_policy.request_timeout_seconds
+            )
+            if transport is None
+            else transport
         )
         self._clock_ms = (
             (lambda: int(time.time() * 1000)) if clock_ms is None else clock_ms
         )
         self._recv_window_ms = recv_window_ms
+        self._sleep_fn = sleep_fn
 
     def get_wallet_balance(self) -> BybitDemoWalletBalance:
         page = self._private_get_page(
@@ -299,33 +349,63 @@ class BybitDemoAccountingClient:
         path: str,
         query: Mapping[str, str],
     ) -> Mapping[str, Any]:
-        query_string = urlencode(sorted(query.items()))
-        timestamp = str(self._clock_ms())
-        recv_window = str(self._recv_window_ms)
-        signature_payload = timestamp + self._api_key + recv_window + query_string
-        signature = hmac.new(
-            self._api_secret.encode("utf-8"),
-            signature_payload.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
-        headers = {
-            "X-BAPI-API-KEY": self._api_key,
-            "X-BAPI-SIGN": signature,
-            "X-BAPI-TIMESTAMP": timestamp,
-            "X-BAPI-RECV-WINDOW": recv_window,
-        }
-        payload = self._transport.get(
-            path=path,
-            query_string=query_string,
-            headers=headers,
+        def _request_once() -> Mapping[str, Any]:
+            query_string = urlencode(sorted(query.items()))
+            timestamp = str(self._clock_ms())
+            recv_window = str(self._recv_window_ms)
+            signature_payload = timestamp + self._api_key + recv_window + query_string
+            signature = hmac.new(
+                self._api_secret.encode("utf-8"),
+                signature_payload.encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+            headers = {
+                "X-BAPI-API-KEY": self._api_key,
+                "X-BAPI-SIGN": signature,
+                "X-BAPI-TIMESTAMP": timestamp,
+                "X-BAPI-RECV-WINDOW": recv_window,
+            }
+            raw_response = self._transport.get(
+                path=path,
+                query_string=query_string,
+                headers=headers,
+            )
+            response = _normalize_accounting_response(raw_response)
+            raise_for_bybit_response(
+                status_code=response.status_code,
+                headers=response.headers,
+                payload=response.payload,
+                mutation=False,
+            )
+            result = response.payload.get("result")
+            if not isinstance(result, Mapping):
+                raise RuntimeError("Bybit demo accounting result must be an object")
+            return result
+
+        return run_bybit_read_with_retry(
+            _request_once,
+            policy=self._rest_policy,
+            sleep_fn=self._sleep_fn,
+            clock_ms=self._clock_ms,
         )
-        ret_code = payload.get("retCode")
-        if ret_code != 0:
-            raise RuntimeError(f"Bybit demo accounting retCode {ret_code}")
-        result = payload.get("result")
-        if not isinstance(result, Mapping):
-            raise RuntimeError("Bybit demo accounting result must be an object")
-        return result
+
+
+def _normalize_accounting_response(
+    response: Mapping[str, Any] | BybitDemoAccountingHttpJson,
+) -> BybitDemoAccountingHttpJson:
+    if isinstance(response, BybitDemoAccountingHttpJson):
+        return response
+    if not isinstance(response, Mapping):
+        raise BybitRestProtocolError(
+            "Bybit demo accounting transport returned invalid response type",
+            retryable_read=False,
+            ambiguous_mutation=False,
+        )
+    return BybitDemoAccountingHttpJson(
+        status_code=200,
+        headers={},
+        payload=dict(response),
+    )
 
 
 def _wallet_decimal(row: Mapping[str, Any], field: str) -> Decimal:
