@@ -35,6 +35,9 @@ class BybitProductConfig:
     public_ws_url: str = _BYBIT_PUBLIC_LINEAR_WS
     trading_writes_enabled: bool = False
     mainnet_enabled: bool = False
+    symbols: tuple[str, ...] = ()
+    bar_interval: str = "5"
+    bar_lookback: int = 200
     poll_interval_ms: int = 1000
     shutdown_grace_seconds: int = 15
     log_level: str = "INFO"
@@ -46,6 +49,7 @@ class BybitProductConfig:
         *,
         require_credentials: bool = True,
         require_database: bool = True,
+        require_universe: bool = False,
     ) -> BybitProductConfig:
         source = os.environ if env is None else env
         api_key = source.get("BYBIT_API_KEY", "").strip()
@@ -77,6 +81,14 @@ class BybitProductConfig:
                 source.get("MAINNET_ENABLED", "false"),
                 name="MAINNET_ENABLED",
             ),
+            symbols=_parse_symbols(source.get("ASTRA_SYMBOLS", "")),
+            bar_interval=source.get("ASTRA_BAR_INTERVAL", "5").strip(),
+            bar_lookback=_parse_int(
+                source.get("ASTRA_BAR_LOOKBACK", "200"),
+                name="ASTRA_BAR_LOOKBACK",
+                minimum=50,
+                maximum=1000,
+            ),
             poll_interval_ms=_parse_int(
                 source.get("ASTRA_POLL_INTERVAL_MS", "1000"),
                 name="ASTRA_POLL_INTERVAL_MS",
@@ -94,6 +106,7 @@ class BybitProductConfig:
         config.validate(
             require_credentials=require_credentials,
             require_database=require_database,
+            require_universe=require_universe,
         )
         return config
 
@@ -102,6 +115,7 @@ class BybitProductConfig:
         *,
         require_credentials: bool = True,
         require_database: bool = True,
+        require_universe: bool = False,
     ) -> None:
         if self.environment != "demo":
             raise BybitProductConfigError(
@@ -132,6 +146,13 @@ class BybitProductConfig:
             _validate_postgres_url(self.database_url)
         elif self.database_url:
             _validate_postgres_url(self.database_url)
+        _validate_universe(self.symbols, required=require_universe)
+        if self.bar_interval != "5":
+            raise BybitProductConfigError(
+                "ASTRA_BAR_INTERVAL must remain 5 for the qualified crypto strategy policy"
+            )
+        if isinstance(self.bar_lookback, bool) or not 50 <= self.bar_lookback <= 1000:
+            raise BybitProductConfigError("bar lookback must be within [50, 1000]")
         if (
             isinstance(self.poll_interval_ms, bool)
             or not 100 <= self.poll_interval_ms <= 60_000
@@ -164,6 +185,9 @@ class BybitProductConfig:
                 "public_ws_url": self.public_ws_url,
                 "trading_writes_enabled": self.trading_writes_enabled,
                 "mainnet_enabled": self.mainnet_enabled,
+                "symbols": self.symbols,
+                "bar_interval": self.bar_interval,
+                "bar_lookback": self.bar_lookback,
                 "poll_interval_ms": self.poll_interval_ms,
                 "shutdown_grace_seconds": self.shutdown_grace_seconds,
                 "log_level": self.log_level,
@@ -190,6 +214,27 @@ def _parse_int(raw: str, *, name: str, minimum: int, maximum: int) -> int:
     if not minimum <= value <= maximum:
         raise BybitProductConfigError(f"{name} must be within [{minimum}, {maximum}]")
     return value
+
+
+def _parse_symbols(raw: str) -> tuple[str, ...]:
+    symbols = tuple(part.strip().upper() for part in raw.split(",") if part.strip())
+    if len(set(symbols)) != len(symbols):
+        raise BybitProductConfigError("ASTRA_SYMBOLS must not contain duplicates")
+    return symbols
+
+
+def _validate_universe(symbols: tuple[str, ...], *, required: bool) -> None:
+    if required and not symbols:
+        raise BybitProductConfigError("ASTRA_SYMBOLS is required for the product runtime")
+    if len(symbols) > 50:
+        raise BybitProductConfigError("ASTRA_SYMBOLS cannot exceed 50 instruments")
+    for symbol in symbols:
+        if symbol != symbol.strip().upper() or not symbol.endswith("USDT"):
+            raise BybitProductConfigError(
+                "ASTRA_SYMBOLS must contain normalized USDT perpetual symbols"
+            )
+        if not symbol[:-4].isalnum():
+            raise BybitProductConfigError("ASTRA_SYMBOLS contains an invalid symbol")
 
 
 def _validate_postgres_url(database_url: str) -> None:
