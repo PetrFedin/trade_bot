@@ -37,6 +37,31 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_astra_bybit_single_active_trade
     ON astra_bybit_trades (lifecycle_state)
     WHERE lifecycle_state = 'ACTIVE';
 
+CREATE TABLE IF NOT EXISTS astra_bybit_entry_provenance (
+    entry_order_link_id text PRIMARY KEY,
+    record_sha256 char(64) NOT NULL,
+    envelope_text text NOT NULL,
+    created_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS astra_bybit_terminal_evidence (
+    entry_order_link_id text PRIMARY KEY,
+    checkpoint_revision char(64) NOT NULL,
+    record_sha256 char(64) NOT NULL,
+    envelope_text text NOT NULL,
+    created_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS astra_bybit_session_risk_ledger (
+    ledger_key text PRIMARY KEY,
+    opening_equity_usdt numeric NOT NULL CHECK (opening_equity_usdt > 0),
+    revision_sha256 char(64) NOT NULL,
+    envelope_text text NOT NULL,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    CHECK (ledger_key = 'default')
+);
+
 CREATE TABLE IF NOT EXISTS astra_bybit_runtime_events (
     event_id text PRIMARY KEY,
     lease_name text NOT NULL,
@@ -65,5 +90,26 @@ DROP TRIGGER IF EXISTS astra_bybit_runtime_events_no_update_delete
 CREATE TRIGGER astra_bybit_runtime_events_no_update_delete
 BEFORE UPDATE OR DELETE ON astra_bybit_runtime_events
 FOR EACH ROW EXECUTE FUNCTION astra_bybit_runtime_events_append_only();
+
+CREATE OR REPLACE FUNCTION astra_bybit_immutable_evidence()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE EXCEPTION 'astra_bybit immutable evidence cannot be updated or deleted';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS astra_bybit_entry_provenance_no_update_delete
+    ON astra_bybit_entry_provenance;
+CREATE TRIGGER astra_bybit_entry_provenance_no_update_delete
+BEFORE UPDATE OR DELETE ON astra_bybit_entry_provenance
+FOR EACH ROW EXECUTE FUNCTION astra_bybit_immutable_evidence();
+
+DROP TRIGGER IF EXISTS astra_bybit_terminal_evidence_no_update_delete
+    ON astra_bybit_terminal_evidence;
+CREATE TRIGGER astra_bybit_terminal_evidence_no_update_delete
+BEFORE UPDATE OR DELETE ON astra_bybit_terminal_evidence
+FOR EACH ROW EXECUTE FUNCTION astra_bybit_immutable_evidence();
 
 COMMIT;
