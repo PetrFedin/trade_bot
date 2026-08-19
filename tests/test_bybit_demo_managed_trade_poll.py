@@ -32,6 +32,11 @@ class _SafeAccounting:
 
 
 @dataclass(frozen=True)
+class _UnsafeAccounting:
+    live_mainnet_order_routing_allowed: bool = True
+
+
+@dataclass(frozen=True)
 class _SafeEvidence:
     fully_reconciled_all_in: bool
     live_mainnet_order_routing_allowed: bool = False
@@ -163,6 +168,22 @@ def test_open_trade_runs_management_after_excursion_observation() -> None:
     assert result.next_entry_allowed is False
 
 
+def test_position_close_race_requires_terminal_reconciliation_on_next_poll() -> None:
+    result = _poll(
+        advance_excursion=lambda **_: _excursion(
+            BybitDemoExcursionRuntimeStatus.OPEN_OBSERVED
+        ),
+        run_management=lambda **_: _management(
+            BybitDemoTradeManagementRuntimeStatus.POSITION_CLOSED,
+            reasons=("MANAGEMENT_POSITION_CLOSED_BEFORE_RATCHET",),
+        ),
+    )
+
+    assert result.phase is BybitDemoManagedTradePollPhase.CLOSE_RECONCILIATION_REQUIRED
+    assert result.reasons == ("MANAGEMENT_POSITION_CLOSED_BEFORE_RATCHET",)
+    assert result.next_entry_allowed is False
+
+
 def test_unverified_ratchet_blocks_managed_poll_without_claiming_trade_closed() -> None:
     result = _poll(
         advance_excursion=lambda **_: _excursion(
@@ -202,11 +223,12 @@ def test_max_hold_uses_separate_executor_and_ack_does_not_enable_reentry() -> No
 
 
 def test_max_hold_writes_remain_disabled_by_default() -> None:
-    seen_policy = None
+    seen_writes_enabled: bool | None = None
 
     def _close(*_args: object, **kwargs: object) -> BybitDemoMaxHoldCloseResult:
-        nonlocal seen_policy
-        seen_policy = kwargs["policy"]
+        nonlocal seen_writes_enabled
+        policy = kwargs["policy"]
+        seen_writes_enabled = policy.writes_enabled
         return _max_hold(BybitDemoMaxHoldCloseStatus.WRITES_DISABLED)
 
     result = _poll(
@@ -220,8 +242,7 @@ def test_max_hold_writes_remain_disabled_by_default() -> None:
     )
 
     assert result.phase is BybitDemoManagedTradePollPhase.MAX_HOLD_ACTION
-    assert isinstance(seen_policy, object)
-    assert seen_policy.writes_enabled is False
+    assert seen_writes_enabled is False
 
 
 def test_terminal_trade_never_runs_management_and_requires_accounting() -> None:
@@ -296,17 +317,29 @@ def test_terminal_accounting_failure_preserves_checkpoint_for_retry() -> None:
     )
 
     assert result.phase is BybitDemoManagedTradePollPhase.TERMINAL_ACCOUNTING_PENDING
-    assert result.reasons == ("TERMINAL_ACCOUNTING_OR_EVIDENCE_FAILED:RuntimeError",)
+    assert result.reasons == ("TERMINAL_ACCOUNTING_FAILED:RuntimeError",)
     assert result.terminal_evidence_ack_required is True
     assert result.next_entry_allowed is False
 
 
-def test_mainnet_capable_dependency_result_is_rejected() -> None:
+def test_mainnet_capable_excursion_result_is_rejected() -> None:
     unsafe = _excursion(BybitDemoExcursionRuntimeStatus.OPEN_OBSERVED)
     object.__setattr__(unsafe, "live_mainnet_order_routing_allowed", True)
 
     with pytest.raises(ValueError, match="mainnet-capable excursion"):
         _poll(advance_excursion=lambda **_: unsafe)
+
+
+def test_mainnet_capable_accounting_result_is_not_downgraded_to_pending() -> None:
+    with pytest.raises(ValueError, match="mainnet-capable accounting"):
+        _poll(
+            advance_excursion=lambda **_: _excursion(
+                BybitDemoExcursionRuntimeStatus.TERMINAL_EVIDENCE_READY,
+                terminal_complete=True,
+            ),
+            accounting_client=object(),
+            run_accounting=lambda *_args, **_kwargs: _UnsafeAccounting(),
+        )
 
 
 def test_policy_keeps_stop_and_max_hold_writes_disabled_by_default() -> None:
