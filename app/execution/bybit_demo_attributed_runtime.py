@@ -113,20 +113,33 @@ def run_attributed_bybit_demo_trading_runtime(
         loaded = entry_provenance_store.load(
             entry_order_link_id=handoff.receipt.entry_order_link_id
         )
-        _reject_live_result(loaded, name="entry provenance record")
+    except Exception as exc:  # noqa: BLE001 - immutable evidence allows later analytics retry.
+        return _result(
+            BybitDemoAttributedRuntimeStatus.TERMINAL_ATTRIBUTION_GAP,
+            runtime=base,
+            reasons=(f"TERMINAL_PROVENANCE_LOAD_FAILED:{type(exc).__name__}",),
+            next_entry_allowed=base.next_entry_allowed,
+        )
+
+    # Safety/capability violations are not retryable analytics gaps. They must remain hard
+    # failures so an unsafe object can never be downgraded into a benign diagnostics condition.
+    _reject_live_result(loaded, name="entry provenance record")
+
+    try:
         attribution = attribution_builder(
             loaded.provenance,
             evidence,
             terminal_receipt=handoff.receipt,
         )
-        _reject_live_result(attribution, name="trade attribution")
-    except Exception as exc:  # noqa: BLE001 - immutable evidence allows later analytics retry.
+    except Exception as exc:  # noqa: BLE001 - immutable inputs allow later analytics retry.
         return _result(
             BybitDemoAttributedRuntimeStatus.TERMINAL_ATTRIBUTION_GAP,
             runtime=base,
-            reasons=(f"TERMINAL_TRADE_ATTRIBUTION_FAILED:{type(exc).__name__}",),
+            reasons=(f"TERMINAL_TRADE_ATTRIBUTION_BUILD_FAILED:{type(exc).__name__}",),
             next_entry_allowed=base.next_entry_allowed,
         )
+
+    _reject_live_result(attribution, name="trade attribution")
 
     return _result(
         BybitDemoAttributedRuntimeStatus.TERMINAL_ATTRIBUTION_READY,
