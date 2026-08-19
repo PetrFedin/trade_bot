@@ -269,15 +269,32 @@ def _rotation_universe() -> list[OhlcvBar]:
     ]
 
 
+def _serialize_decimal(value: Decimal | None) -> str | None:
+    return None if value is None else str(value)
+
+
 def _result_evidence(result: CrossSectionalPortfolioResult) -> dict[str, object]:
     return {
         "fill_count": result.fill_count,
         "closed_trade_count": result.closed_trade_count,
         "winning_trades": result.winning_trades,
         "losing_trades": result.losing_trades,
+        "breakeven_trades": result.breakeven_trades,
+        "win_rate": str(result.win_rate),
         "gross_profit": str(result.gross_profit),
         "gross_loss": str(result.gross_loss),
-        "profit_factor": None if result.profit_factor is None else str(result.profit_factor),
+        "profit_factor": _serialize_decimal(result.profit_factor),
+        "average_maximum_favorable_excursion_fraction": str(
+            result.average_maximum_favorable_excursion_fraction
+        ),
+        "average_maximum_adverse_excursion_fraction": str(
+            result.average_maximum_adverse_excursion_fraction
+        ),
+        "average_mfe_capture_ratio": _serialize_decimal(result.average_mfe_capture_ratio),
+        "positive_mfe_trades": result.positive_mfe_trades,
+        "positive_mfe_closed_profitable": result.positive_mfe_closed_profitable,
+        "positive_mfe_closed_losing_or_flat": result.positive_mfe_closed_losing_or_flat,
+        "profit_preservation_rate": _serialize_decimal(result.profit_preservation_rate),
         "total_pnl": str(result.total_pnl),
         "total_return": str(result.total_return),
         "max_drawdown": str(result.max_drawdown),
@@ -309,6 +326,14 @@ def _result_evidence(result: CrossSectionalPortfolioResult) -> dict[str, object]
                 "net_pnl": str(trade.net_pnl),
                 "holding_bars": trade.holding_bars,
                 "exit_reason": trade.exit_reason.value,
+                "maximum_favorable_excursion_fraction": str(
+                    trade.maximum_favorable_excursion_fraction
+                ),
+                "maximum_adverse_excursion_fraction": str(
+                    trade.maximum_adverse_excursion_fraction
+                ),
+                "mfe_capture_ratio": _serialize_decimal(trade.mfe_capture_ratio),
+                "mfe_giveback_fraction": _serialize_decimal(trade.mfe_giveback_fraction),
                 "ambiguous_intrabar_exit": trade.ambiguous_intrabar_exit,
                 "gap_through_stop": trade.gap_through_stop,
             }

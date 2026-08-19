@@ -1,0 +1,43 @@
+{
+  "schema": "profit-runner-shadow-v1",
+  "shadow_only": true,
+  "strategy_promotion_allowed": false,
+  "basis": "CROSS_SECTIONAL_TRADING_QUALITY_V2_FIXED_TAKE_PROFIT_VS_PROTECTED_RUNNER",
+  "policy": {
+    "take_profit_mode": "PROFIT_RUNNER",
+    "take_profit_fraction": "0.04",
+    "trailing_activation_fraction": "0.03",
+    "trailing_stop_fraction": "0.015",
+    "break_even_activation_fraction": "0.01",
+    "break_even_buffer_fraction": "0.001",
+    "profit_protection_activation_fraction": "0.015",
+    "maximum_profit_giveback_fraction": "0.50"
+  },
+  "scope": {
+    "hard_stop_changed": false,
+    "time_stop_changed": false,
+    "same_bar_peak_can_arm_protection": false,
+    "fixed_take_profit_replaced_by_runner": true,
+    "paper_or_live_activation_allowed": false
+  },
+  "required_evidence": [
+    "UNIT_NO_LOOKAHEAD_RUNNER_CONTRACT",
+    "SAME_SAMPLE_MARGINAL_COMPARISON",
+    "NON_OVERLAPPING_WALK_FORWARD_COMPARISON",
+    "REAL_PAPER_SHADOW_EXIT_EVIDENCE"
+  ],
+  "limitations": [
+    "RUNNER_CAN_GIVE_BACK_PROFIT_THAT_FIXED_TAKE_PROFIT_WOULD_HAVE_REALIZED",
+    "GAPS_CAN_EXIT_BELOW_THE_PROTECTED_LEVEL",
+    "OHLCV_CANNOT_RECONSTRUCT_INTRABAR_PATH_ORDER",
+    "THRESHOLDS_ARE_UNCALIBRATED"
+  ],
+  "promotion_blockers": [
+    "SHADOW_ONLY",
+    "NO_PROFIT_RUNNER_SAME_SAMPLE_EVIDENCE",
+    "NO_PROFIT_RUNNER_WALK_FORWARD_EVIDENCE",
+    "NO_REAL_PAPER_PROFIT_RUNNER_EVIDENCE",
+    "THRESHOLDS_UNCALIBRATED",
+    "NO_PROFITABILITY_CLAIM"
+  ]
+}

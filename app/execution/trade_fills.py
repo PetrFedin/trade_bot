@@ -63,6 +63,31 @@ class PaperFillFeeProvider(Protocol):
     def fee_for(self, fill: ExactBrokerFill) -> Decimal: ...
 
 
+class PaperFillObserver(Protocol):
+    """Idempotent observer for a broker fill already persisted to the portfolio."""
+
+    def observe_fill(self, fill: Fill) -> None: ...
+
+
+class CompositePaperFillObserver:
+    """Replay-safe fan-out for strategy-scoped durable fill observers.
+
+    Every child observer must be idempotent by ``Fill.fill_id``. If a later observer
+    fails, replay invokes earlier observers again; their idempotency is what makes the
+    fan-out recoverable without a distributed transaction.
+    """
+
+    def __init__(self, *observers: PaperFillObserver) -> None:
+        if not observers:
+            raise ValueError("at least one paper fill observer is required")
+        self.observers = tuple(observers)
+
+    def observe_fill(self, fill: Fill) -> None:
+        fill.validate()
+        for observer in self.observers:
+            observer.observe_fill(fill)
+
+
 class ExplicitZeroPaperFeeModel:
     """Explicit zero-fee model for controlled paper validation only.
 
@@ -196,6 +221,11 @@ class PaperTradeFillAccounting:
     fingerprint, so websocket delivery and account-activity recovery converge on the
     same durable fill. When a runtime ledger is supplied, a newly persisted event is
     applied to that same replayed ledger exactly once.
+
+    An optional fill observer runs after portfolio persistence but before OMS quantity
+    advancement. It is deliberately invoked on replay even when the portfolio event was
+    already present. Therefore an idempotent observer can repair a crash window where
+    the portfolio committed but downstream strategy state did not.
     """
 
     _DIRECT_STATES = frozenset(
@@ -223,11 +253,13 @@ class PaperTradeFillAccounting:
         portfolio: PortfolioStore,
         fee_provider: PaperFillFeeProvider,
         runtime_ledger: PortfolioLedger | None = None,
+        fill_observer: PaperFillObserver | None = None,
     ) -> None:
         self.oms = oms
         self.portfolio = portfolio
         self.fee_provider = fee_provider
         self.runtime_ledger = runtime_ledger
+        self.fill_observer = fill_observer
 
     def apply(self, intent_id: str, broker_fill: ExactBrokerFill) -> FillAccountingResult:
         broker_fill.validate()
@@ -269,6 +301,8 @@ class PaperTradeFillAccounting:
         appended = self.portfolio.append_fill(domain_fill)
         if appended and self.runtime_ledger is not None:
             self.runtime_ledger.apply_fill(domain_fill)
+        if self.fill_observer is not None:
+            self.fill_observer.observe_fill(domain_fill)
 
         advanced = broker_fill.cumulative_quantity > record.filled_quantity
         if advanced:

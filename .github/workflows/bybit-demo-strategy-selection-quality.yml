@@ -1,0 +1,99 @@
+name: bybit-demo-strategy-selection-quality
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/execution/bybit_demo_strategy_selector.py'
+      - 'app/execution/bybit_demo_strategy_quality_tracker.py'
+      - 'app/execution/bybit_demo_controller.py'
+      - 'app/execution/bybit_demo_orchestrator.py'
+      - 'app/marketdata/bybit_demo_quotes.py'
+      - 'app/strategy/crypto_perp.py'
+      - 'app/strategy/crypto_position_selection.py'
+      - 'app/strategy/crypto_correlation.py'
+      - 'app/strategy/crypto_execution_risk.py'
+      - 'app/strategy/crypto_session_risk.py'
+      - 'tests/test_bybit_demo_quote_guard.py'
+      - 'tests/test_bybit_demo_strategy_selector.py'
+      - 'tests/test_bybit_demo_strategy_quality_tracker.py'
+      - 'tests/test_crypto_correlation.py'
+      - '.github/workflows/bybit-demo-strategy-selection-quality.yml'
+  push:
+    branches:
+      - agent/trading-quality-profit-protection
+    paths:
+      - 'app/execution/bybit_demo_strategy_selector.py'
+      - 'app/execution/bybit_demo_strategy_quality_tracker.py'
+      - 'app/execution/bybit_demo_controller.py'
+      - 'app/execution/bybit_demo_orchestrator.py'
+      - 'app/marketdata/bybit_demo_quotes.py'
+      - 'app/strategy/crypto_perp.py'
+      - 'app/strategy/crypto_position_selection.py'
+      - 'app/strategy/crypto_correlation.py'
+      - 'app/strategy/crypto_execution_risk.py'
+      - 'app/strategy/crypto_session_risk.py'
+      - 'tests/test_bybit_demo_quote_guard.py'
+      - 'tests/test_bybit_demo_strategy_selector.py'
+      - 'tests/test_bybit_demo_strategy_quality_tracker.py'
+      - 'tests/test_crypto_correlation.py'
+      - '.github/workflows/bybit-demo-strategy-selection-quality.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-demo-strategy-selection-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint demo strategy selection boundary
+        run: >-
+          ruff check --output-format=github
+          app/execution/bybit_demo_strategy_selector.py
+          app/execution/bybit_demo_strategy_quality_tracker.py
+          app/marketdata/bybit_demo_quotes.py
+          app/strategy/crypto_correlation.py
+          tests/test_bybit_demo_quote_guard.py
+          tests/test_bybit_demo_strategy_selector.py
+          tests/test_bybit_demo_strategy_quality_tracker.py
+          tests/test_crypto_correlation.py
+
+      - name: Test completed-bars to guarded-demo handoff
+        run: >-
+          pytest -vv
+          tests/test_bybit_demo_quote_guard.py
+          tests/test_bybit_demo_strategy_selector.py
+          tests/test_bybit_demo_strategy_quality_tracker.py
+          tests/test_bybit_demo_orchestrator.py
+          tests/test_bybit_demo_controller.py
+          tests/test_crypto_correlation.py
+          tests/test_crypto_execution_risk.py
+          tests/test_crypto_position_selection.py
+
+      - name: Compile demo strategy selection boundary
+        run: >-
+          python -m compileall -q
+          app/execution/bybit_demo_strategy_selector.py
+          app/execution/bybit_demo_strategy_quality_tracker.py
+          app/marketdata/bybit_demo_quotes.py
+          app/strategy/crypto_correlation.py

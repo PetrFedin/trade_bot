@@ -1,0 +1,41 @@
+{
+  "schema": "entry-quality-filter-shadow-v1",
+  "shadow_only": true,
+  "strategy_promotion_allowed": false,
+  "basis": "CROSS_SECTIONAL_TRADING_QUALITY_V2_WITHOUT_VS_WITH_ENTRY_QUALITY_FILTER",
+  "policy": {
+    "lookback_bars": 8,
+    "minimum_trend_efficiency": "0.35",
+    "maximum_price_extension_fraction": "0.04",
+    "maximum_single_bar_return_fraction": "0.05",
+    "minimum_average_dollar_volume": null
+  },
+  "candidate_components": [
+    "TREND_EFFICIENCY_FILTER",
+    "ANTI_CHASE_PRICE_EXTENSION_FILTER",
+    "ANTI_SINGLE_BAR_SPIKE_FILTER"
+  ],
+  "optional_execution_guard": {
+    "minimum_average_dollar_volume": "DISABLED_UNTIL_CAPITAL_AND_FEED_CALIBRATION"
+  },
+  "required_evidence": [
+    "UNIT_TRACE_FOR_BLOCK_AND_NEXT_CANDIDATE_PROMOTION",
+    "SAME_SAMPLE_MARGINAL_COMPARISON",
+    "NON_OVERLAPPING_WALK_FORWARD_COMPARISON",
+    "REAL_PAPER_SELECTION_AND_FILL_EVIDENCE"
+  ],
+  "limitations": [
+    "THRESHOLDS_ARE_UNCALIBRATED_AND_MUST_NOT_AUTO_PROMOTE",
+    "TREND_EFFICIENCY_IS_PATH_QUALITY_NOT_A_PROFITABILITY_GUARANTEE",
+    "OBSERVED_OHLCV_LIQUIDITY_IS_NOT_A_SUBSTITUTE_FOR_REAL_SPREAD_AND_DEPTH",
+    "FILTER_CAN_SKIP_FAST_BREAKOUTS_THAT_CONTINUE_HIGHER"
+  ],
+  "promotion_blockers": [
+    "SHADOW_ONLY",
+    "NO_ENTRY_QUALITY_SAME_SAMPLE_EVIDENCE",
+    "NO_ENTRY_QUALITY_WALK_FORWARD_EVIDENCE",
+    "NO_REAL_PAPER_ENTRY_QUALITY_EVIDENCE",
+    "THRESHOLDS_UNCALIBRATED",
+    "NO_PROFITABILITY_CLAIM"
+  ]
+}

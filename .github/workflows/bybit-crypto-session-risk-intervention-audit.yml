@@ -1,0 +1,68 @@
+name: bybit-crypto-session-risk-intervention-audit
+
+on:
+  push:
+    branches:
+      - agent/trading-quality-profit-protection
+    paths:
+      - 'tools/audit_bybit_crypto_session_risk_interventions.py'
+      - 'tools/audit_bybit_crypto_walk_forward_session_risk.py'
+      - 'tests/test_audit_bybit_crypto_session_risk_interventions.py'
+      - 'tests/test_audit_bybit_crypto_walk_forward_session_risk.py'
+      - '.github/workflows/bybit-crypto-session-risk-intervention-audit.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/audit_bybit_crypto_session_risk_interventions.py'
+      - 'tools/audit_bybit_crypto_walk_forward_session_risk.py'
+      - 'tests/test_audit_bybit_crypto_session_risk_interventions.py'
+      - 'tests/test_audit_bybit_crypto_walk_forward_session_risk.py'
+      - '.github/workflows/bybit-crypto-session-risk-intervention-audit.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-crypto-session-risk-intervention-audit-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint session-risk audit surfaces
+        run: >-
+          ruff check --output-format=github
+          tools/audit_bybit_crypto_session_risk_interventions.py
+          tools/audit_bybit_crypto_walk_forward_session_risk.py
+          tests/test_audit_bybit_crypto_session_risk_interventions.py
+          tests/test_audit_bybit_crypto_walk_forward_session_risk.py
+
+      - name: Test session-risk audit surfaces
+        run: >-
+          pytest -vv
+          tests/test_audit_bybit_crypto_session_risk_interventions.py
+          tests/test_audit_bybit_crypto_walk_forward_session_risk.py
+          tests/test_crypto_session_risk.py
+
+      - name: Compile session-risk audit boundary
+        run: >-
+          python -m compileall -q
+          tools/audit_bybit_crypto_session_risk_interventions.py
+          tools/audit_bybit_crypto_walk_forward_session_risk.py

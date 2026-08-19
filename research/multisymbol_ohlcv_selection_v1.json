@@ -6,7 +6,7 @@
   "symbols": ["AAPL", "AMZN", "GOOGL", "META", "MSFT", "NVDA"],
   "timeframe": "1Day",
   "start": "2025-01-02T00:00:00Z",
-  "end": "2026-07-31T23:59:59Z",
+  "end": "2026-08-11T23:59:59Z",
   "feed": "iex",
   "adjustment": "all",
   "currency": "USD",

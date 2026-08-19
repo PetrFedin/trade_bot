@@ -1,0 +1,40 @@
+{
+  "schema": "selection-exit-confirmation-shadow-v1",
+  "shadow_only": true,
+  "strategy_promotion_allowed": false,
+  "basis": "CROSS_SECTIONAL_TRADING_QUALITY_V2_IMMEDIATE_VS_CONFIRMED_SELECTION_EXIT",
+  "policy": {
+    "minimum_consecutive_deselected_bars": 2,
+    "exit_profitable_positions_immediately": true,
+    "reset_on_reselection": true
+  },
+  "scope": {
+    "delayed_exit_reason": "SELECTION_EXIT_ONLY",
+    "hard_stop_delayed": false,
+    "profit_protection_delayed": false,
+    "trailing_stop_delayed": false,
+    "take_profit_delayed": false,
+    "time_stop_delayed": false,
+    "kill_switch_delayed": false
+  },
+  "required_evidence": [
+    "UNIT_STATE_MACHINE_CONTRACT",
+    "SAME_SAMPLE_MARGINAL_COMPARISON",
+    "NON_OVERLAPPING_WALK_FORWARD_COMPARISON",
+    "REAL_PAPER_SHADOW_DECISION_EVIDENCE"
+  ],
+  "limitations": [
+    "CONFIRMATION_CAN_DELAY_A_VALID_SELECTION_EXIT",
+    "OPEN_GAPS_CAN_TURN_A_PREVIOUSLY_PROFITABLE_DECISION_INTO_A_REALIZED_LOSS",
+    "CONFIRMATION_MUST_NEVER_OVERRIDE_RISK_OR_PROTECTIVE_EXITS",
+    "THRESHOLDS_ARE_UNCALIBRATED"
+  ],
+  "promotion_blockers": [
+    "SHADOW_ONLY",
+    "NO_SELECTION_EXIT_SAME_SAMPLE_EVIDENCE",
+    "NO_SELECTION_EXIT_WALK_FORWARD_EVIDENCE",
+    "NO_REAL_PAPER_SELECTION_EXIT_EVIDENCE",
+    "THRESHOLDS_UNCALIBRATED",
+    "NO_PROFITABILITY_CLAIM"
+  ]
+}

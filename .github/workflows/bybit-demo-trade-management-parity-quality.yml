@@ -1,0 +1,101 @@
+name: bybit-demo-trade-management-parity-quality
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/execution/bybit_demo_trade_management_parity.py'
+      - 'app/execution/bybit_demo_trade_management_runtime.py'
+      - 'app/execution/bybit_demo_stop_ratchet_client.py'
+      - 'app/execution/bybit_demo_max_hold_close.py'
+      - 'app/execution/bybit_demo_managed_trade_poll.py'
+      - 'app/marketdata/bybit_demo_completed_bars.py'
+      - 'app/strategy/crypto_trade_management.py'
+      - 'tests/test_bybit_demo_trade_management_parity.py'
+      - 'tests/test_bybit_demo_trade_management_runtime.py'
+      - 'tests/test_bybit_demo_stop_ratchet_client.py'
+      - 'tests/test_bybit_demo_max_hold_close.py'
+      - 'tests/test_bybit_demo_managed_trade_poll.py'
+      - 'tests/test_bybit_demo_completed_bars.py'
+      - '.github/workflows/bybit-demo-trade-management-parity-quality.yml'
+  push:
+    branches:
+      - agent/trading-quality-profit-protection
+    paths:
+      - 'app/execution/bybit_demo_trade_management_parity.py'
+      - 'app/execution/bybit_demo_trade_management_runtime.py'
+      - 'app/execution/bybit_demo_stop_ratchet_client.py'
+      - 'app/execution/bybit_demo_max_hold_close.py'
+      - 'app/execution/bybit_demo_managed_trade_poll.py'
+      - 'app/marketdata/bybit_demo_completed_bars.py'
+      - 'app/strategy/crypto_trade_management.py'
+      - 'tests/test_bybit_demo_trade_management_parity.py'
+      - 'tests/test_bybit_demo_trade_management_runtime.py'
+      - 'tests/test_bybit_demo_stop_ratchet_client.py'
+      - 'tests/test_bybit_demo_max_hold_close.py'
+      - 'tests/test_bybit_demo_managed_trade_poll.py'
+      - 'tests/test_bybit_demo_completed_bars.py'
+      - '.github/workflows/bybit-demo-trade-management-parity-quality.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-demo-trade-management-parity-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint demo trade-management parity
+        run: >-
+          ruff check --output-format=github
+          app/execution/bybit_demo_trade_management_parity.py
+          app/execution/bybit_demo_trade_management_runtime.py
+          app/execution/bybit_demo_stop_ratchet_client.py
+          app/execution/bybit_demo_max_hold_close.py
+          app/execution/bybit_demo_managed_trade_poll.py
+          app/marketdata/bybit_demo_completed_bars.py
+          tests/test_bybit_demo_trade_management_parity.py
+          tests/test_bybit_demo_trade_management_runtime.py
+          tests/test_bybit_demo_stop_ratchet_client.py
+          tests/test_bybit_demo_max_hold_close.py
+          tests/test_bybit_demo_managed_trade_poll.py
+          tests/test_bybit_demo_completed_bars.py
+
+      - name: Test completed-bar baseline parity and stop-only writes
+        run: >-
+          pytest -vv
+          tests/test_bybit_demo_trade_management_parity.py
+          tests/test_bybit_demo_trade_management_runtime.py
+          tests/test_bybit_demo_stop_ratchet_client.py
+          tests/test_bybit_demo_max_hold_close.py
+          tests/test_bybit_demo_managed_trade_poll.py
+          tests/test_bybit_demo_completed_bars.py
+
+      - name: Compile demo trade-management parity
+        run: >-
+          python -m compileall -q
+          app/execution/bybit_demo_trade_management_parity.py
+          app/execution/bybit_demo_trade_management_runtime.py
+          app/execution/bybit_demo_stop_ratchet_client.py
+          app/execution/bybit_demo_max_hold_close.py
+          app/execution/bybit_demo_managed_trade_poll.py
+          app/marketdata/bybit_demo_completed_bars.py

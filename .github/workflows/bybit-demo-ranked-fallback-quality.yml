@@ -1,0 +1,98 @@
+name: bybit-demo-ranked-fallback-quality
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/execution/bybit_demo_ranked_fallback.py'
+      - 'app/execution/bybit_demo_account_sized_strategy.py'
+      - 'app/execution/bybit_demo_strategy_selector.py'
+      - 'app/execution/bybit_demo_cycle.py'
+      - 'app/execution/bybit_demo_excursion_tracker.py'
+      - 'app/execution/bybit_demo_excursion_store.py'
+      - 'app/execution/bybit_demo_excursion_runtime.py'
+      - 'app/strategy/crypto_entry_economics.py'
+      - 'tests/test_bybit_demo_ranked_fallback.py'
+      - 'tests/test_bybit_demo_ranked_fallback_excursion.py'
+      - 'tests/test_bybit_demo_excursion_tracker.py'
+      - 'tests/test_bybit_demo_excursion_store.py'
+      - 'tests/test_bybit_demo_excursion_runtime.py'
+      - '.github/workflows/bybit-demo-ranked-fallback-quality.yml'
+  push:
+    branches:
+      - agent/trading-quality-profit-protection
+    paths:
+      - 'app/execution/bybit_demo_ranked_fallback.py'
+      - 'app/execution/bybit_demo_account_sized_strategy.py'
+      - 'app/execution/bybit_demo_strategy_selector.py'
+      - 'app/execution/bybit_demo_cycle.py'
+      - 'app/execution/bybit_demo_excursion_tracker.py'
+      - 'app/execution/bybit_demo_excursion_store.py'
+      - 'app/execution/bybit_demo_excursion_runtime.py'
+      - 'app/strategy/crypto_entry_economics.py'
+      - 'tests/test_bybit_demo_ranked_fallback.py'
+      - 'tests/test_bybit_demo_ranked_fallback_excursion.py'
+      - 'tests/test_bybit_demo_excursion_tracker.py'
+      - 'tests/test_bybit_demo_excursion_store.py'
+      - 'tests/test_bybit_demo_excursion_runtime.py'
+      - '.github/workflows/bybit-demo-ranked-fallback-quality.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-demo-ranked-fallback-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint ranked fallback boundary
+        run: >-
+          ruff check --output-format=github
+          app/execution/bybit_demo_ranked_fallback.py
+          app/execution/bybit_demo_excursion_tracker.py
+          app/execution/bybit_demo_excursion_store.py
+          app/execution/bybit_demo_excursion_runtime.py
+          tests/test_bybit_demo_ranked_fallback.py
+          tests/test_bybit_demo_ranked_fallback_excursion.py
+          tests/test_bybit_demo_excursion_tracker.py
+          tests/test_bybit_demo_excursion_store.py
+          tests/test_bybit_demo_excursion_runtime.py
+
+      - name: Test ranked pre-order fallback safety
+        run: >-
+          pytest -vv
+          tests/test_bybit_demo_ranked_fallback.py
+          tests/test_bybit_demo_ranked_fallback_excursion.py
+          tests/test_bybit_demo_excursion_tracker.py
+          tests/test_bybit_demo_excursion_store.py
+          tests/test_bybit_demo_excursion_runtime.py
+          tests/test_bybit_demo_strategy_selector.py
+          tests/test_bybit_demo_account_sized_strategy.py
+          tests/test_crypto_entry_economics.py
+
+      - name: Compile ranked fallback boundary
+        run: >-
+          python -m compileall -q
+          app/execution/bybit_demo_ranked_fallback.py
+          app/execution/bybit_demo_excursion_tracker.py
+          app/execution/bybit_demo_excursion_store.py
+          app/execution/bybit_demo_excursion_runtime.py

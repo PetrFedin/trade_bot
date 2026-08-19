@@ -2,20 +2,38 @@ name: postgres-oms-e2e
 
 on:
   push:
-    branches: [agent/schema108-paper-core-foundation]
+    branches:
+      - agent/schema108-paper-core-foundation
+      - agent/trading-quality-profit-protection
     paths:
       - 'app/oms/**'
       - 'app/application/order_lifecycle.py'
+      - 'app/application/bybit_operator_control.py'
+      - 'app/execution/bybit_postgres_runtime_state.py'
+      - 'app/execution/bybit_postgres_evidence_state.py'
+      - 'app/execution/bybit_startup_reconciliation.py'
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
+      - 'tests/test_postgres_bybit_entry_recovery_e2e.py'
+      - 'tests/test_postgres_bybit_operator_control_e2e.py'
+      - 'tests/test_bybit_postgres_runtime_state.py'
+      - 'tests/test_bybit_postgres_evidence_state.py'
       - 'pyproject.toml'
       - '.github/workflows/postgres-oms-e2e.yml'
   pull_request:
     paths:
       - 'app/oms/**'
       - 'app/application/order_lifecycle.py'
+      - 'app/application/bybit_operator_control.py'
+      - 'app/execution/bybit_postgres_runtime_state.py'
+      - 'app/execution/bybit_postgres_evidence_state.py'
+      - 'app/execution/bybit_startup_reconciliation.py'
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
+      - 'tests/test_postgres_bybit_entry_recovery_e2e.py'
+      - 'tests/test_postgres_bybit_operator_control_e2e.py'
+      - 'tests/test_bybit_postgres_runtime_state.py'
+      - 'tests/test_bybit_postgres_evidence_state.py'
       - 'pyproject.toml'
       - '.github/workflows/postgres-oms-e2e.yml'
 
@@ -58,7 +76,21 @@ jobs:
           python -m pip check
       - name: PostgreSQL durable OMS E2E
         run: pytest -q tests/test_postgres_oms_e2e.py
+      - name: PostgreSQL Bybit entry recovery E2E
+        run: pytest -q tests/test_postgres_bybit_entry_recovery_e2e.py
+      - name: PostgreSQL Bybit operator control E2E
+        run: pytest -q tests/test_postgres_bybit_operator_control_e2e.py
+      - name: PostgreSQL Bybit runtime state and fencing E2E
+        run: pytest -q tests/test_bybit_postgres_runtime_state.py
+      - name: PostgreSQL Bybit evidence and session-risk E2E
+        run: pytest -q tests/test_bybit_postgres_evidence_state.py
       - name: SQLite OMS parity regression
         run: pytest -q tests/test_durable_oms_e2e.py
-      - name: Compile OMS boundary
-        run: python -m compileall -q app/oms app/application
+      - name: Compile OMS and Bybit PostgreSQL boundaries
+        run: >-
+          python -m compileall -q
+          app/oms
+          app/application
+          app/execution/bybit_postgres_runtime_state.py
+          app/execution/bybit_postgres_evidence_state.py
+          app/execution/bybit_startup_reconciliation.py

@@ -1,0 +1,374 @@
+name: bybit-crypto-historical-replay
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/marketdata/bybit_http.py'
+      - 'app/marketdata/bybit_v5.py'
+      - 'app/marketdata/bybit_instruments.py'
+      - 'app/marketdata/bybit_public_archive.py'
+      - 'app/execution/bybit_demo.py'
+      - 'app/execution/bybit_demo_controller.py'
+      - 'app/strategy/crypto_perp.py'
+      - 'app/strategy/crypto_profit_runner.py'
+      - 'app/strategy/crypto_trade_management.py'
+      - 'app/strategy/crypto_evidence.py'
+      - 'app/strategy/crypto_session_risk.py'
+      - 'app/strategy/crypto_replay_quality.py'
+      - 'app/strategy/crypto_protection_quality.py'
+      - 'tools/replay_bybit_crypto.py'
+      - 'tools/replay_bybit_crypto_runner.py'
+      - 'tools/replay_bybit_crypto_archive.py'
+      - 'tools/normalize_bybit_crypto_replay.py'
+      - 'tools/evaluate_bybit_crypto_replay.py'
+      - 'tests/test_bybit_http.py'
+      - 'tests/test_bybit_crypto_core.py'
+      - 'tests/test_bybit_crypto_replay.py'
+      - 'tests/test_bybit_crypto_runner_replay.py'
+      - 'tests/test_bybit_demo_protection.py'
+      - 'tests/test_bybit_demo_controller.py'
+      - 'tests/test_bybit_instruments.py'
+      - 'tests/test_bybit_public_archive.py'
+      - 'tests/test_crypto_evidence.py'
+      - 'tests/test_crypto_session_risk.py'
+      - 'tests/test_crypto_replay_quality.py'
+      - 'tests/test_crypto_protection_quality.py'
+      - 'tests/test_evaluate_bybit_crypto_replay.py'
+      - '.github/workflows/bybit-crypto-historical-replay.yml'
+  push:
+    branches:
+      - agent/trading-quality-profit-protection
+    paths:
+      - '.github/workflows/bybit-crypto-historical-replay.yml'
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: 'Completed Bybit UTC archive days'
+        required: false
+        default: '7'
+      symbols:
+        description: 'Comma-separated USDT perpetual symbols'
+        required: false
+        default: 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,LINKUSDT,ADAUSDT'
+  schedule:
+    - cron: '17 */6 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-crypto-replay-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked qualification graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint Bybit crypto surface
+        run: >-
+          ruff check --output-format=github
+          app/marketdata/bybit_http.py
+          app/marketdata/bybit_v5.py
+          app/marketdata/bybit_instruments.py
+          app/marketdata/bybit_public_archive.py
+          app/execution/bybit_demo.py
+          app/execution/bybit_demo_controller.py
+          app/strategy/crypto_perp.py
+          app/strategy/crypto_profit_runner.py
+          app/strategy/crypto_trade_management.py
+          app/strategy/crypto_evidence.py
+          app/strategy/crypto_session_risk.py
+          app/strategy/crypto_replay_quality.py
+          app/strategy/crypto_protection_quality.py
+          tools/replay_bybit_crypto.py
+          tools/replay_bybit_crypto_runner.py
+          tools/replay_bybit_crypto_archive.py
+          tools/normalize_bybit_crypto_replay.py
+          tools/evaluate_bybit_crypto_replay.py
+          tests/test_bybit_http.py
+          tests/test_bybit_crypto_core.py
+          tests/test_bybit_crypto_replay.py
+          tests/test_bybit_crypto_runner_replay.py
+          tests/test_bybit_demo_protection.py
+          tests/test_bybit_demo_controller.py
+          tests/test_bybit_instruments.py
+          tests/test_bybit_public_archive.py
+          tests/test_crypto_evidence.py
+          tests/test_crypto_session_risk.py
+          tests/test_crypto_replay_quality.py
+          tests/test_crypto_protection_quality.py
+          tests/test_evaluate_bybit_crypto_replay.py
+
+      - name: Bybit crypto invariants
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -vv \
+            tests/test_bybit_http.py \
+            tests/test_bybit_crypto_core.py \
+            tests/test_bybit_crypto_replay.py \
+            tests/test_bybit_crypto_runner_replay.py \
+            tests/test_bybit_demo_protection.py \
+            tests/test_bybit_demo_controller.py \
+            tests/test_bybit_instruments.py \
+            tests/test_bybit_public_archive.py \
+            tests/test_crypto_evidence.py \
+            tests/test_crypto_session_risk.py \
+            tests/test_crypto_replay_quality.py \
+            tests/test_crypto_protection_quality.py \
+            tests/test_evaluate_bybit_crypto_replay.py \
+            2>&1 | tee bybit-crypto-pytest.txt
+
+      - name: Compile Bybit crypto boundary
+        run: >-
+          python -m compileall -q
+          app/marketdata/bybit_http.py
+          app/marketdata/bybit_v5.py
+          app/marketdata/bybit_instruments.py
+          app/marketdata/bybit_public_archive.py
+          app/execution/bybit_demo.py
+          app/execution/bybit_demo_controller.py
+          app/strategy/crypto_perp.py
+          app/strategy/crypto_profit_runner.py
+          app/strategy/crypto_trade_management.py
+          app/strategy/crypto_evidence.py
+          app/strategy/crypto_session_risk.py
+          app/strategy/crypto_replay_quality.py
+          app/strategy/crypto_protection_quality.py
+          tools/replay_bybit_crypto.py
+          tools/replay_bybit_crypto_runner.py
+          tools/replay_bybit_crypto_archive.py
+          tools/normalize_bybit_crypto_replay.py
+          tools/evaluate_bybit_crypto_replay.py
+
+      - name: Upload contract diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-crypto-contract-${{ github.run_id }}
+          path: bybit-crypto-pytest.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+  real-market-replay:
+    if: github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked replay graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Replay official completed Bybit historical archives
+        env:
+          LOOKBACK_DAYS: ${{ inputs.lookback_days || '7' }}
+          SYMBOLS: ${{ inputs.symbols || 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,LINKUSDT,ADAUSDT' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/bybit-crypto/trades
+          if ! PYTHONPATH=. python tools/replay_bybit_crypto_archive.py \
+            --symbols "$SYMBOLS" \
+            --lookback-days "$LOOKBACK_DAYS" \
+            --opening-equity 1000 \
+            --targets 15,20,25 \
+            --output artifacts/bybit-crypto/report-raw.json \
+            --trades-dir artifacts/bybit-crypto/trades; then
+            printf '%s\n' \
+              '{"qualification":"BLOCKED_BYBIT_ARCHIVE_REPLAY","historical_replay_completed":false}' \
+              > artifacts/bybit-crypto/blocked.json
+            exit 1
+          fi
+
+      - name: Normalize replay evidence
+        run: |
+          PYTHONPATH=. python tools/normalize_bybit_crypto_replay.py \
+            --input artifacts/bybit-crypto/report-raw.json \
+            --output artifacts/bybit-crypto/report.json
+
+      - name: Score replay evidence
+        run: |
+          PYTHONPATH=. python tools/evaluate_bybit_crypto_replay.py \
+            --input artifacts/bybit-crypto/report.json \
+            --output artifacts/bybit-crypto/evidence-scorecard.json
+
+      - name: Enforce research-only safety boundary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('artifacts/bybit-crypto/report.json').read_text())
+          scorecard = json.loads(Path('artifacts/bybit-crypto/evidence-scorecard.json').read_text())
+          assert report['qualification'] == 'PASS_CRYPTO_HISTORICAL_REPLAY'
+          assert report['source'] == 'BYBIT_OFFICIAL_PUBLIC_TRADE_ARCHIVE_AGGREGATED_5M'
+          assert report['archive_completed_utc_days_only'] is True
+          assert report['current_incomplete_bar_excluded'] is True
+          assert report['rest_api_required'] is False
+          assert report['raw_trade_archive_committed_to_repository'] is False
+          assert report['strategy_promotion_allowed'] is False
+          assert report['bybit_demo_order_writes_enabled'] is False
+          assert report['bybit_live_order_routing_allowed'] is False
+          assert report['real_demo_fills'] is False
+          assert report['replay_quality_normalization']['raw_trade_pnl_preserved'] is True
+          assert report['replay_quality_normalization']['breakeven_residuals_classified_neutral'] is True
+          assert report['replay_quality_normalization']['terminal_forced_closes_distinguished_from_max_hold'] is True
+          assert report['replay_quality_normalization']['strategy_shadow_candidates_normalized'] is True
+          assert report['protection_quality_contract']['open_ended_runner_protection_is_not_a_profit_guarantee'] is True
+          assert scorecard['strategy_promotion_allowed'] is False
+          assert scorecard['live_promotion_allowed'] is False
+          assert set(report['variants']) == {
+              'TARGET_15_USD',
+              'TARGET_20_USD',
+              'TARGET_25_USD',
+          }
+          for variant in report['variants'].values():
+              assert variant['strategy_promotion_allowed'] is False
+              assert variant['bybit_demo_order_writes_enabled'] is False
+              assert variant['bybit_live_order_routing_allowed'] is False
+          candidate = report['notional_cap_shadow_candidates']['MAX_NOTIONAL_3X_EQUITY']
+          assert candidate['maximum_notional_to_equity'] == 3.0
+          assert candidate['strategy_promotion_allowed'] is False
+          assert candidate['bybit_demo_order_writes_enabled'] is False
+          assert candidate['bybit_live_order_routing_allowed'] is False
+          scored_candidate = scorecard['shadow_candidates']['MAX_NOTIONAL_3X_EQUITY']
+          assert scored_candidate['strategy_promotion_allowed'] is False
+          assert scored_candidate['demo_order_writes_allowed'] is False
+          assert scored_candidate['live_promotion_allowed'] is False
+          runner = report['strategy_shadow_candidates']['MIN_20_NET_EDGE_OPEN_ENDED_RUNNER']
+          assert runner['minimum_entry_net_profit_usd'] == 20.0
+          assert runner['runner_activation_net_profit_usd'] == 20.0
+          assert runner['runner_initial_protected_net_profit_usd'] == 15.0
+          assert runner['profit_cap_net_profit_usd'] is None
+          assert runner['fixed_take_profit_enabled'] is False
+          assert runner['protected_15_is_guaranteed_realized_pnl'] is False
+          assert runner['strategy_promotion_allowed'] is False
+          assert runner['bybit_demo_order_writes_enabled'] is False
+          assert runner['bybit_live_order_routing_allowed'] is False
+          scored_runner = scorecard['strategy_shadow_candidates']['MIN_20_NET_EDGE_OPEN_ENDED_RUNNER']
+          assert scored_runner['strategy_promotion_allowed'] is False
+          assert scored_runner['demo_order_writes_allowed'] is False
+          assert scored_runner['live_promotion_allowed'] is False
+          for variant in scorecard['variants'].values():
+              assert variant['live_promotion_allowed'] is False
+          for variant in scored_candidate['variants'].values():
+              assert variant['live_promotion_allowed'] is False
+          PY
+
+      - name: Print replay decision evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('artifacts/bybit-crypto/report.json').read_text())
+          scorecard = json.loads(Path('artifacts/bybit-crypto/evidence-scorecard.json').read_text())
+          candidate = report['notional_cap_shadow_candidates']['MAX_NOTIONAL_3X_EQUITY']
+          candidate_score = scorecard['shadow_candidates']['MAX_NOTIONAL_3X_EQUITY']
+          runner = report['strategy_shadow_candidates']['MIN_20_NET_EDGE_OPEN_ENDED_RUNNER']
+          runner_score = scorecard['strategy_shadow_candidates']['MIN_20_NET_EDGE_OPEN_ENDED_RUNNER']
+          summary = {
+              'source': report['source'],
+              'archive_dates': report['archive_dates'],
+              'symbols': report['symbols'],
+              'synchronized_bar_count_per_symbol': report['synchronized_bar_count_per_symbol'],
+              'archive_trade_rows_by_symbol': report['archive_trade_rows_by_symbol'],
+              'replay_quality_normalization': report['replay_quality_normalization'],
+              'baseline_2x': {
+                  name: {
+                      'target_net_profit_usd': variant['target_net_profit_usd'],
+                      'metrics': variant['metrics'],
+                      'eligible_signal_event_count': variant['eligible_signal_event_count'],
+                      'accepted_trade_plan_event_count': variant['accepted_trade_plan_event_count'],
+                      'trade_plan_block_reason_counts': variant['trade_plan_block_reason_counts'],
+                      'terminal_completed_bar_signal': variant['terminal_completed_bar_signal'],
+                      'evidence_scorecard': scorecard['variants'][name],
+                  }
+                  for name, variant in report['variants'].items()
+              },
+              'open_ended_runner_2x': {
+                  'minimum_entry_net_profit_usd': runner['minimum_entry_net_profit_usd'],
+                  'runner_activation_net_profit_usd': runner['runner_activation_net_profit_usd'],
+                  'runner_initial_protected_net_profit_usd': runner['runner_initial_protected_net_profit_usd'],
+                  'profit_cap_net_profit_usd': runner['profit_cap_net_profit_usd'],
+                  'runner_activation_event_count': runner['runner_activation_event_count'],
+                  'metrics': runner['metrics'],
+                  'eligible_signal_event_count': runner['eligible_signal_event_count'],
+                  'accepted_trade_plan_event_count': runner['accepted_trade_plan_event_count'],
+                  'trade_plan_block_reason_counts': runner['trade_plan_block_reason_counts'],
+                  'protection_quality': runner['protection_quality'],
+                  'evidence_scorecard': runner_score,
+              },
+              'shadow_3x_same_risk': {
+                  name: {
+                      'target_net_profit_usd': variant['target_net_profit_usd'],
+                      'metrics': variant['metrics'],
+                      'eligible_signal_event_count': variant['eligible_signal_event_count'],
+                      'accepted_trade_plan_event_count': variant['accepted_trade_plan_event_count'],
+                      'trade_plan_block_reason_counts': variant['trade_plan_block_reason_counts'],
+                      'evidence_scorecard': candidate_score['variants'][name],
+                  }
+                  for name, variant in candidate['variants'].items()
+              },
+          }
+          print('BYBIT_REPLAY_SUMMARY=' + json.dumps(summary, sort_keys=True))
+          for scope, variants in (
+              ('BASELINE_2X', report['variants']),
+              ('SHADOW_3X_SAME_RISK', candidate['variants']),
+          ):
+              for variant_name, variant in variants.items():
+                  for trade_number, trade in enumerate(variant['closed_trades'], start=1):
+                      payload = {
+                          'scope': scope,
+                          'variant': variant_name,
+                          'trade_number': trade_number,
+                          **trade,
+                      }
+                      print('BYBIT_REPLAY_TRADE=' + json.dumps(payload, sort_keys=True))
+          for trade_number, trade in enumerate(runner['closed_trades'], start=1):
+              payload = {
+                  'scope': 'OPEN_ENDED_RUNNER_2X',
+                  'variant': 'MIN_20_NET_EDGE_OPEN_ENDED_RUNNER',
+                  'trade_number': trade_number,
+                  **trade,
+              }
+              print('BYBIT_REPLAY_TRADE=' + json.dumps(payload, sort_keys=True))
+          PY
+
+      - name: Upload real-market replay evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-crypto-real-market-replay-${{ github.run_id }}
+          path: artifacts/bybit-crypto
+          if-no-files-found: error
+          retention-days: 30

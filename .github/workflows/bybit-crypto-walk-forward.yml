@@ -1,0 +1,217 @@
+name: bybit-crypto-walk-forward
+
+on:
+  push:
+    branches:
+      - agent/trading-quality-profit-protection
+    paths:
+      - '.github/workflows/bybit-crypto-walk-forward.yml'
+      - 'tools/qualify_bybit_crypto_walk_forward.py'
+      - 'tools/run_bybit_crypto_walk_forward_archive.py'
+      - 'tools/research_bybit_crypto_strategy_v2.py'
+      - 'tests/test_crypto_walk_forward_side_diagnostics.py'
+      - 'tests/test_qualify_bybit_crypto_walk_forward.py'
+      - 'tests/test_run_bybit_crypto_walk_forward_archive.py'
+      - 'tests/test_research_bybit_crypto_strategy_v2.py'
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: 'Completed UTC Bybit archive days; minimum 28'
+        required: false
+        default: '28'
+      fold_days:
+        description: 'Non-overlapping chronological fold length; default 7'
+        required: false
+        default: '7'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-crypto-walk-forward-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint walk-forward surface
+        run: >-
+          ruff check --output-format=github
+          tools/qualify_bybit_crypto_walk_forward.py
+          tools/run_bybit_crypto_walk_forward_archive.py
+          tools/research_bybit_crypto_strategy_v2.py
+          tests/test_crypto_walk_forward_side_diagnostics.py
+          tests/test_qualify_bybit_crypto_walk_forward.py
+          tests/test_run_bybit_crypto_walk_forward_archive.py
+          tests/test_research_bybit_crypto_strategy_v2.py
+
+      - name: Test chronology and acquisition contracts
+        run: >-
+          pytest -vv
+          tests/test_crypto_walk_forward_side_diagnostics.py
+          tests/test_qualify_bybit_crypto_walk_forward.py
+          tests/test_run_bybit_crypto_walk_forward_archive.py
+          tests/test_research_bybit_crypto_strategy_v2.py
+
+      - name: Compile walk-forward boundary
+        run: >-
+          python -m compileall -q
+          tools/qualify_bybit_crypto_walk_forward.py
+          tools/run_bybit_crypto_walk_forward_archive.py
+          tools/research_bybit_crypto_strategy_v2.py
+
+  archive-28d:
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Enforce walk-forward window contract
+        env:
+          LOOKBACK_DAYS: ${{ inputs.lookback_days || '28' }}
+          FOLD_DAYS: ${{ inputs.fold_days || '7' }}
+        shell: bash
+        run: |
+          if ! [[ "$LOOKBACK_DAYS" =~ ^[0-9]+$ ]] || ! [[ "$FOLD_DAYS" =~ ^[0-9]+$ ]]; then
+            echo 'lookback_days and fold_days must be integers' >&2
+            exit 1
+          fi
+          if [ "$LOOKBACK_DAYS" -lt 28 ]; then
+            echo 'walk-forward evidence requires at least 28 completed UTC days' >&2
+            exit 1
+          fi
+          if [ "$FOLD_DAYS" -lt 1 ]; then
+            echo 'fold_days must be positive' >&2
+            exit 1
+          fi
+
+      - name: Acquire official archives and run cold-start folds
+        env:
+          LOOKBACK_DAYS: ${{ inputs.lookback_days || '28' }}
+          FOLD_DAYS: ${{ inputs.fold_days || '7' }}
+        shell: bash
+        run: |
+          mkdir -p artifacts/bybit-crypto-walk-forward
+          PYTHONPATH=. python tools/run_bybit_crypto_walk_forward_archive.py \
+            --symbols BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,LINKUSDT,ADAUSDT \
+            --lookback-days "$LOOKBACK_DAYS" \
+            --fold-days "$FOLD_DAYS" \
+            --opening-equity 1000 \
+            --output artifacts/bybit-crypto-walk-forward/report.json
+
+      - name: Enforce research-only invariants
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('artifacts/bybit-crypto-walk-forward/report.json').read_text())
+          assert report['qualification'] == 'CRYPTO_CHRONOLOGICAL_WALK_FORWARD_RESEARCH'
+          assert report['method'] == 'NON_OVERLAPPING_FIXED_PARAMETER_COLD_START_FOLDS'
+          assert report['fold_count'] >= 4
+          assert report['parameter_tuning_between_folds'] is False
+          assert report['cross_fold_position_state_carried'] is False
+          assert report['cross_fold_signal_history_carried'] is False
+          assert report['archive_completed_utc_days_only'] is True
+          assert report['raw_trade_archive_committed_to_repository'] is False
+          assert report['strategy_promotion_allowed'] is False
+          assert report['demo_observation_allowed'] is False
+          assert report['live_promotion_allowed'] is False
+          assert report['bybit_live_order_routing_allowed'] is False
+          assert report['directional_filter_selection_allowed'] is False
+
+          required = {
+              'CONDITIONAL_1_5X',
+              'CONDITIONAL_SESSION_RISK',
+              'CONDITIONAL_DIVERSIFIED',
+              'CONDITIONAL_EXECUTION_RISK',
+              'CONDITIONAL_COMBINED_RISK',
+              'CONDITIONAL_TIGHT_PROFIT_LOCK',
+          }
+          decisions = report['candidate_decisions']
+          side_diagnostics = report['candidate_side_diagnostics']
+          assert required == set(decisions)
+          assert set(side_diagnostics) == set(decisions)
+          for name, decision in decisions.items():
+              assert decision['strategy_promotion_allowed'] is False, name
+              assert decision['demo_observation_allowed'] is False, name
+              assert decision['live_promotion_allowed'] is False, name
+              assert decision['fold_count'] == report['fold_count'], name
+              sides = side_diagnostics[name]
+              assert set(sides) == {'LONG', 'SHORT'}, name
+              assert (
+                  sides['LONG']['closed_trade_count']
+                  + sides['SHORT']['closed_trade_count']
+                  == decision['total_closed_trades']
+              ), name
+              for side_name, side in sides.items():
+                  assert side['fold_count'] == report['fold_count'], (name, side_name)
+                  assert len(side['fold_net_pnl_usdt']) == report['fold_count'], (name, side_name)
+                  assert side['directional_filter_selection_allowed'] is False, (name, side_name)
+          assert report['combined_vs_baseline']['automatic_strategy_selection_allowed'] is False
+          PY
+
+      - name: Write compact walk-forward summary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('artifacts/bybit-crypto-walk-forward/report.json').read_text())
+          summary = {
+              'requested_archive_dates': report['requested_archive_dates'],
+              'fold_count': report['fold_count'],
+              'policy': report['policy'],
+              'candidate_decisions': report['candidate_decisions'],
+              'candidate_side_diagnostics': report['candidate_side_diagnostics'],
+              'directional_filter_selection_allowed': False,
+              'combined_vs_baseline': report['combined_vs_baseline'],
+              'strategy_promotion_allowed': False,
+              'demo_observation_allowed': False,
+              'live_promotion_allowed': False,
+          }
+          Path('artifacts/bybit-crypto-walk-forward/summary.json').write_text(
+              json.dumps(summary, indent=2, sort_keys=True) + '\n'
+          )
+          print('BYBIT_CRYPTO_WALK_FORWARD_SUMMARY=' + json.dumps(summary, sort_keys=True))
+          PY
+
+      - name: Upload walk-forward evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-crypto-walk-forward-${{ github.run_id }}
+          path: artifacts/bybit-crypto-walk-forward
+          if-no-files-found: warn
+          retention-days: 30

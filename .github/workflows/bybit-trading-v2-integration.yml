@@ -1,0 +1,429 @@
+name: bybit-trading-v2-integration
+
+on:
+  push:
+    branches:
+      - agent/trading-quality-profit-protection
+    paths:
+      - 'app/execution/bybit_demo.py'
+      - 'app/execution/bybit_demo_controller.py'
+      - 'app/execution/bybit_demo_cycle.py'
+      - 'app/execution/bybit_demo_strategy_selector.py'
+      - 'app/execution/bybit_demo_strategy_quality_tracker.py'
+      - 'app/execution/bybit_demo_ranked_fallback.py'
+      - 'app/execution/bybit_demo_entry_provenance.py'
+      - 'app/execution/bybit_demo_entry_provenance_store.py'
+      - 'app/execution/bybit_demo_trade_attribution.py'
+      - 'app/execution/bybit_demo_attributed_runtime.py'
+      - 'app/execution/bybit_demo_broker_truth.py'
+      - 'app/execution/bybit_startup_reconciliation.py'
+      - 'app/execution/bybit_postgres_runtime_state.py'
+      - 'app/runtime/bybit_product_config.py'
+      - 'app/runtime/bybit_product_service.py'
+      - 'migrations/product/005_bybit_runtime_state.sql'
+      - '.env.example'
+      - 'app/execution/bybit_demo_protection_client.py'
+      - 'app/execution/bybit_demo_protection_reconciliation.py'
+      - 'app/execution/bybit_demo_protection_quality_tracker.py'
+      - 'app/execution/bybit_demo_excursion_tracker.py'
+      - 'app/execution/bybit_demo_excursion_store.py'
+      - 'app/execution/bybit_demo_excursion_runtime.py'
+      - 'app/execution/bybit_demo_trade_management_parity.py'
+      - 'app/execution/bybit_demo_trade_management_runtime.py'
+      - 'app/execution/bybit_demo_stop_ratchet_client.py'
+      - 'app/execution/bybit_demo_max_hold_close.py'
+      - 'app/execution/bybit_demo_managed_trade_poll.py'
+      - 'app/execution/bybit_demo_terminal_evidence_store.py'
+      - 'app/execution/bybit_demo_terminal_handoff.py'
+      - 'app/execution/bybit_demo_runtime_lease.py'
+      - 'app/execution/bybit_demo_trading_runtime.py'
+      - 'app/execution/bybit_demo_profit_preservation_evidence.py'
+      - 'app/execution/bybit_demo_account_reader.py'
+      - 'app/execution/bybit_demo_account_sized_strategy.py'
+      - 'app/execution/bybit_demo_session_risk_ledger.py'
+      - 'app/execution/bybit_demo_account_pnl_reconciliation.py'
+      - 'app/execution/bybit_demo_funding_reconciliation.py'
+      - 'app/execution/bybit_demo_lifecycle_gate.py'
+      - 'app/execution/bybit_demo_post_trade_accounting.py'
+      - 'app/execution/bybit_demo_quality_tracker.py'
+      - 'app/execution/bybit_demo_orchestrator.py'
+      - 'app/execution/bybit_demo_trade_monitor.py'
+      - 'app/marketdata/bybit_demo_quotes.py'
+      - 'app/marketdata/bybit_demo_completed_bars.py'
+      - 'app/strategy/crypto_perp.py'
+      - 'app/strategy/crypto_position_selection.py'
+      - 'app/strategy/crypto_correlation.py'
+      - 'app/strategy/crypto_execution_risk.py'
+      - 'app/strategy/crypto_liquidation_safety.py'
+      - 'app/strategy/crypto_trade_management.py'
+      - 'app/strategy/crypto_trade_quality_diagnostics.py'
+      - 'tools/qualify_bybit_crypto_walk_forward.py'
+      - 'tools/run_bybit_crypto_walk_forward_archive.py'
+      - 'tools/research_bybit_crypto_strategy_v2.py'
+      - 'tools/report_bybit_crypto_trade_quality.py'
+      - 'tests/test_bybit_demo_account_reader.py'
+      - 'tests/test_bybit_demo_account_info_reader.py'
+      - 'tests/test_bybit_demo_account_sized_strategy.py'
+      - 'tests/test_bybit_demo_session_risk_ledger.py'
+      - 'tests/test_bybit_demo_account_pnl_reconciliation.py'
+      - 'tests/test_bybit_demo_funding_reconciliation.py'
+      - 'tests/test_bybit_demo_lifecycle_gate.py'
+      - 'tests/test_bybit_demo_post_trade_accounting.py'
+      - 'tests/test_bybit_demo_quality_tracker.py'
+      - 'tests/test_bybit_demo_profit_preservation_tracker.py'
+      - 'tests/test_bybit_demo_profit_preservation_evidence.py'
+      - 'tests/test_bybit_demo_orchestrator.py'
+      - 'tests/test_bybit_demo_quote_guard.py'
+      - 'tests/test_bybit_demo_strategy_selector.py'
+      - 'tests/test_bybit_demo_strategy_quality_tracker.py'
+      - 'tests/test_bybit_demo_ranked_fallback.py'
+      - 'tests/test_bybit_demo_ranked_fallback_excursion.py'
+      - 'tests/test_bybit_demo_entry_provenance.py'
+      - 'tests/test_bybit_demo_entry_provenance_store.py'
+      - 'tests/test_bybit_demo_trade_attribution.py'
+      - 'tests/test_bybit_demo_attributed_runtime.py'
+      - 'tests/test_bybit_demo_broker_truth.py'
+      - 'tests/test_bybit_startup_reconciliation.py'
+      - 'tests/test_bybit_product_config.py'
+      - 'tests/test_bybit_product_service.py'
+      - 'tests/test_bybit_postgres_runtime_state.py'
+      - 'tests/test_bybit_demo_protection_client.py'
+      - 'tests/test_bybit_demo_protection_reconciliation.py'
+      - 'tests/test_bybit_demo_emergency_flatten_reconciliation.py'
+      - 'tests/test_bybit_demo_protection_quality_tracker.py'
+      - 'tests/test_bybit_demo_excursion_tracker.py'
+      - 'tests/test_bybit_demo_excursion_store.py'
+      - 'tests/test_bybit_demo_excursion_runtime.py'
+      - 'tests/test_bybit_demo_trade_management_parity.py'
+      - 'tests/test_bybit_demo_trade_management_runtime.py'
+      - 'tests/test_bybit_demo_stop_ratchet_client.py'
+      - 'tests/test_bybit_demo_max_hold_close.py'
+      - 'tests/test_bybit_demo_managed_trade_poll.py'
+      - 'tests/test_bybit_demo_terminal_evidence_store.py'
+      - 'tests/test_bybit_demo_terminal_handoff.py'
+      - 'tests/test_bybit_demo_runtime_lease.py'
+      - 'tests/test_bybit_demo_trading_runtime.py'
+      - 'tests/test_bybit_demo_trading_runtime_provenance.py'
+      - 'tests/test_bybit_demo_completed_bars.py'
+      - 'tests/test_bybit_demo_position_parsing.py'
+      - 'tests/test_bybit_demo_trade_monitor.py'
+      - 'tests/test_bybit_demo_cycle.py'
+      - 'tests/test_crypto_default_net_target.py'
+      - 'tests/test_crypto_entry_side_policy.py'
+      - 'tests/test_crypto_position_selection.py'
+      - 'tests/test_crypto_correlation.py'
+      - 'tests/test_crypto_execution_risk.py'
+      - 'tests/test_crypto_execution_risk_replay.py'
+      - 'tests/test_crypto_liquidation_safety.py'
+      - 'tests/test_crypto_trade_quality_diagnostics.py'
+      - 'tests/test_crypto_walk_forward_side_diagnostics.py'
+      - 'tests/test_qualify_bybit_crypto_walk_forward.py'
+      - 'tests/test_run_bybit_crypto_walk_forward_archive.py'
+      - 'tests/test_research_bybit_crypto_strategy_v2.py'
+      - 'tests/test_report_bybit_crypto_trade_quality.py'
+      - '.github/workflows/bybit-trading-v2-integration.yml'
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-trading-v2-integration-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  integrated-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint Bybit trading v2 surface
+        run: >-
+          ruff check --output-format=github
+          app/execution/bybit_demo.py
+          app/execution/bybit_demo_controller.py
+          app/execution/bybit_demo_cycle.py
+          app/execution/bybit_demo_strategy_selector.py
+          app/execution/bybit_demo_strategy_quality_tracker.py
+          app/execution/bybit_demo_ranked_fallback.py
+          app/execution/bybit_demo_entry_provenance.py
+          app/execution/bybit_demo_entry_provenance_store.py
+          app/execution/bybit_demo_trade_attribution.py
+          app/execution/bybit_demo_attributed_runtime.py
+          app/execution/bybit_demo_protection_client.py
+          app/execution/bybit_demo_protection_reconciliation.py
+          app/execution/bybit_demo_protection_quality_tracker.py
+          app/execution/bybit_demo_excursion_tracker.py
+          app/execution/bybit_demo_excursion_store.py
+          app/execution/bybit_demo_excursion_runtime.py
+          app/execution/bybit_demo_trade_management_parity.py
+          app/execution/bybit_demo_trade_management_runtime.py
+          app/execution/bybit_demo_stop_ratchet_client.py
+          app/execution/bybit_demo_max_hold_close.py
+          app/execution/bybit_demo_managed_trade_poll.py
+          app/execution/bybit_demo_terminal_evidence_store.py
+          app/execution/bybit_demo_terminal_handoff.py
+          app/execution/bybit_demo_runtime_lease.py
+          app/execution/bybit_demo_trading_runtime.py
+          app/execution/bybit_demo_profit_preservation_evidence.py
+          app/execution/bybit_demo_account_reader.py
+          app/execution/bybit_demo_account_sized_strategy.py
+          app/execution/bybit_demo_session_risk_ledger.py
+          app/execution/bybit_demo_account_pnl_reconciliation.py
+          app/execution/bybit_demo_funding_reconciliation.py
+          app/execution/bybit_demo_lifecycle_gate.py
+          app/execution/bybit_demo_post_trade_accounting.py
+          app/execution/bybit_demo_quality_tracker.py
+          app/execution/bybit_demo_orchestrator.py
+          app/execution/bybit_demo_trade_monitor.py
+          app/marketdata/bybit_demo_quotes.py
+          app/marketdata/bybit_demo_completed_bars.py
+          app/strategy/crypto_perp.py
+          app/strategy/crypto_position_selection.py
+          app/strategy/crypto_correlation.py
+          app/strategy/crypto_execution_risk.py
+          app/strategy/crypto_liquidation_safety.py
+          app/strategy/crypto_trade_management.py
+          app/strategy/crypto_trade_quality_diagnostics.py
+          tools/qualify_bybit_crypto_walk_forward.py
+          tools/run_bybit_crypto_walk_forward_archive.py
+          tools/research_bybit_crypto_strategy_v2.py
+          tools/report_bybit_crypto_trade_quality.py
+          tests/test_bybit_demo_account_reader.py
+          tests/test_bybit_demo_account_info_reader.py
+          tests/test_bybit_demo_account_sized_strategy.py
+          tests/test_bybit_demo_session_risk_ledger.py
+          tests/test_bybit_demo_account_pnl_reconciliation.py
+          tests/test_bybit_demo_funding_reconciliation.py
+          tests/test_bybit_demo_lifecycle_gate.py
+          tests/test_bybit_demo_post_trade_accounting.py
+          tests/test_bybit_demo_quality_tracker.py
+          tests/test_bybit_demo_profit_preservation_tracker.py
+          tests/test_bybit_demo_profit_preservation_evidence.py
+          tests/test_bybit_demo_orchestrator.py
+          tests/test_bybit_demo_quote_guard.py
+          tests/test_bybit_demo_strategy_selector.py
+          tests/test_bybit_demo_strategy_quality_tracker.py
+          tests/test_bybit_demo_ranked_fallback.py
+          tests/test_bybit_demo_ranked_fallback_excursion.py
+          tests/test_bybit_demo_entry_provenance.py
+          tests/test_bybit_demo_entry_provenance_store.py
+          tests/test_bybit_demo_trade_attribution.py
+          tests/test_bybit_demo_attributed_runtime.py
+          tests/test_bybit_demo_protection_client.py
+          tests/test_bybit_demo_protection_reconciliation.py
+          tests/test_bybit_demo_emergency_flatten_reconciliation.py
+          tests/test_bybit_demo_protection_quality_tracker.py
+          tests/test_bybit_demo_excursion_tracker.py
+          tests/test_bybit_demo_excursion_store.py
+          tests/test_bybit_demo_excursion_runtime.py
+          tests/test_bybit_demo_trade_management_parity.py
+          tests/test_bybit_demo_trade_management_runtime.py
+          tests/test_bybit_demo_stop_ratchet_client.py
+          tests/test_bybit_demo_max_hold_close.py
+          tests/test_bybit_demo_managed_trade_poll.py
+          tests/test_bybit_demo_terminal_evidence_store.py
+          tests/test_bybit_demo_terminal_handoff.py
+          tests/test_bybit_demo_runtime_lease.py
+          tests/test_bybit_demo_trading_runtime.py
+          tests/test_bybit_demo_trading_runtime_provenance.py
+          tests/test_bybit_demo_completed_bars.py
+          tests/test_bybit_demo_position_parsing.py
+          tests/test_bybit_demo_trade_monitor.py
+          tests/test_bybit_demo_cycle.py
+          tests/test_crypto_default_net_target.py
+          tests/test_crypto_entry_side_policy.py
+          tests/test_crypto_position_selection.py
+          tests/test_crypto_correlation.py
+          tests/test_crypto_execution_risk.py
+          tests/test_crypto_execution_risk_replay.py
+          tests/test_crypto_liquidation_safety.py
+          tests/test_crypto_trade_quality_diagnostics.py
+          tests/test_crypto_walk_forward_side_diagnostics.py
+          tests/test_qualify_bybit_crypto_walk_forward.py
+          tests/test_run_bybit_crypto_walk_forward_archive.py
+          tests/test_research_bybit_crypto_strategy_v2.py
+          tests/test_report_bybit_crypto_trade_quality.py
+
+      - name: Run integrated strategy and demo lifecycle tests
+        run: >-
+          pytest -vv
+          tests/test_bybit_crypto_core.py
+          tests/test_bybit_crypto_replay.py
+          tests/test_bybit_crypto_runner_replay.py
+          tests/test_crypto_default_net_target.py
+          tests/test_crypto_entry_side_policy.py
+          tests/test_crypto_position_selection.py
+          tests/test_crypto_correlation.py
+          tests/test_crypto_execution_risk.py
+          tests/test_crypto_execution_risk_replay.py
+          tests/test_crypto_liquidation_safety.py
+          tests/test_crypto_session_risk.py
+          tests/test_crypto_trade_quality_diagnostics.py
+          tests/test_crypto_walk_forward_side_diagnostics.py
+          tests/test_report_bybit_crypto_trade_quality.py
+          tests/test_research_bybit_crypto_strategy_v2.py
+          tests/test_qualify_bybit_crypto_walk_forward.py
+          tests/test_run_bybit_crypto_walk_forward_archive.py
+          tests/test_bybit_demo_controller.py
+          tests/test_bybit_demo_quote_guard.py
+          tests/test_bybit_demo_strategy_selector.py
+          tests/test_bybit_demo_strategy_quality_tracker.py
+          tests/test_bybit_demo_ranked_fallback.py
+          tests/test_bybit_demo_ranked_fallback_excursion.py
+          tests/test_bybit_demo_entry_provenance.py
+          tests/test_bybit_demo_entry_provenance_store.py
+          tests/test_bybit_demo_trade_attribution.py
+          tests/test_bybit_demo_attributed_runtime.py
+          tests/test_bybit_demo_protection_client.py
+          tests/test_bybit_demo_protection_reconciliation.py
+          tests/test_bybit_demo_emergency_flatten_reconciliation.py
+          tests/test_bybit_demo_protection_quality_tracker.py
+          tests/test_bybit_demo_excursion_tracker.py
+          tests/test_bybit_demo_excursion_store.py
+          tests/test_bybit_demo_excursion_runtime.py
+          tests/test_bybit_demo_trade_management_parity.py
+          tests/test_bybit_demo_trade_management_runtime.py
+          tests/test_bybit_demo_stop_ratchet_client.py
+          tests/test_bybit_demo_max_hold_close.py
+          tests/test_bybit_demo_managed_trade_poll.py
+          tests/test_bybit_demo_terminal_evidence_store.py
+          tests/test_bybit_demo_terminal_handoff.py
+          tests/test_bybit_demo_runtime_lease.py
+          tests/test_bybit_demo_trading_runtime.py
+          tests/test_bybit_demo_trading_runtime_provenance.py
+          tests/test_bybit_demo_completed_bars.py
+          tests/test_bybit_demo_profit_preservation_evidence.py
+          tests/test_bybit_demo_account_reader.py
+          tests/test_bybit_demo_account_info_reader.py
+          tests/test_bybit_demo_account_sized_strategy.py
+          tests/test_bybit_demo_session_risk_ledger.py
+          tests/test_bybit_demo_position_parsing.py
+          tests/test_bybit_demo_cycle.py
+          tests/test_bybit_demo_trade_monitor.py
+          tests/test_bybit_demo_account_pnl_reconciliation.py
+          tests/test_bybit_demo_funding_reconciliation.py
+          tests/test_bybit_demo_lifecycle_gate.py
+          tests/test_bybit_demo_post_trade_accounting.py
+          tests/test_bybit_demo_quality_tracker.py
+          tests/test_bybit_demo_profit_preservation_tracker.py
+          tests/test_bybit_demo_orchestrator.py
+          tests/test_evaluate_bybit_crypto_replay.py
+
+      - name: Compile integrated boundary
+        run: >-
+          python -m compileall -q
+          app/execution/bybit_demo.py
+          app/execution/bybit_demo_controller.py
+          app/execution/bybit_demo_cycle.py
+          app/execution/bybit_demo_strategy_selector.py
+          app/execution/bybit_demo_strategy_quality_tracker.py
+          app/execution/bybit_demo_ranked_fallback.py
+          app/execution/bybit_demo_entry_provenance.py
+          app/execution/bybit_demo_entry_provenance_store.py
+          app/execution/bybit_demo_trade_attribution.py
+          app/execution/bybit_demo_attributed_runtime.py
+          app/execution/bybit_demo_protection_client.py
+          app/execution/bybit_demo_protection_reconciliation.py
+          app/execution/bybit_demo_protection_quality_tracker.py
+          app/execution/bybit_demo_excursion_tracker.py
+          app/execution/bybit_demo_excursion_store.py
+          app/execution/bybit_demo_excursion_runtime.py
+          app/execution/bybit_demo_trade_management_parity.py
+          app/execution/bybit_demo_trade_management_runtime.py
+          app/execution/bybit_demo_stop_ratchet_client.py
+          app/execution/bybit_demo_max_hold_close.py
+          app/execution/bybit_demo_managed_trade_poll.py
+          app/execution/bybit_demo_terminal_evidence_store.py
+          app/execution/bybit_demo_terminal_handoff.py
+          app/execution/bybit_demo_runtime_lease.py
+          app/execution/bybit_demo_trading_runtime.py
+          app/execution/bybit_demo_profit_preservation_evidence.py
+          app/execution/bybit_demo_account_reader.py
+          app/execution/bybit_demo_account_sized_strategy.py
+          app/execution/bybit_demo_session_risk_ledger.py
+          app/execution/bybit_demo_account_pnl_reconciliation.py
+          app/execution/bybit_demo_funding_reconciliation.py
+          app/execution/bybit_demo_lifecycle_gate.py
+          app/execution/bybit_demo_post_trade_accounting.py
+          app/execution/bybit_demo_quality_tracker.py
+          app/execution/bybit_demo_orchestrator.py
+          app/execution/bybit_demo_trade_monitor.py
+          app/marketdata/bybit_demo_quotes.py
+          app/marketdata/bybit_demo_completed_bars.py
+          app/strategy/crypto_perp.py
+          app/strategy/crypto_position_selection.py
+          app/strategy/crypto_correlation.py
+          app/strategy/crypto_execution_risk.py
+          app/strategy/crypto_liquidation_safety.py
+          app/strategy/crypto_trade_management.py
+          app/strategy/crypto_trade_quality_diagnostics.py
+          tools/qualify_bybit_crypto_walk_forward.py
+          tools/run_bybit_crypto_walk_forward_archive.py
+          tools/research_bybit_crypto_strategy_v2.py
+          tools/report_bybit_crypto_trade_quality.py
+
+  product-runtime-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint Bybit product runtime boundary
+        run: >-
+          ruff check --output-format=github
+          app/execution/bybit_demo_broker_truth.py
+          app/execution/bybit_startup_reconciliation.py
+          app/execution/bybit_postgres_runtime_state.py
+          app/runtime/bybit_product_config.py
+          app/runtime/bybit_product_service.py
+          tests/test_bybit_demo_broker_truth.py
+          tests/test_bybit_startup_reconciliation.py
+          tests/test_bybit_product_config.py
+          tests/test_bybit_product_service.py
+          tests/test_bybit_postgres_runtime_state.py
+
+      - name: Test Bybit product runtime boundary
+        run: >-
+          pytest -vv
+          tests/test_bybit_demo_broker_truth.py
+          tests/test_bybit_startup_reconciliation.py
+          tests/test_bybit_product_config.py
+          tests/test_bybit_product_service.py
+
+      - name: Compile Bybit product runtime boundary
+        run: >-
+          python -m compileall -q
+          app/execution/bybit_demo_broker_truth.py
+          app/execution/bybit_startup_reconciliation.py
+          app/execution/bybit_postgres_runtime_state.py
+          app/runtime/bybit_product_config.py
+          app/runtime/bybit_product_service.py

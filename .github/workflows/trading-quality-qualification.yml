@@ -1,0 +1,263 @@
+name: trading-quality-qualification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/application/cross_sectional_paper_cycle.py'
+      - 'app/application/cross_sectional_target_planner.py'
+      - 'app/application/order_intents.py'
+      - 'app/application/paper_pipeline.py'
+      - 'app/application/paper_protection.py'
+      - 'app/application/paper_protection_cycle.py'
+      - 'app/application/paper_protection_reprice.py'
+      - 'app/application/paper_reentry.py'
+      - 'app/application/paper_trade_quality.py'
+      - 'app/application/portfolio_paper_planner.py'
+      - 'app/execution/trade_fills.py'
+      - 'app/strategy/position_management.py'
+      - 'app/strategy/position_sizing.py'
+      - 'app/strategy/quality_monitor.py'
+      - 'app/strategy/ohlcv_exit.py'
+      - 'app/strategy/cross_sectional_selection.py'
+      - 'app/strategy/cross_sectional_portfolio.py'
+      - 'app/strategy/correlation_diversification.py'
+      - 'app/strategy/managed_backtest.py'
+      - 'data/historical/aapl_plotly_multiregime/qualification_profit_protection_shadow.json'
+      - 'research/cross_sectional_trading_quality_shadow_v2.json'
+      - 'research/correlation_diversification_shadow_v1.json'
+      - 'tools/qualify_strategy_quality_shadow.py'
+      - 'tools/qualify_cross_sectional_portfolio_shadow.py'
+      - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
+      - 'tools/qualify_cross_sectional_walk_forward.py'
+      - 'tools/qualify_correlation_diversification_shadow.py'
+      - 'tools/qualify_correlation_diversification_walk_forward.py'
+      - 'tests/test_cross_sectional_paper_cycle.py'
+      - 'tests/test_cross_sectional_target_planner.py'
+      - 'tests/test_paper_cycle_e2e.py'
+      - 'tests/test_paper_protection.py'
+      - 'tests/test_paper_protection_cycle.py'
+      - 'tests/test_paper_protection_reprice.py'
+      - 'tests/test_paper_protection_reprice_cycle.py'
+      - 'tests/test_paper_reentry.py'
+      - 'tests/test_paper_reentry_fill_accounting.py'
+      - 'tests/test_paper_trade_quality.py'
+      - 'tests/test_paper_trade_quality_protection_cycle.py'
+      - 'tests/test_portfolio_paper_planner.py'
+      - 'tests/test_trade_fill_accounting.py'
+      - 'tests/test_position_management.py'
+      - 'tests/test_position_sizing.py'
+      - 'tests/test_quality_monitor.py'
+      - 'tests/test_ohlcv_exit.py'
+      - 'tests/test_cross_sectional_selection.py'
+      - 'tests/test_cross_sectional_portfolio.py'
+      - 'tests/test_cross_sectional_portfolio_contract.py'
+      - 'tests/test_cross_sectional_trading_quality_shadow.py'
+      - 'tests/test_cross_sectional_walk_forward.py'
+      - 'tests/test_correlation_diversification.py'
+      - 'tests/test_correlation_diversification_shadow.py'
+      - 'tests/test_correlation_diversification_walk_forward.py'
+      - 'tests/test_exit_quality_trace.py'
+      - 'tests/test_strategy_quality_shadow.py'
+      - 'tests/test_profit_protection_shadow.py'
+      - '.github/workflows/trading-quality-qualification.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/application/cross_sectional_paper_cycle.py'
+      - 'app/application/cross_sectional_target_planner.py'
+      - 'app/application/order_intents.py'
+      - 'app/application/paper_pipeline.py'
+      - 'app/application/paper_protection.py'
+      - 'app/application/paper_protection_cycle.py'
+      - 'app/application/paper_protection_reprice.py'
+      - 'app/application/paper_reentry.py'
+      - 'app/application/paper_trade_quality.py'
+      - 'app/application/portfolio_paper_planner.py'
+      - 'app/execution/trade_fills.py'
+      - 'app/strategy/position_management.py'
+      - 'app/strategy/position_sizing.py'
+      - 'app/strategy/quality_monitor.py'
+      - 'app/strategy/ohlcv_exit.py'
+      - 'app/strategy/cross_sectional_selection.py'
+      - 'app/strategy/cross_sectional_portfolio.py'
+      - 'app/strategy/correlation_diversification.py'
+      - 'app/strategy/managed_backtest.py'
+      - 'data/historical/aapl_plotly_multiregime/qualification_profit_protection_shadow.json'
+      - 'research/cross_sectional_trading_quality_shadow_v2.json'
+      - 'research/correlation_diversification_shadow_v1.json'
+      - 'tools/qualify_strategy_quality_shadow.py'
+      - 'tools/qualify_cross_sectional_portfolio_shadow.py'
+      - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
+      - 'tools/qualify_cross_sectional_walk_forward.py'
+      - 'tools/qualify_correlation_diversification_shadow.py'
+      - 'tools/qualify_correlation_diversification_walk_forward.py'
+      - 'tests/test_cross_sectional_paper_cycle.py'
+      - 'tests/test_cross_sectional_target_planner.py'
+      - 'tests/test_paper_cycle_e2e.py'
+      - 'tests/test_paper_protection.py'
+      - 'tests/test_paper_protection_cycle.py'
+      - 'tests/test_paper_protection_reprice.py'
+      - 'tests/test_paper_protection_reprice_cycle.py'
+      - 'tests/test_paper_reentry.py'
+      - 'tests/test_paper_reentry_fill_accounting.py'
+      - 'tests/test_paper_trade_quality.py'
+      - 'tests/test_paper_trade_quality_protection_cycle.py'
+      - 'tests/test_portfolio_paper_planner.py'
+      - 'tests/test_trade_fill_accounting.py'
+      - 'tests/test_position_management.py'
+      - 'tests/test_position_sizing.py'
+      - 'tests/test_quality_monitor.py'
+      - 'tests/test_ohlcv_exit.py'
+      - 'tests/test_cross_sectional_selection.py'
+      - 'tests/test_cross_sectional_portfolio.py'
+      - 'tests/test_cross_sectional_portfolio_contract.py'
+      - 'tests/test_cross_sectional_trading_quality_shadow.py'
+      - 'tests/test_cross_sectional_walk_forward.py'
+      - 'tests/test_correlation_diversification.py'
+      - 'tests/test_correlation_diversification_shadow.py'
+      - 'tests/test_correlation_diversification_walk_forward.py'
+      - 'tests/test_exit_quality_trace.py'
+      - 'tests/test_strategy_quality_shadow.py'
+      - 'tests/test_profit_protection_shadow.py'
+      - '.github/workflows/trading-quality-qualification.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trading-quality-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked qualification graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint trading-quality surface
+        run: >-
+          ruff check --output-format=github
+          app/application/cross_sectional_paper_cycle.py
+          app/application/cross_sectional_target_planner.py
+          app/application/order_intents.py
+          app/application/paper_pipeline.py
+          app/application/paper_protection.py
+          app/application/paper_protection_cycle.py
+          app/application/paper_protection_reprice.py
+          app/application/paper_reentry.py
+          app/application/paper_trade_quality.py
+          app/application/portfolio_paper_planner.py
+          app/execution/trade_fills.py
+          app/strategy/position_management.py
+          app/strategy/position_sizing.py
+          app/strategy/quality_monitor.py
+          app/strategy/ohlcv_exit.py
+          app/strategy/cross_sectional_selection.py
+          app/strategy/cross_sectional_portfolio.py
+          app/strategy/correlation_diversification.py
+          tools/qualify_strategy_quality_shadow.py
+          tools/qualify_cross_sectional_portfolio_shadow.py
+          tools/qualify_cross_sectional_trading_quality_shadow.py
+          tools/qualify_cross_sectional_walk_forward.py
+          tools/qualify_correlation_diversification_shadow.py
+          tools/qualify_correlation_diversification_walk_forward.py
+          tests/test_cross_sectional_paper_cycle.py
+          tests/test_cross_sectional_target_planner.py
+          tests/test_paper_cycle_e2e.py
+          tests/test_paper_protection.py
+          tests/test_paper_protection_cycle.py
+          tests/test_paper_protection_reprice.py
+          tests/test_paper_protection_reprice_cycle.py
+          tests/test_paper_reentry.py
+          tests/test_paper_reentry_fill_accounting.py
+          tests/test_paper_trade_quality.py
+          tests/test_paper_trade_quality_protection_cycle.py
+          tests/test_portfolio_paper_planner.py
+          tests/test_trade_fill_accounting.py
+          tests/test_position_management.py
+          tests/test_position_sizing.py
+          tests/test_quality_monitor.py
+          tests/test_ohlcv_exit.py
+          tests/test_cross_sectional_selection.py
+          tests/test_cross_sectional_portfolio.py
+          tests/test_cross_sectional_portfolio_contract.py
+          tests/test_cross_sectional_trading_quality_shadow.py
+          tests/test_cross_sectional_walk_forward.py
+          tests/test_correlation_diversification.py
+          tests/test_correlation_diversification_shadow.py
+          tests/test_correlation_diversification_walk_forward.py
+          tests/test_exit_quality_trace.py
+          tests/test_strategy_quality_shadow.py
+          tests/test_profit_protection_shadow.py
+
+      - name: Validate combined shadow configuration
+        run: >-
+          python -m tools.qualify_cross_sectional_trading_quality_shadow
+          --config research/cross_sectional_trading_quality_shadow_v2.json
+          --validate-config-only
+
+      - name: Validate walk-forward holdout configuration
+        run: >-
+          python -m tools.qualify_cross_sectional_walk_forward
+          --config research/cross_sectional_trading_quality_shadow_v2.json
+          --validate-config-only
+
+      - name: Trading-quality regressions with retained log
+        id: regressions
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -vv \
+            tests/test_cross_sectional_paper_cycle.py \
+            tests/test_cross_sectional_target_planner.py \
+            tests/test_paper_cycle_e2e.py \
+            tests/test_paper_protection.py \
+            tests/test_paper_protection_cycle.py \
+            tests/test_paper_protection_reprice.py \
+            tests/test_paper_protection_reprice_cycle.py \
+            tests/test_paper_reentry.py \
+            tests/test_paper_reentry_fill_accounting.py \
+            tests/test_paper_trade_quality.py \
+            tests/test_paper_trade_quality_protection_cycle.py \
+            tests/test_portfolio_paper_planner.py \
+            tests/test_trade_fill_accounting.py \
+            tests/test_position_management.py \
+            tests/test_position_sizing.py \
+            tests/test_quality_monitor.py \
+            tests/test_ohlcv_exit.py \
+            tests/test_cross_sectional_selection.py \
+            tests/test_cross_sectional_portfolio.py \
+            tests/test_cross_sectional_portfolio_contract.py \
+            tests/test_cross_sectional_trading_quality_shadow.py \
+            tests/test_cross_sectional_walk_forward.py \
+            tests/test_correlation_diversification.py \
+            tests/test_correlation_diversification_shadow.py \
+            tests/test_correlation_diversification_walk_forward.py \
+            tests/test_exit_quality_trace.py \
+            tests/test_strategy_quality_shadow.py \
+            tests/test_profit_protection_shadow.py \
+            2>&1 | tee trading-quality-pytest.txt
+
+      - name: Upload trading-quality diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: trading-quality-${{ github.run_id }}
+          path: trading-quality-pytest.txt
+          if-no-files-found: warn
+          retention-days: 30

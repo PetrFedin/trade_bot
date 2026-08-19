@@ -1,0 +1,85 @@
+name: historical-signal-replay-qualification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/strategy/**'
+      - 'research/cross_sectional_trading_quality_shadow_v2.json'
+      - 'research/entry_quality_filter_shadow_v1.json'
+      - 'research/selection_exit_confirmation_shadow_v1.json'
+      - 'research/profit_runner_shadow_v1.json'
+      - 'tools/replay_historical_signals.py'
+      - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
+      - 'tools/qualify_entry_quality_shadow.py'
+      - 'tools/qualify_selection_exit_confirmation_shadow.py'
+      - 'tools/qualify_profit_runner_shadow.py'
+      - 'tests/test_historical_signal_replay.py'
+      - '.github/workflows/historical-signal-replay-qualification.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/strategy/**'
+      - 'research/cross_sectional_trading_quality_shadow_v2.json'
+      - 'research/entry_quality_filter_shadow_v1.json'
+      - 'research/selection_exit_confirmation_shadow_v1.json'
+      - 'research/profit_runner_shadow_v1.json'
+      - 'tools/replay_historical_signals.py'
+      - 'tools/qualify_cross_sectional_trading_quality_shadow.py'
+      - 'tools/qualify_entry_quality_shadow.py'
+      - 'tools/qualify_selection_exit_confirmation_shadow.py'
+      - 'tools/qualify_profit_runner_shadow.py'
+      - 'tests/test_historical_signal_replay.py'
+      - '.github/workflows/historical-signal-replay-qualification.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: historical-signal-replay-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked qualification graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint replay surface
+        run: >-
+          ruff check --output-format=github
+          tools/replay_historical_signals.py
+          tests/test_historical_signal_replay.py
+
+      - name: Historical replay invariants
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -vv tests/test_historical_signal_replay.py \
+            2>&1 | tee historical-signal-replay-pytest.txt
+
+      - name: Compile replay boundary
+        run: python -m compileall -q tools/replay_historical_signals.py
+
+      - name: Upload replay diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: historical-signal-replay-${{ github.run_id }}
+          path: historical-signal-replay-pytest.txt
+          if-no-files-found: warn
+          retention-days: 30

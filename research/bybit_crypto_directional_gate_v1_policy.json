@@ -1,0 +1,49 @@
+{
+  "schema_version": "bybit-crypto-directional-gate-v1-policy-1",
+  "status": "PREDECLARED_PROSPECTIVE_SHADOW_ONLY",
+  "source_candidate": "CONDITIONAL_COMBINED_RISK",
+  "discovery_window_end_utc": "2026-08-16",
+  "prospective_validation_start_utc": "2026-08-17",
+  "discovery_evidence_may_validate_candidate": false,
+  "same_sample_directional_activation_allowed": false,
+  "hypothesis": {
+    "description": "SHORT exposure may have persistently negative net expectancy while LONG exposure remains positive under the combined-risk strategy.",
+    "candidate_action": "BLOCK_NEW_SHORT_ENTRIES_KEEP_LONG_LOGIC_UNCHANGED",
+    "long_entry_logic_changes_allowed": false,
+    "exit_logic_changes_allowed_in_same_experiment": false,
+    "risk_threshold_changes_allowed_in_same_experiment": false
+  },
+  "prospective_evidence": {
+    "minimum_completed_utc_archive_days": 28,
+    "fold_days": 7,
+    "minimum_folds": 4,
+    "minimum_active_short_folds": 3,
+    "maximum_positive_short_fold_fraction": 0.25,
+    "maximum_short_aggregate_profit_factor": 1.0,
+    "require_negative_short_total_net_pnl": true,
+    "minimum_candidate_closed_trades": 30,
+    "minimum_candidate_positive_fold_fraction": 0.75,
+    "minimum_candidate_profit_factor": 1.2,
+    "maximum_candidate_worst_fold_drawdown_pct": 5.0,
+    "require_zero_candidate_risk_budget_breaches": true,
+    "require_positive_candidate_total_net_pnl": true,
+    "require_candidate_net_pnl_not_worse_than_combined_baseline": true,
+    "require_candidate_profit_factor_not_worse_than_combined_baseline": true,
+    "require_candidate_drawdown_not_worse_than_combined_baseline": true
+  },
+  "anti_overfit": {
+    "all_validation_days_must_be_on_or_after_prospective_validation_start": true,
+    "parameter_tuning_between_folds": false,
+    "cross_fold_signal_history_carried": false,
+    "cross_fold_position_state_carried": false,
+    "only_directional_entry_filter_may_differ_from_source_candidate": true,
+    "august_discovery_metrics_are_informational_only": true
+  },
+  "promotion": {
+    "automatic_strategy_selection_allowed": false,
+    "directional_filter_activation_allowed": false,
+    "demo_observation_automatic_activation_allowed": false,
+    "live_promotion_allowed": false,
+    "bybit_live_order_routing_allowed": false
+  }
+}

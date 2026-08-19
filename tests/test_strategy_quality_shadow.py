@@ -31,8 +31,26 @@ def test_shadow_tracks_trade_quality_not_just_profitable_trade_rate() -> None:
     assert Decimal(aggregate["win_rate"]) == Decimal(2) / Decimal(3)
     assert Decimal(aggregate["profit_factor"]) < Decimal("1")
     assert Decimal(aggregate["net_closed_trade_pnl"]) < Decimal("0")
+    assert aggregate["positive_mfe_trades"] >= aggregate["positive_mfe_closed_profitable"]
+    assert aggregate["profit_preservation_rate"] is not None
+    assert aggregate["average_mfe_capture_ratio"] is not None
     assert "AGGREGATE_PROFIT_FACTOR_BELOW_ONE" in evidence["promotion_blockers"]
     assert "AGGREGATE_CLOSED_TRADE_PNL_NOT_POSITIVE" in evidence["promotion_blockers"]
+
+
+def test_regime_evidence_retains_mfe_mae_and_capture_for_each_trade() -> None:
+    evidence = qualify(MANIFEST, POLICY)
+    trades = [
+        trade
+        for regime in evidence["regimes"]
+        for trade in regime["candidate"]["closed_trades"]
+    ]
+    assert trades
+    for trade in trades:
+        assert "maximum_favorable_excursion_fraction" in trade
+        assert "maximum_adverse_excursion_fraction" in trade
+        assert "mfe_capture_ratio" in trade
+        assert "mfe_giveback_fraction" in trade
 
 
 def test_shadow_candidate_improves_downside_without_claiming_profitability() -> None:

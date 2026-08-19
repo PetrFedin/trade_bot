@@ -1,0 +1,243 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from decimal import Decimal
+from enum import StrEnum
+from typing import Any, Protocol
+
+from app.execution.bybit_demo import BybitDemoPosition
+from app.execution.bybit_demo_account_pnl_reconciliation import (
+    BybitDemoAccountPnlReconciliation,
+    reconcile_bybit_demo_account_pnl,
+)
+from app.execution.bybit_demo_funding_reconciliation import (
+    BybitDemoAllInPnlReconciliation,
+    BybitDemoFundingLedgerWindow,
+    apply_funding_to_account_view,
+    build_bybit_demo_funding_ledger,
+    reconcile_bybit_demo_funding,
+)
+from app.execution.bybit_demo_lifecycle_gate import (
+    BybitDemoLifecycleDecision,
+    BybitDemoLifecyclePolicy,
+    evaluate_bybit_demo_lifecycle,
+)
+from app.execution.bybit_demo_trade_monitor import (
+    BybitDemoTradeMonitorResult,
+    reconcile_bybit_demo_trade,
+)
+
+
+class BybitDemoProfitOutcomeStatus(StrEnum):
+    TRADE_OPEN = "TRADE_OPEN"
+    ALL_IN_ACCOUNTING_PENDING = "ALL_IN_ACCOUNTING_PENDING"
+    FULLY_RECONCILED_PROFIT = "FULLY_RECONCILED_PROFIT"
+    FULLY_RECONCILED_FLAT = "FULLY_RECONCILED_FLAT"
+    FULLY_RECONCILED_LOSS = "FULLY_RECONCILED_LOSS"
+
+
+class _TradeReadClient(Protocol):
+    live_mainnet_order_routing_allowed: bool
+
+    def get_positions(
+        self,
+        *,
+        settle_coin: str = "USDT",
+    ) -> tuple[BybitDemoPosition, ...]: ...
+
+    def get_executions(
+        self,
+        *,
+        symbol: str,
+        order_link_id: str | None = None,
+        limit: int = 50,
+    ) -> tuple[Mapping[str, Any], ...]: ...
+
+
+class _ClosedPnlReader(Protocol):
+    live_mainnet_order_routing_allowed: bool
+    order_writes_supported: bool
+
+    def get_closed_pnl(
+        self,
+        *,
+        symbol: str,
+        limit: int = 100,
+        max_pages: int = 10,
+    ) -> tuple[object, ...]: ...
+
+
+@dataclass(frozen=True)
+class BybitDemoPostTradeAccountingResult:
+    trade: BybitDemoTradeMonitorResult
+    account_pnl: BybitDemoAccountPnlReconciliation | None
+    all_in_pnl: BybitDemoAllInPnlReconciliation | None
+    lifecycle: BybitDemoLifecycleDecision
+    closed_pnl_read_attempted: bool
+    funding_ledger_supplied: bool
+    funding_transaction_log_read_attempted: bool = False
+    funding_transaction_log_row_count: int = 0
+    funding_ledger_source: str | None = None
+    funding_transaction_log_error_type: str | None = None
+    demo_only: bool = True
+    strategy_promotion_allowed: bool = False
+    live_mainnet_order_routing_allowed: bool = False
+
+    @property
+    def fully_reconciled_all_in_net_pnl_usdt(self) -> Decimal | None:
+        if (
+            self.all_in_pnl is None
+            or not self.all_in_pnl.fully_reconciled_net_pnl
+            or self.all_in_pnl.all_in_net_pnl_usdt is None
+        ):
+            return None
+        return self.all_in_pnl.all_in_net_pnl_usdt
+
+    @property
+    def profit_outcome_status(self) -> BybitDemoProfitOutcomeStatus:
+        if not self.trade.terminal:
+            return BybitDemoProfitOutcomeStatus.TRADE_OPEN
+        pnl = self.fully_reconciled_all_in_net_pnl_usdt
+        if pnl is None:
+            return BybitDemoProfitOutcomeStatus.ALL_IN_ACCOUNTING_PENDING
+        if pnl > 0:
+            return BybitDemoProfitOutcomeStatus.FULLY_RECONCILED_PROFIT
+        if pnl < 0:
+            return BybitDemoProfitOutcomeStatus.FULLY_RECONCILED_LOSS
+        return BybitDemoProfitOutcomeStatus.FULLY_RECONCILED_FLAT
+
+    @property
+    def closed_in_profit_after_all_reconciled_costs(self) -> bool | None:
+        pnl = self.fully_reconciled_all_in_net_pnl_usdt
+        return None if pnl is None else pnl > 0
+
+
+def reconcile_bybit_demo_trade_lifecycle(
+    *,
+    trade_client: _TradeReadClient,
+    accounting_client: _ClosedPnlReader,
+    symbol: str,
+    entry_side: str,
+    entry_order_link_id: str,
+    execution_limit: int = 100,
+    funding_ledger: BybitDemoFundingLedgerWindow | None = None,
+    lifecycle_policy: BybitDemoLifecyclePolicy | None = None,
+) -> BybitDemoPostTradeAccountingResult:
+    """Reconcile fills, account PnL, funding and symbol reuse as one read-only snapshot."""
+
+    trade = reconcile_bybit_demo_trade(
+        client=trade_client,
+        symbol=symbol,
+        entry_side=entry_side,
+        entry_order_link_id=entry_order_link_id,
+        execution_limit=execution_limit,
+    )
+    return reconcile_bybit_demo_post_trade_accounting(
+        trade,
+        client=accounting_client,
+        funding_ledger=funding_ledger,
+        lifecycle_policy=lifecycle_policy,
+    )
+
+
+def reconcile_bybit_demo_post_trade_accounting(
+    trade: BybitDemoTradeMonitorResult,
+    *,
+    client: _ClosedPnlReader,
+    funding_ledger: BybitDemoFundingLedgerWindow | None = None,
+    lifecycle_policy: BybitDemoLifecyclePolicy | None = None,
+) -> BybitDemoPostTradeAccountingResult:
+    """Run the fail-closed post-trade accounting chain for one demo symbol."""
+
+    if client.live_mainnet_order_routing_allowed:
+        raise ValueError("post-trade accounting rejected mainnet-capable reader")
+    if client.order_writes_supported:
+        raise ValueError("post-trade accounting reader must not support order writes")
+
+    supplied_ledger = funding_ledger is not None
+    if not trade.terminal:
+        lifecycle = evaluate_bybit_demo_lifecycle(
+            trade,
+            None,
+            policy=lifecycle_policy,
+        )
+        return BybitDemoPostTradeAccountingResult(
+            trade=trade,
+            account_pnl=None,
+            all_in_pnl=None,
+            lifecycle=lifecycle,
+            closed_pnl_read_attempted=False,
+            funding_ledger_supplied=supplied_ledger,
+            funding_ledger_source="SUPPLIED" if supplied_ledger else None,
+        )
+
+    rows = client.get_closed_pnl(symbol=trade.symbol, limit=100, max_pages=10)
+    mappings = tuple(_require_mapping(row, context="closed-PnL") for row in rows)
+    account = reconcile_bybit_demo_account_pnl(trade, mappings)
+
+    transaction_read_attempted = False
+    transaction_row_count = 0
+    transaction_error_type: str | None = None
+    ledger_source = "SUPPLIED" if supplied_ledger else None
+    if funding_ledger is None and account.matched_record is not None:
+        transaction_reader = getattr(client, "get_transaction_log", None)
+        if callable(transaction_reader):
+            transaction_read_attempted = True
+            record = account.matched_record
+            try:
+                transaction_rows = transaction_reader(
+                    symbol=trade.symbol,
+                    start_time_ms=record.created_time_ms,
+                    end_time_ms=record.updated_time_ms,
+                    limit=50,
+                    max_pages=20,
+                    transaction_type="SETTLEMENT",
+                )
+            except (OSError, RuntimeError) as exc:
+                transaction_error_type = type(exc).__name__
+            else:
+                transaction_mappings = tuple(
+                    _require_mapping(row, context="transaction-log")
+                    for row in transaction_rows
+                )
+                transaction_row_count = len(transaction_mappings)
+                funding_ledger = build_bybit_demo_funding_ledger(
+                    transaction_mappings,
+                    symbol=trade.symbol,
+                    coverage_start_ms=record.created_time_ms,
+                    coverage_end_ms=record.updated_time_ms,
+                )
+                ledger_source = "BYBIT_TRANSACTION_LOG"
+
+    all_in = None
+    account_for_lifecycle = account
+    if funding_ledger is not None:
+        all_in = reconcile_bybit_demo_funding(account, funding_ledger)
+        account_for_lifecycle = apply_funding_to_account_view(account, all_in)
+    lifecycle = evaluate_bybit_demo_lifecycle(
+        trade,
+        account_for_lifecycle,
+        policy=lifecycle_policy,
+    )
+    return BybitDemoPostTradeAccountingResult(
+        trade=trade,
+        account_pnl=account,
+        all_in_pnl=all_in,
+        lifecycle=lifecycle,
+        closed_pnl_read_attempted=True,
+        funding_ledger_supplied=supplied_ledger,
+        funding_transaction_log_read_attempted=transaction_read_attempted,
+        funding_transaction_log_row_count=transaction_row_count,
+        funding_ledger_source=ledger_source,
+        funding_transaction_log_error_type=transaction_error_type,
+        demo_only=True,
+        strategy_promotion_allowed=False,
+        live_mainnet_order_routing_allowed=False,
+    )
+
+
+def _require_mapping(value: object, *, context: str) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError(f"Bybit demo {context} row must be an object")
+    return value

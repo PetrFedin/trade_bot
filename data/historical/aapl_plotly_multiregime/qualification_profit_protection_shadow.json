@@ -1,0 +1,32 @@
+{
+  "schema_version": "strategy-quality-shadow-v1",
+  "shadow_only": true,
+  "promotion_allowed": false,
+  "strategy_id": "paper-regime-momentum-profit-protection-shadow-v1",
+  "control_strategy_id": "paper-momentum-v1",
+  "target_quantity": "1",
+  "opening_cash": "10000",
+  "fee_per_fill": "0.50",
+  "slippage_bps": "5",
+  "training_bars": 10,
+  "signal": {
+    "fast_bars": 3,
+    "slow_bars": 8,
+    "momentum_lookback_bars": 3,
+    "volatility_bars": 5,
+    "minimum_momentum_return": "0.002",
+    "minimum_trend_strength": "0.001",
+    "maximum_realized_volatility": "0.03"
+  },
+  "position_management": {
+    "stop_loss_fraction": "0.02",
+    "take_profit_fraction": "0.04",
+    "trailing_activation_fraction": "0.03",
+    "trailing_stop_fraction": "0.015",
+    "maximum_holding_bars": 10,
+    "break_even_activation_fraction": "0.01",
+    "break_even_buffer_fraction": "0.001",
+    "profit_protection_activation_fraction": "0.015",
+    "maximum_profit_giveback_fraction": "0.50"
+  }
+}
