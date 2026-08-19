@@ -7,7 +7,7 @@ name = "astra-trade-bot"
 version = "7.39.0"
 description = "ASTRA paper-trading product with Schema 109 remote signer attestation compatibility"
 requires-python = ">=3.11"
-dependencies = ["cryptography>=50,<51"]
+dependencies = ["cryptography>=50,<51", "websockets>=15,<17"]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10", "coverage>=7,<8"]

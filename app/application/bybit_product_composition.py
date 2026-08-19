@@ -32,6 +32,7 @@ from app.execution.bybit_postgres_runtime_state import (
     PostgresBybitDemoExcursionStore,
     PostgresBybitDemoRuntimeLease,
 )
+from app.execution.bybit_private_stream import BybitPrivateStreamMonitor
 from app.execution.bybit_product_terminal_handoff import persist_product_terminal_state
 from app.execution.bybit_startup_reconciliation import (
     BybitStartupReconciliationResult,
@@ -85,6 +86,9 @@ class BybitProductCycleExecutor:
     @property
     def demo_order_writes_enabled(self) -> bool:
         return self.config.demo_order_writes_allowed
+
+    def has_active_trade(self) -> bool:
+        return self._active_checkpoint_hint() is not None
 
     def run_once(self) -> BybitDemoAttributedRuntimeResult:
         now_ms = self.clock_ms()
@@ -202,6 +206,7 @@ class BybitProductComposition:
     config: BybitProductConfig
     startup_reconciler: BybitProductStartupReconciler
     cycle_executor: BybitProductCycleExecutor
+    private_stream_monitor: BybitPrivateStreamMonitor
     live_mainnet_order_routing_allowed: bool = False
 
     def run(
@@ -214,6 +219,7 @@ class BybitProductComposition:
             config=self.config,
             startup_reconciler=self.startup_reconciler,
             cycle_executor=self.cycle_executor,
+            private_stream_monitor=self.private_stream_monitor,
             stop_requested=stop_requested,
             max_cycles=max_cycles,
         )
@@ -248,6 +254,11 @@ def build_bybit_product_composition(
         api_key=config.api_key,
         api_secret=config.api_secret,
     )
+    private_stream = BybitPrivateStreamMonitor(
+        api_key=config.api_key,
+        api_secret=config.api_secret,
+        url=config.private_ws_url,
+    )
     cycle = BybitProductCycleExecutor(
         config=config,
         trade_client=trade_client,
@@ -270,6 +281,7 @@ def build_bybit_product_composition(
             checkpoint_store=excursion_store,
         ),
         cycle_executor=cycle,
+        private_stream_monitor=private_stream,
     )
 
 
