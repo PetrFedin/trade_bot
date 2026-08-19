@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from functools import partial
-from time import time
+from time import monotonic, time
 
 from app.application.bybit_operator_control import PostgresBybitOperatorControl
 from app.execution.bybit_demo_account_reader import BybitDemoAccountingClient
@@ -53,7 +53,13 @@ from app.marketdata.bybit_entry_reference import (
 )
 from app.marketdata.bybit_instruments import BybitInstrumentClient
 from app.marketdata.bybit_v5 import interval_milliseconds, last_completed_kline_end_ms
-from app.observability.bybit_runtime_health import BybitRestHealthRecorder
+from app.observability.bybit_runtime_health import (
+    BybitOperationalHealthReport,
+    BybitReconciliationHealthRecorder,
+    BybitRestHealthRecorder,
+    build_bybit_operational_health,
+    collect_bybit_operational_measurements,
+)
 from app.oms.bybit_entry import PostgresBybitEntryOms
 from app.oms.store import OrderRecord, OrderState
 from app.runtime.bybit_product_config import BybitProductConfig
@@ -65,6 +71,7 @@ from app.strategy.crypto_perp import CryptoPerpStrategyConfig
 from app.strategy.crypto_session_risk import CryptoSessionRiskState
 
 ClockMs = Callable[[], int]
+MonotonicFn = Callable[[], float]
 _AUTO_RECOVERABLE_ENTRY_STATES = frozenset(
     {OrderState.SUBMIT_STARTED, OrderState.UNCERTAIN, OrderState.RECONCILING}
 )
@@ -75,14 +82,18 @@ class BybitProductStartupReconciler:
     broker: BybitDemoBrokerTruthClient
     checkpoint_store: PostgresBybitDemoExcursionStore
     entry_oms: PostgresBybitEntryOms
+    reconciliation_health: BybitReconciliationHealthRecorder | None = None
     clock_ms: ClockMs = lambda: int(time() * 1000)
+    monotonic_fn: MonotonicFn = monotonic
     live_mainnet_order_routing_allowed: bool = False
 
     def run(self) -> BybitStartupReconciliationResult:
         try:
             unresolved_entries = self.entry_oms.unresolved_entry_submissions()
         except Exception as exc:
-            return _blocked_startup(f"STARTUP_BYBIT_OMS_READ_FAILED:{type(exc).__name__}")
+            return self._record_reconciliation(
+                _blocked_startup(f"STARTUP_BYBIT_OMS_READ_FAILED:{type(exc).__name__}")
+            )
 
         blockers: list[str] = []
         order_truth_complete = True
@@ -91,22 +102,31 @@ class BybitProductStartupReconciler:
             order_truth_complete = order_truth_complete and truth_complete
             blockers.extend(entry_blockers)
 
-        try:
-            base = reconcile_bybit_startup(
-                broker=self.broker,
-                checkpoint_store=self.checkpoint_store,
-            )
-        except Exception:
-            raise
-        if not blockers:
-            return base
-        return replace(
-            base,
-            status=BybitStartupReconciliationStatus.BLOCKED,
-            reasons=_unique_reasons(base.reasons + tuple(blockers)),
-            next_entry_allowed=False,
-            broker_truth_complete=base.broker_truth_complete and order_truth_complete,
+        base = reconcile_bybit_startup(
+            broker=self.broker,
+            checkpoint_store=self.checkpoint_store,
         )
+        if not blockers:
+            return self._record_reconciliation(base)
+        return self._record_reconciliation(
+            replace(
+                base,
+                status=BybitStartupReconciliationStatus.BLOCKED,
+                reasons=_unique_reasons(base.reasons + tuple(blockers)),
+                next_entry_allowed=False,
+                broker_truth_complete=base.broker_truth_complete and order_truth_complete,
+            )
+        )
+
+    def _record_reconciliation(
+        self,
+        result: BybitStartupReconciliationResult,
+    ) -> BybitStartupReconciliationResult:
+        if self.reconciliation_health is None:
+            return result
+        observed = Decimal(str(self.monotonic_fn()))
+        self.reconciliation_health.record(result, observed_monotonic=observed)
+        return result
 
     def _reconcile_unresolved_entry(self, record: OrderRecord) -> tuple[bool, tuple[str, ...]]:
         if record.state not in _AUTO_RECOVERABLE_ENTRY_STATES:
@@ -295,7 +315,9 @@ class BybitProductComposition:
     operator_control: PostgresBybitOperatorControl
     private_stream_monitor: BybitPrivateStreamMonitor
     rest_health_recorder: BybitRestHealthRecorder
+    reconciliation_health_recorder: BybitReconciliationHealthRecorder
     entry_oms: PostgresBybitEntryOms
+    monotonic_fn: MonotonicFn = monotonic
     live_mainnet_order_routing_allowed: bool = False
 
     def run(
@@ -314,12 +336,39 @@ class BybitProductComposition:
             max_cycles=max_cycles,
         )
 
+    def operational_health(self) -> BybitOperationalHealthReport:
+        now = Decimal(str(self.monotonic_fn()))
+        try:
+            unresolved_entries: int | None = self.entry_oms.count_unresolved_entry_submissions()
+        except Exception:
+            unresolved_entries = None
+        try:
+            operator = self.operator_control.inspect()
+        except Exception:
+            operator = None
+        try:
+            stream = self.private_stream_monitor.snapshot()
+        except Exception:
+            stream = None
+        measurements = collect_bybit_operational_measurements(
+            now_monotonic=now,
+            rest=self.rest_health_recorder.snapshot(),
+            reconciliation=self.reconciliation_health_recorder.snapshot(
+                now_monotonic=now
+            ),
+            private_stream=stream,
+            unresolved_entry_submissions=unresolved_entries,
+            operator=operator,
+        )
+        return build_bybit_operational_health(measurements)
+
 
 def build_bybit_product_composition(
     config: BybitProductConfig,
     *,
     strategy_config: CryptoPerpStrategyConfig | None = None,
     clock_ms: ClockMs | None = None,
+    monotonic_fn: MonotonicFn = monotonic,
 ) -> BybitProductComposition:
     config.validate(require_universe=True)
     active_strategy = CryptoPerpStrategyConfig() if strategy_config is None else strategy_config
@@ -335,6 +384,7 @@ def build_bybit_product_composition(
     operator_control = PostgresBybitOperatorControl(config.database_url)
     entry_reference_store = BybitEntryReferenceStore()
     rest_health = BybitRestHealthRecorder()
+    reconciliation_health = BybitReconciliationHealthRecorder()
     trade_client = OmsAwareBybitDemoStopRatchetClient(
         api_key=config.api_key,
         api_secret=config.api_secret,
@@ -356,6 +406,7 @@ def build_bybit_product_composition(
         api_key=config.api_key,
         api_secret=config.api_secret,
         url=config.private_ws_url,
+        monotonic_fn=monotonic_fn,
     )
     cycle = BybitProductCycleExecutor(
         config=config,
@@ -378,13 +429,17 @@ def build_bybit_product_composition(
             broker=startup_broker,
             checkpoint_store=excursion_store,
             entry_oms=entry_oms,
+            reconciliation_health=reconciliation_health,
             clock_ms=active_clock,
+            monotonic_fn=monotonic_fn,
         ),
         cycle_executor=cycle,
         operator_control=operator_control,
         private_stream_monitor=private_stream,
         rest_health_recorder=rest_health,
+        reconciliation_health_recorder=reconciliation_health,
         entry_oms=entry_oms,
+        monotonic_fn=monotonic_fn,
     )
 
 

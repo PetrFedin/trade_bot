@@ -1,14 +1,25 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
 from app.observability.bybit_runtime_health import (
     BybitOperationalMeasurements,
+    BybitReconciliationHealthRecorder,
     BybitRestHealthRecorder,
     build_bybit_operational_health,
+    collect_bybit_operational_measurements,
 )
+
+
+@dataclass(frozen=True)
+class _ReconciliationResult:
+    status: str
+    broker_truth_complete: bool
+    live_mainnet_order_routing_allowed: bool = False
 
 
 def test_missing_measurements_fail_closed_without_operational_snapshot() -> None:
@@ -113,4 +124,113 @@ def test_rest_health_recorder_rejects_fake_success_error_metadata() -> None:
             success=True,
             observed_monotonic=Decimal("1"),
             error_type="should-not-exist",
+        )
+
+
+def test_reconciliation_health_tracks_actual_rest_truth_age_and_state() -> None:
+    recorder = BybitReconciliationHealthRecorder()
+    recorder.record(
+        _ReconciliationResult("READY_FOR_ENTRY", True),
+        observed_monotonic=Decimal("100"),
+    )
+
+    healthy = recorder.snapshot(now_monotonic=Decimal("107.5"))
+
+    assert healthy.last_success_monotonic == Decimal("100")
+    assert healthy.reconciliation_age_seconds == Decimal("7.5")
+    assert healthy.broker_connected is True
+    assert healthy.portfolio_reconciled is True
+    assert healthy.position_mismatches == 0
+
+    recorder.record(
+        _ReconciliationResult("BLOCKED", False),
+        observed_monotonic=Decimal("108"),
+    )
+    degraded = recorder.snapshot(now_monotonic=Decimal("110"))
+
+    assert degraded.reconciliation_age_seconds == Decimal("10")
+    assert degraded.broker_connected is False
+    assert degraded.portfolio_reconciled is False
+    assert degraded.position_mismatches is None
+
+
+def test_collector_uses_only_proven_runtime_sources_and_leaves_semantic_gaps_unknown() -> None:
+    rest = BybitRestHealthRecorder()
+    rest.record(
+        latency_ms=Decimal("30"),
+        success=True,
+        observed_monotonic=Decimal("100"),
+    )
+    rest.record(
+        latency_ms=Decimal("80"),
+        success=False,
+        observed_monotonic=Decimal("101"),
+        error_type="BybitRestRateLimitError",
+    )
+    reconciliation = BybitReconciliationHealthRecorder()
+    reconciliation.record(
+        _ReconciliationResult("READY_FOR_ENTRY", True),
+        observed_monotonic=Decimal("100"),
+    )
+    private_stream = SimpleNamespace(
+        healthy=True,
+        last_message_monotonic=104.0,
+        live_mainnet_order_routing_allowed=False,
+    )
+    operator = SimpleNamespace(
+        kill_switch_engaged=False,
+        live_mainnet_order_routing_allowed=False,
+    )
+
+    measurements = collect_bybit_operational_measurements(
+        now_monotonic=Decimal("105"),
+        rest=rest.snapshot(),
+        reconciliation=reconciliation.snapshot(now_monotonic=Decimal("105")),
+        private_stream=private_stream,
+        unresolved_entry_submissions=2,
+        operator=operator,
+    )
+
+    assert measurements.stream_silence_seconds == Decimal("1.0")
+    assert measurements.stream_ready is True
+    assert measurements.broker_latency_ms == Decimal("80")
+    assert measurements.broker_error_fraction == Decimal("0.5")
+    assert measurements.uncertain_orders == 2
+    assert measurements.reconciliation_age_seconds == Decimal("5")
+    assert measurements.broker_connected is True
+    assert measurements.portfolio_reconciled is True
+    assert measurements.position_mismatches == 0
+    assert measurements.kill_switch_engaged is False
+    assert measurements.market_data_age_seconds is None
+    assert measurements.market_data_ready is None
+    assert measurements.cash_mismatch is None
+    assert measurements.daily_pnl is None
+    assert measurements.drawdown is None
+
+    report = build_bybit_operational_health(measurements)
+    assert report.measurement_complete is False
+    assert "MEASUREMENT_UNAVAILABLE:market_data_age_seconds" in report.blockers
+    assert "MEASUREMENT_UNAVAILABLE:daily_pnl" in report.blockers
+    assert "MEASUREMENT_UNAVAILABLE:uncertain_orders" not in report.blockers
+    assert "MEASUREMENT_UNAVAILABLE:kill_switch_engaged" not in report.blockers
+
+
+def test_collector_hard_rejects_mainnet_capable_measurement_source() -> None:
+    reconciliation = BybitReconciliationHealthRecorder().snapshot(
+        now_monotonic=Decimal("1")
+    )
+    stream = SimpleNamespace(
+        healthy=True,
+        last_message_monotonic=1.0,
+        live_mainnet_order_routing_allowed=True,
+    )
+
+    with pytest.raises(ValueError, match="mainnet-capable private stream snapshot"):
+        collect_bybit_operational_measurements(
+            now_monotonic=Decimal("2"),
+            rest=BybitRestHealthRecorder().snapshot(),
+            reconciliation=reconciliation,
+            private_stream=stream,
+            unresolved_entry_submissions=0,
+            operator=None,
         )
