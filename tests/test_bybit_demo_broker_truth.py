@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
