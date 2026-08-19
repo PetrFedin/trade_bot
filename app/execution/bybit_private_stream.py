@@ -197,8 +197,8 @@ class BybitPrivateStreamMonitor:
         if connection is not None:
             try:
                 connection.close()
-            except Exception:  # noqa: BLE001 - shutdown continues after transport close failure.
-                pass
+            except Exception as exc:  # noqa: BLE001 - shutdown must remain best-effort.
+                self._record_close_failure(exc)
         if thread is not None:
             thread.join(timeout=self._policy.shutdown_join_seconds)
         with self._lock:
@@ -290,8 +290,8 @@ class BybitPrivateStreamMonitor:
                     if connection is not None:
                         try:
                             connection.close()
-                        except Exception:  # noqa: BLE001 - reconnect path must continue.
-                            pass
+                        except Exception as exc:  # noqa: BLE001 - reconnect cleanup continues.
+                            self._record_close_failure(exc)
                     with self._lock:
                         if self._connection is connection:
                             self._connection = None
@@ -394,6 +394,12 @@ class BybitPrivateStreamMonitor:
                     )
         with self._lock:
             self._require_reconciliation_locked()
+        self._wake.set()
+
+    def _record_close_failure(self, exc: Exception) -> None:
+        with self._lock:
+            if self._last_error_type is None:
+                self._last_error_type = f"CONNECTION_CLOSE_FAILED:{type(exc).__name__}"
         self._wake.set()
 
     def _mark_disconnected(self, error_type: str) -> None:
