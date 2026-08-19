@@ -122,6 +122,7 @@ def _executor(
     wallet_equity: str = "950",
     bar_count: int = 50,
     market_data_observation_hook=None,
+    account_risk_observation_hook=None,
 ) -> product.BybitProductCycleExecutor:
     checkpoint = (
         None
@@ -145,6 +146,7 @@ def _executor(
         ),
         strategy_config=CryptoPerpStrategyConfig(),
         market_data_observation_hook=market_data_observation_hook,
+        account_risk_observation_hook=account_risk_observation_hook,
         clock_ms=lambda: 1_800_000_000_000,
     )
 
@@ -202,6 +204,47 @@ def test_flat_cycle_uses_all_completed_universe_bars_and_frozen_strategy(
     assert captured["session_state"].peak_equity_usdt == Decimal("1000")
     assert executor.demo_order_writes_enabled is True
     assert executor.live_mainnet_order_routing_allowed is False
+
+
+def test_authoritative_session_state_is_projected_to_account_risk_health(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observations = []
+    executor = _executor(
+        wallet_equity="950",
+        account_risk_observation_hook=observations.append,
+    )
+    monkeypatch.setattr(
+        product,
+        "run_attributed_bybit_demo_trading_runtime",
+        lambda *_args, **_kwargs: SimpleNamespace(live_mainnet_order_routing_allowed=False),
+    )
+
+    executor.run_once()
+
+    assert len(observations) == 1
+    assert observations[0].current_equity_usdt == Decimal("950")
+    assert observations[0].peak_equity_usdt == Decimal("1000")
+
+
+def test_missing_session_ledger_does_not_publish_fake_account_risk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observations = []
+    executor = _executor(
+        active_symbol="SOLUSDT",
+        missing_session=True,
+        account_risk_observation_hook=observations.append,
+    )
+    monkeypatch.setattr(
+        product,
+        "run_attributed_bybit_demo_trading_runtime",
+        lambda *_args, **_kwargs: SimpleNamespace(live_mainnet_order_routing_allowed=False),
+    )
+
+    executor.run_once()
+
+    assert observations == []
 
 
 def test_flat_cycle_persists_wallet_high_water_before_runtime(

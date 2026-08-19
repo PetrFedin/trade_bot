@@ -55,6 +55,7 @@ from app.marketdata.bybit_entry_reference import (
 from app.marketdata.bybit_instruments import BybitInstrumentClient
 from app.marketdata.bybit_v5 import interval_milliseconds, last_completed_kline_end_ms
 from app.observability.bybit_runtime_health import (
+    BybitAccountRiskHealthRecorder,
     BybitMarketDataHealthRecorder,
     BybitOperationalHealthReport,
     BybitReconciliationHealthRecorder,
@@ -190,6 +191,7 @@ class BybitProductCycleExecutor:
     session_risk_store: PostgresBybitDemoSessionRiskLedgerStore
     strategy_config: CryptoPerpStrategyConfig
     market_data_observation_hook: Callable[[], None] | None = None
+    account_risk_observation_hook: Callable[[CryptoSessionRiskState], None] | None = None
     clock_ms: ClockMs = lambda: int(time() * 1000)
     live_mainnet_order_routing_allowed: bool = False
     _session_peak_equity_hint_usdt: Decimal | None = field(
@@ -236,6 +238,7 @@ class BybitProductCycleExecutor:
             session_state = session_ledger.to_session_risk_state(
                 current_equity_usdt=wallet.total_equity_usd,
             )
+            self._observe_account_risk(session_state)
 
         bars_by_symbol = (
             {} if active_trade else self._completed_universe_bars(now_ms=now_ms)
@@ -354,6 +357,14 @@ class BybitProductCycleExecutor:
         ):
             self._session_peak_equity_hint_usdt = peak_equity_usdt
 
+    def _observe_account_risk(self, state: CryptoSessionRiskState) -> None:
+        if self.account_risk_observation_hook is None:
+            return
+        try:
+            self.account_risk_observation_hook(state)
+        except Exception:  # noqa: BLE001 - telemetry cannot replace authoritative risk state.
+            return
+
     def _active_checkpoint_hint(self):
         try:
             return self.excursion_store.load()
@@ -416,6 +427,7 @@ class BybitProductComposition:
     private_stream_monitor: BybitPrivateStreamMonitor
     rest_health_recorder: BybitRestHealthRecorder
     market_data_health_recorder: BybitMarketDataHealthRecorder
+    account_risk_health_recorder: BybitAccountRiskHealthRecorder
     reconciliation_health_recorder: BybitReconciliationHealthRecorder
     entry_oms: PostgresBybitEntryOms
     monotonic_fn: MonotonicFn = monotonic
@@ -459,6 +471,7 @@ class BybitProductComposition:
             private_stream=stream,
             unresolved_entry_submissions=unresolved_entries,
             operator=operator,
+            account_risk=self.account_risk_health_recorder.snapshot(),
         )
         return build_bybit_operational_health(measurements)
 
@@ -485,11 +498,18 @@ def build_bybit_product_composition(
     entry_reference_store = BybitEntryReferenceStore()
     rest_health = BybitRestHealthRecorder()
     market_data_health = BybitMarketDataHealthRecorder()
+    account_risk_health = BybitAccountRiskHealthRecorder()
     reconciliation_health = BybitReconciliationHealthRecorder()
 
     def observe_market_data() -> None:
         market_data_health.record_success(
             observed_monotonic=Decimal(str(monotonic_fn()))
+        )
+
+    def observe_account_risk(state: CryptoSessionRiskState) -> None:
+        account_risk_health.record(
+            current_equity_usdt=state.current_equity_usdt,
+            peak_equity_usdt=state.peak_equity_usdt,
         )
 
     trade_client = OmsAwareBybitDemoStopRatchetClient(
@@ -532,6 +552,7 @@ def build_bybit_product_composition(
         session_risk_store=PostgresBybitDemoSessionRiskLedgerStore(config.database_url),
         strategy_config=active_strategy,
         market_data_observation_hook=observe_market_data,
+        account_risk_observation_hook=observe_account_risk,
         clock_ms=active_clock,
     )
     return BybitProductComposition(
@@ -549,6 +570,7 @@ def build_bybit_product_composition(
         private_stream_monitor=private_stream,
         rest_health_recorder=rest_health,
         market_data_health_recorder=market_data_health,
+        account_risk_health_recorder=account_risk_health,
         reconciliation_health_recorder=reconciliation_health,
         entry_oms=entry_oms,
         monotonic_fn=monotonic_fn,

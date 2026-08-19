@@ -140,6 +140,47 @@ class BybitMarketDataHealthRecorder:
         )
 
 
+@dataclass(frozen=True)
+class BybitAccountRiskHealthSnapshot:
+    current_equity_usdt: Decimal | None
+    peak_equity_usdt: Decimal | None
+    drawdown_usdt: Decimal | None
+
+
+class BybitAccountRiskHealthRecorder:
+    """Wallet-backed drawdown from the canonical high-water-aware session state."""
+
+    live_mainnet_order_routing_allowed = False
+    order_writes_supported = False
+
+    def __init__(self) -> None:
+        self._current_equity_usdt: Decimal | None = None
+        self._peak_equity_usdt: Decimal | None = None
+        self._lock = Lock()
+
+    def record(self, *, current_equity_usdt: Decimal, peak_equity_usdt: Decimal) -> None:
+        if not current_equity_usdt.is_finite() or current_equity_usdt < 0:
+            raise ValueError("current equity must be finite and non-negative")
+        if not peak_equity_usdt.is_finite() or peak_equity_usdt <= 0:
+            raise ValueError("peak equity must be positive and finite")
+        if peak_equity_usdt < current_equity_usdt:
+            raise ValueError("peak equity cannot be below current equity")
+        with self._lock:
+            self._current_equity_usdt = current_equity_usdt
+            self._peak_equity_usdt = peak_equity_usdt
+
+    def snapshot(self) -> BybitAccountRiskHealthSnapshot:
+        with self._lock:
+            current = self._current_equity_usdt
+            peak = self._peak_equity_usdt
+        drawdown = None if current is None or peak is None else peak - current
+        return BybitAccountRiskHealthSnapshot(
+            current_equity_usdt=current,
+            peak_equity_usdt=peak,
+            drawdown_usdt=drawdown,
+        )
+
+
 class BybitReconciliationResultLike(Protocol):
     status: object
     broker_truth_complete: bool
@@ -264,6 +305,7 @@ def collect_bybit_operational_measurements(
     private_stream: BybitPrivateStreamHealthLike | None,
     unresolved_entry_submissions: int | None,
     operator: BybitOperatorHealthLike | None,
+    account_risk: BybitAccountRiskHealthSnapshot | None = None,
 ) -> BybitOperationalMeasurements:
     """Collect only measurements proven by existing authoritative runtime sources."""
 
@@ -303,6 +345,7 @@ def collect_bybit_operational_measurements(
         uncertain_orders=unresolved_entry_submissions,
         reconciliation_age_seconds=reconciliation.reconciliation_age_seconds,
         position_mismatches=reconciliation.position_mismatches,
+        drawdown=None if account_risk is None else account_risk.drawdown_usdt,
         kill_switch_engaged=kill_switch,
         market_data_ready=market_data.market_data_ready,
         stream_ready=stream_ready,

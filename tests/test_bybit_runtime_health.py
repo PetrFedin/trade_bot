@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.observability.bybit_runtime_health import (
+    BybitAccountRiskHealthRecorder,
     BybitMarketDataHealthRecorder,
     BybitOperationalMeasurements,
     BybitReconciliationHealthRecorder,
@@ -141,6 +142,28 @@ def test_market_data_health_is_unknown_until_real_observation_then_ages() -> Non
     assert observed.market_data_age_seconds == Decimal("2.5")
 
 
+def test_account_risk_health_uses_wallet_backed_high_water_drawdown() -> None:
+    recorder = BybitAccountRiskHealthRecorder()
+
+    assert recorder.snapshot().drawdown_usdt is None
+
+    recorder.record(
+        current_equity_usdt=Decimal("950"),
+        peak_equity_usdt=Decimal("1100"),
+    )
+    snapshot = recorder.snapshot()
+
+    assert snapshot.current_equity_usdt == Decimal("950")
+    assert snapshot.peak_equity_usdt == Decimal("1100")
+    assert snapshot.drawdown_usdt == Decimal("150")
+
+    with pytest.raises(ValueError, match="peak equity cannot be below current equity"):
+        recorder.record(
+            current_equity_usdt=Decimal("1000"),
+            peak_equity_usdt=Decimal("999"),
+        )
+
+
 def test_reconciliation_health_tracks_actual_rest_truth_age_and_state() -> None:
     recorder = BybitReconciliationHealthRecorder()
     recorder.record(
@@ -232,6 +255,37 @@ def test_collector_uses_only_proven_runtime_sources_and_leaves_account_gaps_unkn
     assert "MEASUREMENT_UNAVAILABLE:cash_mismatch" in report.blockers
     assert "MEASUREMENT_UNAVAILABLE:uncertain_orders" not in report.blockers
     assert "MEASUREMENT_UNAVAILABLE:kill_switch_engaged" not in report.blockers
+
+
+def test_collector_adds_real_drawdown_without_faking_daily_or_cash() -> None:
+    account_risk = BybitAccountRiskHealthRecorder()
+    account_risk.record(
+        current_equity_usdt=Decimal("950"),
+        peak_equity_usdt=Decimal("1100"),
+    )
+    reconciliation = BybitReconciliationHealthRecorder().snapshot(
+        now_monotonic=Decimal("1")
+    )
+    market_data = BybitMarketDataHealthRecorder().snapshot(now_monotonic=Decimal("1"))
+
+    measurements = collect_bybit_operational_measurements(
+        now_monotonic=Decimal("2"),
+        market_data=market_data,
+        rest=BybitRestHealthRecorder().snapshot(),
+        reconciliation=reconciliation,
+        private_stream=None,
+        unresolved_entry_submissions=None,
+        operator=None,
+        account_risk=account_risk.snapshot(),
+    )
+
+    assert measurements.drawdown == Decimal("150")
+    assert measurements.daily_pnl is None
+    assert measurements.cash_mismatch is None
+    report = build_bybit_operational_health(measurements)
+    assert "MEASUREMENT_UNAVAILABLE:drawdown" not in report.blockers
+    assert "MEASUREMENT_UNAVAILABLE:daily_pnl" in report.blockers
+    assert "MEASUREMENT_UNAVAILABLE:cash_mismatch" in report.blockers
 
 
 def test_collector_hard_rejects_mainnet_capable_measurement_source() -> None:
