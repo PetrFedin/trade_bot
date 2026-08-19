@@ -237,12 +237,18 @@ def _position_checkpoint_mismatch(
     checkpoint: BybitDemoExcursionCheckpoint,
 ) -> str | None:
     state = checkpoint.state
+    if not isinstance(state.side, CryptoSide):
+        return "CHECKPOINT_SIDE_INVALID"
+    if state.symbol != state.symbol.strip().upper() or not state.symbol.endswith("USDT"):
+        return "CHECKPOINT_SYMBOL_INVALID"
+    if not state.initial_quantity.is_finite() or state.initial_quantity <= _ZERO:
+        return "CHECKPOINT_INITIAL_QUANTITY_INVALID"
     expected_side = "Buy" if state.side is CryptoSide.LONG else "Sell"
     if position.symbol != state.symbol:
         return "BROKER_POSITION_SYMBOL_MISMATCH"
     if position.side != expected_side:
         return "BROKER_POSITION_SIDE_MISMATCH"
-    if position.size > state.quantity:
+    if position.size > state.initial_quantity:
         return "BROKER_POSITION_SIZE_EXCEEDS_CHECKPOINT"
     return None
 
