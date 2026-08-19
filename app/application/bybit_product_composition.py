@@ -7,6 +7,7 @@ from decimal import Decimal
 from functools import partial
 from time import time
 
+from app.application.bybit_operator_control import PostgresBybitOperatorControl
 from app.execution.bybit_demo_account_reader import BybitDemoAccountingClient
 from app.execution.bybit_demo_attributed_runtime import (
     BybitDemoAttributedRuntimeResult,
@@ -291,6 +292,7 @@ class BybitProductComposition:
     config: BybitProductConfig
     startup_reconciler: BybitProductStartupReconciler
     cycle_executor: BybitProductCycleExecutor
+    operator_control: PostgresBybitOperatorControl
     private_stream_monitor: BybitPrivateStreamMonitor
     rest_health_recorder: BybitRestHealthRecorder
     entry_oms: PostgresBybitEntryOms
@@ -306,6 +308,7 @@ class BybitProductComposition:
             config=self.config,
             startup_reconciler=self.startup_reconciler,
             cycle_executor=self.cycle_executor,
+            operator_control=self.operator_control,
             private_stream_monitor=self.private_stream_monitor,
             stop_requested=stop_requested,
             max_cycles=max_cycles,
@@ -329,6 +332,7 @@ def build_bybit_product_composition(
         runtime_lease=runtime_lease,
     )
     entry_oms = PostgresBybitEntryOms(config.database_url)
+    operator_control = PostgresBybitOperatorControl(config.database_url)
     entry_reference_store = BybitEntryReferenceStore()
     rest_health = BybitRestHealthRecorder()
     trade_client = OmsAwareBybitDemoStopRatchetClient(
@@ -377,6 +381,7 @@ def build_bybit_product_composition(
             clock_ms=active_clock,
         ),
         cycle_executor=cycle,
+        operator_control=operator_control,
         private_stream_monitor=private_stream,
         rest_health_recorder=rest_health,
         entry_oms=entry_oms,
