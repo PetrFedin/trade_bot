@@ -180,7 +180,10 @@ def reconcile_bybit_startup(
             open_orders=open_orders,
         )
 
-    foreign_astra_order = _foreign_astra_open_order(open_orders, checkpoint.entry_order_link_id)
+    foreign_astra_order = _foreign_astra_open_order(
+        open_orders,
+        checkpoint.entry_order_link_id,
+    )
     if foreign_astra_order is not None:
         return _result(
             BybitStartupReconciliationStatus.BLOCKED,
@@ -206,7 +209,8 @@ def _validated_active_positions(
     for position in positions:
         if not isinstance(position, BybitDemoPosition):
             raise ValueError("position truth must use BybitDemoPosition")
-        if position.symbol != position.symbol.strip().upper() or not position.symbol.endswith("USDT"):
+        normalized_symbol = position.symbol.strip().upper()
+        if position.symbol != normalized_symbol or not position.symbol.endswith("USDT"):
             raise ValueError("position symbol is not normalized USDT")
         if position.side not in {"Buy", "Sell", ""}:
             raise ValueError("position side is invalid")
@@ -226,7 +230,12 @@ def _validate_open_orders(open_orders: tuple[Mapping[str, Any], ...]) -> None:
             raise ValueError("open-order truth row must be an object")
         symbol = order.get("symbol")
         status = order.get("orderStatus")
-        if not isinstance(symbol, str) or symbol != symbol.strip().upper() or not symbol.endswith("USDT"):
+        valid_symbol = (
+            isinstance(symbol, str)
+            and symbol == symbol.strip().upper()
+            and symbol.endswith("USDT")
+        )
+        if not valid_symbol:
             raise ValueError("open order symbol is invalid")
         if not isinstance(status, str) or not status:
             raise ValueError("open order status is missing")
