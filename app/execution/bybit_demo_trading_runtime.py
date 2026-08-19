@@ -329,7 +329,14 @@ def _validate_dependencies(
     if getattr(completed_bar_client, "live_mainnet_order_routing_allowed", True) is not False:
         raise ValueError("demo trading runtime rejected mainnet-capable completed-bar client")
     if terminal_evidence_store is not None:
-        if getattr(terminal_evidence_store, "live_mainnet_order_routing_allowed", True) is not False:
+        if (
+            getattr(
+                terminal_evidence_store,
+                "live_mainnet_order_routing_allowed",
+                True,
+            )
+            is not False
+        ):
             raise ValueError("demo trading runtime rejected mainnet-capable evidence store")
         if getattr(terminal_evidence_store, "order_writes_supported", True) is not False:
             raise ValueError("demo trading runtime requires diagnostics-only evidence store")
