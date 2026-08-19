@@ -17,6 +17,10 @@ from app.execution.bybit_demo_excursion_store import (
 )
 from app.execution.bybit_demo_excursion_tracker import BybitDemoTradeExcursionState
 from app.execution.bybit_demo_runtime_lease import BybitDemoRuntimeLease
+from app.execution.bybit_startup_reconciliation import (
+    BybitStartupReconciliationResult,
+    BybitStartupReconciliationStatus,
+)
 
 try:
     import psycopg
@@ -35,11 +39,11 @@ Clock = Callable[[], datetime]
 
 
 class PostgresBybitDemoRuntimeLease:
-    """Distributed Bybit demo lease with fencing and explicit stale recovery.
+    """Distributed demo lease with fencing and reconciliation-gated stale recovery.
 
-    Expiry invalidates future state writes but does not automatically transfer ownership. An
-    expired lease remains active until an operator/recovery workflow proves broker reconciliation
-    and explicitly recovers it. A subsequent acquire increments the fencing token.
+    Expiry invalidates future state writes but never transfers ownership automatically. An expired
+    lease stays active until an independent startup reconciliation proves broker truth and an
+    explicit recovery action retires the old fence. The next acquire increments the fencing token.
     """
 
     live_mainnet_order_routing_allowed = False
@@ -209,6 +213,7 @@ class PostgresBybitDemoRuntimeLease:
         self._current = None
 
     def inspect(self) -> PostgresBybitDemoRuntimeLeaseRecord:
+        """Return diagnostics without exposing the persisted owner-token hash or a usable token."""
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -233,11 +238,10 @@ class PostgresBybitDemoRuntimeLease:
         self,
         *,
         expected_fencing_token: int,
-        broker_reconciliation_passed: bool,
+        broker_reconciliation: BybitStartupReconciliationResult,
         operator_reason: str,
     ) -> None:
-        if not broker_reconciliation_passed:
-            raise ValueError("expired lease recovery requires broker reconciliation proof")
+        _validate_recovery_reconciliation(broker_reconciliation)
         if expected_fencing_token <= 0:
             raise ValueError("expected_fencing_token must be positive")
         if not operator_reason.strip():
@@ -272,7 +276,11 @@ class PostgresBybitDemoRuntimeLease:
                         lease_name=self.lease_name,
                         fencing_token=expected_fencing_token,
                         event_type="LEASE_RECOVERED_AFTER_RECONCILIATION",
-                        payload={"operator_reason": operator_reason.strip()},
+                        payload={
+                            "operator_reason": operator_reason.strip(),
+                            "reconciliation_status": broker_reconciliation.status.value,
+                            "reconciliation_reasons": list(broker_reconciliation.reasons),
+                        },
                         occurred_at=now,
                     )
 
@@ -291,7 +299,7 @@ class PostgresBybitDemoRuntimeLease:
 
 
 class PostgresBybitDemoExcursionStore:
-    """PostgreSQL drop-in active-trade checkpoint guarded by the distributed lease fence."""
+    """PostgreSQL active-trade checkpoint guarded by the current distributed lease fence."""
 
     live_mainnet_order_routing_allowed = False
     order_writes_supported = False
@@ -467,7 +475,9 @@ class PostgresBybitDemoExcursionStore:
                     )
                     row = _load_active_trade_for_update(cursor)
                     if str(row["revision_sha256"]) != expected_revision:
-                        raise RuntimeError("Bybit PostgreSQL checkpoint revision changed before clear")
+                        raise RuntimeError(
+                            "Bybit PostgreSQL checkpoint revision changed before clear"
+                        )
                     entry_order_link_id = str(row["entry_order_link_id"])
                     cursor.execute(
                         """UPDATE astra_bybit_trades
@@ -476,7 +486,9 @@ class PostgresBybitDemoExcursionStore:
                         (lease.fencing_token, now, now, entry_order_link_id),
                     )
                     if cursor.rowcount != 1:
-                        raise RuntimeError("Bybit PostgreSQL active trade disappeared before clear")
+                        raise RuntimeError(
+                            "Bybit PostgreSQL active trade disappeared before clear"
+                        )
                     _append_event(
                         cursor,
                         event_id=f"TRADE_CLOSED:{entry_order_link_id}:{expected_revision}",
@@ -491,7 +503,9 @@ class PostgresBybitDemoExcursionStore:
     def _require_current_lease(self) -> PostgresBybitDemoRuntimeLeaseRecord:
         lease = self.runtime_lease.current_lease()
         if lease is None:
-            raise RuntimeError("Bybit PostgreSQL state mutation requires an acquired runtime lease")
+            raise RuntimeError(
+                "Bybit PostgreSQL state mutation requires an acquired runtime lease"
+            )
         return lease
 
     def _now(self) -> datetime:
@@ -540,7 +554,9 @@ def _checkpoint_from_row(row: dict[str, Any]) -> BybitDemoExcursionCheckpoint:
 
 
 def _load_active_trade_for_update(cursor) -> dict[str, Any]:
-    cursor.execute("SELECT * FROM astra_bybit_trades WHERE lifecycle_state='ACTIVE' FOR UPDATE")
+    cursor.execute(
+        "SELECT * FROM astra_bybit_trades WHERE lifecycle_state='ACTIVE' FOR UPDATE"
+    )
     rows = cursor.fetchall()
     if not rows:
         raise FileNotFoundError("active Bybit PostgreSQL trade")
@@ -600,6 +616,23 @@ def _append_event(
             occurred_at,
         ),
     )
+    if cursor.rowcount != 1:
+        raise RuntimeError("Bybit PostgreSQL runtime event ID already exists")
+
+
+def _validate_recovery_reconciliation(
+    result: BybitStartupReconciliationResult,
+) -> None:
+    if result.live_mainnet_order_routing_allowed:
+        raise ValueError("expired lease recovery rejected mainnet-capable reconciliation")
+    if not result.broker_truth_complete:
+        raise ValueError("expired lease recovery requires complete broker truth")
+    if result.status not in {
+        BybitStartupReconciliationStatus.READY_FOR_ENTRY,
+        BybitStartupReconciliationStatus.RESUME_MANAGEMENT,
+        BybitStartupReconciliationStatus.TERMINAL_RECOVERY_REQUIRED,
+    }:
+        raise ValueError("expired lease recovery requires a non-blocked reconciliation result")
 
 
 def _token_hash(owner_token: str) -> str:
@@ -608,7 +641,9 @@ def _token_hash(owner_token: str) -> str:
 
 
 def _validate_owner_token(owner_token: str) -> None:
-    if len(owner_token) != 64 or any(character not in "0123456789abcdef" for character in owner_token):
+    if len(owner_token) != 64 or any(
+        character not in "0123456789abcdef" for character in owner_token
+    ):
         raise ValueError("runtime lease owner token must be 32-byte hex")
 
 
