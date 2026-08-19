@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from functools import partial
@@ -54,6 +54,7 @@ from app.marketdata.bybit_instruments import BybitInstrumentClient
 from app.marketdata.bybit_v5 import interval_milliseconds, last_completed_kline_end_ms
 from app.observability.bybit_runtime_health import BybitRestHealthRecorder
 from app.oms.bybit_entry import PostgresBybitEntryOms
+from app.oms.store import OrderRecord, OrderState
 from app.runtime.bybit_product_config import BybitProductConfig
 from app.runtime.bybit_product_service import (
     BybitProductServiceResult,
@@ -63,6 +64,9 @@ from app.strategy.crypto_perp import CryptoPerpStrategyConfig
 from app.strategy.crypto_session_risk import CryptoSessionRiskState
 
 ClockMs = Callable[[], int]
+_AUTO_RECOVERABLE_ENTRY_STATES = frozenset(
+    {OrderState.SUBMIT_STARTED, OrderState.UNCERTAIN, OrderState.RECONCILING}
+)
 
 
 @dataclass(frozen=True)
@@ -70,22 +74,84 @@ class BybitProductStartupReconciler:
     broker: BybitDemoBrokerTruthClient
     checkpoint_store: PostgresBybitDemoExcursionStore
     entry_oms: PostgresBybitEntryOms
+    clock_ms: ClockMs = lambda: int(time() * 1000)
     live_mainnet_order_routing_allowed: bool = False
 
     def run(self) -> BybitStartupReconciliationResult:
         try:
-            unresolved_entries = self.entry_oms.count_unresolved_entry_submissions()
+            unresolved_entries = self.entry_oms.unresolved_entry_submissions()
         except Exception as exc:
-            return _blocked_startup(
-                f"STARTUP_BYBIT_OMS_READ_FAILED:{type(exc).__name__}"
+            return _blocked_startup(f"STARTUP_BYBIT_OMS_READ_FAILED:{type(exc).__name__}")
+
+        blockers: list[str] = []
+        order_truth_complete = True
+        for record in unresolved_entries:
+            truth_complete, entry_blockers = self._reconcile_unresolved_entry(record)
+            order_truth_complete = order_truth_complete and truth_complete
+            blockers.extend(entry_blockers)
+
+        try:
+            base = reconcile_bybit_startup(
+                broker=self.broker,
+                checkpoint_store=self.checkpoint_store,
             )
-        if unresolved_entries:
-            return _blocked_startup(
-                f"UNRESOLVED_BYBIT_OMS_ENTRY_SUBMISSIONS:{unresolved_entries}"
+        except Exception:
+            raise
+        if not blockers:
+            return base
+        return replace(
+            base,
+            status=BybitStartupReconciliationStatus.BLOCKED,
+            reasons=_unique_reasons(base.reasons + tuple(blockers)),
+            next_entry_allowed=False,
+            broker_truth_complete=base.broker_truth_complete and order_truth_complete,
+        )
+
+    def _reconcile_unresolved_entry(self, record: OrderRecord) -> tuple[bool, tuple[str, ...]]:
+        if record.state not in _AUTO_RECOVERABLE_ENTRY_STATES:
+            return False, (
+                f"BYBIT_OMS_ENTRY_REQUIRES_MANUAL_RECOVERY:{record.intent_id}:{record.state.value}",
             )
-        return reconcile_bybit_startup(
-            broker=self.broker,
-            checkpoint_store=self.checkpoint_store,
+        try:
+            truth = self.broker.get_order_by_link_id(
+                symbol=record.symbol,
+                order_link_id=record.client_order_id,
+                expected_side="Buy" if record.side.value == "BUY" else "Sell",
+                expected_quantity=record.quantity,
+            )
+        except Exception as exc:
+            return False, (
+                f"BYBIT_OMS_ENTRY_BROKER_READ_FAILED:{record.intent_id}:{type(exc).__name__}",
+            )
+        if truth is None:
+            return False, (
+                f"BYBIT_OMS_ENTRY_NOT_FOUND_BY_ORDER_LINK_ID:{record.intent_id}",
+            )
+
+        occurred_at = _utc_from_ms(self.clock_ms())
+        try:
+            if truth.safely_rejected_without_execution:
+                self.entry_oms.resolve_rejected_without_execution(
+                    record.intent_id,
+                    broker_order_id=truth.order_id,
+                    cumulative_executed_quantity=truth.cumulative_executed_quantity,
+                    occurred_at=occurred_at,
+                )
+                return True, ()
+            self.entry_oms.mark_lifecycle_reconciliation_required(
+                record.intent_id,
+                broker_order_id=truth.order_id,
+                broker_status=truth.status,
+                cumulative_executed_quantity=truth.cumulative_executed_quantity,
+                occurred_at=occurred_at,
+            )
+        except Exception as exc:
+            return True, (
+                f"BYBIT_OMS_ENTRY_RECOVERY_PERSIST_FAILED:{record.intent_id}:{type(exc).__name__}",
+            )
+        return True, (
+            f"BYBIT_ENTRY_LIFECYCLE_RECONCILIATION_REQUIRED:{record.intent_id}:"
+            f"{truth.status}:cumExecQty={truth.cumulative_executed_quantity}",
         )
 
 
@@ -141,9 +207,7 @@ class BybitProductCycleExecutor:
             session_ledger = session_checkpoint.ledger
 
         bars_by_symbol = (
-            {}
-            if active_checkpoint is not None
-            else self._completed_universe_bars(now_ms=now_ms)
+            {} if active_checkpoint is not None else self._completed_universe_bars(now_ms=now_ms)
         )
         writes_enabled = self.config.demo_order_writes_allowed
         managed_policy = BybitDemoManagedTradePollPolicy(
@@ -151,9 +215,7 @@ class BybitProductCycleExecutor:
                 stop_ratchet_writes_enabled=writes_enabled,
                 interval=self.config.bar_interval,
             ),
-            max_hold_close=BybitDemoMaxHoldClosePolicy(
-                writes_enabled=writes_enabled,
-            ),
+            max_hold_close=BybitDemoMaxHoldClosePolicy(writes_enabled=writes_enabled),
         )
         terminal_handoff = partial(
             persist_product_terminal_state,
@@ -256,11 +318,10 @@ def build_bybit_product_composition(
     strategy_config: CryptoPerpStrategyConfig | None = None,
     clock_ms: ClockMs | None = None,
 ) -> BybitProductComposition:
-    """Build the single canonical Bybit product composition using PostgreSQL authority."""
-
     config.validate(require_universe=True)
     active_strategy = CryptoPerpStrategyConfig() if strategy_config is None else strategy_config
     active_strategy.validate()
+    active_clock = (lambda: int(time() * 1000)) if clock_ms is None else clock_ms
 
     runtime_lease = PostgresBybitDemoRuntimeLease(config.database_url)
     excursion_store = PostgresBybitDemoExcursionStore(
@@ -296,9 +357,7 @@ def build_bybit_product_composition(
         config=config,
         trade_client=trade_client,
         accounting_client=accounting_client,
-        quote_client=BybitEntryReferenceQuoteClient(
-            reference_store=entry_reference_store,
-        ),
+        quote_client=BybitEntryReferenceQuoteClient(reference_store=entry_reference_store),
         completed_bar_client=BybitDemoCompletedBarClient(),
         instrument_client=BybitInstrumentClient(),
         runtime_lease=runtime_lease,
@@ -307,7 +366,7 @@ def build_bybit_product_composition(
         terminal_evidence_store=PostgresBybitDemoTerminalEvidenceStore(config.database_url),
         session_risk_store=PostgresBybitDemoSessionRiskLedgerStore(config.database_url),
         strategy_config=active_strategy,
-        clock_ms=(lambda: int(time() * 1000)) if clock_ms is None else clock_ms,
+        clock_ms=active_clock,
     )
     return BybitProductComposition(
         config=config,
@@ -315,6 +374,7 @@ def build_bybit_product_composition(
             broker=startup_broker,
             checkpoint_store=excursion_store,
             entry_oms=entry_oms,
+            clock_ms=active_clock,
         ),
         cycle_executor=cycle,
         private_stream_monitor=private_stream,
@@ -324,8 +384,6 @@ def build_bybit_product_composition(
 
 
 def bootstrap_bybit_product_session(config: BybitProductConfig) -> Decimal:
-    """Explicitly initialize session risk only while reconciled broker/local state is flat."""
-
     config.validate()
     lease_store = PostgresBybitDemoRuntimeLease(config.database_url)
     excursion_store = PostgresBybitDemoExcursionStore(
@@ -333,11 +391,6 @@ def bootstrap_bybit_product_session(config: BybitProductConfig) -> Decimal:
         runtime_lease=lease_store,
     )
     entry_oms = PostgresBybitEntryOms(config.database_url)
-    unresolved_entries = entry_oms.count_unresolved_entry_submissions()
-    if unresolved_entries:
-        raise RuntimeError(
-            f"session bootstrap blocked by unresolved Bybit OMS entries:{unresolved_entries}"
-        )
     broker = BybitDemoBrokerTruthClient(
         api_key=config.api_key,
         api_secret=config.api_secret,
@@ -350,19 +403,18 @@ def bootstrap_bybit_product_session(config: BybitProductConfig) -> Decimal:
 
     lease = lease_store.acquire()
     try:
-        reconciled = reconcile_bybit_startup(
+        reconciled = BybitProductStartupReconciler(
             broker=broker,
             checkpoint_store=excursion_store,
-        )
+            entry_oms=entry_oms,
+        ).run()
         if not reconciled.next_entry_allowed:
             raise RuntimeError(
-                "session bootstrap requires broker and local trading state to be fully flat"
+                "session bootstrap requires fully reconciled flat broker/local/OMS state"
             )
         wallet = accounting.get_wallet_balance()
         session_store.initialize(
-            start_bybit_demo_session_risk_ledger(
-                opening_equity_usdt=wallet.total_equity_usd,
-            )
+            start_bybit_demo_session_risk_ledger(opening_equity_usdt=wallet.total_equity_usd)
         )
         return wallet.total_equity_usd
     finally:
@@ -381,3 +433,13 @@ def _blocked_startup(reason: str) -> BybitStartupReconciliationResult:
         terminal_recovery_required=False,
         broker_truth_complete=False,
     )
+
+
+def _unique_reasons(reasons: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(reasons))
+
+
+def _utc_from_ms(value: int) -> datetime:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError("Bybit startup reconciliation clock must be non-negative integer ms")
+    return datetime.fromtimestamp(value / 1000, tz=UTC)

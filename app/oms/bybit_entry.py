@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 
 from app.domain.trading import OrderIntent
 from app.oms.postgres import PostgresOmsStore
@@ -27,13 +28,7 @@ class BybitEntrySubmissionClaim:
 
 
 class PostgresBybitEntryOms(PostgresOmsStore):
-    """Bybit ENTRY broker adapter over the canonical PostgreSQL OMS state machine.
-
-    The adapter uses the existing ``astra_oms_*`` tables and ``OrderState`` transitions. A Bybit
-    submit is claimed inline: OUTBOXED and SUBMIT_STARTED are durable before the network POST, and
-    the broker-specific outbox row is marked published in the same transaction so a generic paper
-    worker cannot consume it. A restart may recover by broker reads, but must never POST again.
-    """
+    """Bybit ENTRY broker adapter over the canonical PostgreSQL OMS state machine."""
 
     live_mainnet_order_routing_allowed = False
     automatic_resubmit_after_submit_started_allowed = False
@@ -208,11 +203,14 @@ class PostgresBybitEntryOms(PostgresOmsStore):
         *,
         occurred_at: datetime,
         reason: str,
+        broker_order_id: str | None = None,
     ) -> OrderRecord:
         current = self.get(intent_id)
         if current is None:
             raise KeyError(intent_id)
         if current.state is OrderState.REJECTED:
+            if broker_order_id and current.broker_order_id not in {"", broker_order_id}:
+                raise ValueError("Bybit OMS broker order id changed")
             return current
         if current.state is not OrderState.SUBMIT_STARTED:
             raise ValueError(f"Bybit OMS cannot reject state {current.state.value}")
@@ -221,6 +219,7 @@ class PostgresBybitEntryOms(PostgresOmsStore):
             OrderState.REJECTED,
             event_id=f"bybit-rejected:{intent_id}",
             occurred_at=occurred_at,
+            broker_order_id=broker_order_id,
             payload={"broker": self.broker_name, "reason": reason},
         )
 
@@ -250,21 +249,20 @@ class PostgresBybitEntryOms(PostgresOmsStore):
             payload={"broker": self.broker_name, "reason": reason},
         )
 
-    def count_unresolved_entry_submissions(self) -> int:
+    def unresolved_entry_submissions(self) -> tuple[OrderRecord, ...]:
         states = tuple(state.value for state in _UNRESOLVED_ENTRY_STATES)
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """SELECT count(*) AS unresolved_count
-                    FROM astra_oms_orders
-                    WHERE client_order_id LIKE %s
-                      AND state = ANY(%s)""",
+                    """SELECT * FROM astra_oms_orders
+                    WHERE client_order_id LIKE %s AND state = ANY(%s)
+                    ORDER BY updated_at, intent_id""",
                     (f"{_BYBIT_ENTRY_PREFIX}%", list(states)),
                 )
-                row = cursor.fetchone()
-        if row is None:
-            raise RuntimeError("Bybit OMS unresolved-count query returned no row")
-        return int(row["unresolved_count"])
+                return tuple(self._row(row) for row in cursor.fetchall())
+
+    def count_unresolved_entry_submissions(self) -> int:
+        return len(self.unresolved_entry_submissions())
 
     def count_uncertain_entries(self) -> int:
         with self._connect() as connection:
@@ -279,6 +277,112 @@ class PostgresBybitEntryOms(PostgresOmsStore):
         if row is None:
             raise RuntimeError("Bybit OMS uncertain-count query returned no row")
         return int(row["uncertain_count"])
+
+    def mark_lifecycle_reconciliation_required(
+        self,
+        intent_id: str,
+        *,
+        broker_order_id: str,
+        broker_status: str,
+        cumulative_executed_quantity: Decimal,
+        occurred_at: datetime,
+    ) -> OrderRecord:
+        if not broker_order_id.strip() or not broker_status.strip():
+            raise ValueError("broker order id and status are required for reconciliation")
+        if not cumulative_executed_quantity.is_finite() or cumulative_executed_quantity < 0:
+            raise ValueError("cumulative executed quantity must be finite and non-negative")
+        current = self.get(intent_id)
+        if current is None:
+            raise KeyError(intent_id)
+        if current.state is OrderState.SUBMIT_STARTED:
+            current = self.mark_uncertain(
+                intent_id,
+                occurred_at=occurred_at,
+                reason="BROKER_ORDER_FOUND_REQUIRES_LIFECYCLE_RECONCILIATION",
+            )
+        if current.state is OrderState.UNCERTAIN:
+            return self.transition(
+                intent_id,
+                OrderState.RECONCILING,
+                event_id=f"bybit-reconciling:{intent_id}:{broker_order_id}",
+                occurred_at=occurred_at,
+                broker_order_id=broker_order_id,
+                payload={
+                    "broker": self.broker_name,
+                    "broker_status": broker_status,
+                    "cumulative_executed_quantity": str(cumulative_executed_quantity),
+                    "lifecycle_reconciliation_required": True,
+                },
+            )
+        if current.state is OrderState.RECONCILING:
+            if current.broker_order_id not in {"", broker_order_id}:
+                raise ValueError("Bybit OMS broker order id changed during reconciliation")
+            return current
+        raise ValueError(
+            f"Bybit OMS cannot require lifecycle reconciliation from {current.state.value}"
+        )
+
+    def resolve_rejected_without_execution(
+        self,
+        intent_id: str,
+        *,
+        broker_order_id: str,
+        cumulative_executed_quantity: Decimal,
+        occurred_at: datetime,
+    ) -> OrderRecord:
+        if cumulative_executed_quantity != 0:
+            raise ValueError("safe rejected resolution requires zero cumulative execution")
+        current = self.get(intent_id)
+        if current is None:
+            raise KeyError(intent_id)
+        if current.state is OrderState.REJECTED:
+            return current
+        if current.state is OrderState.SUBMIT_STARTED:
+            return self.mark_rejected(
+                intent_id,
+                occurred_at=occurred_at,
+                reason="BROKER_TRUTH_REJECTED_WITH_ZERO_EXECUTION",
+                broker_order_id=broker_order_id,
+            )
+        if current.state is OrderState.UNCERTAIN:
+            current = self.transition(
+                intent_id,
+                OrderState.RECONCILING,
+                event_id=f"bybit-reconciling-rejected:{intent_id}:{broker_order_id}",
+                occurred_at=occurred_at,
+                broker_order_id=broker_order_id,
+                payload={
+                    "broker": self.broker_name,
+                    "broker_status": "Rejected",
+                    "cumulative_executed_quantity": "0",
+                },
+            )
+        if current.state is OrderState.RECONCILING:
+            current = self.transition(
+                intent_id,
+                OrderState.RECONCILED,
+                event_id=f"bybit-reconciled-rejected:{intent_id}:{broker_order_id}",
+                occurred_at=occurred_at,
+                broker_order_id=broker_order_id,
+                payload={
+                    "broker": self.broker_name,
+                    "broker_status": "Rejected",
+                    "zero_execution_proven": True,
+                },
+            )
+        if current.state is OrderState.RECONCILED:
+            return self.transition(
+                intent_id,
+                OrderState.REJECTED,
+                event_id=f"bybit-rejected-after-reconcile:{intent_id}:{broker_order_id}",
+                occurred_at=occurred_at,
+                broker_order_id=broker_order_id,
+                payload={
+                    "broker": self.broker_name,
+                    "reason": "BROKER_TRUTH_REJECTED_WITH_ZERO_EXECUTION",
+                },
+            )
+        raise ValueError(f"Bybit OMS cannot safely resolve state {current.state.value} as rejected")
 
 
 def bybit_entry_intent_id(order_link_id: str) -> str:

@@ -61,11 +61,22 @@ class _MemoryEntryOms:
         )
         return self.record
 
-    def mark_rejected(self, intent_id, *, occurred_at, reason):
+    def mark_rejected(
+        self,
+        intent_id,
+        *,
+        occurred_at,
+        reason,
+        broker_order_id=None,
+    ):
         assert self.record is not None and intent_id == self.record.intent_id
         assert occurred_at == NOW
         self.rejected_reasons.append(reason)
-        self.record = replace(self.record, state=OrderState.REJECTED)
+        self.record = replace(
+            self.record,
+            state=OrderState.REJECTED,
+            broker_order_id=self.record.broker_order_id if broker_order_id is None else broker_order_id,
+        )
         return self.record
 
     def mark_uncertain(self, intent_id, *, occurred_at, reason):
@@ -146,21 +157,23 @@ def _ack_response() -> BybitDemoHttpJson:
 
 
 def _recovery_response(*, rows: list[dict[str, Any]]) -> BybitDemoHttpJson:
-    return BybitDemoHttpJson(
-        200,
-        {},
-        {"retCode": 0, "result": {"list": rows}},
-    )
+    return BybitDemoHttpJson(200, {}, {"retCode": 0, "result": {"list": rows}})
 
 
-def _broker_row() -> dict[str, Any]:
+def _broker_row(
+    *,
+    status: str = "Filled",
+    cumulative_executed_quantity: str = "0.01",
+) -> dict[str, Any]:
     return {
         "orderId": "broker-1",
         "orderLinkId": "ASTRA-DEMO-E-1234567890ABCDEF",
         "symbol": "BTCUSDT",
         "side": "Buy",
         "qty": "0.01",
-        "orderStatus": "Filled",
+        "cumExecQty": cumulative_executed_quantity,
+        "orderStatus": status,
+        "rejectReason": "EC_NoError" if status != "Rejected" else "EC_NoEnoughQtyToFill",
     }
 
 
@@ -235,6 +248,23 @@ def test_resumed_submit_started_uses_get_only_and_never_posts_again() -> None:
     assert calls == ["GET"]
     assert oms.record is not None
     assert oms.record.state is OrderState.ACKNOWLEDGED
+
+
+def test_cancelled_ambiguous_entry_never_becomes_safe_ack() -> None:
+    oms = _MemoryEntryOms()
+
+    def transport(method, _url, _headers, _body):
+        if method == "POST":
+            raise OSError("lost ack")
+        return _recovery_response(
+            rows=[_broker_row(status="Cancelled", cumulative_executed_quantity="0")]
+        )
+
+    with pytest.raises(BybitEntrySubmissionUncertainError, match="lifecycle reconciliation"):
+        _client(oms=oms, transport=transport).place_market_order(_request())
+
+    assert oms.record is not None
+    assert oms.record.state is OrderState.UNCERTAIN
 
 
 def test_missing_pre_entry_reference_blocks_before_oms_claim_or_post() -> None:

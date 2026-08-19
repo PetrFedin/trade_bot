@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
 
 from app.domain.trading import OrderIntent, Side
 from app.execution.bybit_demo import BybitDemoOrderAck, BybitDemoOrderRequest
 from app.execution.bybit_observed_rest import ObservedBybitDemoStopRatchetClient
+from app.execution.bybit_order_lookup import lookup_bybit_order_by_link_id
 from app.execution.bybit_rest_policy import (
     BybitRestRequestError,
     BybitRestTransportError,
@@ -44,6 +43,7 @@ class BybitEntryOmsPort(Protocol):
         *,
         occurred_at: datetime,
         reason: str,
+        broker_order_id: str | None = None,
     ) -> OrderRecord: ...
 
     def mark_uncertain(
@@ -97,8 +97,7 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
         if not request.order_link_id.startswith("ASTRA-DEMO-E-"):
             raise ValueError("Bybit OMS-aware entry requires deterministic ENTRY orderLinkId")
 
-        now_ms = self._clock_ms  # noqa: SLF001 - inherited signed clock is the request clock.
-        observed_ms = now_ms()
+        observed_ms = self._clock_ms()  # noqa: SLF001 - inherited signed request clock.
         if isinstance(observed_ms, bool) or not isinstance(observed_ms, int) or observed_ms < 0:
             raise ValueError("Bybit OMS entry clock must return a non-negative integer")
         occurred_at = datetime.fromtimestamp(observed_ms / 1000, tz=UTC)
@@ -213,7 +212,13 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
         ambiguity_reason: str,
     ) -> BybitDemoOrderAck:
         try:
-            order = self._lookup_order_by_link_id(request)
+            truth = lookup_bybit_order_by_link_id(
+                self._signed_get,  # noqa: SLF001 - authenticated GET-only broker recovery.
+                symbol=request.symbol,
+                order_link_id=request.order_link_id,
+                expected_side=request.side,
+                expected_quantity=request.quantity,
+            )
         except Exception as exc:
             self._mark_uncertain(
                 intent_id,
@@ -223,7 +228,7 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
             raise BybitEntrySubmissionUncertainError(
                 "Bybit entry broker truth read failed after ambiguous submit"
             ) from exc
-        if order is None:
+        if truth is None:
             self._mark_uncertain(
                 intent_id,
                 occurred_at=occurred_at,
@@ -233,29 +238,30 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
                 "Bybit entry remains uncertain after GET-only recovery"
             )
 
-        try:
-            order_id, status = _validate_recovered_order(order, request=request)
-        except Exception as exc:
-            self._mark_uncertain(
-                intent_id,
-                occurred_at=occurred_at,
-                reason=f"{ambiguity_reason};RECOVERED_ORDER_INVALID:{type(exc).__name__}",
-            )
-            raise BybitEntrySubmissionUncertainError(
-                "Bybit recovered order does not match durable entry intent"
-            ) from exc
-
-        if status == "Rejected":
+        if truth.safely_rejected_without_execution:
             self.entry_oms.mark_rejected(
                 intent_id,
                 occurred_at=occurred_at,
                 reason=f"BROKER_TRUTH_REJECTED_AFTER_AMBIGUITY:{ambiguity_reason}",
+                broker_order_id=truth.order_id,
             )
             raise BybitEntrySubmissionRejectedError(
-                "Bybit broker truth reports rejected entry"
+                "Bybit broker truth reports rejected entry without execution"
+            )
+        if truth.status in {"Rejected", "Cancelled"}:
+            self._mark_uncertain(
+                intent_id,
+                occurred_at=occurred_at,
+                reason=(
+                    f"{ambiguity_reason};BROKER_STATUS_REQUIRES_LIFECYCLE_RECONCILIATION:"
+                    f"{truth.status}:cumExecQty={truth.cumulative_executed_quantity}"
+                ),
+            )
+            raise BybitEntrySubmissionUncertainError(
+                "Bybit terminal broker status requires lifecycle reconciliation"
             )
 
-        ack = BybitDemoOrderAck(order_id, request.order_link_id, True)
+        ack = BybitDemoOrderAck(truth.order_id, request.order_link_id, True)
         self._persist_ack(
             intent_id,
             ack=ack,
@@ -263,31 +269,6 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
             recovered_by_read=True,
         )
         return ack
-
-    def _lookup_order_by_link_id(
-        self,
-        request: BybitDemoOrderRequest,
-    ) -> Mapping[str, Any] | None:
-        params = {
-            "category": "linear",
-            "symbol": request.symbol,
-            "orderLinkId": request.order_link_id,
-            "limit": "1",
-        }
-        for path in ("/v5/order/realtime", "/v5/order/history"):
-            response = self._signed_get(path, params)  # noqa: SLF001 - broker recovery read.
-            result = response.payload.get("result")
-            if not isinstance(result, Mapping):
-                raise ValueError("Bybit order recovery response missing result")
-            rows = result.get("list")
-            if not isinstance(rows, list) or not all(isinstance(row, Mapping) for row in rows):
-                raise ValueError("Bybit order recovery response missing list")
-            exact = [row for row in rows if row.get("orderLinkId") == request.order_link_id]
-            if len(exact) > 1:
-                raise ValueError("Bybit order recovery returned duplicate orderLinkId")
-            if exact:
-                return exact[0]
-        return None
 
     def _persist_ack(
         self,
@@ -326,36 +307,6 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
             raise BybitEntryOmsPersistenceError(
                 "Bybit ambiguous entry could not persist canonical OMS uncertainty"
             ) from exc
-
-
-def _validate_recovered_order(
-    order: Mapping[str, Any],
-    *,
-    request: BybitDemoOrderRequest,
-) -> tuple[str, str]:
-    order_id = order.get("orderId")
-    order_link_id = order.get("orderLinkId")
-    symbol = order.get("symbol")
-    side = order.get("side")
-    status = order.get("orderStatus")
-    if not isinstance(order_id, str) or not order_id:
-        raise ValueError("Bybit recovered order missing orderId")
-    if order_link_id != request.order_link_id:
-        raise ValueError("Bybit recovered orderLinkId mismatch")
-    if symbol != request.symbol:
-        raise ValueError("Bybit recovered symbol mismatch")
-    if side != request.side:
-        raise ValueError("Bybit recovered side mismatch")
-    if not isinstance(status, str) or not status:
-        raise ValueError("Bybit recovered order status missing")
-    raw_qty = order.get("qty")
-    try:
-        quantity = Decimal(str(raw_qty))
-    except (InvalidOperation, TypeError, ValueError) as exc:
-        raise ValueError("Bybit recovered order quantity invalid") from exc
-    if quantity != request.quantity:
-        raise ValueError("Bybit recovered order quantity mismatch")
-    return order_id, status
 
 
 def _error_reason(exc: BybitRestRequestError | BybitRestTransportError) -> str:

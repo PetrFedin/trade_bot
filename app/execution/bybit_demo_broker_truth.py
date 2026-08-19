@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from decimal import Decimal
 from typing import Any
 
 from app.execution.bybit_demo import BybitDemoOrderClient
+from app.execution.bybit_order_lookup import BybitOrderTruth, lookup_bybit_order_by_link_id
 
 
 class BybitDemoBrokerTruthClient(BybitDemoOrderClient):
     """Read-capable demo broker client used by startup/recovery reconciliation.
 
     It deliberately reuses the existing demo-only authenticated transport. Order mutation stays
-    owned by ``BybitDemoOrderClient``; this class only exposes the missing open-order truth read.
+    owned by ``BybitDemoOrderClient``; this class only exposes broker-truth reads.
     """
 
     def get_open_orders(
@@ -39,3 +41,19 @@ class BybitDemoBrokerTruthClient(BybitDemoOrderClient):
         if not isinstance(rows, list) or not all(isinstance(row, Mapping) for row in rows):
             raise ValueError("Bybit demo open-order response missing list")
         return tuple(rows)
+
+    def get_order_by_link_id(
+        self,
+        *,
+        symbol: str,
+        order_link_id: str,
+        expected_side: str,
+        expected_quantity: Decimal,
+    ) -> BybitOrderTruth | None:
+        return lookup_bybit_order_by_link_id(
+            self._signed_get,
+            symbol=symbol,
+            order_link_id=order_link_id,
+            expected_side=expected_side,
+            expected_quantity=expected_quantity,
+        )
