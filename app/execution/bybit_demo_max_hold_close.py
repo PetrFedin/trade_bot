@@ -272,7 +272,7 @@ def _max_hold_order_link_id(entry_order_link_id: str) -> str:
     if not entry_order_link_id.startswith("ASTRA-DEMO-"):
         raise ValueError("max-hold close requires ASTRA-DEMO entry orderLinkId")
     digest = hashlib.sha256(
-        f"{entry_order_link_id}|MAX_HOLD_CLOSE".encode("utf-8")
+        f"{entry_order_link_id}|MAX_HOLD_CLOSE".encode()
     ).hexdigest()[:16].upper()
     return f"ASTRA-DEMO-H-{digest}"
 
