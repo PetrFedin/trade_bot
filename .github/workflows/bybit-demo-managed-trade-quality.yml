@@ -6,6 +6,7 @@ on:
     paths:
       - 'app/execution/bybit_demo_entry_provenance.py'
       - 'app/execution/bybit_demo_entry_provenance_store.py'
+      - 'app/execution/bybit_demo_trade_attribution.py'
       - 'app/execution/bybit_demo_managed_trade_poll.py'
       - 'app/execution/bybit_demo_terminal_evidence_store.py'
       - 'app/execution/bybit_demo_terminal_handoff.py'
@@ -19,6 +20,7 @@ on:
       - 'app/execution/bybit_demo_profit_preservation_evidence.py'
       - 'tests/test_bybit_demo_entry_provenance.py'
       - 'tests/test_bybit_demo_entry_provenance_store.py'
+      - 'tests/test_bybit_demo_trade_attribution.py'
       - 'tests/test_bybit_demo_managed_trade_poll.py'
       - 'tests/test_bybit_demo_terminal_evidence_store.py'
       - 'tests/test_bybit_demo_terminal_handoff.py'
@@ -32,6 +34,7 @@ on:
     paths:
       - 'app/execution/bybit_demo_entry_provenance.py'
       - 'app/execution/bybit_demo_entry_provenance_store.py'
+      - 'app/execution/bybit_demo_trade_attribution.py'
       - 'app/execution/bybit_demo_managed_trade_poll.py'
       - 'app/execution/bybit_demo_terminal_evidence_store.py'
       - 'app/execution/bybit_demo_terminal_handoff.py'
@@ -45,6 +48,7 @@ on:
       - 'app/execution/bybit_demo_profit_preservation_evidence.py'
       - 'tests/test_bybit_demo_entry_provenance.py'
       - 'tests/test_bybit_demo_entry_provenance_store.py'
+      - 'tests/test_bybit_demo_trade_attribution.py'
       - 'tests/test_bybit_demo_managed_trade_poll.py'
       - 'tests/test_bybit_demo_terminal_evidence_store.py'
       - 'tests/test_bybit_demo_terminal_handoff.py'
@@ -85,6 +89,7 @@ jobs:
           ruff check --output-format=github
           app/execution/bybit_demo_entry_provenance.py
           app/execution/bybit_demo_entry_provenance_store.py
+          app/execution/bybit_demo_trade_attribution.py
           app/execution/bybit_demo_managed_trade_poll.py
           app/execution/bybit_demo_terminal_evidence_store.py
           app/execution/bybit_demo_terminal_handoff.py
@@ -92,6 +97,7 @@ jobs:
           app/execution/bybit_demo_trading_runtime.py
           tests/test_bybit_demo_entry_provenance.py
           tests/test_bybit_demo_entry_provenance_store.py
+          tests/test_bybit_demo_trade_attribution.py
           tests/test_bybit_demo_managed_trade_poll.py
           tests/test_bybit_demo_terminal_evidence_store.py
           tests/test_bybit_demo_terminal_handoff.py
@@ -104,6 +110,7 @@ jobs:
           pytest -vv
           tests/test_bybit_demo_entry_provenance.py
           tests/test_bybit_demo_entry_provenance_store.py
+          tests/test_bybit_demo_trade_attribution.py
           tests/test_bybit_demo_managed_trade_poll.py
           tests/test_bybit_demo_terminal_evidence_store.py
           tests/test_bybit_demo_terminal_handoff.py
@@ -121,6 +128,7 @@ jobs:
           python -m compileall -q
           app/execution/bybit_demo_entry_provenance.py
           app/execution/bybit_demo_entry_provenance_store.py
+          app/execution/bybit_demo_trade_attribution.py
           app/execution/bybit_demo_managed_trade_poll.py
           app/execution/bybit_demo_terminal_evidence_store.py
           app/execution/bybit_demo_terminal_handoff.py
