@@ -17,6 +17,10 @@ on:
       - 'app/execution/bybit_demo_excursion_tracker.py'
       - 'app/execution/bybit_demo_excursion_store.py'
       - 'app/execution/bybit_demo_excursion_runtime.py'
+      - 'app/execution/bybit_demo_trade_management_parity.py'
+      - 'app/execution/bybit_demo_trade_management_runtime.py'
+      - 'app/execution/bybit_demo_stop_ratchet_client.py'
+      - 'app/execution/bybit_demo_max_hold_close.py'
       - 'app/execution/bybit_demo_profit_preservation_evidence.py'
       - 'app/execution/bybit_demo_account_reader.py'
       - 'app/execution/bybit_demo_account_sized_strategy.py'
@@ -29,11 +33,13 @@ on:
       - 'app/execution/bybit_demo_orchestrator.py'
       - 'app/execution/bybit_demo_trade_monitor.py'
       - 'app/marketdata/bybit_demo_quotes.py'
+      - 'app/marketdata/bybit_demo_completed_bars.py'
       - 'app/strategy/crypto_perp.py'
       - 'app/strategy/crypto_position_selection.py'
       - 'app/strategy/crypto_correlation.py'
       - 'app/strategy/crypto_execution_risk.py'
       - 'app/strategy/crypto_liquidation_safety.py'
+      - 'app/strategy/crypto_trade_management.py'
       - 'app/strategy/crypto_trade_quality_diagnostics.py'
       - 'tools/qualify_bybit_crypto_walk_forward.py'
       - 'tools/run_bybit_crypto_walk_forward_archive.py'
@@ -63,6 +69,11 @@ on:
       - 'tests/test_bybit_demo_excursion_tracker.py'
       - 'tests/test_bybit_demo_excursion_store.py'
       - 'tests/test_bybit_demo_excursion_runtime.py'
+      - 'tests/test_bybit_demo_trade_management_parity.py'
+      - 'tests/test_bybit_demo_trade_management_runtime.py'
+      - 'tests/test_bybit_demo_stop_ratchet_client.py'
+      - 'tests/test_bybit_demo_max_hold_close.py'
+      - 'tests/test_bybit_demo_completed_bars.py'
       - 'tests/test_bybit_demo_position_parsing.py'
       - 'tests/test_bybit_demo_trade_monitor.py'
       - 'tests/test_bybit_demo_cycle.py'
@@ -125,6 +136,10 @@ jobs:
           app/execution/bybit_demo_excursion_tracker.py
           app/execution/bybit_demo_excursion_store.py
           app/execution/bybit_demo_excursion_runtime.py
+          app/execution/bybit_demo_trade_management_parity.py
+          app/execution/bybit_demo_trade_management_runtime.py
+          app/execution/bybit_demo_stop_ratchet_client.py
+          app/execution/bybit_demo_max_hold_close.py
           app/execution/bybit_demo_profit_preservation_evidence.py
           app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_sized_strategy.py
@@ -137,11 +152,13 @@ jobs:
           app/execution/bybit_demo_orchestrator.py
           app/execution/bybit_demo_trade_monitor.py
           app/marketdata/bybit_demo_quotes.py
+          app/marketdata/bybit_demo_completed_bars.py
           app/strategy/crypto_perp.py
           app/strategy/crypto_position_selection.py
           app/strategy/crypto_correlation.py
           app/strategy/crypto_execution_risk.py
           app/strategy/crypto_liquidation_safety.py
+          app/strategy/crypto_trade_management.py
           app/strategy/crypto_trade_quality_diagnostics.py
           tools/qualify_bybit_crypto_walk_forward.py
           tools/run_bybit_crypto_walk_forward_archive.py
@@ -171,6 +188,11 @@ jobs:
           tests/test_bybit_demo_excursion_tracker.py
           tests/test_bybit_demo_excursion_store.py
           tests/test_bybit_demo_excursion_runtime.py
+          tests/test_bybit_demo_trade_management_parity.py
+          tests/test_bybit_demo_trade_management_runtime.py
+          tests/test_bybit_demo_stop_ratchet_client.py
+          tests/test_bybit_demo_max_hold_close.py
+          tests/test_bybit_demo_completed_bars.py
           tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_trade_monitor.py
           tests/test_bybit_demo_cycle.py
@@ -221,6 +243,11 @@ jobs:
           tests/test_bybit_demo_excursion_tracker.py
           tests/test_bybit_demo_excursion_store.py
           tests/test_bybit_demo_excursion_runtime.py
+          tests/test_bybit_demo_trade_management_parity.py
+          tests/test_bybit_demo_trade_management_runtime.py
+          tests/test_bybit_demo_stop_ratchet_client.py
+          tests/test_bybit_demo_max_hold_close.py
+          tests/test_bybit_demo_completed_bars.py
           tests/test_bybit_demo_profit_preservation_evidence.py
           tests/test_bybit_demo_account_reader.py
           tests/test_bybit_demo_account_info_reader.py
@@ -253,6 +280,10 @@ jobs:
           app/execution/bybit_demo_excursion_tracker.py
           app/execution/bybit_demo_excursion_store.py
           app/execution/bybit_demo_excursion_runtime.py
+          app/execution/bybit_demo_trade_management_parity.py
+          app/execution/bybit_demo_trade_management_runtime.py
+          app/execution/bybit_demo_stop_ratchet_client.py
+          app/execution/bybit_demo_max_hold_close.py
           app/execution/bybit_demo_profit_preservation_evidence.py
           app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_sized_strategy.py
@@ -265,11 +296,13 @@ jobs:
           app/execution/bybit_demo_orchestrator.py
           app/execution/bybit_demo_trade_monitor.py
           app/marketdata/bybit_demo_quotes.py
+          app/marketdata/bybit_demo_completed_bars.py
           app/strategy/crypto_perp.py
           app/strategy/crypto_position_selection.py
           app/strategy/crypto_correlation.py
           app/strategy/crypto_execution_risk.py
           app/strategy/crypto_liquidation_safety.py
+          app/strategy/crypto_trade_management.py
           app/strategy/crypto_trade_quality_diagnostics.py
           tools/qualify_bybit_crypto_walk_forward.py
           tools/run_bybit_crypto_walk_forward_archive.py
