@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from functools import partial
 from time import time
-from typing import Callable
 
 from app.execution.bybit_demo_account_reader import BybitDemoAccountingClient
 from app.execution.bybit_demo_attributed_runtime import (
