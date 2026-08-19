@@ -4,10 +4,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
+
 from app.execution.bybit_demo_managed_trade_poll import BybitDemoManagedTradePollPhase
 from app.execution.bybit_demo_runtime_lease import BybitDemoRuntimeLease
 from app.execution.bybit_demo_terminal_handoff import BybitDemoTerminalHandoffStatus
 from app.execution.bybit_demo_trading_runtime import (
+    BybitDemoTradingRuntimeSafetyError,
     BybitDemoTradingRuntimeStatus,
     run_bybit_demo_trading_runtime,
 )
@@ -353,17 +356,17 @@ def test_lease_release_failure_blocks_future_entry_even_after_operation() -> Non
     assert result.next_entry_allowed is False
 
 
-def test_unsafe_entry_result_is_rejected_and_lease_still_released() -> None:
+def test_unsafe_entry_result_is_hard_rejected_after_lease_release() -> None:
     unsafe = _SafeEntryResult(live_mainnet_order_routing_allowed=True)
     lease = _Lease()
 
-    result = _runtime(
-        runtime_lease=lease,
-        entry_executor=lambda *_args, **_kwargs: unsafe,
-    )
+    with pytest.raises(
+        BybitDemoTradingRuntimeSafetyError,
+        match="mainnet-capable entry cycle",
+    ):
+        _runtime(
+            runtime_lease=lease,
+            entry_executor=lambda *_args, **_kwargs: unsafe,
+        )
 
-    assert result.status is BybitDemoTradingRuntimeStatus.RUNTIME_BLOCKED
-    assert result.reasons == ("DEMO_TRADING_RUNTIME_OPERATION_FAILED:ValueError",)
     assert lease.release_calls == 1
-    assert result.runtime_lease_released is True
-    assert result.next_entry_allowed is False
