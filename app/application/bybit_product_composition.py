@@ -17,9 +17,7 @@ from app.execution.bybit_demo_broker_truth import BybitDemoBrokerTruthClient
 from app.execution.bybit_demo_cycle import BybitDemoCyclePolicy
 from app.execution.bybit_demo_managed_trade_poll import BybitDemoManagedTradePollPolicy
 from app.execution.bybit_demo_max_hold_close import BybitDemoMaxHoldClosePolicy
-from app.execution.bybit_demo_session_risk_ledger import (
-    start_bybit_demo_session_risk_ledger,
-)
+from app.execution.bybit_demo_session_risk_ledger import start_bybit_demo_session_risk_ledger
 from app.execution.bybit_demo_stop_ratchet_client import BybitDemoStopRatchetClient
 from app.execution.bybit_demo_trade_management_runtime import (
     BybitDemoTradeManagementRuntimePolicy,
@@ -54,6 +52,7 @@ from app.marketdata.bybit_entry_reference import (
 from app.marketdata.bybit_instruments import BybitInstrumentClient
 from app.marketdata.bybit_v5 import interval_milliseconds, last_completed_kline_end_ms
 from app.observability.bybit_runtime_health import (
+    BybitMarketDataHealthRecorder,
     BybitOperationalHealthReport,
     BybitReconciliationHealthRecorder,
     BybitRestHealthRecorder,
@@ -63,10 +62,7 @@ from app.observability.bybit_runtime_health import (
 from app.oms.bybit_entry import PostgresBybitEntryOms
 from app.oms.store import OrderRecord, OrderState
 from app.runtime.bybit_product_config import BybitProductConfig
-from app.runtime.bybit_product_service import (
-    BybitProductServiceResult,
-    run_bybit_product_service,
-)
+from app.runtime.bybit_product_service import BybitProductServiceResult, run_bybit_product_service
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig
 from app.strategy.crypto_session_risk import CryptoSessionRiskState
 
@@ -145,9 +141,7 @@ class BybitProductStartupReconciler:
                 f"BYBIT_OMS_ENTRY_BROKER_READ_FAILED:{record.intent_id}:{type(exc).__name__}",
             )
         if truth is None:
-            return False, (
-                f"BYBIT_OMS_ENTRY_NOT_FOUND_BY_ORDER_LINK_ID:{record.intent_id}",
-            )
+            return False, (f"BYBIT_OMS_ENTRY_NOT_FOUND_BY_ORDER_LINK_ID:{record.intent_id}",)
 
         occurred_at = _utc_from_ms(self.clock_ms())
         try:
@@ -190,6 +184,7 @@ class BybitProductCycleExecutor:
     terminal_evidence_store: PostgresBybitDemoTerminalEvidenceStore
     session_risk_store: PostgresBybitDemoSessionRiskLedgerStore
     strategy_config: CryptoPerpStrategyConfig
+    market_data_observation_hook: Callable[[], None] | None = None
     clock_ms: ClockMs = lambda: int(time() * 1000)
     live_mainnet_order_routing_allowed: bool = False
 
@@ -282,10 +277,7 @@ class BybitProductCycleExecutor:
 
     def _completed_universe_bars(self, *, now_ms: int):
         interval_ms = interval_milliseconds(self.config.bar_interval)
-        end_ms = last_completed_kline_end_ms(
-            now_ms=now_ms,
-            interval=self.config.bar_interval,
-        )
+        end_ms = last_completed_kline_end_ms(now_ms=now_ms, interval=self.config.bar_interval)
         last_start_ms = (end_ms // interval_ms) * interval_ms
         start_ms = last_start_ms - ((self.config.bar_lookback - 1) * interval_ms)
         if start_ms < 0:
@@ -304,7 +296,16 @@ class BybitProductCycleExecutor:
                     f"{len(bars)}!={self.config.bar_lookback}"
                 )
             result[symbol] = bars
+        self._observe_market_data()
         return result
+
+    def _observe_market_data(self) -> None:
+        if self.market_data_observation_hook is None:
+            return
+        try:
+            self.market_data_observation_hook()
+        except Exception:  # noqa: BLE001 - telemetry cannot replace valid market data.
+            pass
 
 
 @dataclass(frozen=True)
@@ -315,6 +316,7 @@ class BybitProductComposition:
     operator_control: PostgresBybitOperatorControl
     private_stream_monitor: BybitPrivateStreamMonitor
     rest_health_recorder: BybitRestHealthRecorder
+    market_data_health_recorder: BybitMarketDataHealthRecorder
     reconciliation_health_recorder: BybitReconciliationHealthRecorder
     entry_oms: PostgresBybitEntryOms
     monotonic_fn: MonotonicFn = monotonic
@@ -352,10 +354,9 @@ class BybitProductComposition:
             stream = None
         measurements = collect_bybit_operational_measurements(
             now_monotonic=now,
+            market_data=self.market_data_health_recorder.snapshot(now_monotonic=now),
             rest=self.rest_health_recorder.snapshot(),
-            reconciliation=self.reconciliation_health_recorder.snapshot(
-                now_monotonic=now
-            ),
+            reconciliation=self.reconciliation_health_recorder.snapshot(now_monotonic=now),
             private_stream=stream,
             unresolved_entry_submissions=unresolved_entries,
             operator=operator,
@@ -384,7 +385,12 @@ def build_bybit_product_composition(
     operator_control = PostgresBybitOperatorControl(config.database_url)
     entry_reference_store = BybitEntryReferenceStore()
     rest_health = BybitRestHealthRecorder()
+    market_data_health = BybitMarketDataHealthRecorder()
     reconciliation_health = BybitReconciliationHealthRecorder()
+
+    def observe_market_data() -> None:
+        market_data_health.record_success(observed_monotonic=Decimal(str(monotonic_fn())))
+
     trade_client = OmsAwareBybitDemoStopRatchetClient(
         api_key=config.api_key,
         api_secret=config.api_secret,
@@ -412,7 +418,10 @@ def build_bybit_product_composition(
         config=config,
         trade_client=trade_client,
         accounting_client=accounting_client,
-        quote_client=BybitEntryReferenceQuoteClient(reference_store=entry_reference_store),
+        quote_client=BybitEntryReferenceQuoteClient(
+            reference_store=entry_reference_store,
+            observation_hook=observe_market_data,
+        ),
         completed_bar_client=BybitDemoCompletedBarClient(),
         instrument_client=BybitInstrumentClient(),
         runtime_lease=runtime_lease,
@@ -421,6 +430,7 @@ def build_bybit_product_composition(
         terminal_evidence_store=PostgresBybitDemoTerminalEvidenceStore(config.database_url),
         session_risk_store=PostgresBybitDemoSessionRiskLedgerStore(config.database_url),
         strategy_config=active_strategy,
+        market_data_observation_hook=observe_market_data,
         clock_ms=active_clock,
     )
     return BybitProductComposition(
@@ -437,6 +447,7 @@ def build_bybit_product_composition(
         operator_control=operator_control,
         private_stream_monitor=private_stream,
         rest_health_recorder=rest_health,
+        market_data_health_recorder=market_data_health,
         reconciliation_health_recorder=reconciliation_health,
         entry_oms=entry_oms,
         monotonic_fn=monotonic_fn,
@@ -451,14 +462,8 @@ def bootstrap_bybit_product_session(config: BybitProductConfig) -> Decimal:
         runtime_lease=lease_store,
     )
     entry_oms = PostgresBybitEntryOms(config.database_url)
-    broker = BybitDemoBrokerTruthClient(
-        api_key=config.api_key,
-        api_secret=config.api_secret,
-    )
-    accounting = BybitDemoAccountingClient(
-        api_key=config.api_key,
-        api_secret=config.api_secret,
-    )
+    broker = BybitDemoBrokerTruthClient(api_key=config.api_key, api_secret=config.api_secret)
+    accounting = BybitDemoAccountingClient(api_key=config.api_key, api_secret=config.api_secret)
     session_store = PostgresBybitDemoSessionRiskLedgerStore(config.database_url)
 
     lease = lease_store.acquire()

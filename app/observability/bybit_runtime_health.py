@@ -26,11 +26,7 @@ class BybitRestHealthSnapshot:
 
 
 class BybitRestHealthRecorder:
-    """Thread-safe operational measurements for existing Bybit REST transports.
-
-    This is telemetry only. It never authorizes routing and intentionally stores no URLs,
-    credentials, request bodies or response payloads.
-    """
+    """Thread-safe operational measurements for existing Bybit REST transports."""
 
     live_mainnet_order_routing_allowed = False
     order_writes_supported = False
@@ -99,6 +95,51 @@ class BybitRestHealthRecorder:
         )
 
 
+@dataclass(frozen=True)
+class BybitMarketDataHealthSnapshot:
+    last_success_monotonic: Decimal | None
+    market_data_age_seconds: Decimal | None
+    market_data_ready: bool
+
+
+class BybitMarketDataHealthRecorder:
+    """Age of the last successful validated market-data observation.
+
+    Flat operation records only after the complete expected bar universe was read successfully.
+    Active/pre-entry operation records after an already-validated quote. No extra heartbeat request
+    is introduced solely for telemetry.
+    """
+
+    live_mainnet_order_routing_allowed = False
+    order_writes_supported = False
+
+    def __init__(self) -> None:
+        self._last_success_monotonic: Decimal | None = None
+        self._lock = Lock()
+
+    def record_success(self, *, observed_monotonic: Decimal) -> None:
+        if not observed_monotonic.is_finite() or observed_monotonic < 0:
+            raise ValueError("market-data monotonic observation must be finite and non-negative")
+        with self._lock:
+            self._last_success_monotonic = observed_monotonic
+
+    def snapshot(self, *, now_monotonic: Decimal) -> BybitMarketDataHealthSnapshot:
+        if not now_monotonic.is_finite() or now_monotonic < 0:
+            raise ValueError("health monotonic clock must be finite and non-negative")
+        with self._lock:
+            last_success = self._last_success_monotonic
+        age = None
+        if last_success is not None:
+            age = now_monotonic - last_success
+            if age < 0:
+                raise ValueError("health monotonic clock regressed after market-data observation")
+        return BybitMarketDataHealthSnapshot(
+            last_success_monotonic=last_success,
+            market_data_age_seconds=age,
+            market_data_ready=last_success is not None,
+        )
+
+
 class BybitReconciliationResultLike(Protocol):
     status: object
     broker_truth_complete: bool
@@ -115,11 +156,7 @@ class BybitReconciliationHealthSnapshot:
 
 
 class BybitReconciliationHealthRecorder:
-    """Process-local age/state of actual REST broker-truth reconciliation.
-
-    A process restart intentionally forgets the age until a new reconciliation is observed. This
-    prevents a restarted service from inheriting a fictional fresh-health timestamp.
-    """
+    """Process-local age/state of actual REST broker-truth reconciliation."""
 
     live_mainnet_order_routing_allowed = False
     order_writes_supported = False
@@ -221,17 +258,14 @@ class BybitOperationalHealthReport:
 def collect_bybit_operational_measurements(
     *,
     now_monotonic: Decimal,
+    market_data: BybitMarketDataHealthSnapshot,
     rest: BybitRestHealthSnapshot,
     reconciliation: BybitReconciliationHealthSnapshot,
     private_stream: BybitPrivateStreamHealthLike | None,
     unresolved_entry_submissions: int | None,
     operator: BybitOperatorHealthLike | None,
 ) -> BybitOperationalMeasurements:
-    """Collect only measurements proven by existing authoritative runtime sources.
-
-    Market-data freshness, calendar daily PnL, account cash mismatch and account drawdown are left
-    unavailable until the canonical runtime observes those semantics continuously and explicitly.
-    """
+    """Collect only measurements proven by existing authoritative runtime sources."""
 
     if not now_monotonic.is_finite() or now_monotonic < 0:
         raise ValueError("health monotonic clock must be finite and non-negative")
@@ -262,6 +296,7 @@ def collect_bybit_operational_measurements(
         kill_switch = operator.kill_switch_engaged
 
     return BybitOperationalMeasurements(
+        market_data_age_seconds=market_data.market_data_age_seconds,
         stream_silence_seconds=stream_silence,
         broker_latency_ms=rest.maximum_latency_ms,
         broker_error_fraction=rest.error_fraction,
@@ -269,6 +304,7 @@ def collect_bybit_operational_measurements(
         reconciliation_age_seconds=reconciliation.reconciliation_age_seconds,
         position_mismatches=reconciliation.position_mismatches,
         kill_switch_engaged=kill_switch,
+        market_data_ready=market_data.market_data_ready,
         stream_ready=stream_ready,
         broker_connected=reconciliation.broker_connected,
         portfolio_reconciled=reconciliation.portfolio_reconciled,
@@ -280,12 +316,6 @@ def build_bybit_operational_health(
     *,
     evaluator: OperationalReadinessEvaluator | None = None,
 ) -> BybitOperationalHealthReport:
-    """Build canonical readiness only from fully measured inputs.
-
-    Missing telemetry is a blocker, never a healthy zero. This prevents a partially instrumented
-    runtime from emitting a misleading green operational state during the production transition.
-    """
-
     fields = (
         "market_data_age_seconds",
         "stream_silence_seconds",

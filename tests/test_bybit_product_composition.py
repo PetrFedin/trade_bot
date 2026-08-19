@@ -100,6 +100,7 @@ def _executor(
     active_symbol: str | None = None,
     missing_session: bool = False,
     bar_count: int = 50,
+    market_data_observation_hook=None,
 ) -> product.BybitProductCycleExecutor:
     checkpoint = (
         None
@@ -119,6 +120,7 @@ def _executor(
         terminal_evidence_store=_Safe(),
         session_risk_store=_SessionStore(missing=missing_session),
         strategy_config=CryptoPerpStrategyConfig(),
+        market_data_observation_hook=market_data_observation_hook,
         clock_ms=lambda: 1_800_000_000_000,
     )
 
@@ -148,9 +150,7 @@ def test_active_trade_management_continues_if_session_ledger_is_temporarily_miss
     assert captured["bars"] == {}
     assert captured["session_ledger"] is None
     assert captured["session_state"].opening_equity_usdt == Decimal("950")
-    assert executor.instrument_client.requests == [
-        ("BTCUSDT", "ETHUSDT", "SOLUSDT")
-    ]
+    assert executor.instrument_client.requests == [("BTCUSDT", "ETHUSDT", "SOLUSDT")]
 
 
 def test_flat_cycle_uses_all_completed_universe_bars_and_frozen_strategy(
@@ -179,8 +179,32 @@ def test_flat_cycle_uses_all_completed_universe_bars_and_frozen_strategy(
     assert executor.live_mainnet_order_routing_allowed is False
 
 
-def test_incomplete_market_history_blocks_entry_instead_of_shortening_lookback() -> None:
-    executor = _executor(bar_count=49)
+def test_complete_flat_universe_read_records_one_market_data_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observations: list[str] = []
+    executor = _executor(
+        market_data_observation_hook=lambda: observations.append("complete-universe")
+    )
+    monkeypatch.setattr(
+        product,
+        "run_attributed_bybit_demo_trading_runtime",
+        lambda *_args, **_kwargs: SimpleNamespace(live_mainnet_order_routing_allowed=False),
+    )
+
+    executor.run_once()
+
+    assert observations == ["complete-universe"]
+
+
+def test_incomplete_market_history_blocks_before_market_data_observation() -> None:
+    observations: list[str] = []
+    executor = _executor(
+        bar_count=49,
+        market_data_observation_hook=lambda: observations.append("should-not-record"),
+    )
 
     with pytest.raises(RuntimeError, match="completed bar count mismatch for BTCUSDT"):
         executor.run_once()
+
+    assert observations == []
