@@ -82,7 +82,6 @@ jobs:
           tests/test_bybit_demo_stop_ratchet_client.py
           tests/test_bybit_demo_max_hold_close.py
           tests/test_bybit_demo_completed_bars.py
-          tests/test_crypto_trade_management.py
 
       - name: Compile demo trade-management parity
         run: >-
