@@ -65,9 +65,13 @@ class BybitDemoSessionRiskLedger:
                 not self.peak_equity_usdt.is_finite()
                 or self.peak_equity_usdt < self.opening_equity_usdt
             ):
-                raise ValueError("demo session peak equity must be finite and at least opening equity")
+                raise ValueError(
+                    "demo session peak equity must be finite and at least opening equity"
+                )
             if self.peak_equity_usdt < self.realized_peak_equity_usdt:
-                raise ValueError("demo session peak equity cannot be below realized high-water mark")
+                raise ValueError(
+                    "demo session peak equity cannot be below realized high-water mark"
+                )
         if not self.demo_only or self.live_mainnet_order_routing_allowed:
             raise ValueError("demo session ledger cannot grant live routing")
 
