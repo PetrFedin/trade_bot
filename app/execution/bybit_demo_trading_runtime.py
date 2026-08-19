@@ -302,7 +302,6 @@ def _run_under_lease(
             except Exception as exc:  # noqa: BLE001 - diagnostics failure cannot rewrite the trade.
                 reasons = (f"ENTRY_PROVENANCE_BUILD_FAILED:{type(exc).__name__}",)
             if provenance is not None and not reasons:
-                _reject_live_result(provenance, name="entry provenance")
                 try:
                     receipt = entry_provenance_store.persist(provenance)
                 except Exception as exc:  # noqa: BLE001 - keep protected trade state authoritative.
