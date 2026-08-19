@@ -6,4 +6,7 @@
 /app/oms/ @PetrFedin
 /app/portfolio/ @PetrFedin
 /app/runtime/ @PetrFedin
+/app/execution/ @PetrFedin
+/app/strategy/ @PetrFedin
+/app/marketdata/ @PetrFedin
 /.github/workflows/ @PetrFedin
