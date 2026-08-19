@@ -17,6 +17,7 @@ if not DSN:
 
 from app.application.order_lifecycle import PaperOrderLifecycle
 from app.domain.trading import OrderIntent, Side
+from app.oms.bybit_entry import PostgresBybitEntryOms, bybit_entry_intent_id
 from app.oms.postgres import PostgresOmsStore
 from app.oms.store import OrderState
 from app.risk.pretrade import RiskDecision
@@ -151,3 +152,68 @@ def test_postgres_event_journal_is_append_only(store: PostgresOmsStore) -> None:
             )
         connection.rollback()
     assert store.events("pg-intent-1")[0]["event_type"] == "CREATED"
+
+
+def test_bybit_entry_claim_is_durable_at_most_once_and_uses_canonical_tables(
+    store: PostgresOmsStore,
+) -> None:
+    order_link_id = "ASTRA-DEMO-E-ABCDEF0123456789"
+    intent_id = bybit_entry_intent_id(order_link_id)
+    bybit_intent = OrderIntent(
+        intent_id=intent_id,
+        symbol="BTCUSDT",
+        side=Side.BUY,
+        quantity=Decimal("0.01"),
+        limit_price=Decimal("60001"),
+        created_at=NOW,
+        strategy_id="bybit-crypto-perp-v2",
+    )
+    bridge = PostgresBybitEntryOms(DSN)
+
+    first = bridge.claim_entry_submission(
+        bybit_intent,
+        client_order_id=order_link_id,
+        occurred_at=NOW,
+    )
+    assert first.mutation_allowed is True
+    assert first.claimed_now is True
+    assert first.record.state is OrderState.SUBMIT_STARTED
+    assert bridge.pending_outbox() == ()
+
+    reopened = PostgresBybitEntryOms(DSN)
+    repeated = reopened.claim_entry_submission(
+        bybit_intent,
+        client_order_id=order_link_id,
+        occurred_at=NOW,
+    )
+    assert repeated.mutation_allowed is False
+    assert repeated.claimed_now is False
+    assert repeated.record.state is OrderState.SUBMIT_STARTED
+
+    with psycopg.connect(DSN, row_factory=psycopg.rows.dict_row) as connection:
+        row = connection.execute(
+            "SELECT topic, published_at, payload FROM astra_oms_outbox WHERE intent_id=%s",
+            (intent_id,),
+        ).fetchone()
+    assert row is not None
+    assert row["topic"] == "bybit_order_submit"
+    assert row["published_at"] is not None
+    assert row["payload"]["broker_order_type"] == "MARKET"
+    assert row["payload"]["price_role"] == "PRE_ENTRY_EXECUTABLE_QUOTE_REFERENCE"
+
+    uncertain = reopened.mark_uncertain(
+        intent_id,
+        occurred_at=NOW,
+        reason="LOST_ACK_AND_NO_BROKER_TRUTH",
+    )
+    assert uncertain.state is OrderState.UNCERTAIN
+    assert reopened.count_unresolved_entry_submissions() == 1
+    assert reopened.count_uncertain_entries() == 1
+    event_types = [event["event_type"] for event in reopened.events(intent_id)]
+    assert event_types == [
+        "CREATED",
+        "RISK_APPROVED",
+        "OUTBOXED",
+        "SUBMIT_STARTED",
+        "UNCERTAIN",
+    ]

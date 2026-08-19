@@ -26,8 +26,8 @@ from app.execution.bybit_demo_trade_management_runtime import (
 from app.execution.bybit_observed_rest import (
     ObservedBybitDemoAccountingClient,
     ObservedBybitDemoBrokerTruthClient,
-    ObservedBybitDemoStopRatchetClient,
 )
+from app.execution.bybit_oms_entry_client import OmsAwareBybitDemoStopRatchetClient
 from app.execution.bybit_postgres_evidence_state import (
     PostgresBybitDemoEntryProvenanceStore,
     PostgresBybitDemoSessionRiskLedgerStore,
@@ -41,13 +41,19 @@ from app.execution.bybit_private_stream import BybitPrivateStreamMonitor
 from app.execution.bybit_product_terminal_handoff import persist_product_terminal_state
 from app.execution.bybit_startup_reconciliation import (
     BybitStartupReconciliationResult,
+    BybitStartupReconciliationStatus,
     reconcile_bybit_startup,
 )
 from app.marketdata.bybit_demo_completed_bars import BybitDemoCompletedBarClient
 from app.marketdata.bybit_demo_quotes import BybitDemoMarketQuoteClient
+from app.marketdata.bybit_entry_reference import (
+    BybitEntryReferenceQuoteClient,
+    BybitEntryReferenceStore,
+)
 from app.marketdata.bybit_instruments import BybitInstrumentClient
 from app.marketdata.bybit_v5 import interval_milliseconds, last_completed_kline_end_ms
 from app.observability.bybit_runtime_health import BybitRestHealthRecorder
+from app.oms.bybit_entry import PostgresBybitEntryOms
 from app.runtime.bybit_product_config import BybitProductConfig
 from app.runtime.bybit_product_service import (
     BybitProductServiceResult,
@@ -63,9 +69,20 @@ ClockMs = Callable[[], int]
 class BybitProductStartupReconciler:
     broker: BybitDemoBrokerTruthClient
     checkpoint_store: PostgresBybitDemoExcursionStore
+    entry_oms: PostgresBybitEntryOms
     live_mainnet_order_routing_allowed: bool = False
 
     def run(self) -> BybitStartupReconciliationResult:
+        try:
+            unresolved_entries = self.entry_oms.count_unresolved_entry_submissions()
+        except Exception as exc:
+            return _blocked_startup(
+                f"STARTUP_BYBIT_OMS_READ_FAILED:{type(exc).__name__}"
+            )
+        if unresolved_entries:
+            return _blocked_startup(
+                f"UNRESOLVED_BYBIT_OMS_ENTRY_SUBMISSIONS:{unresolved_entries}"
+            )
         return reconcile_bybit_startup(
             broker=self.broker,
             checkpoint_store=self.checkpoint_store,
@@ -214,6 +231,7 @@ class BybitProductComposition:
     cycle_executor: BybitProductCycleExecutor
     private_stream_monitor: BybitPrivateStreamMonitor
     rest_health_recorder: BybitRestHealthRecorder
+    entry_oms: PostgresBybitEntryOms
     live_mainnet_order_routing_allowed: bool = False
 
     def run(
@@ -249,11 +267,15 @@ def build_bybit_product_composition(
         config.database_url,
         runtime_lease=runtime_lease,
     )
+    entry_oms = PostgresBybitEntryOms(config.database_url)
+    entry_reference_store = BybitEntryReferenceStore()
     rest_health = BybitRestHealthRecorder()
-    trade_client = ObservedBybitDemoStopRatchetClient(
+    trade_client = OmsAwareBybitDemoStopRatchetClient(
         api_key=config.api_key,
         api_secret=config.api_secret,
         rest_health_sink=rest_health,
+        entry_oms=entry_oms,
+        entry_reference_store=entry_reference_store,
     )
     accounting_client = ObservedBybitDemoAccountingClient(
         api_key=config.api_key,
@@ -274,7 +296,9 @@ def build_bybit_product_composition(
         config=config,
         trade_client=trade_client,
         accounting_client=accounting_client,
-        quote_client=BybitDemoMarketQuoteClient(),
+        quote_client=BybitEntryReferenceQuoteClient(
+            reference_store=entry_reference_store,
+        ),
         completed_bar_client=BybitDemoCompletedBarClient(),
         instrument_client=BybitInstrumentClient(),
         runtime_lease=runtime_lease,
@@ -290,10 +314,12 @@ def build_bybit_product_composition(
         startup_reconciler=BybitProductStartupReconciler(
             broker=startup_broker,
             checkpoint_store=excursion_store,
+            entry_oms=entry_oms,
         ),
         cycle_executor=cycle,
         private_stream_monitor=private_stream,
         rest_health_recorder=rest_health,
+        entry_oms=entry_oms,
     )
 
 
@@ -306,6 +332,12 @@ def bootstrap_bybit_product_session(config: BybitProductConfig) -> Decimal:
         config.database_url,
         runtime_lease=lease_store,
     )
+    entry_oms = PostgresBybitEntryOms(config.database_url)
+    unresolved_entries = entry_oms.count_unresolved_entry_submissions()
+    if unresolved_entries:
+        raise RuntimeError(
+            f"session bootstrap blocked by unresolved Bybit OMS entries:{unresolved_entries}"
+        )
     broker = BybitDemoBrokerTruthClient(
         api_key=config.api_key,
         api_secret=config.api_secret,
@@ -335,3 +367,17 @@ def bootstrap_bybit_product_session(config: BybitProductConfig) -> Decimal:
         return wallet.total_equity_usd
     finally:
         lease_store.release(owner_token=lease.owner_token)
+
+
+def _blocked_startup(reason: str) -> BybitStartupReconciliationResult:
+    return BybitStartupReconciliationResult(
+        status=BybitStartupReconciliationStatus.BLOCKED,
+        reasons=(reason,),
+        checkpoint=None,
+        active_positions=(),
+        open_orders=(),
+        next_entry_allowed=False,
+        management_allowed=False,
+        terminal_recovery_required=False,
+        broker_truth_complete=False,
+    )
