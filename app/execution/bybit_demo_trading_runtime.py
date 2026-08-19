@@ -229,6 +229,7 @@ def _run_under_lease(
             client=client,
             accounting_client=accounting_client,
             excursion_store=excursion_store,
+            quote_client=quote_client,
             **dict(entry_kwargs),
         )
         _reject_live_result(entry, name="entry cycle")
