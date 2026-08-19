@@ -11,6 +11,7 @@ on:
       - 'app/execution/bybit_demo_strategy_selector.py'
       - 'app/execution/bybit_demo_strategy_quality_tracker.py'
       - 'app/execution/bybit_demo_ranked_fallback.py'
+      - 'app/execution/bybit_demo_entry_provenance.py'
       - 'app/execution/bybit_demo_protection_client.py'
       - 'app/execution/bybit_demo_protection_reconciliation.py'
       - 'app/execution/bybit_demo_protection_quality_tracker.py'
@@ -22,6 +23,10 @@ on:
       - 'app/execution/bybit_demo_stop_ratchet_client.py'
       - 'app/execution/bybit_demo_max_hold_close.py'
       - 'app/execution/bybit_demo_managed_trade_poll.py'
+      - 'app/execution/bybit_demo_terminal_evidence_store.py'
+      - 'app/execution/bybit_demo_terminal_handoff.py'
+      - 'app/execution/bybit_demo_runtime_lease.py'
+      - 'app/execution/bybit_demo_trading_runtime.py'
       - 'app/execution/bybit_demo_profit_preservation_evidence.py'
       - 'app/execution/bybit_demo_account_reader.py'
       - 'app/execution/bybit_demo_account_sized_strategy.py'
@@ -63,6 +68,7 @@ on:
       - 'tests/test_bybit_demo_strategy_quality_tracker.py'
       - 'tests/test_bybit_demo_ranked_fallback.py'
       - 'tests/test_bybit_demo_ranked_fallback_excursion.py'
+      - 'tests/test_bybit_demo_entry_provenance.py'
       - 'tests/test_bybit_demo_protection_client.py'
       - 'tests/test_bybit_demo_protection_reconciliation.py'
       - 'tests/test_bybit_demo_emergency_flatten_reconciliation.py'
@@ -75,6 +81,10 @@ on:
       - 'tests/test_bybit_demo_stop_ratchet_client.py'
       - 'tests/test_bybit_demo_max_hold_close.py'
       - 'tests/test_bybit_demo_managed_trade_poll.py'
+      - 'tests/test_bybit_demo_terminal_evidence_store.py'
+      - 'tests/test_bybit_demo_terminal_handoff.py'
+      - 'tests/test_bybit_demo_runtime_lease.py'
+      - 'tests/test_bybit_demo_trading_runtime.py'
       - 'tests/test_bybit_demo_completed_bars.py'
       - 'tests/test_bybit_demo_position_parsing.py'
       - 'tests/test_bybit_demo_trade_monitor.py'
@@ -132,6 +142,7 @@ jobs:
           app/execution/bybit_demo_strategy_selector.py
           app/execution/bybit_demo_strategy_quality_tracker.py
           app/execution/bybit_demo_ranked_fallback.py
+          app/execution/bybit_demo_entry_provenance.py
           app/execution/bybit_demo_protection_client.py
           app/execution/bybit_demo_protection_reconciliation.py
           app/execution/bybit_demo_protection_quality_tracker.py
@@ -143,6 +154,10 @@ jobs:
           app/execution/bybit_demo_stop_ratchet_client.py
           app/execution/bybit_demo_max_hold_close.py
           app/execution/bybit_demo_managed_trade_poll.py
+          app/execution/bybit_demo_terminal_evidence_store.py
+          app/execution/bybit_demo_terminal_handoff.py
+          app/execution/bybit_demo_runtime_lease.py
+          app/execution/bybit_demo_trading_runtime.py
           app/execution/bybit_demo_profit_preservation_evidence.py
           app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_sized_strategy.py
@@ -184,6 +199,7 @@ jobs:
           tests/test_bybit_demo_strategy_quality_tracker.py
           tests/test_bybit_demo_ranked_fallback.py
           tests/test_bybit_demo_ranked_fallback_excursion.py
+          tests/test_bybit_demo_entry_provenance.py
           tests/test_bybit_demo_protection_client.py
           tests/test_bybit_demo_protection_reconciliation.py
           tests/test_bybit_demo_emergency_flatten_reconciliation.py
@@ -196,6 +212,10 @@ jobs:
           tests/test_bybit_demo_stop_ratchet_client.py
           tests/test_bybit_demo_max_hold_close.py
           tests/test_bybit_demo_managed_trade_poll.py
+          tests/test_bybit_demo_terminal_evidence_store.py
+          tests/test_bybit_demo_terminal_handoff.py
+          tests/test_bybit_demo_runtime_lease.py
+          tests/test_bybit_demo_trading_runtime.py
           tests/test_bybit_demo_completed_bars.py
           tests/test_bybit_demo_position_parsing.py
           tests/test_bybit_demo_trade_monitor.py
@@ -240,6 +260,7 @@ jobs:
           tests/test_bybit_demo_strategy_quality_tracker.py
           tests/test_bybit_demo_ranked_fallback.py
           tests/test_bybit_demo_ranked_fallback_excursion.py
+          tests/test_bybit_demo_entry_provenance.py
           tests/test_bybit_demo_protection_client.py
           tests/test_bybit_demo_protection_reconciliation.py
           tests/test_bybit_demo_emergency_flatten_reconciliation.py
@@ -252,6 +273,10 @@ jobs:
           tests/test_bybit_demo_stop_ratchet_client.py
           tests/test_bybit_demo_max_hold_close.py
           tests/test_bybit_demo_managed_trade_poll.py
+          tests/test_bybit_demo_terminal_evidence_store.py
+          tests/test_bybit_demo_terminal_handoff.py
+          tests/test_bybit_demo_runtime_lease.py
+          tests/test_bybit_demo_trading_runtime.py
           tests/test_bybit_demo_completed_bars.py
           tests/test_bybit_demo_profit_preservation_evidence.py
           tests/test_bybit_demo_account_reader.py
@@ -279,6 +304,7 @@ jobs:
           app/execution/bybit_demo_strategy_selector.py
           app/execution/bybit_demo_strategy_quality_tracker.py
           app/execution/bybit_demo_ranked_fallback.py
+          app/execution/bybit_demo_entry_provenance.py
           app/execution/bybit_demo_protection_client.py
           app/execution/bybit_demo_protection_reconciliation.py
           app/execution/bybit_demo_protection_quality_tracker.py
@@ -290,6 +316,10 @@ jobs:
           app/execution/bybit_demo_stop_ratchet_client.py
           app/execution/bybit_demo_max_hold_close.py
           app/execution/bybit_demo_managed_trade_poll.py
+          app/execution/bybit_demo_terminal_evidence_store.py
+          app/execution/bybit_demo_terminal_handoff.py
+          app/execution/bybit_demo_runtime_lease.py
+          app/execution/bybit_demo_trading_runtime.py
           app/execution/bybit_demo_profit_preservation_evidence.py
           app/execution/bybit_demo_account_reader.py
           app/execution/bybit_demo_account_sized_strategy.py
