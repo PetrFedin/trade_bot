@@ -159,8 +159,9 @@ class JsonFileBybitDemoSessionRiskLedgerStore:
                 temporary.unlink()
             except FileNotFoundError:
                 pass
-        checkpoint = BybitDemoSessionRiskLedgerCheckpoint(ledger=ledger, revision=revision)
-        checkpoint.validate()
+        checkpoint = _decode_checkpoint(payload)
+        if checkpoint.revision != revision:
+            raise RuntimeError("demo session ledger persisted revision mismatch")
         return checkpoint
 
     def _reject_symlink(self) -> None:
