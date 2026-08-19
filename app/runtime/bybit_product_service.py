@@ -18,7 +18,6 @@ class BybitProductServiceStatus(StrEnum):
     STARTUP_BLOCKED = "STARTUP_BLOCKED"
     STARTUP_FAILED = "STARTUP_FAILED"
     CYCLE_FAILED = "CYCLE_FAILED"
-    SAFETY_REJECTED = "SAFETY_REJECTED"
 
 
 @dataclass(frozen=True)
@@ -65,8 +64,8 @@ def run_bybit_product_service(
     Startup broker truth is mandatory before the first cycle. A blocked startup never reaches the
     trading runtime. Management/terminal-recovery states may run because the existing single-writer
     trading router treats the durable checkpoint as authoritative and forbids replacement entry in
-    the same invocation. Runtime exceptions stop the service; the supervisor never blindly retries
-    an unknown broker mutation outcome.
+    the same invocation. Operational runtime exceptions stop the service; safety/capability
+    ``ValueError`` exceptions remain hard failures and are never downgraded to diagnostics.
     """
 
     config.validate()
@@ -77,7 +76,9 @@ def run_bybit_product_service(
 
     try:
         startup = startup_reconciler.run()
-    except Exception as exc:  # noqa: BLE001 - startup truth failure cannot authorize trading.
+    except ValueError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - operational startup failure stops the service.
         return _result(
             BybitProductServiceStatus.STARTUP_FAILED,
             reasons=(f"STARTUP_RECONCILIATION_FAILED:{type(exc).__name__}",),
@@ -111,14 +112,7 @@ def run_bybit_product_service(
         BybitStartupReconciliationStatus.RESUME_MANAGEMENT,
         BybitStartupReconciliationStatus.TERMINAL_RECOVERY_REQUIRED,
     }:
-        return _result(
-            BybitProductServiceStatus.SAFETY_REJECTED,
-            reasons=("UNKNOWN_STARTUP_RECONCILIATION_STATUS",),
-            completed_cycles=0,
-            startup=startup,
-            last_cycle_result=None,
-            graceful_stop=False,
-        )
+        raise ValueError("Bybit product service rejected unknown startup status")
 
     completed = 0
     last_cycle_result: object | None = None
@@ -144,7 +138,9 @@ def run_bybit_product_service(
 
         try:
             cycle_result = cycle_executor.run_once()
-        except Exception as exc:  # noqa: BLE001 - never blind-retry a possibly ambiguous mutation.
+        except ValueError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - do not retry a possibly ambiguous mutation.
             return _result(
                 BybitProductServiceStatus.CYCLE_FAILED,
                 reasons=(f"TRADING_CYCLE_FAILED:{type(exc).__name__}",),
@@ -154,22 +150,14 @@ def run_bybit_product_service(
                 graceful_stop=False,
             )
 
-        try:
-            _reject_live_capability(cycle_result, name="trading cycle result")
-            _validate_cycle_result(cycle_result)
-        except ValueError as exc:
-            return _result(
-                BybitProductServiceStatus.SAFETY_REJECTED,
-                reasons=(f"TRADING_CYCLE_SAFETY_REJECTED:{exc}",),
-                completed_cycles=completed,
-                startup=startup,
-                last_cycle_result=cycle_result,
-                graceful_stop=False,
-            )
-
+        _reject_live_capability(cycle_result, name="trading cycle result")
+        _validate_cycle_result(cycle_result)
         completed += 1
         last_cycle_result = cycle_result
+
         if stop_requested():
+            continue
+        if max_cycles is not None and completed >= max_cycles:
             continue
         sleep_fn(config.poll_interval_ms / 1000)
 
