@@ -7,6 +7,8 @@ on:
       - 'app/execution/bybit_demo_managed_trade_poll.py'
       - 'app/execution/bybit_demo_terminal_evidence_store.py'
       - 'app/execution/bybit_demo_terminal_handoff.py'
+      - 'app/execution/bybit_demo_runtime_lease.py'
+      - 'app/execution/bybit_demo_trading_runtime.py'
       - 'app/execution/bybit_demo_excursion_runtime.py'
       - 'app/execution/bybit_demo_excursion_store.py'
       - 'app/execution/bybit_demo_trade_management_runtime.py'
@@ -16,6 +18,8 @@ on:
       - 'tests/test_bybit_demo_managed_trade_poll.py'
       - 'tests/test_bybit_demo_terminal_evidence_store.py'
       - 'tests/test_bybit_demo_terminal_handoff.py'
+      - 'tests/test_bybit_demo_runtime_lease.py'
+      - 'tests/test_bybit_demo_trading_runtime.py'
       - '.github/workflows/bybit-demo-managed-trade-quality.yml'
   push:
     branches:
@@ -24,6 +28,8 @@ on:
       - 'app/execution/bybit_demo_managed_trade_poll.py'
       - 'app/execution/bybit_demo_terminal_evidence_store.py'
       - 'app/execution/bybit_demo_terminal_handoff.py'
+      - 'app/execution/bybit_demo_runtime_lease.py'
+      - 'app/execution/bybit_demo_trading_runtime.py'
       - 'app/execution/bybit_demo_excursion_runtime.py'
       - 'app/execution/bybit_demo_excursion_store.py'
       - 'app/execution/bybit_demo_trade_management_runtime.py'
@@ -33,6 +39,8 @@ on:
       - 'tests/test_bybit_demo_managed_trade_poll.py'
       - 'tests/test_bybit_demo_terminal_evidence_store.py'
       - 'tests/test_bybit_demo_terminal_handoff.py'
+      - 'tests/test_bybit_demo_runtime_lease.py'
+      - 'tests/test_bybit_demo_trading_runtime.py'
       - '.github/workflows/bybit-demo-managed-trade-quality.yml'
 
 permissions:
@@ -68,9 +76,13 @@ jobs:
           app/execution/bybit_demo_managed_trade_poll.py
           app/execution/bybit_demo_terminal_evidence_store.py
           app/execution/bybit_demo_terminal_handoff.py
+          app/execution/bybit_demo_runtime_lease.py
+          app/execution/bybit_demo_trading_runtime.py
           tests/test_bybit_demo_managed_trade_poll.py
           tests/test_bybit_demo_terminal_evidence_store.py
           tests/test_bybit_demo_terminal_handoff.py
+          tests/test_bybit_demo_runtime_lease.py
+          tests/test_bybit_demo_trading_runtime.py
 
       - name: Test managed trade lifecycle
         run: >-
@@ -78,6 +90,8 @@ jobs:
           tests/test_bybit_demo_managed_trade_poll.py
           tests/test_bybit_demo_terminal_evidence_store.py
           tests/test_bybit_demo_terminal_handoff.py
+          tests/test_bybit_demo_runtime_lease.py
+          tests/test_bybit_demo_trading_runtime.py
           tests/test_bybit_demo_trade_management_runtime.py
           tests/test_bybit_demo_max_hold_close.py
           tests/test_bybit_demo_excursion_runtime.py
@@ -90,3 +104,5 @@ jobs:
           app/execution/bybit_demo_managed_trade_poll.py
           app/execution/bybit_demo_terminal_evidence_store.py
           app/execution/bybit_demo_terminal_handoff.py
+          app/execution/bybit_demo_runtime_lease.py
+          app/execution/bybit_demo_trading_runtime.py
