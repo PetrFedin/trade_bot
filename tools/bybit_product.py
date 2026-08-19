@@ -12,6 +12,7 @@ from app.application.bybit_product_composition import (
     bootstrap_bybit_product_session,
     build_bybit_product_composition,
 )
+from app.observability.json_events import StructuredJsonEventLogger
 from app.runtime.bybit_product_config import BybitProductConfig, BybitProductConfigError
 from app.runtime.bybit_product_service import (
     BybitProductServiceResult,
@@ -102,6 +103,10 @@ def _emit(payload: Mapping[str, object], *, error: bool = False) -> None:
     print(json.dumps(dict(payload), sort_keys=True), file=sys.stderr if error else sys.stdout)
 
 
+def _logger(config: BybitProductConfig) -> StructuredJsonEventLogger:
+    return StructuredJsonEventLogger(level=config.log_level)
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -126,8 +131,27 @@ def main(
         )
         return _CONFIG_ERROR_EXIT
 
+    logger = _logger(config)
     if args.command == "bootstrap-session":
-        opening_equity = bootstrap_bybit_product_session(config)
+        logger.emit(
+            "INFO",
+            "BYBIT_SESSION_BOOTSTRAP_STARTING",
+            fields={"config": dict(config.redacted())},
+        )
+        try:
+            opening_equity = bootstrap_bybit_product_session(config)
+        except Exception as exc:
+            logger.emit(
+                "CRITICAL",
+                "BYBIT_SESSION_BOOTSTRAP_FAILED",
+                fields={"error_type": type(exc).__name__},
+            )
+            raise
+        logger.emit(
+            "INFO",
+            "BYBIT_SESSION_BOOTSTRAPPED",
+            fields={"opening_equity_usdt": str(opening_equity)},
+        )
         _emit(
             {
                 "status": "SESSION_BOOTSTRAPPED",
@@ -137,8 +161,27 @@ def main(
         )
         return 0
 
-    result = run_product(config)
-    _emit(_service_report(result))
+    logger.emit(
+        "INFO",
+        "BYBIT_PRODUCT_STARTING",
+        fields={"config": dict(config.redacted())},
+    )
+    try:
+        result = run_product(config)
+    except Exception as exc:
+        logger.emit(
+            "CRITICAL",
+            "BYBIT_PRODUCT_CRASHED",
+            fields={"error_type": type(exc).__name__},
+        )
+        raise
+    report = _service_report(result)
+    logger.emit(
+        "INFO" if result.status is BybitProductServiceStatus.STOPPED else "ERROR",
+        "BYBIT_PRODUCT_STOPPED",
+        fields=report,
+    )
+    _emit(report)
     return _service_exit_code(result.status)
 
 
