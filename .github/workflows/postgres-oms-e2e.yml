@@ -8,12 +8,14 @@ on:
     paths:
       - 'app/oms/**'
       - 'app/application/order_lifecycle.py'
+      - 'app/application/bybit_operator_control.py'
       - 'app/execution/bybit_postgres_runtime_state.py'
       - 'app/execution/bybit_postgres_evidence_state.py'
       - 'app/execution/bybit_startup_reconciliation.py'
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
       - 'tests/test_postgres_bybit_entry_recovery_e2e.py'
+      - 'tests/test_postgres_bybit_operator_control_e2e.py'
       - 'tests/test_bybit_postgres_runtime_state.py'
       - 'tests/test_bybit_postgres_evidence_state.py'
       - 'pyproject.toml'
@@ -22,12 +24,14 @@ on:
     paths:
       - 'app/oms/**'
       - 'app/application/order_lifecycle.py'
+      - 'app/application/bybit_operator_control.py'
       - 'app/execution/bybit_postgres_runtime_state.py'
       - 'app/execution/bybit_postgres_evidence_state.py'
       - 'app/execution/bybit_startup_reconciliation.py'
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
       - 'tests/test_postgres_bybit_entry_recovery_e2e.py'
+      - 'tests/test_postgres_bybit_operator_control_e2e.py'
       - 'tests/test_bybit_postgres_runtime_state.py'
       - 'tests/test_bybit_postgres_evidence_state.py'
       - 'pyproject.toml'
@@ -74,6 +78,8 @@ jobs:
         run: pytest -q tests/test_postgres_oms_e2e.py
       - name: PostgreSQL Bybit entry recovery E2E
         run: pytest -q tests/test_postgres_bybit_entry_recovery_e2e.py
+      - name: PostgreSQL Bybit operator control E2E
+        run: pytest -q tests/test_postgres_bybit_operator_control_e2e.py
       - name: PostgreSQL Bybit runtime state and fencing E2E
         run: pytest -q tests/test_bybit_postgres_runtime_state.py
       - name: PostgreSQL Bybit evidence and session-risk E2E
