@@ -28,8 +28,11 @@ class _SessionStore:
     live_mainnet_order_routing_allowed = False
     order_writes_supported = False
 
-    def __init__(self, *, missing: bool = False) -> None:
+    def __init__(self, *, missing: bool = False, fail_save: bool = False) -> None:
         self.missing = missing
+        self.fail_save = fail_save
+        self.save_calls = 0
+        self.revision_counter = 1
         self.checkpoint = SimpleNamespace(
             ledger=start_bybit_demo_session_risk_ledger(
                 opening_equity_usdt=Decimal("1000")
@@ -42,12 +45,28 @@ class _SessionStore:
             raise FileNotFoundError
         return self.checkpoint
 
+    def save(self, ledger, *, expected_revision):
+        self.save_calls += 1
+        if self.fail_save:
+            raise RuntimeError("session risk save unavailable")
+        if expected_revision != self.checkpoint.revision:
+            raise RuntimeError("session risk revision changed concurrently")
+        self.revision_counter += 1
+        self.checkpoint = SimpleNamespace(
+            ledger=ledger,
+            revision=f"{self.revision_counter:064x}",
+        )
+        return self.checkpoint
+
 
 class _Accounting:
     live_mainnet_order_routing_allowed = False
 
+    def __init__(self, equity: str = "950") -> None:
+        self.equity = Decimal(equity)
+
     def get_wallet_balance(self):
-        return SimpleNamespace(total_equity_usd=Decimal("950"))
+        return SimpleNamespace(total_equity_usd=self.equity)
 
 
 class _Instruments:
@@ -99,6 +118,8 @@ def _executor(
     writes: bool = False,
     active_symbol: str | None = None,
     missing_session: bool = False,
+    fail_session_save: bool = False,
+    wallet_equity: str = "950",
     bar_count: int = 50,
     market_data_observation_hook=None,
 ) -> product.BybitProductCycleExecutor:
@@ -110,7 +131,7 @@ def _executor(
     return product.BybitProductCycleExecutor(
         config=_config(writes=writes),
         trade_client=_Safe(),
-        accounting_client=_Accounting(),
+        accounting_client=_Accounting(wallet_equity),
         quote_client=_Safe(),
         completed_bar_client=_Bars(bar_count),
         instrument_client=_Instruments(),
@@ -118,7 +139,10 @@ def _executor(
         excursion_store=_ExcursionStore(checkpoint),
         entry_provenance_store=_Safe(),
         terminal_evidence_store=_Safe(),
-        session_risk_store=_SessionStore(missing=missing_session),
+        session_risk_store=_SessionStore(
+            missing=missing_session,
+            fail_save=fail_session_save,
+        ),
         strategy_config=CryptoPerpStrategyConfig(),
         market_data_observation_hook=market_data_observation_hook,
         clock_ms=lambda: 1_800_000_000_000,
@@ -175,8 +199,87 @@ def test_flat_cycle_uses_all_completed_universe_bars_and_frozen_strategy(
     assert captured["managed_policy"].max_hold_close.writes_enabled is True
     assert captured["session_ledger"].opening_equity_usdt == Decimal("1000")
     assert captured["session_state"].current_equity_usdt == Decimal("950")
+    assert captured["session_state"].peak_equity_usdt == Decimal("1000")
     assert executor.demo_order_writes_enabled is True
     assert executor.live_mainnet_order_routing_allowed is False
+
+
+def test_flat_cycle_persists_wallet_high_water_before_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = {}
+    executor = _executor(wallet_equity="1100")
+    store = executor.session_risk_store
+
+    def _runtime(_bars_by_symbol, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(live_mainnet_order_routing_allowed=False)
+
+    monkeypatch.setattr(product, "run_attributed_bybit_demo_trading_runtime", _runtime)
+    executor.run_once()
+
+    assert store.save_calls == 1
+    assert store.checkpoint.ledger.peak_equity_usdt == Decimal("1100")
+    assert captured["session_state"].peak_equity_usdt == Decimal("1100")
+    assert captured["session_ledger"].peak_equity_usdt == Decimal("1100")
+
+
+def test_flat_cycle_blocks_entry_when_high_water_cannot_be_persisted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime_called = False
+    executor = _executor(wallet_equity="1100", fail_session_save=True)
+
+    def _runtime(*_args, **_kwargs):
+        nonlocal runtime_called
+        runtime_called = True
+        return SimpleNamespace(live_mainnet_order_routing_allowed=False)
+
+    monkeypatch.setattr(product, "run_attributed_bybit_demo_trading_runtime", _runtime)
+
+    with pytest.raises(
+        RuntimeError,
+        match="SESSION_RISK_HIGH_WATER_PERSIST_FAILED_BEFORE_NEW_ENTRY",
+    ):
+        executor.run_once()
+
+    assert runtime_called is False
+    assert executor.completed_bar_client.calls == []
+
+
+def test_active_trade_keeps_management_when_high_water_save_fails_then_retries_flat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captures: list[dict[str, object]] = []
+    executor = _executor(
+        active_symbol="SOLUSDT",
+        wallet_equity="1100",
+        fail_session_save=True,
+    )
+    store = executor.session_risk_store
+
+    def _runtime(bars_by_symbol, **kwargs):
+        captures.append({"bars": bars_by_symbol, **kwargs})
+        return SimpleNamespace(live_mainnet_order_routing_allowed=False)
+
+    monkeypatch.setattr(product, "run_attributed_bybit_demo_trading_runtime", _runtime)
+
+    first = executor.run_once()
+
+    assert first.live_mainnet_order_routing_allowed is False
+    assert captures[0]["bars"] == {}
+    assert captures[0]["session_state"].peak_equity_usdt == Decimal("1100")
+    assert store.checkpoint.ledger.peak_equity_usdt == Decimal("1000")
+    assert store.save_calls >= 1
+
+    executor.excursion_store.checkpoint = None
+    executor.accounting_client.equity = Decimal("1000")
+    store.fail_save = False
+
+    executor.run_once()
+
+    assert store.checkpoint.ledger.peak_equity_usdt == Decimal("1100")
+    assert captures[1]["session_state"].peak_equity_usdt == Decimal("1100")
 
 
 def test_complete_flat_universe_read_records_one_market_data_observation(
