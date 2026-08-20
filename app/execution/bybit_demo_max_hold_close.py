@@ -171,6 +171,7 @@ def execute_bybit_demo_max_hold_close(
         quantity=quantity,
         order_link_id=_max_hold_order_link_id(checkpoint.entry_order_link_id),
         reduce_only=True,
+        reference_price=quote.last_price,
     )
     request.validate()
     try:

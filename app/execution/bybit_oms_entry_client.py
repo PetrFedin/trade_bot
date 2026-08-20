@@ -12,7 +12,11 @@ from app.execution.bybit_rest_policy import (
     BybitRestTransportError,
 )
 from app.marketdata.bybit_entry_reference import BybitEntryReferenceStore
-from app.oms.bybit_entry import BybitEntrySubmissionClaim, bybit_entry_intent_id
+from app.oms.bybit_entry import (
+    BybitEntrySubmissionClaim,
+    bybit_entry_intent_id,
+    bybit_reduce_only_intent_id,
+)
 from app.oms.store import OrderRecord, OrderState
 
 
@@ -21,6 +25,14 @@ class BybitEntryOmsPort(Protocol):
     automatic_resubmit_after_submit_started_allowed: bool
 
     def claim_entry_submission(
+        self,
+        intent: OrderIntent,
+        *,
+        client_order_id: str,
+        occurred_at: datetime,
+    ) -> BybitEntrySubmissionClaim: ...
+
+    def claim_reduce_only_submission(
         self,
         intent: OrderIntent,
         *,
@@ -68,11 +80,12 @@ class BybitEntryOmsPersistenceError(RuntimeError):
 
 
 class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
-    """Bybit demo client whose ENTRY mutation is owned by the canonical PostgreSQL OMS.
+    """Bybit demo client whose market-order mutations are owned by the canonical OMS.
 
-    Reduce-only closes keep their existing lifecycle for now. New entries are durably moved to
-    SUBMIT_STARTED before the single POST. Any ambiguous result is resolved by GET using the
-    deterministic orderLinkId; failure to prove broker truth becomes durable UNCERTAIN.
+    New entries and deterministic reduce-only risk reductions are durably moved to SUBMIT_STARTED
+    before the single POST. Any ambiguous result is resolved by GET using orderLinkId; failure to
+    prove broker truth becomes durable UNCERTAIN. Risk-reducing CLOSE claims deliberately bypass
+    the operator new-entry gate so PAUSED/READ_ONLY/KILLED never prevents protection.
     """
 
     def __init__(
@@ -93,14 +106,11 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
     def place_market_order(self, request: BybitDemoOrderRequest) -> BybitDemoOrderAck:
         request.validate()
         if request.reduce_only:
-            return super().place_market_order(request)
+            return self._place_reduce_only_market_order(request)
         if not request.order_link_id.startswith("ASTRA-DEMO-E-"):
             raise ValueError("Bybit OMS-aware entry requires deterministic ENTRY orderLinkId")
 
-        observed_ms = self._clock_ms()  # noqa: SLF001 - inherited signed request clock.
-        if isinstance(observed_ms, bool) or not isinstance(observed_ms, int) or observed_ms < 0:
-            raise ValueError("Bybit OMS entry clock must return a non-negative integer")
-        occurred_at = datetime.fromtimestamp(observed_ms / 1000, tz=UTC)
+        observed_ms, occurred_at = self._observed_time()
         reference = self.entry_reference_store.consume(
             symbol=request.symbol,
             side=request.side,
@@ -121,6 +131,56 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
             client_order_id=request.order_link_id,
             occurred_at=occurred_at,
         )
+        return self._submit_claimed_order(
+            request,
+            intent_id=intent_id,
+            claim=claim,
+            occurred_at=occurred_at,
+        )
+
+    def _place_reduce_only_market_order(
+        self,
+        request: BybitDemoOrderRequest,
+    ) -> BybitDemoOrderAck:
+        if request.reference_price is None:
+            raise ValueError("Bybit OMS-aware reduce-only close requires reference_price evidence")
+        _observed_ms, occurred_at = self._observed_time()
+        intent_id = bybit_reduce_only_intent_id(request.order_link_id)
+        intent = OrderIntent(
+            intent_id=intent_id,
+            symbol=request.symbol,
+            side=Side.BUY if request.side == "Buy" else Side.SELL,
+            quantity=request.quantity,
+            limit_price=request.reference_price,
+            created_at=occurred_at,
+            strategy_id="bybit-risk-reduction",
+        )
+        claim = self.entry_oms.claim_reduce_only_submission(
+            intent,
+            client_order_id=request.order_link_id,
+            occurred_at=occurred_at,
+        )
+        return self._submit_claimed_order(
+            request,
+            intent_id=intent_id,
+            claim=claim,
+            occurred_at=occurred_at,
+        )
+
+    def _observed_time(self) -> tuple[int, datetime]:
+        observed_ms = self._clock_ms()  # noqa: SLF001 - inherited signed request clock.
+        if isinstance(observed_ms, bool) or not isinstance(observed_ms, int) or observed_ms < 0:
+            raise ValueError("Bybit OMS clock must return a non-negative integer")
+        return observed_ms, datetime.fromtimestamp(observed_ms / 1000, tz=UTC)
+
+    def _submit_claimed_order(
+        self,
+        request: BybitDemoOrderRequest,
+        *,
+        intent_id: str,
+        claim: BybitEntrySubmissionClaim,
+        occurred_at: datetime,
+    ) -> BybitDemoOrderAck:
         if not claim.mutation_allowed:
             return self._resume_from_durable_state(
                 request,
@@ -181,7 +241,7 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
         }:
             if not record.broker_order_id:
                 raise BybitEntryOmsPersistenceError(
-                    "acknowledged Bybit OMS entry is missing broker order id"
+                    "acknowledged Bybit OMS order is missing broker order id"
                 )
             return BybitDemoOrderAck(
                 record.broker_order_id,
@@ -189,7 +249,7 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
                 True,
             )
         if record.state is OrderState.REJECTED:
-            raise BybitEntrySubmissionRejectedError("Bybit entry is durably rejected")
+            raise BybitEntrySubmissionRejectedError("Bybit order is durably rejected")
         if record.state in {
             OrderState.OUTBOXED,
             OrderState.UNCERTAIN,
@@ -197,10 +257,10 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
             OrderState.MANUAL,
         }:
             raise BybitEntrySubmissionUncertainError(
-                f"Bybit entry requires reconciliation:{record.state.value}"
+                f"Bybit order requires reconciliation:{record.state.value}"
             )
         raise BybitEntryOmsPersistenceError(
-            f"Bybit entry reached unexpected OMS state:{record.state.value}"
+            f"Bybit order reached unexpected OMS state:{record.state.value}"
         )
 
     def _recover_after_ambiguous_submit(
@@ -226,7 +286,7 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
                 reason=f"{ambiguity_reason};RECOVERY_READ_FAILED:{type(exc).__name__}",
             )
             raise BybitEntrySubmissionUncertainError(
-                "Bybit entry broker truth read failed after ambiguous submit"
+                "Bybit order broker truth read failed after ambiguous submit"
             ) from exc
         if truth is None:
             self._mark_uncertain(
@@ -235,7 +295,7 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
                 reason=f"{ambiguity_reason};ORDER_NOT_FOUND_BY_ORDER_LINK_ID",
             )
             raise BybitEntrySubmissionUncertainError(
-                "Bybit entry remains uncertain after GET-only recovery"
+                "Bybit order remains uncertain after GET-only recovery"
             )
 
         if truth.safely_rejected_without_execution:
@@ -246,7 +306,7 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
                 broker_order_id=truth.order_id,
             )
             raise BybitEntrySubmissionRejectedError(
-                "Bybit broker truth reports rejected entry without execution"
+                "Bybit broker truth reports rejected order without execution"
             )
         if truth.status in {"Rejected", "Cancelled"}:
             self._mark_uncertain(
@@ -287,7 +347,7 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
             )
         except Exception as exc:
             raise BybitEntryOmsPersistenceError(
-                "Bybit broker accepted entry but canonical OMS acknowledgement failed"
+                "Bybit broker accepted order but canonical OMS acknowledgement failed"
             ) from exc
 
     def _mark_uncertain(
@@ -305,7 +365,7 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
             )
         except Exception as exc:
             raise BybitEntryOmsPersistenceError(
-                "Bybit ambiguous entry could not persist canonical OMS uncertainty"
+                "Bybit ambiguous order could not persist canonical OMS uncertainty"
             ) from exc
 
 

@@ -23,6 +23,21 @@ class _Snapshot:
     live_mainnet_order_routing_allowed: bool = False
 
 
+@dataclass(frozen=True)
+class _OperatorSnapshot:
+    new_entries_allowed: bool = True
+    active_trade_safety_management_allowed: bool = True
+    live_mainnet_order_routing_allowed: bool = False
+
+
+class _OperatorControl:
+    live_mainnet_order_routing_allowed = False
+    active_trade_safety_management_allowed = True
+
+    def inspect(self) -> _OperatorSnapshot:
+        return _OperatorSnapshot()
+
+
 class _Monitor:
     live_mainnet_order_routing_allowed = False
 
@@ -130,6 +145,7 @@ def test_flat_runtime_pauses_entries_while_private_stream_is_unhealthy() -> None
             [_startup(BybitStartupReconciliationStatus.READY_FOR_ENTRY)]
         ),
         cycle_executor=executor,
+        operator_control=_OperatorControl(),
         private_stream_monitor=monitor,
         stop_requested=lambda: monitor.waits > 0,
         sleep_fn=lambda _: None,
@@ -153,6 +169,7 @@ def test_active_trade_continues_rest_management_when_stream_is_unhealthy() -> No
             [_startup(BybitStartupReconciliationStatus.RESUME_MANAGEMENT)]
         ),
         cycle_executor=executor,
+        operator_control=_OperatorControl(),
         private_stream_monitor=monitor,
         stop_requested=lambda: False,
         sleep_fn=lambda _: None,
@@ -182,6 +199,7 @@ def test_stream_event_requires_fresh_rest_reconciliation_before_cycle() -> None:
         config=_config(),
         startup_reconciler=reconciler,
         cycle_executor=executor,
+        operator_control=_OperatorControl(),
         private_stream_monitor=monitor,
         stop_requested=lambda: False,
         sleep_fn=lambda _: None,
@@ -210,6 +228,7 @@ def test_blocked_stream_reconciliation_stops_before_trading_cycle() -> None:
         config=_config(),
         startup_reconciler=reconciler,
         cycle_executor=executor,
+        operator_control=_OperatorControl(),
         private_stream_monitor=monitor,
         stop_requested=lambda: False,
         sleep_fn=lambda _: None,
@@ -233,6 +252,7 @@ def test_mainnet_capable_private_stream_monitor_is_hard_rejected() -> None:
                 [_startup(BybitStartupReconciliationStatus.READY_FOR_ENTRY)]
             ),
             cycle_executor=_Executor(active=False),
+            operator_control=_OperatorControl(),
             private_stream_monitor=monitor,
             stop_requested=lambda: False,
             sleep_fn=lambda _: None,

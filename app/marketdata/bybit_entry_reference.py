@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 from threading import Lock
@@ -74,11 +75,23 @@ class BybitEntryReferenceStore:
 class BybitEntryReferenceQuoteClient(BybitDemoMarketQuoteClient):
     """Existing quote client plus a narrow, non-authoritative pre-entry handoff."""
 
-    def __init__(self, *, reference_store: BybitEntryReferenceStore, **kwargs: object) -> None:
+    def __init__(
+        self,
+        *,
+        reference_store: BybitEntryReferenceStore,
+        observation_hook: Callable[[], None] | None = None,
+        **kwargs: object,
+    ) -> None:
         super().__init__(**kwargs)
         self.reference_store = reference_store
+        self.observation_hook = observation_hook
 
     def get_quote(self, *, symbol: str) -> BybitDemoMarketQuote:
         quote = super().get_quote(symbol=symbol)
         self.reference_store.record(quote)
+        if self.observation_hook is not None:
+            try:
+                self.observation_hook()
+            except Exception:  # noqa: BLE001 - telemetry must not replace valid market data.
+                return quote
         return quote

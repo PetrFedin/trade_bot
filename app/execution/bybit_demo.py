@@ -49,6 +49,7 @@ class BybitDemoOrderRequest:
     quantity: Decimal
     order_link_id: str
     reduce_only: bool = False
+    reference_price: Decimal | None = None
 
     def validate(self) -> None:
         _validate_symbol(self.symbol)
@@ -56,6 +57,10 @@ class BybitDemoOrderRequest:
             raise ValueError("Bybit demo order side must be Buy or Sell")
         if not self.quantity.is_finite() or self.quantity <= 0:
             raise ValueError("Bybit demo order quantity must be positive and finite")
+        if self.reference_price is not None and (
+            not self.reference_price.is_finite() or self.reference_price <= 0
+        ):
+            raise ValueError("Bybit demo order reference price must be positive and finite")
         if not self.order_link_id.startswith("ASTRA-DEMO-"):
             raise ValueError("Bybit demo orderLinkId must use ASTRA-DEMO- namespace")
         if len(self.order_link_id) > 36:

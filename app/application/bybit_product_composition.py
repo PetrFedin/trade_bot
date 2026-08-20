@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from functools import partial
-from time import time
+from time import monotonic, time
 
+from app.application.bybit_operator_control import PostgresBybitOperatorControl
 from app.execution.bybit_demo_account_reader import BybitDemoAccountingClient
 from app.execution.bybit_demo_attributed_runtime import (
     BybitDemoAttributedRuntimeResult,
@@ -17,6 +18,7 @@ from app.execution.bybit_demo_cycle import BybitDemoCyclePolicy
 from app.execution.bybit_demo_managed_trade_poll import BybitDemoManagedTradePollPolicy
 from app.execution.bybit_demo_max_hold_close import BybitDemoMaxHoldClosePolicy
 from app.execution.bybit_demo_session_risk_ledger import (
+    observe_bybit_demo_session_equity,
     start_bybit_demo_session_risk_ledger,
 )
 from app.execution.bybit_demo_stop_ratchet_client import BybitDemoStopRatchetClient
@@ -52,18 +54,24 @@ from app.marketdata.bybit_entry_reference import (
 )
 from app.marketdata.bybit_instruments import BybitInstrumentClient
 from app.marketdata.bybit_v5 import interval_milliseconds, last_completed_kline_end_ms
-from app.observability.bybit_runtime_health import BybitRestHealthRecorder
+from app.observability.bybit_runtime_health import (
+    BybitAccountRiskHealthRecorder,
+    BybitMarketDataHealthRecorder,
+    BybitOperationalHealthReport,
+    BybitReconciliationHealthRecorder,
+    BybitRestHealthRecorder,
+    build_bybit_operational_health,
+    collect_bybit_operational_measurements,
+)
 from app.oms.bybit_entry import PostgresBybitEntryOms
 from app.oms.store import OrderRecord, OrderState
 from app.runtime.bybit_product_config import BybitProductConfig
-from app.runtime.bybit_product_service import (
-    BybitProductServiceResult,
-    run_bybit_product_service,
-)
+from app.runtime.bybit_product_service import BybitProductServiceResult, run_bybit_product_service
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig
 from app.strategy.crypto_session_risk import CryptoSessionRiskState
 
 ClockMs = Callable[[], int]
+MonotonicFn = Callable[[], float]
 _AUTO_RECOVERABLE_ENTRY_STATES = frozenset(
     {OrderState.SUBMIT_STARTED, OrderState.UNCERTAIN, OrderState.RECONCILING}
 )
@@ -74,14 +82,18 @@ class BybitProductStartupReconciler:
     broker: BybitDemoBrokerTruthClient
     checkpoint_store: PostgresBybitDemoExcursionStore
     entry_oms: PostgresBybitEntryOms
+    reconciliation_health: BybitReconciliationHealthRecorder | None = None
     clock_ms: ClockMs = lambda: int(time() * 1000)
+    monotonic_fn: MonotonicFn = monotonic
     live_mainnet_order_routing_allowed: bool = False
 
     def run(self) -> BybitStartupReconciliationResult:
         try:
             unresolved_entries = self.entry_oms.unresolved_entry_submissions()
         except Exception as exc:
-            return _blocked_startup(f"STARTUP_BYBIT_OMS_READ_FAILED:{type(exc).__name__}")
+            return self._record_reconciliation(
+                _blocked_startup(f"STARTUP_BYBIT_OMS_READ_FAILED:{type(exc).__name__}")
+            )
 
         blockers: list[str] = []
         order_truth_complete = True
@@ -90,22 +102,31 @@ class BybitProductStartupReconciler:
             order_truth_complete = order_truth_complete and truth_complete
             blockers.extend(entry_blockers)
 
-        try:
-            base = reconcile_bybit_startup(
-                broker=self.broker,
-                checkpoint_store=self.checkpoint_store,
-            )
-        except Exception:
-            raise
-        if not blockers:
-            return base
-        return replace(
-            base,
-            status=BybitStartupReconciliationStatus.BLOCKED,
-            reasons=_unique_reasons(base.reasons + tuple(blockers)),
-            next_entry_allowed=False,
-            broker_truth_complete=base.broker_truth_complete and order_truth_complete,
+        base = reconcile_bybit_startup(
+            broker=self.broker,
+            checkpoint_store=self.checkpoint_store,
         )
+        if not blockers:
+            return self._record_reconciliation(base)
+        return self._record_reconciliation(
+            replace(
+                base,
+                status=BybitStartupReconciliationStatus.BLOCKED,
+                reasons=_unique_reasons(base.reasons + tuple(blockers)),
+                next_entry_allowed=False,
+                broker_truth_complete=base.broker_truth_complete and order_truth_complete,
+            )
+        )
+
+    def _record_reconciliation(
+        self,
+        result: BybitStartupReconciliationResult,
+    ) -> BybitStartupReconciliationResult:
+        if self.reconciliation_health is None:
+            return result
+        observed = Decimal(str(self.monotonic_fn()))
+        self.reconciliation_health.record(result, observed_monotonic=observed)
+        return result
 
     def _reconcile_unresolved_entry(self, record: OrderRecord) -> tuple[bool, tuple[str, ...]]:
         if record.state not in _AUTO_RECOVERABLE_ENTRY_STATES:
@@ -169,8 +190,15 @@ class BybitProductCycleExecutor:
     terminal_evidence_store: PostgresBybitDemoTerminalEvidenceStore
     session_risk_store: PostgresBybitDemoSessionRiskLedgerStore
     strategy_config: CryptoPerpStrategyConfig
+    market_data_observation_hook: Callable[[], None] | None = None
+    account_risk_observation_hook: Callable[[CryptoSessionRiskState], None] | None = None
     clock_ms: ClockMs = lambda: int(time() * 1000)
     live_mainnet_order_routing_allowed: bool = False
+    _session_peak_equity_hint_usdt: Decimal | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
 
     @property
     def demo_order_writes_enabled(self) -> bool:
@@ -186,12 +214,13 @@ class BybitProductCycleExecutor:
         now = datetime.fromtimestamp(now_ms / 1000, tz=UTC)
 
         active_checkpoint = self._active_checkpoint_hint()
+        active_trade = active_checkpoint is not None
         symbols = list(self.config.symbols)
         if active_checkpoint is not None and active_checkpoint.state.symbol not in symbols:
             symbols.append(active_checkpoint.state.symbol)
         instruments = self.instrument_client.fetch_symbols(tuple(symbols))
 
-        session_checkpoint = self._load_session_risk(active_checkpoint is not None)
+        session_checkpoint = self._load_session_risk(active_trade)
         wallet = self.accounting_client.get_wallet_balance()
         if session_checkpoint is None:
             session_state = CryptoSessionRiskState(
@@ -201,13 +230,18 @@ class BybitProductCycleExecutor:
             )
             session_ledger = None
         else:
-            session_state = session_checkpoint.ledger.to_session_risk_state(
+            session_ledger = self._session_ledger_for_wallet(
+                session_checkpoint,
+                current_equity_usdt=wallet.total_equity_usd,
+                active_trade=active_trade,
+            )
+            session_state = session_ledger.to_session_risk_state(
                 current_equity_usdt=wallet.total_equity_usd,
             )
-            session_ledger = session_checkpoint.ledger
+            self._observe_account_risk(session_state)
 
         bars_by_symbol = (
-            {} if active_checkpoint is not None else self._completed_universe_bars(now_ms=now_ms)
+            {} if active_trade else self._completed_universe_bars(now_ms=now_ms)
         )
         writes_enabled = self.config.demo_order_writes_allowed
         managed_policy = BybitDemoManagedTradePollPolicy(
@@ -221,26 +255,115 @@ class BybitProductCycleExecutor:
             persist_product_terminal_state,
             session_risk_store=self.session_risk_store,
         )
-        return run_attributed_bybit_demo_trading_runtime(
-            bars_by_symbol,
-            instruments=instruments,
-            strategy_config=self.strategy_config,
-            session_state=session_state,
-            now=now,
-            now_ms=now_ms,
-            client=self.trade_client,
-            accounting_client=self.accounting_client,
-            excursion_store=self.excursion_store,
-            completed_bar_client=self.completed_bar_client,
-            quote_client=self.quote_client,
-            runtime_lease=self.runtime_lease,
-            terminal_evidence_store=self.terminal_evidence_store,
-            entry_provenance_store=self.entry_provenance_store,
-            managed_policy=managed_policy,
-            terminal_handoff=terminal_handoff,
-            cycle_policy=BybitDemoCyclePolicy(writes_enabled=writes_enabled),
-            session_ledger=session_ledger,
+        try:
+            result = run_attributed_bybit_demo_trading_runtime(
+                bars_by_symbol,
+                instruments=instruments,
+                strategy_config=self.strategy_config,
+                session_state=session_state,
+                now=now,
+                now_ms=now_ms,
+                client=self.trade_client,
+                accounting_client=self.accounting_client,
+                excursion_store=self.excursion_store,
+                completed_bar_client=self.completed_bar_client,
+                quote_client=self.quote_client,
+                runtime_lease=self.runtime_lease,
+                terminal_evidence_store=self.terminal_evidence_store,
+                entry_provenance_store=self.entry_provenance_store,
+                managed_policy=managed_policy,
+                terminal_handoff=terminal_handoff,
+                cycle_policy=BybitDemoCyclePolicy(writes_enabled=writes_enabled),
+                session_ledger=session_ledger,
+            )
+        finally:
+            if active_trade and session_checkpoint is not None:
+                self._persist_active_session_peak_best_effort()
+        return result
+
+    def _session_ledger_for_wallet(
+        self,
+        checkpoint,
+        *,
+        current_equity_usdt: Decimal,
+        active_trade: bool,
+    ):
+        ledger = checkpoint.ledger
+        if self._session_peak_equity_hint_usdt is not None:
+            ledger = observe_bybit_demo_session_equity(
+                ledger,
+                current_equity_usdt=self._session_peak_equity_hint_usdt,
+            )
+        ledger = observe_bybit_demo_session_equity(
+            ledger,
+            current_equity_usdt=current_equity_usdt,
         )
+        self._remember_session_peak(ledger.effective_peak_equity_usdt)
+        if ledger == checkpoint.ledger:
+            return ledger
+        if active_trade:
+            try:
+                saved = self.session_risk_store.save(
+                    ledger,
+                    expected_revision=checkpoint.revision,
+                )
+            except Exception:  # noqa: BLE001 - active protection must continue on DB write failure.
+                return ledger
+        else:
+            try:
+                saved = self.session_risk_store.save(
+                    ledger,
+                    expected_revision=checkpoint.revision,
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    "SESSION_RISK_HIGH_WATER_PERSIST_FAILED_BEFORE_NEW_ENTRY"
+                ) from exc
+        self._remember_session_peak(saved.ledger.effective_peak_equity_usdt)
+        return saved.ledger
+
+    def _persist_active_session_peak_best_effort(self) -> None:
+        peak = self._session_peak_equity_hint_usdt
+        if peak is None:
+            return
+        try:
+            current = self.session_risk_store.load_current()
+        except Exception:  # noqa: BLE001 - protection already ran; retry next cycle.
+            return
+        try:
+            updated = observe_bybit_demo_session_equity(
+                current.ledger,
+                current_equity_usdt=peak,
+            )
+        except Exception:  # noqa: BLE001 - malformed state must not replace protection result.
+            return
+        if updated == current.ledger:
+            return
+        try:
+            saved = self.session_risk_store.save(
+                updated,
+                expected_revision=current.revision,
+            )
+        except Exception:  # noqa: BLE001 - process hint preserves the peak until retry.
+            return
+        self._remember_session_peak(saved.ledger.effective_peak_equity_usdt)
+
+    def _remember_session_peak(self, peak_equity_usdt: Decimal) -> None:
+        if not peak_equity_usdt.is_finite() or peak_equity_usdt <= 0:
+            raise ValueError("session peak equity hint must be positive and finite")
+        if (
+            self._session_peak_equity_hint_usdt is None
+            or peak_equity_usdt > self._session_peak_equity_hint_usdt
+        ):
+            self._session_peak_equity_hint_usdt = peak_equity_usdt
+
+    def _observe_account_risk(self, state: CryptoSessionRiskState) -> None:
+        if self.account_risk_observation_hook is None:
+            return
+        try:
+            self.account_risk_observation_hook(state)
+        except Exception:  # noqa: BLE001 - telemetry cannot replace authoritative risk state.
+            return
 
     def _active_checkpoint_hint(self):
         try:
@@ -283,7 +406,16 @@ class BybitProductCycleExecutor:
                     f"{len(bars)}!={self.config.bar_lookback}"
                 )
             result[symbol] = bars
+        self._observe_market_data()
         return result
+
+    def _observe_market_data(self) -> None:
+        if self.market_data_observation_hook is None:
+            return
+        try:
+            self.market_data_observation_hook()
+        except Exception:  # noqa: BLE001 - telemetry cannot replace valid market data.
+            return
 
 
 @dataclass(frozen=True)
@@ -291,9 +423,14 @@ class BybitProductComposition:
     config: BybitProductConfig
     startup_reconciler: BybitProductStartupReconciler
     cycle_executor: BybitProductCycleExecutor
+    operator_control: PostgresBybitOperatorControl
     private_stream_monitor: BybitPrivateStreamMonitor
     rest_health_recorder: BybitRestHealthRecorder
+    market_data_health_recorder: BybitMarketDataHealthRecorder
+    account_risk_health_recorder: BybitAccountRiskHealthRecorder
+    reconciliation_health_recorder: BybitReconciliationHealthRecorder
     entry_oms: PostgresBybitEntryOms
+    monotonic_fn: MonotonicFn = monotonic
     live_mainnet_order_routing_allowed: bool = False
 
     def run(
@@ -306,10 +443,37 @@ class BybitProductComposition:
             config=self.config,
             startup_reconciler=self.startup_reconciler,
             cycle_executor=self.cycle_executor,
+            operator_control=self.operator_control,
             private_stream_monitor=self.private_stream_monitor,
             stop_requested=stop_requested,
             max_cycles=max_cycles,
         )
+
+    def operational_health(self) -> BybitOperationalHealthReport:
+        now = Decimal(str(self.monotonic_fn()))
+        try:
+            unresolved_entries: int | None = self.entry_oms.count_unresolved_entry_submissions()
+        except Exception:
+            unresolved_entries = None
+        try:
+            operator = self.operator_control.inspect()
+        except Exception:
+            operator = None
+        try:
+            stream = self.private_stream_monitor.snapshot()
+        except Exception:
+            stream = None
+        measurements = collect_bybit_operational_measurements(
+            now_monotonic=now,
+            market_data=self.market_data_health_recorder.snapshot(now_monotonic=now),
+            rest=self.rest_health_recorder.snapshot(),
+            reconciliation=self.reconciliation_health_recorder.snapshot(now_monotonic=now),
+            private_stream=stream,
+            unresolved_entry_submissions=unresolved_entries,
+            operator=operator,
+            account_risk=self.account_risk_health_recorder.snapshot(),
+        )
+        return build_bybit_operational_health(measurements)
 
 
 def build_bybit_product_composition(
@@ -317,6 +481,7 @@ def build_bybit_product_composition(
     *,
     strategy_config: CryptoPerpStrategyConfig | None = None,
     clock_ms: ClockMs | None = None,
+    monotonic_fn: MonotonicFn = monotonic,
 ) -> BybitProductComposition:
     config.validate(require_universe=True)
     active_strategy = CryptoPerpStrategyConfig() if strategy_config is None else strategy_config
@@ -329,8 +494,24 @@ def build_bybit_product_composition(
         runtime_lease=runtime_lease,
     )
     entry_oms = PostgresBybitEntryOms(config.database_url)
+    operator_control = PostgresBybitOperatorControl(config.database_url)
     entry_reference_store = BybitEntryReferenceStore()
     rest_health = BybitRestHealthRecorder()
+    market_data_health = BybitMarketDataHealthRecorder()
+    account_risk_health = BybitAccountRiskHealthRecorder()
+    reconciliation_health = BybitReconciliationHealthRecorder()
+
+    def observe_market_data() -> None:
+        market_data_health.record_success(
+            observed_monotonic=Decimal(str(monotonic_fn()))
+        )
+
+    def observe_account_risk(state: CryptoSessionRiskState) -> None:
+        account_risk_health.record(
+            current_equity_usdt=state.current_equity_usdt,
+            peak_equity_usdt=state.peak_equity_usdt,
+        )
+
     trade_client = OmsAwareBybitDemoStopRatchetClient(
         api_key=config.api_key,
         api_secret=config.api_secret,
@@ -352,12 +533,16 @@ def build_bybit_product_composition(
         api_key=config.api_key,
         api_secret=config.api_secret,
         url=config.private_ws_url,
+        monotonic_fn=monotonic_fn,
     )
     cycle = BybitProductCycleExecutor(
         config=config,
         trade_client=trade_client,
         accounting_client=accounting_client,
-        quote_client=BybitEntryReferenceQuoteClient(reference_store=entry_reference_store),
+        quote_client=BybitEntryReferenceQuoteClient(
+            reference_store=entry_reference_store,
+            observation_hook=observe_market_data,
+        ),
         completed_bar_client=BybitDemoCompletedBarClient(),
         instrument_client=BybitInstrumentClient(),
         runtime_lease=runtime_lease,
@@ -366,6 +551,8 @@ def build_bybit_product_composition(
         terminal_evidence_store=PostgresBybitDemoTerminalEvidenceStore(config.database_url),
         session_risk_store=PostgresBybitDemoSessionRiskLedgerStore(config.database_url),
         strategy_config=active_strategy,
+        market_data_observation_hook=observe_market_data,
+        account_risk_observation_hook=observe_account_risk,
         clock_ms=active_clock,
     )
     return BybitProductComposition(
@@ -374,12 +561,19 @@ def build_bybit_product_composition(
             broker=startup_broker,
             checkpoint_store=excursion_store,
             entry_oms=entry_oms,
+            reconciliation_health=reconciliation_health,
             clock_ms=active_clock,
+            monotonic_fn=monotonic_fn,
         ),
         cycle_executor=cycle,
+        operator_control=operator_control,
         private_stream_monitor=private_stream,
         rest_health_recorder=rest_health,
+        market_data_health_recorder=market_data_health,
+        account_risk_health_recorder=account_risk_health,
+        reconciliation_health_recorder=reconciliation_health,
         entry_oms=entry_oms,
+        monotonic_fn=monotonic_fn,
     )
 
 
@@ -414,7 +608,9 @@ def bootstrap_bybit_product_session(config: BybitProductConfig) -> Decimal:
             )
         wallet = accounting.get_wallet_balance()
         session_store.initialize(
-            start_bybit_demo_session_risk_ledger(opening_equity_usdt=wallet.total_equity_usd)
+            start_bybit_demo_session_risk_ledger(
+                opening_equity_usdt=wallet.total_equity_usd
+            )
         )
         return wallet.total_equity_usd
     finally:

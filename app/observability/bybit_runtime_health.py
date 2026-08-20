@@ -4,6 +4,7 @@ from collections import deque
 from dataclasses import dataclass
 from decimal import Decimal
 from threading import Lock
+from typing import Protocol
 
 from app.observability.readiness import (
     OperationalReadiness,
@@ -25,11 +26,7 @@ class BybitRestHealthSnapshot:
 
 
 class BybitRestHealthRecorder:
-    """Thread-safe operational measurements for existing Bybit REST transports.
-
-    This is telemetry only. It never authorizes routing and intentionally stores no URLs,
-    credentials, request bodies or response payloads.
-    """
+    """Thread-safe operational measurements for existing Bybit REST transports."""
 
     live_mainnet_order_routing_allowed = False
     order_writes_supported = False
@@ -99,6 +96,179 @@ class BybitRestHealthRecorder:
 
 
 @dataclass(frozen=True)
+class BybitMarketDataHealthSnapshot:
+    last_success_monotonic: Decimal | None
+    market_data_age_seconds: Decimal | None
+    market_data_ready: bool
+
+
+class BybitMarketDataHealthRecorder:
+    """Age of the last successful validated market-data observation.
+
+    Flat operation records only after the complete expected bar universe was read successfully.
+    Active/pre-entry operation records after an already-validated quote. No extra heartbeat request
+    is introduced solely for telemetry.
+    """
+
+    live_mainnet_order_routing_allowed = False
+    order_writes_supported = False
+
+    def __init__(self) -> None:
+        self._last_success_monotonic: Decimal | None = None
+        self._lock = Lock()
+
+    def record_success(self, *, observed_monotonic: Decimal) -> None:
+        if not observed_monotonic.is_finite() or observed_monotonic < 0:
+            raise ValueError("market-data monotonic observation must be finite and non-negative")
+        with self._lock:
+            self._last_success_monotonic = observed_monotonic
+
+    def snapshot(self, *, now_monotonic: Decimal) -> BybitMarketDataHealthSnapshot:
+        if not now_monotonic.is_finite() or now_monotonic < 0:
+            raise ValueError("health monotonic clock must be finite and non-negative")
+        with self._lock:
+            last_success = self._last_success_monotonic
+        age = None
+        if last_success is not None:
+            age = now_monotonic - last_success
+            if age < 0:
+                raise ValueError("health monotonic clock regressed after market-data observation")
+        return BybitMarketDataHealthSnapshot(
+            last_success_monotonic=last_success,
+            market_data_age_seconds=age,
+            market_data_ready=last_success is not None,
+        )
+
+
+@dataclass(frozen=True)
+class BybitAccountRiskHealthSnapshot:
+    current_equity_usdt: Decimal | None
+    peak_equity_usdt: Decimal | None
+    drawdown_usdt: Decimal | None
+
+
+class BybitAccountRiskHealthRecorder:
+    """Wallet-backed drawdown from the canonical high-water-aware session state."""
+
+    live_mainnet_order_routing_allowed = False
+    order_writes_supported = False
+
+    def __init__(self) -> None:
+        self._current_equity_usdt: Decimal | None = None
+        self._peak_equity_usdt: Decimal | None = None
+        self._lock = Lock()
+
+    def record(self, *, current_equity_usdt: Decimal, peak_equity_usdt: Decimal) -> None:
+        if not current_equity_usdt.is_finite() or current_equity_usdt < 0:
+            raise ValueError("current equity must be finite and non-negative")
+        if not peak_equity_usdt.is_finite() or peak_equity_usdt <= 0:
+            raise ValueError("peak equity must be positive and finite")
+        if peak_equity_usdt < current_equity_usdt:
+            raise ValueError("peak equity cannot be below current equity")
+        with self._lock:
+            self._current_equity_usdt = current_equity_usdt
+            self._peak_equity_usdt = peak_equity_usdt
+
+    def snapshot(self) -> BybitAccountRiskHealthSnapshot:
+        with self._lock:
+            current = self._current_equity_usdt
+            peak = self._peak_equity_usdt
+        drawdown = None if current is None or peak is None else peak - current
+        return BybitAccountRiskHealthSnapshot(
+            current_equity_usdt=current,
+            peak_equity_usdt=peak,
+            drawdown_usdt=drawdown,
+        )
+
+
+class BybitReconciliationResultLike(Protocol):
+    status: object
+    broker_truth_complete: bool
+    live_mainnet_order_routing_allowed: bool
+
+
+@dataclass(frozen=True)
+class BybitReconciliationHealthSnapshot:
+    last_success_monotonic: Decimal | None
+    reconciliation_age_seconds: Decimal | None
+    broker_connected: bool | None
+    portfolio_reconciled: bool | None
+    position_mismatches: int | None
+
+
+class BybitReconciliationHealthRecorder:
+    """Process-local age/state of actual REST broker-truth reconciliation."""
+
+    live_mainnet_order_routing_allowed = False
+    order_writes_supported = False
+
+    def __init__(self) -> None:
+        self._last_success_monotonic: Decimal | None = None
+        self._broker_connected: bool | None = None
+        self._portfolio_reconciled: bool | None = None
+        self._position_mismatches: int | None = None
+        self._lock = Lock()
+
+    def record(
+        self,
+        result: BybitReconciliationResultLike,
+        *,
+        observed_monotonic: Decimal,
+    ) -> None:
+        _reject_live_measurement_source(result, name="reconciliation result")
+        if not observed_monotonic.is_finite() or observed_monotonic < 0:
+            raise ValueError("reconciliation monotonic observation must be finite and non-negative")
+        if not isinstance(result.broker_truth_complete, bool):
+            raise ValueError("reconciliation broker-truth completeness must be boolean")
+        status = getattr(result.status, "value", result.status)
+        if not isinstance(status, str) or not status:
+            raise ValueError("reconciliation status is invalid")
+        with self._lock:
+            if result.broker_truth_complete:
+                self._last_success_monotonic = observed_monotonic
+                self._broker_connected = True
+                reconciled = status in {"READY_FOR_ENTRY", "RESUME_MANAGEMENT"}
+                self._portfolio_reconciled = reconciled
+                self._position_mismatches = 0 if reconciled else None
+            else:
+                self._broker_connected = False
+                self._portfolio_reconciled = False
+                self._position_mismatches = None
+
+    def snapshot(self, *, now_monotonic: Decimal) -> BybitReconciliationHealthSnapshot:
+        if not now_monotonic.is_finite() or now_monotonic < 0:
+            raise ValueError("health monotonic clock must be finite and non-negative")
+        with self._lock:
+            last_success = self._last_success_monotonic
+            broker_connected = self._broker_connected
+            portfolio_reconciled = self._portfolio_reconciled
+            position_mismatches = self._position_mismatches
+        age = None
+        if last_success is not None:
+            age = now_monotonic - last_success
+            if age < 0:
+                raise ValueError("health monotonic clock regressed after reconciliation")
+        return BybitReconciliationHealthSnapshot(
+            last_success_monotonic=last_success,
+            reconciliation_age_seconds=age,
+            broker_connected=broker_connected,
+            portfolio_reconciled=portfolio_reconciled,
+            position_mismatches=position_mismatches,
+        )
+
+
+class BybitPrivateStreamHealthLike(Protocol):
+    healthy: bool
+    last_message_monotonic: float | None
+    live_mainnet_order_routing_allowed: bool
+
+
+class BybitOperatorHealthLike(Protocol):
+    kill_switch_engaged: bool
+    live_mainnet_order_routing_allowed: bool
+
+
+@dataclass(frozen=True)
 class BybitOperationalMeasurements:
     market_data_age_seconds: Decimal | None = None
     stream_silence_seconds: Decimal | None = None
@@ -126,17 +296,69 @@ class BybitOperationalHealthReport:
     live_mainnet_order_routing_allowed: bool = False
 
 
+def collect_bybit_operational_measurements(
+    *,
+    now_monotonic: Decimal,
+    market_data: BybitMarketDataHealthSnapshot,
+    rest: BybitRestHealthSnapshot,
+    reconciliation: BybitReconciliationHealthSnapshot,
+    private_stream: BybitPrivateStreamHealthLike | None,
+    unresolved_entry_submissions: int | None,
+    operator: BybitOperatorHealthLike | None,
+    account_risk: BybitAccountRiskHealthSnapshot | None = None,
+) -> BybitOperationalMeasurements:
+    """Collect only measurements proven by existing authoritative runtime sources."""
+
+    if not now_monotonic.is_finite() or now_monotonic < 0:
+        raise ValueError("health monotonic clock must be finite and non-negative")
+    if unresolved_entry_submissions is not None:
+        if isinstance(unresolved_entry_submissions, bool) or unresolved_entry_submissions < 0:
+            raise ValueError("unresolved entry submission count must be non-negative")
+
+    stream_silence: Decimal | None = None
+    stream_ready: bool | None = None
+    if private_stream is not None:
+        _reject_live_measurement_source(private_stream, name="private stream snapshot")
+        if not isinstance(private_stream.healthy, bool):
+            raise ValueError("private stream health must be boolean")
+        stream_ready = private_stream.healthy
+        if private_stream.last_message_monotonic is not None:
+            last_message = Decimal(str(private_stream.last_message_monotonic))
+            if not last_message.is_finite() or last_message < 0:
+                raise ValueError("private stream last-message monotonic value is invalid")
+            stream_silence = now_monotonic - last_message
+            if stream_silence < 0:
+                raise ValueError("health monotonic clock regressed after private stream message")
+
+    kill_switch: bool | None = None
+    if operator is not None:
+        _reject_live_measurement_source(operator, name="operator snapshot")
+        if not isinstance(operator.kill_switch_engaged, bool):
+            raise ValueError("operator kill-switch state must be boolean")
+        kill_switch = operator.kill_switch_engaged
+
+    return BybitOperationalMeasurements(
+        market_data_age_seconds=market_data.market_data_age_seconds,
+        stream_silence_seconds=stream_silence,
+        broker_latency_ms=rest.maximum_latency_ms,
+        broker_error_fraction=rest.error_fraction,
+        uncertain_orders=unresolved_entry_submissions,
+        reconciliation_age_seconds=reconciliation.reconciliation_age_seconds,
+        position_mismatches=reconciliation.position_mismatches,
+        drawdown=None if account_risk is None else account_risk.drawdown_usdt,
+        kill_switch_engaged=kill_switch,
+        market_data_ready=market_data.market_data_ready,
+        stream_ready=stream_ready,
+        broker_connected=reconciliation.broker_connected,
+        portfolio_reconciled=reconciliation.portfolio_reconciled,
+    )
+
+
 def build_bybit_operational_health(
     measurements: BybitOperationalMeasurements,
     *,
     evaluator: OperationalReadinessEvaluator | None = None,
 ) -> BybitOperationalHealthReport:
-    """Build canonical readiness only from fully measured inputs.
-
-    Missing telemetry is a blocker, never a healthy zero. This prevents a partially instrumented
-    runtime from emitting a misleading green operational state during the production transition.
-    """
-
     fields = (
         "market_data_age_seconds",
         "stream_silence_seconds",
@@ -194,6 +416,11 @@ def build_bybit_operational_health(
         snapshot=snapshot,
         readiness=readiness,
     )
+
+
+def _reject_live_measurement_source(value: object, *, name: str) -> None:
+    if getattr(value, "live_mainnet_order_routing_allowed", True) is not False:
+        raise ValueError(f"Bybit health rejected mainnet-capable {name}")
 
 
 def _decimal(value: object) -> Decimal:

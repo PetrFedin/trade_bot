@@ -21,6 +21,7 @@ from app.execution.bybit_demo_post_trade_accounting import (
 )
 from app.execution.bybit_demo_session_risk_ledger import (
     apply_fully_reconciled_trade_to_session_ledger,
+    observe_bybit_demo_session_equity,
     start_bybit_demo_session_risk_ledger,
 )
 from app.execution.bybit_demo_trade_monitor import (
@@ -171,6 +172,7 @@ def test_session_ledger_is_idempotent_and_positive_trade_resets_loss_streak() ->
     assert state.execution_cost_usdt == Decimal("2")
     assert state.consecutive_losses == 0
     assert state.peak_equity_usdt == Decimal("1006")
+    assert ledger.peak_equity_usdt == Decimal("1006")
 
 
 def test_session_ledger_sorts_out_of_order_reconciliation_by_close_time() -> None:
@@ -202,6 +204,26 @@ def test_session_ledger_sorts_out_of_order_reconciliation_by_close_time() -> Non
     assert state.consecutive_losses == 1
     assert state.realized_pnl_usdt == Decimal("1")
     assert state.peak_equity_usdt == Decimal("1003")
+    assert ledger.peak_equity_usdt == Decimal("1003")
+
+
+def test_wallet_observation_preserves_unrealized_high_water_for_later_drawdown() -> None:
+    ledger = start_bybit_demo_session_risk_ledger(
+        opening_equity_usdt=Decimal("1000")
+    )
+    ledger = observe_bybit_demo_session_equity(
+        ledger,
+        current_equity_usdt=Decimal("1100"),
+    )
+
+    state = ledger.to_session_risk_state(current_equity_usdt=Decimal("1000"))
+    decision = evaluate_crypto_session_risk(state)
+
+    assert ledger.peak_equity_usdt == Decimal("1100")
+    assert state.peak_equity_usdt == Decimal("1100")
+    assert state.current_equity_usdt == Decimal("1000")
+    assert decision.flatten_required is True
+    assert "SESSION_DRAWDOWN_LIMIT_BREACHED" in decision.reasons
 
 
 def test_session_ledger_rejects_pending_or_conflicting_trade_evidence() -> None:

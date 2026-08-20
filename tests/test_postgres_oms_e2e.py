@@ -15,6 +15,7 @@ if not DSN:
         allow_module_level=True,
     )
 
+from app.application.bybit_operator_control import PostgresBybitOperatorControl
 from app.application.order_lifecycle import PaperOrderLifecycle
 from app.domain.trading import OrderIntent, Side
 from app.oms.bybit_entry import PostgresBybitEntryOms, bybit_entry_intent_id
@@ -157,6 +158,24 @@ def test_postgres_event_journal_is_append_only(store: PostgresOmsStore) -> None:
 def test_bybit_entry_claim_is_durable_at_most_once_and_uses_canonical_tables(
     store: PostgresOmsStore,
 ) -> None:
+    operator = PostgresBybitOperatorControl(DSN)
+    operator.migrate()
+    with psycopg.connect(DSN, autocommit=True) as connection:
+        connection.execute("TRUNCATE astra_bybit_operator_actions")
+        connection.execute(
+            """UPDATE astra_bybit_operator_state
+            SET mode='PAUSED', generation=1, updated_at=%s,
+                updated_by='SYSTEM', reason='OMS_TEST_FAIL_CLOSED_RESET'
+            WHERE singleton=TRUE""",
+            (NOW,),
+        )
+    operator.resume(
+        actor="oms-test",
+        reason="Bybit OMS claim qualification",
+        occurred_at=NOW,
+        action_id="oms-test-resume",
+    )
+
     order_link_id = "ASTRA-DEMO-E-ABCDEF0123456789"
     intent_id = bybit_entry_intent_id(order_link_id)
     bybit_intent = OrderIntent(

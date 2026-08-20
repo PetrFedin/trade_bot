@@ -58,7 +58,7 @@ class JsonFileBybitDemoSessionRiskLedgerStore:
 
     The file contains no credentials or exchange secrets. Missing checkpoints never auto-create
     during ``load``: starting a new trading session must call ``initialize`` explicitly, so a
-    restart cannot silently reset the loss streak or realized-cost counters.
+    restart cannot silently reset the loss streak, realized-cost counters, or equity high-water.
     """
 
     live_mainnet_order_routing_allowed = False
@@ -159,8 +159,9 @@ class JsonFileBybitDemoSessionRiskLedgerStore:
                 temporary.unlink()
             except FileNotFoundError:
                 pass
-        checkpoint = BybitDemoSessionRiskLedgerCheckpoint(ledger=ledger, revision=revision)
-        checkpoint.validate()
+        checkpoint = _decode_checkpoint(payload)
+        if checkpoint.revision != revision:
+            raise RuntimeError("demo session ledger persisted revision mismatch")
         return checkpoint
 
     def _reject_symlink(self) -> None:
@@ -172,6 +173,7 @@ def _encode_checkpoint(ledger: BybitDemoSessionRiskLedger) -> tuple[str, str]:
     ledger.validate()
     ledger_payload = {
         "opening_equity_usdt": str(ledger.opening_equity_usdt),
+        "peak_equity_usdt": str(ledger.effective_peak_equity_usdt),
         "outcomes": [
             {
                 "entry_order_link_id": outcome.entry_order_link_id,
@@ -235,9 +237,12 @@ def _decode_checkpoint(raw: str) -> BybitDemoSessionRiskLedgerCheckpoint:
     outcomes_raw = ledger_payload.get("outcomes")
     if not isinstance(outcomes_raw, list):
         raise ValueError("demo session ledger checkpoint outcomes must be an array")
+    opening_equity = _decimal_field(ledger_payload, "opening_equity_usdt")
+    peak_equity = _optional_decimal_field(ledger_payload, "peak_equity_usdt")
     ledger = BybitDemoSessionRiskLedger(
-        opening_equity_usdt=_decimal_field(ledger_payload, "opening_equity_usdt"),
+        opening_equity_usdt=opening_equity,
         outcomes=tuple(_decode_outcome(value) for value in outcomes_raw),
+        peak_equity_usdt=peak_equity,
     )
     ledger.validate()
     checkpoint = BybitDemoSessionRiskLedgerCheckpoint(ledger=ledger, revision=revision)
@@ -285,6 +290,12 @@ def _decimal_field(value: dict[str, Any], field: str) -> Decimal:
     if not parsed.is_finite():
         raise ValueError(f"demo session ledger checkpoint non-finite {field}")
     return parsed
+
+
+def _optional_decimal_field(value: dict[str, Any], field: str) -> Decimal | None:
+    if field not in value:
+        return None
+    return _decimal_field(value, field)
 
 
 def _validate_expected_opening_equity(value: Decimal) -> None:
