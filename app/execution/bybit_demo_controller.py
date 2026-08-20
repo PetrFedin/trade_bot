@@ -308,6 +308,7 @@ def plan_bybit_demo_reduce_only_close(
         quantity=normalized,
         order_link_id=_order_link_id(trade_plan, action="CLOSE"),
         reduce_only=True,
+        reference_price=trade_plan.reference_price,
     )
 
 
