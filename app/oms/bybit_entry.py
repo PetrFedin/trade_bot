@@ -296,7 +296,9 @@ class PostgresBybitEntryOms(PostgresOmsStore):
                             ),
                         )
                         if cursor.rowcount != 1:
-                            raise RuntimeError("Bybit reduce-only OMS inline submit claim already exists")
+                            raise RuntimeError(
+                                "Bybit reduce-only OMS inline submit claim already exists"
+                            )
                         cursor.execute(
                             """UPDATE astra_oms_orders
                             SET state=%s, version=version+1, updated_at=%s
