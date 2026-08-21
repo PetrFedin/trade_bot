@@ -21,6 +21,7 @@ on:
       - 'tests/test_bybit_entry_recovery_candidates.py'
       - 'tests/test_bybit_postgres_entry_recovery.py'
       - 'tests/test_postgres_bybit_entry_recovery_convergence_e2e.py'
+      - 'tests/test_postgres_bybit_recovery_aware_startup_e2e.py'
       - 'tests/test_bybit_entry_recovery_composition.py'
       - 'tests/test_bybit_demo_cycle.py'
       - 'tests/test_bybit_oms_entry_client.py'
@@ -46,6 +47,7 @@ on:
       - 'tests/test_bybit_entry_recovery_candidates.py'
       - 'tests/test_bybit_postgres_entry_recovery.py'
       - 'tests/test_postgres_bybit_entry_recovery_convergence_e2e.py'
+      - 'tests/test_postgres_bybit_recovery_aware_startup_e2e.py'
       - 'tests/test_bybit_entry_recovery_composition.py'
       - 'tests/test_bybit_demo_cycle.py'
       - 'tests/test_bybit_oms_entry_client.py'
@@ -98,12 +100,13 @@ jobs:
           tests/test_bybit_recovery_startup.py
           tests/test_bybit_demo_cycle.py
           tests/test_bybit_oms_entry_client.py
-      - name: PostgreSQL immutable recovery, candidates, crash convergence and composition binding
+      - name: PostgreSQL immutable recovery, candidates, crash convergence and startup orchestration
         run: >-
           pytest -q
           tests/test_bybit_entry_recovery_candidates.py
           tests/test_bybit_postgres_entry_recovery.py
           tests/test_postgres_bybit_entry_recovery_convergence_e2e.py
+          tests/test_postgres_bybit_recovery_aware_startup_e2e.py
           tests/test_bybit_entry_recovery_composition.py
       - name: Compile recovery boundary
         run: >-
