@@ -80,6 +80,10 @@ class BybitEntryOmsPersistenceError(RuntimeError):
     pass
 
 
+class BybitEntryRecoveryEnvelopeError(RuntimeError):
+    pass
+
+
 class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
     """Bybit demo client whose market-order mutations are owned by the canonical OMS.
 
@@ -90,6 +94,8 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
 
     The canonical client also owns the immutable pre-submit recovery store. A product cycle using
     this client must persist the exact fee-adjusted risk/protection envelope before the ENTRY POST.
+    The client independently reloads that envelope immediately before the OMS claim, so a future
+    direct canonical call cannot bypass the durable pre-submit recovery boundary.
     """
 
     entry_recovery_required = True
@@ -106,10 +112,10 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
             raise ValueError("Bybit entry client rejected mainnet-capable OMS")
         if entry_oms.automatic_resubmit_after_submit_started_allowed:
             raise ValueError("Bybit entry client forbids automatic resubmit after SUBMIT_STARTED")
-        if entry_recovery_store is None:
-            dsn = getattr(entry_oms, "dsn", None)
-            if isinstance(dsn, str) and dsn.strip():
-                entry_recovery_store = PostgresBybitEntryRecoveryStore(dsn)
+        oms_dsn = getattr(entry_oms, "dsn", None)
+        self._postgres_backed_entry_oms = isinstance(oms_dsn, str) and bool(oms_dsn.strip())
+        if entry_recovery_store is None and self._postgres_backed_entry_oms:
+            entry_recovery_store = PostgresBybitEntryRecoveryStore(oms_dsn)
         if entry_recovery_store is not None:
             if (
                 getattr(entry_recovery_store, "live_mainnet_order_routing_allowed", True)
@@ -138,6 +144,7 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
             side=request.side,
             now_ms=observed_ms,
         )
+        self._verify_entry_recovery_envelope(request)
         intent_id = bybit_entry_intent_id(request.order_link_id)
         intent = OrderIntent(
             intent_id=intent_id,
@@ -159,6 +166,47 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
             claim=claim,
             occurred_at=occurred_at,
         )
+
+    def _verify_entry_recovery_envelope(self, request: BybitDemoOrderRequest) -> None:
+        store = self.entry_recovery_store
+        if store is None:
+            if self._postgres_backed_entry_oms:
+                raise BybitEntryRecoveryEnvelopeError(
+                    "ENTRY_RECOVERY_ENVELOPE_STORE_REQUIRED_BEFORE_OMS_CLAIM"
+                )
+            return
+        try:
+            record = store.load(entry_order_link_id=request.order_link_id)
+        except Exception as exc:
+            raise BybitEntryRecoveryEnvelopeError(
+                f"ENTRY_RECOVERY_ENVELOPE_LOAD_FAILED:{type(exc).__name__}"
+            ) from exc
+        if getattr(record, "live_mainnet_order_routing_allowed", True) is not False:
+            raise BybitEntryRecoveryEnvelopeError(
+                "ENTRY_RECOVERY_ENVELOPE_RECORD_REJECTED_MAINNET_CAPABILITY"
+            )
+        envelope = getattr(record, "envelope", None)
+        if envelope is None:
+            raise BybitEntryRecoveryEnvelopeError("ENTRY_RECOVERY_ENVELOPE_RECORD_MISSING")
+        try:
+            envelope.validate()
+        except Exception as exc:
+            raise BybitEntryRecoveryEnvelopeError(
+                f"ENTRY_RECOVERY_ENVELOPE_VALIDATION_FAILED:{type(exc).__name__}"
+            ) from exc
+        mismatches: list[str] = []
+        if envelope.entry_order_link_id != request.order_link_id:
+            mismatches.append("ORDER_LINK_ID")
+        if envelope.trade_plan.symbol != request.symbol:
+            mismatches.append("SYMBOL")
+        if envelope.order_side != request.side:
+            mismatches.append("SIDE")
+        if envelope.approved_order_quantity != request.quantity:
+            mismatches.append("QUANTITY")
+        if mismatches:
+            raise BybitEntryRecoveryEnvelopeError(
+                "ENTRY_RECOVERY_ENVELOPE_REQUEST_MISMATCH:" + ",".join(mismatches)
+            )
 
     def _place_reduce_only_market_order(
         self,
