@@ -71,7 +71,7 @@ ALL_IN_PNL = Decimal("-11.0945")
 OPENING_CASH = Decimal("1000")
 CLOSING_CASH = OPENING_CASH + ALL_IN_PNL
 _MIGRATIONS = (
-    Path("migrations/product/006_bybit_session_risk_ledger.sql"),
+    Path("migrations/product/005_bybit_runtime_state.sql"),
     Path("migrations/product/007_bybit_cash_reconciliation.sql"),
     Path("migrations/product/008_bybit_entry_recovery.sql"),
 )
