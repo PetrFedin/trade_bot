@@ -1,3 +1,7 @@
+import pytest
+
+pytest.importorskip("psycopg")
+
 from app.application.bybit_product_composition import build_bybit_product_composition
 from app.runtime.bybit_product_config import BybitProductConfig
 
