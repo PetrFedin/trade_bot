@@ -142,25 +142,30 @@ def test_market_data_health_is_unknown_until_real_observation_then_ages() -> Non
     assert observed.market_data_age_seconds == Decimal("2.5")
 
 
-def test_account_risk_health_uses_wallet_backed_high_water_drawdown() -> None:
+def test_account_risk_health_uses_wallet_high_water_and_authoritative_daily_pnl() -> None:
     recorder = BybitAccountRiskHealthRecorder()
 
-    assert recorder.snapshot().drawdown_usdt is None
+    missing = recorder.snapshot()
+    assert missing.drawdown_usdt is None
+    assert missing.daily_pnl_usdt is None
 
     recorder.record(
         current_equity_usdt=Decimal("950"),
         peak_equity_usdt=Decimal("1100"),
+        daily_pnl_usdt=Decimal("-17.5"),
     )
     snapshot = recorder.snapshot()
 
     assert snapshot.current_equity_usdt == Decimal("950")
     assert snapshot.peak_equity_usdt == Decimal("1100")
+    assert snapshot.daily_pnl_usdt == Decimal("-17.5")
     assert snapshot.drawdown_usdt == Decimal("150")
 
     with pytest.raises(ValueError, match="peak equity cannot be below current equity"):
         recorder.record(
             current_equity_usdt=Decimal("1000"),
             peak_equity_usdt=Decimal("999"),
+            daily_pnl_usdt=Decimal("0"),
         )
 
 
@@ -257,11 +262,12 @@ def test_collector_uses_only_proven_runtime_sources_and_leaves_account_gaps_unkn
     assert "MEASUREMENT_UNAVAILABLE:kill_switch_engaged" not in report.blockers
 
 
-def test_collector_adds_real_drawdown_without_faking_daily_or_cash() -> None:
+def test_collector_adds_real_drawdown_and_daily_pnl_without_faking_cash() -> None:
     account_risk = BybitAccountRiskHealthRecorder()
     account_risk.record(
         current_equity_usdt=Decimal("950"),
         peak_equity_usdt=Decimal("1100"),
+        daily_pnl_usdt=Decimal("-12"),
     )
     reconciliation = BybitReconciliationHealthRecorder().snapshot(
         now_monotonic=Decimal("1")
@@ -280,11 +286,11 @@ def test_collector_adds_real_drawdown_without_faking_daily_or_cash() -> None:
     )
 
     assert measurements.drawdown == Decimal("150")
-    assert measurements.daily_pnl is None
+    assert measurements.daily_pnl == Decimal("-12")
     assert measurements.cash_mismatch is None
     report = build_bybit_operational_health(measurements)
     assert "MEASUREMENT_UNAVAILABLE:drawdown" not in report.blockers
-    assert "MEASUREMENT_UNAVAILABLE:daily_pnl" in report.blockers
+    assert "MEASUREMENT_UNAVAILABLE:daily_pnl" not in report.blockers
     assert "MEASUREMENT_UNAVAILABLE:cash_mismatch" in report.blockers
 
 
