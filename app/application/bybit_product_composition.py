@@ -8,6 +8,7 @@ from functools import partial
 from time import monotonic, time
 
 from app.application.bybit_operator_control import PostgresBybitOperatorControl
+from app.application.bybit_recovery_startup import RecoveryAwareBybitProductStartupReconciler
 from app.execution.bybit_demo_account_reader import BybitDemoAccountingClient
 from app.execution.bybit_demo_attributed_runtime import (
     BybitDemoAttributedRuntimeResult,
@@ -71,6 +72,7 @@ from app.observability.bybit_runtime_health import (
     collect_bybit_operational_measurements,
 )
 from app.oms.bybit_entry import PostgresBybitEntryOms
+from app.oms.bybit_entry_recovery_candidates import PostgresBybitEntryRecoveryCandidateReader
 from app.oms.store import OrderRecord, OrderState
 from app.runtime.bybit_product_config import BybitProductConfig
 from app.runtime.bybit_product_service import BybitProductServiceResult, run_bybit_product_service
@@ -428,7 +430,9 @@ class BybitProductCycleExecutor:
 @dataclass(frozen=True)
 class BybitProductComposition:
     config: BybitProductConfig
-    startup_reconciler: BybitProductStartupReconciler
+    startup_reconciler: (
+        BybitProductStartupReconciler | RecoveryAwareBybitProductStartupReconciler
+    )
     cycle_executor: BybitProductCycleExecutor
     operator_control: PostgresBybitOperatorControl
     private_stream_monitor: BybitPrivateStreamMonitor
@@ -573,6 +577,8 @@ def build_bybit_product_composition(
         entry_oms=entry_oms,
         entry_reference_store=entry_reference_store,
     )
+    if trade_client.entry_recovery_store is None:
+        raise RuntimeError("canonical Bybit product requires immutable ENTRY recovery store")
     accounting_client = ObservedBybitDemoAccountingClient(
         api_key=config.api_key,
         api_secret=config.api_secret,
@@ -609,16 +615,31 @@ def build_bybit_product_composition(
         account_risk_observation_hook=observe_account_risk,
         clock_ms=active_clock,
     )
+    base_startup = BybitProductStartupReconciler(
+        broker=startup_broker,
+        checkpoint_store=excursion_store,
+        entry_oms=entry_oms,
+        reconciliation_health=None,
+        clock_ms=active_clock,
+        monotonic_fn=monotonic_fn,
+    )
+    startup = RecoveryAwareBybitProductStartupReconciler(
+        base_reconciler=base_startup,
+        broker=startup_broker,
+        checkpoint_store=excursion_store,
+        candidate_reader=PostgresBybitEntryRecoveryCandidateReader(entry_oms),
+        recovery_store=trade_client.entry_recovery_store,
+        runtime_lease=runtime_lease,
+        excursion_store=excursion_store,
+        entry_oms=entry_oms,
+        recovery_client=trade_client,
+        reconciliation_health=reconciliation_health,
+        clock_ms=active_clock,
+        monotonic_fn=monotonic_fn,
+    )
     return BybitProductComposition(
         config=config,
-        startup_reconciler=BybitProductStartupReconciler(
-            broker=startup_broker,
-            checkpoint_store=excursion_store,
-            entry_oms=entry_oms,
-            reconciliation_health=reconciliation_health,
-            clock_ms=active_clock,
-            monotonic_fn=monotonic_fn,
-        ),
+        startup_reconciler=startup,
         cycle_executor=cycle,
         operator_control=operator_control,
         private_stream_monitor=private_stream,
