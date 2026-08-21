@@ -70,6 +70,7 @@ def execute_reconciled_guarded_bybit_demo_cycle(
     lifecycle_policy: BybitDemoLifecyclePolicy | None = None,
     cycle_policy: BybitDemoCyclePolicy | None = None,
     session_policy: CryptoSessionRiskPolicy | None = None,
+    entry_recovery_store: Any | None = None,
     sleeper: Sleeper = time.sleep,
     cycle_executor: CycleExecutor = execute_bybit_demo_trade_cycle,
     lifecycle_reconciler: LifecycleReconciler = reconcile_bybit_demo_trade_lifecycle,
@@ -104,6 +105,7 @@ def execute_reconciled_guarded_bybit_demo_cycle(
         previous_trade_lifecycle=previous_lifecycle,
         cycle_policy=cycle_policy,
         session_policy=session_policy,
+        entry_recovery_store=entry_recovery_store,
         sleeper=sleeper,
         cycle_executor=cycle_executor,
     )
@@ -120,6 +122,7 @@ def execute_guarded_bybit_demo_cycle(
     previous_trade_lifecycle: BybitDemoLifecycleDecision | None = None,
     cycle_policy: BybitDemoCyclePolicy | None = None,
     session_policy: CryptoSessionRiskPolicy | None = None,
+    entry_recovery_store: Any | None = None,
     sleeper: Sleeper = time.sleep,
     cycle_executor: CycleExecutor = execute_bybit_demo_trade_cycle,
 ) -> BybitDemoOrchestratorResult:
@@ -148,6 +151,7 @@ def execute_guarded_bybit_demo_cycle(
         client=client,
         cycle_policy=cycle_policy,
         session_policy=session_policy,
+        entry_recovery_store=entry_recovery_store,
         sleeper=sleeper,
     )
     return BybitDemoOrchestratorResult(
