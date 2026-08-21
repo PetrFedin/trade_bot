@@ -7,6 +7,7 @@ from app.domain.trading import OrderIntent, Side
 from app.execution.bybit_demo import BybitDemoOrderAck, BybitDemoOrderRequest
 from app.execution.bybit_observed_rest import ObservedBybitDemoStopRatchetClient
 from app.execution.bybit_order_lookup import lookup_bybit_order_by_link_id
+from app.execution.bybit_postgres_entry_recovery import PostgresBybitEntryRecoveryStore
 from app.execution.bybit_rest_policy import (
     BybitRestRequestError,
     BybitRestTransportError,
@@ -86,22 +87,43 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
     before the single POST. Any ambiguous result is resolved by GET using orderLinkId; failure to
     prove broker truth becomes durable UNCERTAIN. Risk-reducing CLOSE claims deliberately bypass
     the operator new-entry gate so PAUSED/READ_ONLY/KILLED never prevents protection.
+
+    The canonical client also owns the immutable pre-submit recovery store. A product cycle using
+    this client must persist the exact fee-adjusted risk/protection envelope before the ENTRY POST.
     """
+
+    entry_recovery_required = True
 
     def __init__(
         self,
         *,
         entry_oms: BybitEntryOmsPort,
         entry_reference_store: BybitEntryReferenceStore,
+        entry_recovery_store: Any | None = None,
         **kwargs: Any,
     ) -> None:
         if entry_oms.live_mainnet_order_routing_allowed:
             raise ValueError("Bybit entry client rejected mainnet-capable OMS")
         if entry_oms.automatic_resubmit_after_submit_started_allowed:
             raise ValueError("Bybit entry client forbids automatic resubmit after SUBMIT_STARTED")
+        if entry_recovery_store is None:
+            dsn = getattr(entry_oms, "dsn", None)
+            if isinstance(dsn, str) and dsn.strip():
+                entry_recovery_store = PostgresBybitEntryRecoveryStore(dsn)
+        if entry_recovery_store is not None:
+            if (
+                getattr(entry_recovery_store, "live_mainnet_order_routing_allowed", True)
+                is not False
+            ):
+                raise ValueError("Bybit entry client rejected mainnet-capable recovery store")
+            if getattr(entry_recovery_store, "order_writes_supported", True) is not False:
+                raise ValueError("Bybit recovery store must not expose broker order writes")
+            if getattr(entry_recovery_store, "immutable_records", False) is not True:
+                raise ValueError("Bybit recovery store must preserve immutable records")
         super().__init__(**kwargs)
         self.entry_oms = entry_oms
         self.entry_reference_store = entry_reference_store
+        self.entry_recovery_store = entry_recovery_store
 
     def place_market_order(self, request: BybitDemoOrderRequest) -> BybitDemoOrderAck:
         request.validate()
