@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS astra_bybit_entry_recovery (
     CHECK (entry_order_link_id LIKE 'ASTRA-DEMO-E-%')
 );
 
-CREATE FUNCTION astra_bybit_entry_recovery_immutable()
+CREATE OR REPLACE FUNCTION astra_bybit_entry_recovery_immutable()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
@@ -17,8 +17,20 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER astra_bybit_entry_recovery_no_update_delete
-BEFORE UPDATE OR DELETE ON astra_bybit_entry_recovery
-FOR EACH ROW EXECUTE FUNCTION astra_bybit_entry_recovery_immutable();
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgname = 'astra_bybit_entry_recovery_no_update_delete'
+          AND tgrelid = 'astra_bybit_entry_recovery'::regclass
+          AND NOT tgisinternal
+    ) THEN
+        CREATE TRIGGER astra_bybit_entry_recovery_no_update_delete
+        BEFORE UPDATE OR DELETE ON astra_bybit_entry_recovery
+        FOR EACH ROW EXECUTE FUNCTION astra_bybit_entry_recovery_immutable();
+    END IF;
+END;
+$$;
 
 COMMIT;
