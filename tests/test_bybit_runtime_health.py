@@ -142,30 +142,25 @@ def test_market_data_health_is_unknown_until_real_observation_then_ages() -> Non
     assert observed.market_data_age_seconds == Decimal("2.5")
 
 
-def test_account_risk_health_uses_wallet_high_water_and_authoritative_daily_pnl() -> None:
+def test_account_risk_health_uses_wallet_backed_high_water_drawdown() -> None:
     recorder = BybitAccountRiskHealthRecorder()
 
-    missing = recorder.snapshot()
-    assert missing.drawdown_usdt is None
-    assert missing.daily_pnl_usdt is None
+    assert recorder.snapshot().drawdown_usdt is None
 
     recorder.record(
         current_equity_usdt=Decimal("950"),
         peak_equity_usdt=Decimal("1100"),
-        daily_pnl_usdt=Decimal("-17.5"),
     )
     snapshot = recorder.snapshot()
 
     assert snapshot.current_equity_usdt == Decimal("950")
     assert snapshot.peak_equity_usdt == Decimal("1100")
-    assert snapshot.daily_pnl_usdt == Decimal("-17.5")
     assert snapshot.drawdown_usdt == Decimal("150")
 
     with pytest.raises(ValueError, match="peak equity cannot be below current equity"):
         recorder.record(
             current_equity_usdt=Decimal("1000"),
             peak_equity_usdt=Decimal("999"),
-            daily_pnl_usdt=Decimal("0"),
         )
 
 
@@ -262,12 +257,11 @@ def test_collector_uses_only_proven_runtime_sources_and_leaves_account_gaps_unkn
     assert "MEASUREMENT_UNAVAILABLE:kill_switch_engaged" not in report.blockers
 
 
-def test_collector_adds_real_drawdown_and_daily_pnl_without_faking_cash() -> None:
+def test_collector_adds_real_drawdown_and_durable_daily_pnl_without_faking_cash() -> None:
     account_risk = BybitAccountRiskHealthRecorder()
     account_risk.record(
         current_equity_usdt=Decimal("950"),
         peak_equity_usdt=Decimal("1100"),
-        daily_pnl_usdt=Decimal("-12"),
     )
     reconciliation = BybitReconciliationHealthRecorder().snapshot(
         now_monotonic=Decimal("1")
@@ -283,6 +277,7 @@ def test_collector_adds_real_drawdown_and_daily_pnl_without_faking_cash() -> Non
         unresolved_entry_submissions=None,
         operator=None,
         account_risk=account_risk.snapshot(),
+        daily_pnl=Decimal("-12"),
     )
 
     assert measurements.drawdown == Decimal("150")
@@ -292,6 +287,25 @@ def test_collector_adds_real_drawdown_and_daily_pnl_without_faking_cash() -> Non
     assert "MEASUREMENT_UNAVAILABLE:drawdown" not in report.blockers
     assert "MEASUREMENT_UNAVAILABLE:daily_pnl" not in report.blockers
     assert "MEASUREMENT_UNAVAILABLE:cash_mismatch" in report.blockers
+
+
+def test_collector_rejects_non_finite_daily_pnl() -> None:
+    reconciliation = BybitReconciliationHealthRecorder().snapshot(
+        now_monotonic=Decimal("1")
+    )
+    market_data = BybitMarketDataHealthRecorder().snapshot(now_monotonic=Decimal("1"))
+
+    with pytest.raises(ValueError, match="daily PnL measurement must be finite"):
+        collect_bybit_operational_measurements(
+            now_monotonic=Decimal("2"),
+            market_data=market_data,
+            rest=BybitRestHealthRecorder().snapshot(),
+            reconciliation=reconciliation,
+            private_stream=None,
+            unresolved_entry_submissions=None,
+            operator=None,
+            daily_pnl=Decimal("NaN"),
+        )
 
 
 def test_collector_hard_rejects_mainnet_capable_measurement_source() -> None:
