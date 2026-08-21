@@ -445,7 +445,9 @@ def test_recovery_flatten_closes_terminal_accounting_session_pnl_and_cash_on_pos
     assert terminal.managed_poll.accounting.fully_reconciled_all_in_net_pnl_usdt == ALL_IN_PNL
     assert terminal.managed_poll.accounting.profit_outcome_status.value == "FULLY_RECONCILED_LOSS"
     assert terminal.terminal_handoff is not None
-    assert terminal.terminal_handoff.session_risk_persisted is True
+    assert terminal.terminal_handoff.evidence_durable is True
+    assert terminal.terminal_handoff.checkpoint_cleared is True
+    assert terminal.terminal_handoff.next_entry_allowed is True
     assert accounting_client.closed_pnl_reads == 1
     assert accounting_client.funding_reads == 1
 
