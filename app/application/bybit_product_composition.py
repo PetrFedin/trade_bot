@@ -192,7 +192,7 @@ class BybitProductCycleExecutor:
     session_risk_store: PostgresBybitDemoSessionRiskLedgerStore
     strategy_config: CryptoPerpStrategyConfig
     market_data_observation_hook: Callable[[], None] | None = None
-    account_risk_observation_hook: Callable[[CryptoSessionRiskState, Decimal], None] | None = None
+    account_risk_observation_hook: Callable[[CryptoSessionRiskState], None] | None = None
     clock_ms: ClockMs = lambda: int(time() * 1000)
     live_mainnet_order_routing_allowed: bool = False
     _session_peak_equity_hint_usdt: Decimal | None = field(
@@ -239,10 +239,7 @@ class BybitProductCycleExecutor:
             session_state = session_ledger.to_session_risk_state(
                 current_equity_usdt=wallet.total_equity_usd,
             )
-            self._observe_account_risk(
-                session_state,
-                realized_all_in_pnl_for_utc_day(session_ledger, now_ms=now_ms),
-            )
+            self._observe_account_risk(session_state)
 
         bars_by_symbol = (
             {} if active_trade else self._completed_universe_bars(now_ms=now_ms)
@@ -361,15 +358,11 @@ class BybitProductCycleExecutor:
         ):
             self._session_peak_equity_hint_usdt = peak_equity_usdt
 
-    def _observe_account_risk(
-        self,
-        state: CryptoSessionRiskState,
-        daily_pnl_usdt: Decimal,
-    ) -> None:
+    def _observe_account_risk(self, state: CryptoSessionRiskState) -> None:
         if self.account_risk_observation_hook is None:
             return
         try:
-            self.account_risk_observation_hook(state, daily_pnl_usdt)
+            self.account_risk_observation_hook(state)
         except Exception:  # noqa: BLE001 - telemetry cannot replace authoritative risk state.
             return
 
@@ -437,7 +430,9 @@ class BybitProductComposition:
     market_data_health_recorder: BybitMarketDataHealthRecorder
     account_risk_health_recorder: BybitAccountRiskHealthRecorder
     reconciliation_health_recorder: BybitReconciliationHealthRecorder
+    session_risk_store: PostgresBybitDemoSessionRiskLedgerStore
     entry_oms: PostgresBybitEntryOms
+    clock_ms: ClockMs = lambda: int(time() * 1000)
     monotonic_fn: MonotonicFn = monotonic
     live_mainnet_order_routing_allowed: bool = False
 
@@ -471,6 +466,15 @@ class BybitProductComposition:
             stream = self.private_stream_monitor.snapshot()
         except Exception:
             stream = None
+        try:
+            health_now_ms = self.clock_ms()
+            daily_checkpoint = self.session_risk_store.load_current()
+            daily_pnl = realized_all_in_pnl_for_utc_day(
+                daily_checkpoint.ledger,
+                now_ms=health_now_ms,
+            )
+        except Exception:
+            daily_pnl = None
         measurements = collect_bybit_operational_measurements(
             now_monotonic=now,
             market_data=self.market_data_health_recorder.snapshot(now_monotonic=now),
@@ -480,6 +484,7 @@ class BybitProductComposition:
             unresolved_entry_submissions=unresolved_entries,
             operator=operator,
             account_risk=self.account_risk_health_recorder.snapshot(),
+            daily_pnl=daily_pnl,
         )
         return build_bybit_operational_health(measurements)
 
@@ -501,6 +506,7 @@ def build_bybit_product_composition(
         config.database_url,
         runtime_lease=runtime_lease,
     )
+    session_risk_store = PostgresBybitDemoSessionRiskLedgerStore(config.database_url)
     entry_oms = PostgresBybitEntryOms(config.database_url)
     operator_control = PostgresBybitOperatorControl(config.database_url)
     entry_reference_store = BybitEntryReferenceStore()
@@ -514,14 +520,10 @@ def build_bybit_product_composition(
             observed_monotonic=Decimal(str(monotonic_fn()))
         )
 
-    def observe_account_risk(
-        state: CryptoSessionRiskState,
-        daily_pnl_usdt: Decimal,
-    ) -> None:
+    def observe_account_risk(state: CryptoSessionRiskState) -> None:
         account_risk_health.record(
             current_equity_usdt=state.current_equity_usdt,
             peak_equity_usdt=state.peak_equity_usdt,
-            daily_pnl_usdt=daily_pnl_usdt,
         )
 
     trade_client = OmsAwareBybitDemoStopRatchetClient(
@@ -561,7 +563,7 @@ def build_bybit_product_composition(
         excursion_store=excursion_store,
         entry_provenance_store=PostgresBybitDemoEntryProvenanceStore(config.database_url),
         terminal_evidence_store=PostgresBybitDemoTerminalEvidenceStore(config.database_url),
-        session_risk_store=PostgresBybitDemoSessionRiskLedgerStore(config.database_url),
+        session_risk_store=session_risk_store,
         strategy_config=active_strategy,
         market_data_observation_hook=observe_market_data,
         account_risk_observation_hook=observe_account_risk,
@@ -584,7 +586,9 @@ def build_bybit_product_composition(
         market_data_health_recorder=market_data_health,
         account_risk_health_recorder=account_risk_health,
         reconciliation_health_recorder=reconciliation_health,
+        session_risk_store=session_risk_store,
         entry_oms=entry_oms,
+        clock_ms=active_clock,
         monotonic_fn=monotonic_fn,
     )
 
