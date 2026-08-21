@@ -19,6 +19,7 @@ from app.execution.bybit_demo_managed_trade_poll import BybitDemoManagedTradePol
 from app.execution.bybit_demo_max_hold_close import BybitDemoMaxHoldClosePolicy
 from app.execution.bybit_demo_session_risk_ledger import (
     observe_bybit_demo_session_equity,
+    realized_all_in_pnl_for_utc_day,
     start_bybit_demo_session_risk_ledger,
 )
 from app.execution.bybit_demo_stop_ratchet_client import BybitDemoStopRatchetClient
@@ -191,7 +192,7 @@ class BybitProductCycleExecutor:
     session_risk_store: PostgresBybitDemoSessionRiskLedgerStore
     strategy_config: CryptoPerpStrategyConfig
     market_data_observation_hook: Callable[[], None] | None = None
-    account_risk_observation_hook: Callable[[CryptoSessionRiskState], None] | None = None
+    account_risk_observation_hook: Callable[[CryptoSessionRiskState, Decimal], None] | None = None
     clock_ms: ClockMs = lambda: int(time() * 1000)
     live_mainnet_order_routing_allowed: bool = False
     _session_peak_equity_hint_usdt: Decimal | None = field(
@@ -238,7 +239,10 @@ class BybitProductCycleExecutor:
             session_state = session_ledger.to_session_risk_state(
                 current_equity_usdt=wallet.total_equity_usd,
             )
-            self._observe_account_risk(session_state)
+            self._observe_account_risk(
+                session_state,
+                realized_all_in_pnl_for_utc_day(session_ledger, now_ms=now_ms),
+            )
 
         bars_by_symbol = (
             {} if active_trade else self._completed_universe_bars(now_ms=now_ms)
@@ -357,11 +361,15 @@ class BybitProductCycleExecutor:
         ):
             self._session_peak_equity_hint_usdt = peak_equity_usdt
 
-    def _observe_account_risk(self, state: CryptoSessionRiskState) -> None:
+    def _observe_account_risk(
+        self,
+        state: CryptoSessionRiskState,
+        daily_pnl_usdt: Decimal,
+    ) -> None:
         if self.account_risk_observation_hook is None:
             return
         try:
-            self.account_risk_observation_hook(state)
+            self.account_risk_observation_hook(state, daily_pnl_usdt)
         except Exception:  # noqa: BLE001 - telemetry cannot replace authoritative risk state.
             return
 
@@ -506,10 +514,14 @@ def build_bybit_product_composition(
             observed_monotonic=Decimal(str(monotonic_fn()))
         )
 
-    def observe_account_risk(state: CryptoSessionRiskState) -> None:
+    def observe_account_risk(
+        state: CryptoSessionRiskState,
+        daily_pnl_usdt: Decimal,
+    ) -> None:
         account_risk_health.record(
             current_equity_usdt=state.current_equity_usdt,
             peak_equity_usdt=state.peak_equity_usdt,
+            daily_pnl_usdt=daily_pnl_usdt,
         )
 
     trade_client = OmsAwareBybitDemoStopRatchetClient(
