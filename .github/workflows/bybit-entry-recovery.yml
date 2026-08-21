@@ -11,6 +11,7 @@ on:
       - 'tests/test_bybit_entry_recovery.py'
       - 'tests/test_bybit_entry_recovery_cycle.py'
       - 'tests/test_bybit_postgres_entry_recovery.py'
+      - 'tests/test_bybit_entry_recovery_composition.py'
       - 'tests/test_bybit_demo_cycle.py'
       - 'tests/test_bybit_oms_entry_client.py'
       - '.github/workflows/bybit-entry-recovery.yml'
@@ -25,6 +26,7 @@ on:
       - 'tests/test_bybit_entry_recovery.py'
       - 'tests/test_bybit_entry_recovery_cycle.py'
       - 'tests/test_bybit_postgres_entry_recovery.py'
+      - 'tests/test_bybit_entry_recovery_composition.py'
       - 'tests/test_bybit_demo_cycle.py'
       - 'tests/test_bybit_oms_entry_client.py'
       - '.github/workflows/bybit-entry-recovery.yml'
@@ -73,8 +75,11 @@ jobs:
           tests/test_bybit_entry_recovery_cycle.py
           tests/test_bybit_demo_cycle.py
           tests/test_bybit_oms_entry_client.py
-      - name: PostgreSQL immutable recovery state
-        run: pytest -q tests/test_bybit_postgres_entry_recovery.py
+      - name: PostgreSQL immutable recovery state and composition binding
+        run: >-
+          pytest -q
+          tests/test_bybit_postgres_entry_recovery.py
+          tests/test_bybit_entry_recovery_composition.py
       - name: Compile recovery boundary
         run: >-
           python -m compileall -q
