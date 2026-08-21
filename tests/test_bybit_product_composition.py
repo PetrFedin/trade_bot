@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 import app.application.bybit_product_composition as product
+from app.execution.bybit_demo_cash_reconciliation import BybitDemoCashBaseline
 from app.execution.bybit_demo_session_risk_ledger import start_bybit_demo_session_risk_ledger
 from app.runtime.bybit_product_config import BybitProductConfig
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig
@@ -59,14 +60,38 @@ class _SessionStore:
         return self.checkpoint
 
 
+class _CashBaselineStore:
+    live_mainnet_order_routing_allowed = False
+    order_writes_supported = False
+
+    def __init__(self, *, wallet_balance: str = "950", missing: bool = False) -> None:
+        self.missing = missing
+        self.baseline = BybitDemoCashBaseline(
+            currency="USDT",
+            wallet_balance_usdt=Decimal(wallet_balance),
+            cumulative_all_in_pnl_usdt=Decimal("0"),
+            session_revision="a" * 64,
+            created_time_ms=1_700_000_000_000,
+        )
+
+    def load(self):
+        if self.missing:
+            raise FileNotFoundError
+        return self.baseline
+
+
 class _Accounting:
     live_mainnet_order_routing_allowed = False
 
-    def __init__(self, equity: str = "950") -> None:
+    def __init__(self, equity: str = "950", wallet_usdt: str | None = None) -> None:
         self.equity = Decimal(equity)
+        self.wallet_usdt = Decimal(equity if wallet_usdt is None else wallet_usdt)
 
     def get_wallet_balance(self):
-        return SimpleNamespace(total_equity_usd=self.equity)
+        return SimpleNamespace(
+            total_equity_usd=self.equity,
+            usdt_wallet_balance=self.wallet_usdt,
+        )
 
 
 class _Instruments:
@@ -269,19 +294,22 @@ def test_missing_session_ledger_does_not_publish_fake_account_risk(
     assert observations == []
 
 
-def test_operational_health_reads_daily_pnl_directly_from_durable_session_ledger() -> None:
+def test_operational_health_reads_daily_pnl_and_flat_cash_from_durable_state() -> None:
     session_store = _SessionStore()
+    accounting = _Accounting(equity="1000", wallet_usdt="950")
     composition = product.BybitProductComposition(
         config=_config(),
         startup_reconciler=_Safe(),
         cycle_executor=_executor(),
         operator_control=_Operator(),
         private_stream_monitor=_PrivateStream(),
+        accounting_client=accounting,
         rest_health_recorder=product.BybitRestHealthRecorder(),
         market_data_health_recorder=product.BybitMarketDataHealthRecorder(),
         account_risk_health_recorder=product.BybitAccountRiskHealthRecorder(),
         reconciliation_health_recorder=product.BybitReconciliationHealthRecorder(),
         session_risk_store=session_store,
+        cash_baseline_store=_CashBaselineStore(wallet_balance="950"),
         entry_oms=_EntryOms(),
         clock_ms=lambda: 1_800_000_000_000,
         monotonic_fn=lambda: 105.0,
@@ -290,12 +318,42 @@ def test_operational_health_reads_daily_pnl_directly_from_durable_session_ledger
     report = composition.operational_health()
 
     assert "MEASUREMENT_UNAVAILABLE:daily_pnl" not in report.blockers
-    assert "MEASUREMENT_UNAVAILABLE:cash_mismatch" in report.blockers
+    assert "MEASUREMENT_UNAVAILABLE:cash_mismatch" not in report.blockers
+
+    accounting.wallet_usdt = Decimal("949")
+    mismatch = composition.operational_health()
+
+    assert "MEASUREMENT_UNAVAILABLE:cash_mismatch" not in mismatch.blockers
 
     session_store.missing = True
     unavailable = composition.operational_health()
 
     assert "MEASUREMENT_UNAVAILABLE:daily_pnl" in unavailable.blockers
+    assert "MEASUREMENT_UNAVAILABLE:cash_mismatch" in unavailable.blockers
+
+
+def test_operational_health_defers_cash_measurement_while_trade_is_active() -> None:
+    composition = product.BybitProductComposition(
+        config=_config(),
+        startup_reconciler=_Safe(),
+        cycle_executor=_executor(active_symbol="BTCUSDT"),
+        operator_control=_Operator(),
+        private_stream_monitor=_PrivateStream(),
+        accounting_client=_Accounting(equity="1000", wallet_usdt="950"),
+        rest_health_recorder=product.BybitRestHealthRecorder(),
+        market_data_health_recorder=product.BybitMarketDataHealthRecorder(),
+        account_risk_health_recorder=product.BybitAccountRiskHealthRecorder(),
+        reconciliation_health_recorder=product.BybitReconciliationHealthRecorder(),
+        session_risk_store=_SessionStore(),
+        cash_baseline_store=_CashBaselineStore(wallet_balance="950"),
+        entry_oms=_EntryOms(),
+        clock_ms=lambda: 1_800_000_000_000,
+        monotonic_fn=lambda: 105.0,
+    )
+
+    report = composition.operational_health()
+
+    assert "MEASUREMENT_UNAVAILABLE:cash_mismatch" in report.blockers
 
 
 def test_flat_cycle_persists_wallet_high_water_before_runtime(
