@@ -51,9 +51,18 @@ class _RecoveryStore:
     order_writes_supported = False
     immutable_records = True
 
-    def __init__(self, *, envelope: _Envelope | None = None, failure: Exception | None = None):
+    def __init__(
+        self,
+        *,
+        envelope: _Envelope | None = None,
+        failure: Exception | None = None,
+        record_sha256: str = "a" * 64,
+        record_mainnet_allowed: bool = False,
+    ) -> None:
         self.envelope = _Envelope() if envelope is None else envelope
         self.failure = failure
+        self.record_sha256 = record_sha256
+        self.record_mainnet_allowed = record_mainnet_allowed
         self.events: list[str] = []
 
     def load(self, *, entry_order_link_id: str):
@@ -63,8 +72,8 @@ class _RecoveryStore:
             raise self.failure
         return SimpleNamespace(
             envelope=self.envelope,
-            record_sha256="a" * 64,
-            live_mainnet_order_routing_allowed=False,
+            record_sha256=self.record_sha256,
+            live_mainnet_order_routing_allowed=self.record_mainnet_allowed,
         )
 
 
@@ -267,6 +276,37 @@ def test_invalid_recovery_envelope_blocks_before_oms_claim_or_entry_post() -> No
     )
 
     with pytest.raises(BybitEntryRecoveryEnvelopeError, match="VALIDATION_FAILED:ValueError"):
+        client.place_market_order(_entry_request())
+
+    assert events == []
+    assert oms.record is None
+
+
+@pytest.mark.parametrize("record_sha256", ["", "a" * 63, "A" * 64, "g" * 64])
+def test_invalid_recovery_record_checksum_metadata_blocks_before_oms_claim_or_post(
+    record_sha256: str,
+) -> None:
+    events: list[str] = []
+    client, oms = _client(
+        store=_RecoveryStore(record_sha256=record_sha256),
+        events=events,
+    )
+
+    with pytest.raises(BybitEntryRecoveryEnvelopeError, match="RECORD_SHA256_INVALID"):
+        client.place_market_order(_entry_request())
+
+    assert events == []
+    assert oms.record is None
+
+
+def test_mainnet_capable_recovery_record_blocks_before_oms_claim_or_post() -> None:
+    events: list[str] = []
+    client, oms = _client(
+        store=_RecoveryStore(record_mainnet_allowed=True),
+        events=events,
+    )
+
+    with pytest.raises(BybitEntryRecoveryEnvelopeError, match="REJECTED_MAINNET_CAPABILITY"):
         client.place_market_order(_entry_request())
 
     assert events == []
