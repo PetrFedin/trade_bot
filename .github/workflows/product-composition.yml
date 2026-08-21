@@ -28,6 +28,7 @@ on:
       - 'tests/test_bybit_product_stream_gate.py'
       - 'tests/test_bybit_product_composition.py'
       - 'tests/test_bybit_product_cli.py'
+      - 'tests/test_bybit_cash_bootstrap.py'
       - 'tests/test_bybit_cash_cli.py'
       - 'tests/test_bybit_demo_account_reader.py'
       - 'tests/test_bybit_demo_cash_reconciliation.py'
@@ -58,6 +59,7 @@ on:
       - 'tests/test_bybit_product_stream_gate.py'
       - 'tests/test_bybit_product_composition.py'
       - 'tests/test_bybit_product_cli.py'
+      - 'tests/test_bybit_cash_bootstrap.py'
       - 'tests/test_bybit_cash_cli.py'
       - 'tests/test_bybit_demo_account_reader.py'
       - 'tests/test_bybit_demo_cash_reconciliation.py'
@@ -114,6 +116,7 @@ jobs:
           tests/test_bybit_product_stream_gate.py
           tests/test_bybit_product_composition.py
           tests/test_bybit_product_cli.py
+          tests/test_bybit_cash_bootstrap.py
           tests/test_bybit_cash_cli.py
           tests/test_bybit_demo_account_reader.py
           tests/test_bybit_demo_cash_reconciliation.py
