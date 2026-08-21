@@ -133,16 +133,24 @@ def execute_bybit_demo_trade_cycle(
     runner or force a protected reduce-only flatten. After exchange-native protection is
     acknowledged, liquidation-price safety may veto the position but can never authorize entry.
 
-    When the production cycle policy requires restart recovery, the exact fee-adjusted trade plan,
-    instrument contract and effective strategy configuration are persisted immutably before the
-    broker mutation. A persistence failure blocks the ENTRY before POST; the runtime never guesses
-    protection parameters after a crash.
+    Canonical OMS clients require an immutable restart-recovery envelope. The exact fee-adjusted
+    trade plan, instrument contract and effective strategy configuration are persisted before the
+    ENTRY POST. A missing/unavailable store blocks the broker mutation rather than reconstructing
+    protection parameters from guesses after a crash.
     """
 
     policy = BybitDemoCyclePolicy() if cycle_policy is None else cycle_policy
     policy.validate()
     if client.live_mainnet_order_routing_allowed:
         raise ValueError("Bybit demo cycle rejected a client that permits mainnet routing")
+    active_recovery_store = (
+        entry_recovery_store
+        if entry_recovery_store is not None
+        else getattr(client, "entry_recovery_store", None)
+    )
+    recovery_required = policy.require_entry_recovery_envelope or bool(
+        getattr(client, "entry_recovery_required", False)
+    )
     if not policy.writes_enabled:
         return _result(
             BybitDemoCycleStatus.DEMO_WRITES_DISABLED,
@@ -222,8 +230,8 @@ def execute_bybit_demo_trade_cycle(
         instrument=instrument,
         strategy_config=effective_strategy_config,
         planned_exit_mode=planned_exit_mode,
-        store=entry_recovery_store,
-        required=policy.require_entry_recovery_envelope,
+        store=active_recovery_store,
+        required=recovery_required,
     )
     if recovery_block is not None:
         return _result(
