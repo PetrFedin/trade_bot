@@ -21,6 +21,10 @@ from app.execution.bybit_demo_controller import (
     plan_bybit_demo_reduce_only_close,
     plan_bybit_demo_runner_protection_after_fill,
 )
+from app.execution.bybit_entry_recovery import (
+    BybitEntryRecoveryEnvelope,
+    BybitEntryRecoveryReceipt,
+)
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
 from app.strategy.crypto_entry_economics import revalidate_entry_at_actual_taker_fee
 from app.strategy.crypto_liquidation_safety import evaluate_crypto_liquidation_safety
@@ -45,12 +49,15 @@ class BybitDemoCyclePolicy:
     writes_enabled: bool = False
     reconciliation_attempts: int = 4
     reconciliation_delay_seconds: float = 0.25
+    require_entry_recovery_envelope: bool = False
 
     def validate(self) -> None:
         if self.reconciliation_attempts < 1:
             raise ValueError("Bybit demo reconciliation attempts must be positive")
         if self.reconciliation_delay_seconds < 0:
             raise ValueError("Bybit demo reconciliation delay cannot be negative")
+        if not isinstance(self.require_entry_recovery_envelope, bool):
+            raise ValueError("entry recovery envelope requirement must be boolean")
 
 
 ProtectionAck = BybitDemoProtectionAck | BybitDemoRunnerProtectionAck
@@ -93,6 +100,14 @@ class _DemoClient(Protocol):
     ) -> BybitDemoRunnerProtectionAck: ...
 
 
+class _EntryRecoveryStore(Protocol):
+    live_mainnet_order_routing_allowed: bool
+    order_writes_supported: bool
+    immutable_records: bool
+
+    def persist(self, envelope: BybitEntryRecoveryEnvelope) -> BybitEntryRecoveryReceipt: ...
+
+
 Sleeper = Callable[[float], None]
 
 
@@ -105,6 +120,7 @@ def execute_bybit_demo_trade_cycle(
     client: BybitDemoOrderClient | _DemoClient,
     cycle_policy: BybitDemoCyclePolicy | None = None,
     session_policy: CryptoSessionRiskPolicy | None = None,
+    entry_recovery_store: _EntryRecoveryStore | None = None,
     sleeper: Sleeper = time.sleep,
 ) -> BybitDemoCycleResult:
     """Execute one fail-closed demo entry -> fill reconcile -> conditional exit-protection cycle.
@@ -116,6 +132,11 @@ def execute_bybit_demo_trade_cycle(
     not upgrade a pre-entry fixed target into a runner; an adverse fill can only downgrade the
     runner or force a protected reduce-only flatten. After exchange-native protection is
     acknowledged, liquidation-price safety may veto the position but can never authorize entry.
+
+    When the production cycle policy requires restart recovery, the exact fee-adjusted trade plan,
+    instrument contract and effective strategy configuration are persisted immutably before the
+    broker mutation. A persistence failure blocks the ENTRY before POST; the runtime never guesses
+    protection parameters after a crash.
     """
 
     policy = BybitDemoCyclePolicy() if cycle_policy is None else cycle_policy
@@ -192,6 +213,27 @@ def execute_bybit_demo_trade_cycle(
     planned_exit_mode = (
         "OPEN_ENDED_RUNNER" if pre_fill_runner_admission.eligible else "FIXED_20_TARGET"
     )
+
+    recovery_block = _persist_entry_recovery_envelope(
+        entry_plan.order.order_link_id,
+        order_side=entry_plan.order.side,
+        approved_order_quantity=entry_plan.order.quantity,
+        trade_plan=fee_adjusted_plan,
+        instrument=instrument,
+        strategy_config=effective_strategy_config,
+        planned_exit_mode=planned_exit_mode,
+        store=entry_recovery_store,
+        required=policy.require_entry_recovery_envelope,
+    )
+    if recovery_block is not None:
+        return _result(
+            BybitDemoCycleStatus.ENTRY_BLOCKED,
+            reasons=(recovery_block,),
+            fee_rate=fee_rate,
+            exit_mode=planned_exit_mode,
+            runner_admission_reasons=pre_fill_runner_admission.reasons,
+            writes_enabled=True,
+        )
 
     entry_ack = client.place_market_order(entry_plan.order)
     position = _reconcile_position(
@@ -349,6 +391,46 @@ def execute_bybit_demo_trade_cycle(
         stop_to_liquidation_r=liquidation.stop_to_liquidation_r,
         writes_enabled=True,
     )
+
+
+def _persist_entry_recovery_envelope(
+    entry_order_link_id: str,
+    *,
+    order_side: str,
+    approved_order_quantity: Decimal,
+    trade_plan: CryptoTradePlan,
+    instrument: BybitInstrumentSpec,
+    strategy_config: CryptoPerpStrategyConfig,
+    planned_exit_mode: str,
+    store: _EntryRecoveryStore | None,
+    required: bool,
+) -> str | None:
+    if store is None:
+        return "ENTRY_RECOVERY_ENVELOPE_STORE_REQUIRED" if required else None
+    if getattr(store, "live_mainnet_order_routing_allowed", True) is not False:
+        raise ValueError("entry recovery store unexpectedly permits mainnet routing")
+    if getattr(store, "order_writes_supported", True) is not False:
+        raise ValueError("entry recovery store must not expose broker order writes")
+    if getattr(store, "immutable_records", False) is not True:
+        raise ValueError("entry recovery store must preserve immutable records")
+    envelope = BybitEntryRecoveryEnvelope(
+        entry_order_link_id=entry_order_link_id,
+        order_side=order_side,
+        approved_order_quantity=approved_order_quantity,
+        trade_plan=trade_plan,
+        instrument=instrument,
+        strategy_config=strategy_config,
+        planned_exit_mode=planned_exit_mode,
+    )
+    try:
+        receipt = store.persist(envelope)
+    except Exception as exc:  # noqa: BLE001 - recovery durability failure must block before POST.
+        return f"ENTRY_RECOVERY_ENVELOPE_PERSIST_FAILED:{type(exc).__name__}"
+    if receipt.live_mainnet_order_routing_allowed:
+        raise ValueError("entry recovery receipt unexpectedly permits mainnet routing")
+    if receipt.entry_order_link_id != entry_order_link_id:
+        raise ValueError("entry recovery receipt orderLinkId mismatch")
+    return None
 
 
 def _reconcile_position(
