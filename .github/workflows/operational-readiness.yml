@@ -5,24 +5,34 @@ on:
     branches: [agent/schema108-paper-core-foundation]
     paths:
       - 'app/observability/**'
+      - 'app/application/bybit_product_composition.py'
       - 'app/execution/bybit_demo_session_risk_ledger.py'
+      - 'app/execution/bybit_demo_cash_reconciliation.py'
+      - 'app/execution/bybit_demo_account_reader.py'
       - 'app/risk/**'
       - 'app/oms/**'
       - 'app/portfolio/**'
       - 'tests/test_operational_readiness.py'
       - 'tests/test_bybit_runtime_health.py'
       - 'tests/test_bybit_demo_session_risk_ledger.py'
+      - 'tests/test_bybit_demo_cash_reconciliation.py'
+      - 'tests/test_bybit_product_composition.py'
       - '.github/workflows/operational-readiness.yml'
   pull_request:
     paths:
       - 'app/observability/**'
+      - 'app/application/bybit_product_composition.py'
       - 'app/execution/bybit_demo_session_risk_ledger.py'
+      - 'app/execution/bybit_demo_cash_reconciliation.py'
+      - 'app/execution/bybit_demo_account_reader.py'
       - 'app/risk/**'
       - 'app/oms/**'
       - 'app/portfolio/**'
       - 'tests/test_operational_readiness.py'
       - 'tests/test_bybit_runtime_health.py'
       - 'tests/test_bybit_demo_session_risk_ledger.py'
+      - 'tests/test_bybit_demo_cash_reconciliation.py'
+      - 'tests/test_bybit_product_composition.py'
       - '.github/workflows/operational-readiness.yml'
 
 permissions:
@@ -49,7 +59,15 @@ jobs:
           tests/test_operational_readiness.py
           tests/test_bybit_runtime_health.py
           tests/test_bybit_demo_session_risk_ledger.py
+          tests/test_bybit_demo_cash_reconciliation.py
+          tests/test_bybit_product_composition.py
       - name: Risk and reconciliation regression
         run: pytest -q tests/test_risk_marketdata.py tests/test_durable_oms_e2e.py
       - name: Compile operational boundary
-        run: python -m compileall -q app/observability app/risk app/oms app/portfolio app/execution/bybit_demo_session_risk_ledger.py
+        run: >-
+          python -m compileall -q
+          app/observability app/risk app/oms app/portfolio
+          app/application/bybit_product_composition.py
+          app/execution/bybit_demo_session_risk_ledger.py
+          app/execution/bybit_demo_cash_reconciliation.py
+          app/execution/bybit_demo_account_reader.py
