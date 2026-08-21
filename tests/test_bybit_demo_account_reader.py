@@ -38,9 +38,9 @@ def _page(rows: list[dict[str, str]], cursor: str = "") -> dict[str, object]:
 def _wallet_page(
     *,
     account_type: str = "UNIFIED",
-    overrides: Mapping[str, str] | None = None,
+    overrides: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    row = {
+    row: dict[str, object] = {
         "accountType": account_type,
         "totalEquity": "1002.50",
         "totalWalletBalance": "1000.00",
@@ -49,6 +49,10 @@ def _wallet_page(
         "totalPerpUPL": "2.50",
         "totalInitialMargin": "175.00",
         "totalMaintenanceMargin": "15.25",
+        "coin": [
+            {"coin": "USDT", "walletBalance": "995.25"},
+            {"coin": "BTC", "walletBalance": "0.0001"},
+        ],
     }
     if overrides is not None:
         row.update(overrides)
@@ -74,6 +78,7 @@ def test_wallet_balance_reader_signs_and_parses_unified_equity() -> None:
     assert balance.total_perp_upl_usd == Decimal("2.50")
     assert balance.total_initial_margin_usd == Decimal("175.00")
     assert balance.total_maintenance_margin_usd == Decimal("15.25")
+    assert balance.usdt_wallet_balance == Decimal("995.25")
     path, query, headers = transport.calls[0]
     assert path == "/v5/account/wallet-balance"
     assert query == "accountType=UNIFIED"
@@ -87,6 +92,18 @@ def test_wallet_balance_reader_signs_and_parses_unified_equity() -> None:
     assert client.live_mainnet_order_routing_allowed is False
     assert client.order_writes_supported is False
     assert not hasattr(client, "place_order")
+
+
+def test_wallet_balance_reader_reports_missing_usdt_cash_as_unavailable() -> None:
+    client = BybitDemoAccountingClient(
+        api_key="key",
+        api_secret="secret",
+        transport=_FakeTransport(
+            [_wallet_page(overrides={"coin": [{"coin": "BTC", "walletBalance": "1"}]})]
+        ),
+    )
+
+    assert client.get_wallet_balance().usdt_wallet_balance is None
 
 
 def test_wallet_balance_reader_fails_closed_on_invalid_account_shape() -> None:
@@ -125,6 +142,35 @@ def test_wallet_balance_reader_rejects_unusable_total_equity(bad_equity: str) ->
         ),
     )
     with pytest.raises(ValueError):
+        client.get_wallet_balance()
+
+
+def test_wallet_balance_reader_rejects_duplicate_or_invalid_usdt_cash_rows() -> None:
+    duplicate = _wallet_page(
+        overrides={
+            "coin": [
+                {"coin": "USDT", "walletBalance": "10"},
+                {"coin": "USDT", "walletBalance": "11"},
+            ]
+        }
+    )
+    client = BybitDemoAccountingClient(
+        api_key="key",
+        api_secret="secret",
+        transport=_FakeTransport([duplicate]),
+    )
+    with pytest.raises(ValueError, match="duplicate USDT"):
+        client.get_wallet_balance()
+
+    invalid = _wallet_page(
+        overrides={"coin": [{"coin": "USDT", "walletBalance": "NaN"}]}
+    )
+    client = BybitDemoAccountingClient(
+        api_key="key",
+        api_secret="secret",
+        transport=_FakeTransport([invalid]),
+    )
+    with pytest.raises(ValueError, match="non-finite walletBalance"):
         client.get_wallet_balance()
 
 
