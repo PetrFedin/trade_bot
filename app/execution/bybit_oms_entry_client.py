@@ -181,6 +181,15 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
             raise BybitEntryRecoveryEnvelopeError(
                 f"ENTRY_RECOVERY_ENVELOPE_LOAD_FAILED:{type(exc).__name__}"
             ) from exc
+        record_sha = getattr(record, "record_sha256", None)
+        if (
+            not isinstance(record_sha, str)
+            or len(record_sha) != 64
+            or any(character not in "0123456789abcdef" for character in record_sha)
+        ):
+            raise BybitEntryRecoveryEnvelopeError(
+                "ENTRY_RECOVERY_ENVELOPE_RECORD_SHA256_INVALID"
+            )
         if getattr(record, "live_mainnet_order_routing_allowed", True) is not False:
             raise BybitEntryRecoveryEnvelopeError(
                 "ENTRY_RECOVERY_ENVELOPE_RECORD_REJECTED_MAINNET_CAPABILITY"
