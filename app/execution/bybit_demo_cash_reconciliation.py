@@ -29,7 +29,11 @@ class BybitDemoCashBaseline:
             character not in "0123456789abcdef" for character in self.session_revision
         ):
             raise ValueError("Bybit cash baseline session revision must be sha256 hex")
-        if isinstance(self.created_time_ms, bool) or self.created_time_ms < 0:
+        if (
+            isinstance(self.created_time_ms, bool)
+            or not isinstance(self.created_time_ms, int)
+            or self.created_time_ms < 0
+        ):
             raise ValueError("Bybit cash baseline timestamp must be non-negative integer ms")
         if not self.demo_only or self.live_mainnet_order_routing_allowed:
             raise ValueError("Bybit cash baseline cannot grant live routing")
