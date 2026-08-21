@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - 'app/execution/bybit_entry_recovery.py'
+      - 'app/execution/bybit_entry_restart_recovery.py'
       - 'app/execution/bybit_postgres_entry_recovery.py'
       - 'app/execution/bybit_demo_cycle.py'
       - 'app/execution/bybit_oms_entry_client.py'
       - 'migrations/product/008_bybit_entry_recovery.sql'
       - 'tests/test_bybit_entry_recovery.py'
+      - 'tests/test_bybit_entry_restart_recovery.py'
       - 'tests/test_bybit_entry_recovery_cycle.py'
       - 'tests/test_bybit_postgres_entry_recovery.py'
       - 'tests/test_bybit_entry_recovery_composition.py'
@@ -19,11 +21,13 @@ on:
     branches: [main]
     paths:
       - 'app/execution/bybit_entry_recovery.py'
+      - 'app/execution/bybit_entry_restart_recovery.py'
       - 'app/execution/bybit_postgres_entry_recovery.py'
       - 'app/execution/bybit_demo_cycle.py'
       - 'app/execution/bybit_oms_entry_client.py'
       - 'migrations/product/008_bybit_entry_recovery.sql'
       - 'tests/test_bybit_entry_recovery.py'
+      - 'tests/test_bybit_entry_restart_recovery.py'
       - 'tests/test_bybit_entry_recovery_cycle.py'
       - 'tests/test_bybit_postgres_entry_recovery.py'
       - 'tests/test_bybit_entry_recovery_composition.py'
@@ -72,6 +76,7 @@ jobs:
         run: >-
           pytest -q
           tests/test_bybit_entry_recovery.py
+          tests/test_bybit_entry_restart_recovery.py
           tests/test_bybit_entry_recovery_cycle.py
           tests/test_bybit_demo_cycle.py
           tests/test_bybit_oms_entry_client.py
@@ -84,6 +89,7 @@ jobs:
         run: >-
           python -m compileall -q
           app/execution/bybit_entry_recovery.py
+          app/execution/bybit_entry_restart_recovery.py
           app/execution/bybit_postgres_entry_recovery.py
           app/execution/bybit_demo_cycle.py
           app/execution/bybit_oms_entry_client.py
