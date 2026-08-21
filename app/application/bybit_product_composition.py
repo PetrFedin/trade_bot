@@ -19,6 +19,7 @@ from app.execution.bybit_demo_managed_trade_poll import BybitDemoManagedTradePol
 from app.execution.bybit_demo_max_hold_close import BybitDemoMaxHoldClosePolicy
 from app.execution.bybit_demo_session_risk_ledger import (
     observe_bybit_demo_session_equity,
+    realized_all_in_pnl_for_utc_day,
     start_bybit_demo_session_risk_ledger,
 )
 from app.execution.bybit_demo_stop_ratchet_client import BybitDemoStopRatchetClient
@@ -429,7 +430,9 @@ class BybitProductComposition:
     market_data_health_recorder: BybitMarketDataHealthRecorder
     account_risk_health_recorder: BybitAccountRiskHealthRecorder
     reconciliation_health_recorder: BybitReconciliationHealthRecorder
+    session_risk_store: PostgresBybitDemoSessionRiskLedgerStore
     entry_oms: PostgresBybitEntryOms
+    clock_ms: ClockMs = lambda: int(time() * 1000)
     monotonic_fn: MonotonicFn = monotonic
     live_mainnet_order_routing_allowed: bool = False
 
@@ -463,6 +466,15 @@ class BybitProductComposition:
             stream = self.private_stream_monitor.snapshot()
         except Exception:
             stream = None
+        try:
+            health_now_ms = self.clock_ms()
+            daily_checkpoint = self.session_risk_store.load_current()
+            daily_pnl = realized_all_in_pnl_for_utc_day(
+                daily_checkpoint.ledger,
+                now_ms=health_now_ms,
+            )
+        except Exception:
+            daily_pnl = None
         measurements = collect_bybit_operational_measurements(
             now_monotonic=now,
             market_data=self.market_data_health_recorder.snapshot(now_monotonic=now),
@@ -472,6 +484,7 @@ class BybitProductComposition:
             unresolved_entry_submissions=unresolved_entries,
             operator=operator,
             account_risk=self.account_risk_health_recorder.snapshot(),
+            daily_pnl=daily_pnl,
         )
         return build_bybit_operational_health(measurements)
 
@@ -493,6 +506,7 @@ def build_bybit_product_composition(
         config.database_url,
         runtime_lease=runtime_lease,
     )
+    session_risk_store = PostgresBybitDemoSessionRiskLedgerStore(config.database_url)
     entry_oms = PostgresBybitEntryOms(config.database_url)
     operator_control = PostgresBybitOperatorControl(config.database_url)
     entry_reference_store = BybitEntryReferenceStore()
@@ -549,7 +563,7 @@ def build_bybit_product_composition(
         excursion_store=excursion_store,
         entry_provenance_store=PostgresBybitDemoEntryProvenanceStore(config.database_url),
         terminal_evidence_store=PostgresBybitDemoTerminalEvidenceStore(config.database_url),
-        session_risk_store=PostgresBybitDemoSessionRiskLedgerStore(config.database_url),
+        session_risk_store=session_risk_store,
         strategy_config=active_strategy,
         market_data_observation_hook=observe_market_data,
         account_risk_observation_hook=observe_account_risk,
@@ -572,7 +586,9 @@ def build_bybit_product_composition(
         market_data_health_recorder=market_data_health,
         account_risk_health_recorder=account_risk_health,
         reconciliation_health_recorder=reconciliation_health,
+        session_risk_store=session_risk_store,
         entry_oms=entry_oms,
+        clock_ms=active_clock,
         monotonic_fn=monotonic_fn,
     )
 

@@ -4,16 +4,15 @@ This document is the current source of truth for product-readiness claims. Code 
 
 ## Scope and release boundary
 
-There are two different boundaries that must not be conflated:
+There are three boundaries that must not be conflated:
 
 - `main` is the stable product baseline and remains the eventual protected production integration branch.
-- `agent/trading-quality-profit-protection` / PR #41 is the current Bybit integration/incubator snapshot. It is intentionally large and **must not be merged directly as a production release unit**.
+- `agent/trading-quality-profit-protection` / PR #41 is the frozen Bybit integration/incubator snapshot at `69fcf5fca89d16b5ac1ae4bf11d79062b01655b8`. It is intentionally large and **must not be merged directly as a production release unit**.
+- `agent/bybit-production-consolidation` / PR #43 is the first bounded P1 production-consolidation stack on PR #41. Its qualified head `4cb3c011a83ba18e0f6063f05ede8549c081367e` wires durable operator authority into the canonical supervisor and CLI while keeping mainnet disabled.
 
-The last code-changing qualification checkpoint before this matrix update is `64555e096682af2601aa64322dd1cfdb786215bd`. On that checkpoint:
+The last fully qualified code checkpoint before the current operational-health change is `4cb3c011a83ba18e0f6063f05ede8549c081367e`. GitHub Actions associated with that exact head completed successfully for `stable-core-quality`, `postgres-oms-e2e`, `trading-core-e2e`, `risk-marketdata`, `durable-oms-e2e`, `product-composition`, `operational-readiness`, `strategy-qualification`, `paper-executor-e2e` and `schema99-external-paper-roundtrip`.
 
-- `stable-core-quality` passed Ruff, Bandit, dependency audit and compile;
-- `postgres-oms-e2e` passed canonical OMS, Bybit entry recovery, Bybit operator-control, runtime fencing, evidence/session-risk and SQLite parity on PostgreSQL 16;
-- `release-integrity` passed the complete deterministic regression, locked dependency audit, build, SPDX SBOM, release manifest and release safety invariants.
+The current stacked branch `agent/bybit-operational-health` extends that qualified boundary. Its code must be requalified on its own exact head before any PASS claim is advanced.
 
 This evidence qualifies deterministic behavior only. It does **not** authorize live/mainnet routing or real capital.
 
@@ -26,20 +25,20 @@ This evidence qualifies deterministic behavior only. It does **not** authorize l
 | LONG / SHORT policy | ACTIVE BOTH SIDES | LONG historical performance is stronger and SHORT historical performance is weak, but that is a hypothesis only; no post-hoc SHORT disable is allowed | finish the predeclared prospective directional experiment before any policy change |
 | Runner | ARCHITECTURALLY READY, EDGE UNPROVEN | frozen 1.5x admission gate and runner-management lifecycle exist; recent opportunity evidence produced no runner admissions | prove incremental portfolio expectancy prospectively; do not weaken gate for frequency |
 | Position selection | SHADOW / EVIDENCE INSUFFICIENT | economic ranking exists, but recent audit had no simultaneously comparable executable candidates | accumulate real comparable candidate moments before changing production ordering |
-| Canonical service runtime | STRONG PARTIAL | one packaged Bybit product CLI/composition/supervisor exists with config validation, startup reconciliation, continuous loop and graceful shutdown | make this the sole operational Bybit path, finish operator/health wiring and fault/soak qualification |
+| Canonical service runtime | STRONG PARTIAL | one packaged Bybit product CLI/composition/supervisor exists with config validation, startup reconciliation, durable operator gating, continuous loop and graceful shutdown | make this the sole operational Bybit path and finish health/fault/soak qualification |
 | Canonical OMS convergence | STRONG PARTIAL | new Bybit ENTRY now uses canonical PostgreSQL OMS state transitions, durable submit claim, deterministic `orderLinkId`, at-most-once POST and GET-only ambiguity recovery | converge remaining protection/close/execution accounting events onto the canonical lifecycle without duplicating risk logic |
 | PostgreSQL authority | STRONG PARTIAL | runtime lease/fencing, excursion checkpoint, entry provenance, terminal evidence, session-risk state, canonical entry OMS and operator-control state are durable in PostgreSQL | finish remaining reconciliation/accounting/operational authority and backup/restore qualification |
 | Distributed fencing | QUALIFIED DETERMINISTICALLY | PostgreSQL runtime lease/fencing and canonical OMS locking are covered by real PostgreSQL E2E | prove restart/failover behavior in deployment fault campaigns |
 | Startup recovery | STRONG PARTIAL | startup broker truth reconciliation exists; unresolved Bybit ENTRY submissions block new entries; ambiguous ENTRY is recovered by GET using `orderLinkId` | complete lifecycle adoption for filled/partial/cancelled recovered orders and prove crash/restart campaigns end-to-end |
 | ENTRY mutation uncertainty | QUALIFIED DETERMINISTICALLY | `SUBMIT_STARTED` is durable before POST; no automatic resubmit; broker read can adopt ACK; unresolved truth becomes durable `UNCERTAIN`; startup remains blocked | operational reconciliation workflow for all non-terminal uncertainty and live broker evidence |
 | Private WS + REST truth | STRONG PARTIAL | private stream monitor exists for reaction/health; reconnect/event boundaries force REST reconciliation; REST remains broker truth | sequence/gap/clock/rate-limit/network-partition fault evidence and sustained external soak |
-| Operator-control persistence | QUALIFIED DETERMINISTICALLY | PostgreSQL `RUNNING / PAUSED / READ_ONLY / KILLED`, append-only action history, actor/reason and separate `clear-kill`; real PostgreSQL E2E is green | wire the durable snapshot into the canonical supervisor and CLI controls; prove active-trade protection remains available while entries are blocked |
-| Operational observability | PARTIAL | structured JSON logging, REST health recorder and fail-closed readiness assembler exist; missing measurements do not become fake zeros | wire all authoritative inputs, expose metrics/traces, alerting and dashboard; prove SLOs under fault campaigns |
+| Operator control plane | QUALIFIED DETERMINISTICALLY | PostgreSQL `RUNNING / PAUSED / READ_ONLY / KILLED`, append-only action history, actor/reason and separate `clear-kill` are wired into the canonical supervisor and CLI; active-trade safety management remains available while new entries are blocked | deployment fault/soak evidence and external operational runbook rehearsal |
+| Operational observability | PARTIAL | structured JSON logging, REST health, market-data age, private-stream health, reconciliation age/state, unresolved ENTRY count, durable kill state and wallet drawdown are wired; current stacked change adds UTC-day fully reconciled all-in realized PnL without fabricating missing values | qualify the current exact head; add authoritative cash reconciliation, metrics/tracing, alerting/dashboard and fault-campaign SLO evidence |
 | Configuration | STRONG PARTIAL | canonical Bybit config schema validates environment, broker, endpoints, DB and write/mainnet capability boundaries | finish production secrets/KMS contract and deployment-specific validation |
 | Secrets / production key boundary | BLOCKED FOR PRODUCTION | live/mainnet routing remains fail-closed | separate Bybit subaccount, trade-only key, withdrawals disabled, IP allowlist, rotation and secret-manager/KMS evidence |
 | Release artifacts / supply chain | STRONG PARTIAL | locked dependencies, audit, pinned Actions policy, build, SBOM, manifest, provenance/attestation gates exist | protected main, required reviews/checks, version-matched signed production tag and bounded release PRs |
 | GitHub main governance | BLOCKED | live branch summary reports `protected=false` and required status-check enforcement off | enable server-side branch protection, PR-only merge, required checks/reviews, no force-push and independently verify |
-| PR / change-unit governance | BLOCKED | PR #41 is an integration snapshot with hundreds of commits/files | freeze the snapshot and continue production consolidation in focused stacked PRs |
+| PR / change-unit governance | STRONG PARTIAL | PR #41 is frozen; subsequent P1 work is proceeding as bounded stacked branches/PRs rather than continuing the integration snapshot | keep production changes reviewable and enforce the same discipline server-side |
 | Historical all-in accounting evidence | PARTIAL / EXTERNAL DATA BLOCKER | actual demo lifecycle includes fees, closed-PnL and funding reconciliation; workflows fail closed when external historical funding/mark evidence is unavailable | obtain defensible funding-time mark coverage and repeat all-in historical qualification |
 | Tiny-capital pilot readiness | NOT READY | deterministic execution quality is improving, but P0/P1 operations and independent edge evidence are incomplete | all production-operation gates plus separate pilot approval |
 | Unattended real-money production | BLOCKED | mainnet capability remains disabled by contract | Definition of Done below plus independent live release decision |
@@ -76,6 +75,7 @@ Safety invariants:
 - REST is authoritative broker truth; private WebSocket data is a reaction/health layer;
 - pause/read-only/kill must block new entries without abandoning protection/management of an already open trade;
 - actual fees and funding are part of final all-in PnL;
+- operational health may publish zero only when an authoritative source proves zero; unavailable measurements remain unavailable and fail closed;
 - research candidates cannot automatically change production strategy policy;
 - live/mainnet routing remains disabled during the current consolidation phase.
 
@@ -96,6 +96,12 @@ Current evidence is useful but insufficient for production capital:
 The LONG-only idea is a **prospective shadow experiment**, not an active policy. Its predeclared validation window is 2026-08-17 through 2026-09-13. Until that window is complete and acceptance gates are met, SHORT remains enabled in the active research contract.
 
 No result here claims that every trade can or should close profitably. The objective is positive net expectancy after costs, retained favorable excursion when available and bounded downside.
+
+## Operational accounting semantics
+
+The readiness field `daily_pnl` is not inferred from a process-start balance and is not equated to raw account-equity movement. On the current Bybit product path it is defined as the sum of **fully reconciled all-in terminal trade outcomes** whose broker `updatedTime` falls within the current UTC day up to the observation time. Those outcomes have already passed fill-level execution reconciliation, account closed-PnL reconciliation and funding reconciliation before entering the durable PostgreSQL session ledger.
+
+This is intentionally a realized all-in daily loss gate. Open-position deterioration is covered separately by wallet-backed high-water drawdown. The `cash_mismatch` readiness input remains unavailable until the product has a defensible durable cash baseline and broker/local cash bridge; it must not be populated with a synthetic zero.
 
 ## CI / evidence tiers
 
@@ -137,12 +143,12 @@ No result here claims that every trade can or should close profitably. The objec
 | P0 item | Status |
 |---|---|
 | attributed-runtime safety failures | CLOSED on current integration line |
-| exact-head stable/full regression | GREEN at code checkpoint `64555e096682af2601aa64322dd1cfdb786215bd`; every later revision must requalify |
+| exact-head stable/full regression | GREEN at `4cb3c011a83ba18e0f6063f05ede8549c081367e`; every later revision must requalify |
 | unsafe capability vs retryable diagnostics separation | CLOSED for the attributed-runtime defect that triggered the audit |
 | managed/full Bybit CI coverage | ACTIVE and green on qualified checkpoints |
-| freeze PR #41 as integration snapshot | NEXT GOVERNANCE ACTION |
+| freeze PR #41 as integration snapshot | CLOSED at `69fcf5fca89d16b5ac1ae4bf11d79062b01655b8` |
 | protect `main` with server-side required checks/reviews | BLOCKED — protection currently disabled and cannot be claimed from CI alone |
-| README / Release / E2E drift | README and release process aligned; this matrix update closes the remaining major drift |
+| README / Release / E2E drift | E2E advanced to the current stacked production-consolidation boundary; README/release references should continue to be checked before promotion |
 | enable mainnet | FORBIDDEN / NOT PART OF P0 |
 
 ## P1 status
@@ -159,9 +165,10 @@ No result here claims that every trade can or should close profitably. The objec
 | `.env.example` | verify/retain as configuration documentation; it is not a production secret store |
 | secrets/KMS | NOT COMPLETE |
 | structured JSON logging | IMPLEMENTED foundation |
+| authoritative readiness inputs | PARTIAL — daily realized all-in PnL added on current stack; cash bridge still unavailable/fail-closed |
 | Prometheus/OpenTelemetry | NOT COMPLETE |
 | alerting | NOT COMPLETE |
-| operator control plane | durable state IMPLEMENTED; runtime/CLI wiring NEXT |
+| operator control plane | runtime + CLI IMPLEMENTED / deterministic CI green at `4cb3c011...` |
 | backup + restore | NOT QUALIFIED |
 | crash/restart/network fault campaign | PARTIAL deterministic coverage; full product campaign incomplete |
 

@@ -10,6 +10,7 @@ from app.execution.bybit_demo_post_trade_accounting import (
 from app.strategy.crypto_session_risk import CryptoSessionRiskState
 
 _ZERO = Decimal("0")
+_UTC_DAY_MS = 86_400_000
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,27 @@ def start_bybit_demo_session_risk_ledger(
     )
     ledger.validate()
     return ledger
+
+
+def realized_all_in_pnl_for_utc_day(
+    ledger: BybitDemoSessionRiskLedger,
+    *,
+    now_ms: int,
+) -> Decimal:
+    """Return fully reconciled all-in PnL whose broker close time falls on the UTC day."""
+
+    ledger.validate()
+    if isinstance(now_ms, bool) or not isinstance(now_ms, int) or now_ms < 0:
+        raise ValueError("daily PnL clock must be a non-negative integer millisecond value")
+    day_start_ms = (now_ms // _UTC_DAY_MS) * _UTC_DAY_MS
+    return sum(
+        (
+            outcome.all_in_net_pnl_usdt
+            for outcome in ledger.outcomes
+            if day_start_ms <= outcome.updated_time_ms <= now_ms
+        ),
+        start=_ZERO,
+    )
 
 
 def observe_bybit_demo_session_equity(

@@ -5,18 +5,24 @@ on:
     branches: [agent/schema108-paper-core-foundation]
     paths:
       - 'app/observability/**'
+      - 'app/execution/bybit_demo_session_risk_ledger.py'
       - 'app/risk/**'
       - 'app/oms/**'
       - 'app/portfolio/**'
       - 'tests/test_operational_readiness.py'
+      - 'tests/test_bybit_runtime_health.py'
+      - 'tests/test_bybit_demo_session_risk_ledger.py'
       - '.github/workflows/operational-readiness.yml'
   pull_request:
     paths:
       - 'app/observability/**'
+      - 'app/execution/bybit_demo_session_risk_ledger.py'
       - 'app/risk/**'
       - 'app/oms/**'
       - 'app/portfolio/**'
       - 'tests/test_operational_readiness.py'
+      - 'tests/test_bybit_runtime_health.py'
+      - 'tests/test_bybit_demo_session_risk_ledger.py'
       - '.github/workflows/operational-readiness.yml'
 
 permissions:
@@ -37,9 +43,13 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: python -m pip install --disable-pip-version-check '.[test]'
-      - name: Operational health and SLO gate
-        run: pytest -q tests/test_operational_readiness.py
+      - name: Operational health and Bybit accounting SLO gate
+        run: >-
+          pytest -q
+          tests/test_operational_readiness.py
+          tests/test_bybit_runtime_health.py
+          tests/test_bybit_demo_session_risk_ledger.py
       - name: Risk and reconciliation regression
         run: pytest -q tests/test_risk_marketdata.py tests/test_durable_oms_e2e.py
       - name: Compile operational boundary
-        run: python -m compileall -q app/observability app/risk app/oms app/portfolio
+        run: python -m compileall -q app/observability app/risk app/oms app/portfolio app/execution/bybit_demo_session_risk_ledger.py

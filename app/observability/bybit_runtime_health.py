@@ -306,6 +306,7 @@ def collect_bybit_operational_measurements(
     unresolved_entry_submissions: int | None,
     operator: BybitOperatorHealthLike | None,
     account_risk: BybitAccountRiskHealthSnapshot | None = None,
+    daily_pnl: Decimal | None = None,
 ) -> BybitOperationalMeasurements:
     """Collect only measurements proven by existing authoritative runtime sources."""
 
@@ -314,6 +315,8 @@ def collect_bybit_operational_measurements(
     if unresolved_entry_submissions is not None:
         if isinstance(unresolved_entry_submissions, bool) or unresolved_entry_submissions < 0:
             raise ValueError("unresolved entry submission count must be non-negative")
+    if daily_pnl is not None and not daily_pnl.is_finite():
+        raise ValueError("daily PnL measurement must be finite when available")
 
     stream_silence: Decimal | None = None
     stream_ready: bool | None = None
@@ -345,6 +348,7 @@ def collect_bybit_operational_measurements(
         uncertain_orders=unresolved_entry_submissions,
         reconciliation_age_seconds=reconciliation.reconciliation_age_seconds,
         position_mismatches=reconciliation.position_mismatches,
+        daily_pnl=daily_pnl,
         drawdown=None if account_risk is None else account_risk.drawdown_usdt,
         kill_switch_engaged=kill_switch,
         market_data_ready=market_data.market_data_ready,

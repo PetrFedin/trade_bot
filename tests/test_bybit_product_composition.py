@@ -95,6 +95,28 @@ class _Safe:
     live_mainnet_order_routing_allowed = False
 
 
+class _Operator:
+    def inspect(self):
+        return SimpleNamespace(
+            kill_switch_engaged=False,
+            live_mainnet_order_routing_allowed=False,
+        )
+
+
+class _PrivateStream:
+    def snapshot(self):
+        return SimpleNamespace(
+            healthy=True,
+            last_message_monotonic=100.0,
+            live_mainnet_order_routing_allowed=False,
+        )
+
+
+class _EntryOms:
+    def count_unresolved_entry_submissions(self):
+        return 0
+
+
 def _config(*, writes: bool = False) -> BybitProductConfig:
     return BybitProductConfig.from_env(
         {
@@ -245,6 +267,35 @@ def test_missing_session_ledger_does_not_publish_fake_account_risk(
     executor.run_once()
 
     assert observations == []
+
+
+def test_operational_health_reads_daily_pnl_directly_from_durable_session_ledger() -> None:
+    session_store = _SessionStore()
+    composition = product.BybitProductComposition(
+        config=_config(),
+        startup_reconciler=_Safe(),
+        cycle_executor=_executor(),
+        operator_control=_Operator(),
+        private_stream_monitor=_PrivateStream(),
+        rest_health_recorder=product.BybitRestHealthRecorder(),
+        market_data_health_recorder=product.BybitMarketDataHealthRecorder(),
+        account_risk_health_recorder=product.BybitAccountRiskHealthRecorder(),
+        reconciliation_health_recorder=product.BybitReconciliationHealthRecorder(),
+        session_risk_store=session_store,
+        entry_oms=_EntryOms(),
+        clock_ms=lambda: 1_800_000_000_000,
+        monotonic_fn=lambda: 105.0,
+    )
+
+    report = composition.operational_health()
+
+    assert "MEASUREMENT_UNAVAILABLE:daily_pnl" not in report.blockers
+    assert "MEASUREMENT_UNAVAILABLE:cash_mismatch" in report.blockers
+
+    session_store.missing = True
+    unavailable = composition.operational_health()
+
+    assert "MEASUREMENT_UNAVAILABLE:daily_pnl" in unavailable.blockers
 
 
 def test_flat_cycle_persists_wallet_high_water_before_runtime(

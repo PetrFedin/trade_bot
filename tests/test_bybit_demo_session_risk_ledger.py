@@ -22,6 +22,7 @@ from app.execution.bybit_demo_post_trade_accounting import (
 from app.execution.bybit_demo_session_risk_ledger import (
     apply_fully_reconciled_trade_to_session_ledger,
     observe_bybit_demo_session_equity,
+    realized_all_in_pnl_for_utc_day,
     start_bybit_demo_session_risk_ledger,
 )
 from app.execution.bybit_demo_trade_monitor import (
@@ -205,6 +206,35 @@ def test_session_ledger_sorts_out_of_order_reconciliation_by_close_time() -> Non
     assert state.realized_pnl_usdt == Decimal("1")
     assert state.peak_equity_usdt == Decimal("1003")
     assert ledger.peak_equity_usdt == Decimal("1003")
+
+
+def test_utc_daily_pnl_uses_fully_reconciled_broker_close_day() -> None:
+    day_start_ms = 10 * 86_400_000
+    ledger = start_bybit_demo_session_risk_ledger(
+        opening_equity_usdt=Decimal("1000")
+    )
+    for order_link_id, pnl, updated in (
+        ("ASTRA-DEMO-E-PREV", "-9", day_start_ms - 100),
+        ("ASTRA-DEMO-E-TODAY1", "12", day_start_ms + 100),
+        ("ASTRA-DEMO-E-TODAY2", "-5", day_start_ms + 500),
+    ):
+        ledger = apply_fully_reconciled_trade_to_session_ledger(
+            ledger,
+            _snapshot(
+                order_link_id=order_link_id,
+                pnl=pnl,
+                fees="1",
+                created=updated - 50,
+                updated=updated,
+            ),
+        )
+
+    daily_pnl = realized_all_in_pnl_for_utc_day(
+        ledger,
+        now_ms=day_start_ms + 1_000,
+    )
+
+    assert daily_pnl == Decimal("7")
 
 
 def test_wallet_observation_preserves_unrealized_high_water_for_later_drawdown() -> None:
