@@ -11,6 +11,7 @@ on:
       - 'app/application/bybit_operator_control.py'
       - 'app/execution/bybit_postgres_runtime_state.py'
       - 'app/execution/bybit_postgres_evidence_state.py'
+      - 'app/execution/bybit_postgres_cash_state.py'
       - 'app/execution/bybit_startup_reconciliation.py'
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
@@ -18,6 +19,7 @@ on:
       - 'tests/test_postgres_bybit_operator_control_e2e.py'
       - 'tests/test_bybit_postgres_runtime_state.py'
       - 'tests/test_bybit_postgres_evidence_state.py'
+      - 'tests/test_bybit_postgres_cash_state.py'
       - 'pyproject.toml'
       - '.github/workflows/postgres-oms-e2e.yml'
   pull_request:
@@ -27,6 +29,7 @@ on:
       - 'app/application/bybit_operator_control.py'
       - 'app/execution/bybit_postgres_runtime_state.py'
       - 'app/execution/bybit_postgres_evidence_state.py'
+      - 'app/execution/bybit_postgres_cash_state.py'
       - 'app/execution/bybit_startup_reconciliation.py'
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
@@ -34,6 +37,7 @@ on:
       - 'tests/test_postgres_bybit_operator_control_e2e.py'
       - 'tests/test_bybit_postgres_runtime_state.py'
       - 'tests/test_bybit_postgres_evidence_state.py'
+      - 'tests/test_bybit_postgres_cash_state.py'
       - 'pyproject.toml'
       - '.github/workflows/postgres-oms-e2e.yml'
 
@@ -84,6 +88,8 @@ jobs:
         run: pytest -q tests/test_bybit_postgres_runtime_state.py
       - name: PostgreSQL Bybit evidence and session-risk E2E
         run: pytest -q tests/test_bybit_postgres_evidence_state.py
+      - name: PostgreSQL Bybit immutable cash baseline E2E
+        run: pytest -q tests/test_bybit_postgres_cash_state.py
       - name: SQLite OMS parity regression
         run: pytest -q tests/test_durable_oms_e2e.py
       - name: Compile OMS and Bybit PostgreSQL boundaries
@@ -93,4 +99,5 @@ jobs:
           app/application
           app/execution/bybit_postgres_runtime_state.py
           app/execution/bybit_postgres_evidence_state.py
+          app/execution/bybit_postgres_cash_state.py
           app/execution/bybit_startup_reconciliation.py

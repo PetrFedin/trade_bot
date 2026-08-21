@@ -57,6 +57,7 @@ class BybitDemoWalletBalance:
     total_perp_upl_usd: Decimal
     total_initial_margin_usd: Decimal
     total_maintenance_margin_usd: Decimal
+    usdt_wallet_balance: Decimal | None = None
 
     def validate(self) -> None:
         values = (
@@ -70,6 +71,8 @@ class BybitDemoWalletBalance:
         )
         if any(not value.is_finite() for value in values):
             raise ValueError("Bybit demo wallet balance fields must be finite")
+        if self.usdt_wallet_balance is not None and not self.usdt_wallet_balance.is_finite():
+            raise ValueError("Bybit demo USDT wallet balance must be finite")
         if self.total_equity_usd <= 0:
             raise ValueError("Bybit demo wallet total equity must be positive")
         if self.total_initial_margin_usd < 0 or self.total_maintenance_margin_usd < 0:
@@ -211,6 +214,7 @@ class BybitDemoAccountingClient:
             total_perp_upl_usd=_wallet_decimal(row, "totalPerpUPL"),
             total_initial_margin_usd=_wallet_decimal(row, "totalInitialMargin"),
             total_maintenance_margin_usd=_wallet_decimal(row, "totalMaintenanceMargin"),
+            usdt_wallet_balance=_optional_coin_wallet_decimal(row, coin="USDT"),
         )
         balance.validate()
         return balance
@@ -419,6 +423,28 @@ def _wallet_decimal(row: Mapping[str, Any], field: str) -> Decimal:
     if not value.is_finite():
         raise ValueError(f"Bybit demo wallet balance has non-finite {field}")
     return value
+
+
+def _optional_coin_wallet_decimal(
+    row: Mapping[str, Any],
+    *,
+    coin: str,
+) -> Decimal | None:
+    raw_coins = row.get("coin")
+    if raw_coins is None:
+        return None
+    if not isinstance(raw_coins, list):
+        raise ValueError("Bybit demo wallet balance coin field must be an array")
+    matches = [
+        value
+        for value in raw_coins
+        if isinstance(value, Mapping) and value.get("coin") == coin
+    ]
+    if len(matches) > 1:
+        raise ValueError(f"Bybit demo wallet balance returned duplicate {coin} rows")
+    if not matches:
+        return None
+    return _wallet_decimal(matches[0], "walletBalance")
 
 
 def _required_int(row: Mapping[str, Any], field: str) -> int:

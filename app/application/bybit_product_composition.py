@@ -14,6 +14,11 @@ from app.execution.bybit_demo_attributed_runtime import (
     run_attributed_bybit_demo_trading_runtime,
 )
 from app.execution.bybit_demo_broker_truth import BybitDemoBrokerTruthClient
+from app.execution.bybit_demo_cash_reconciliation import (
+    BybitDemoCashBaseline,
+    build_bybit_demo_cash_baseline,
+    reconcile_bybit_demo_cash,
+)
 from app.execution.bybit_demo_cycle import BybitDemoCyclePolicy
 from app.execution.bybit_demo_managed_trade_poll import BybitDemoManagedTradePollPolicy
 from app.execution.bybit_demo_max_hold_close import BybitDemoMaxHoldClosePolicy
@@ -31,6 +36,7 @@ from app.execution.bybit_observed_rest import (
     ObservedBybitDemoBrokerTruthClient,
 )
 from app.execution.bybit_oms_entry_client import OmsAwareBybitDemoStopRatchetClient
+from app.execution.bybit_postgres_cash_state import PostgresBybitDemoCashBaselineStore
 from app.execution.bybit_postgres_evidence_state import (
     PostgresBybitDemoEntryProvenanceStore,
     PostgresBybitDemoSessionRiskLedgerStore,
@@ -426,11 +432,13 @@ class BybitProductComposition:
     cycle_executor: BybitProductCycleExecutor
     operator_control: PostgresBybitOperatorControl
     private_stream_monitor: BybitPrivateStreamMonitor
+    accounting_client: BybitDemoAccountingClient
     rest_health_recorder: BybitRestHealthRecorder
     market_data_health_recorder: BybitMarketDataHealthRecorder
     account_risk_health_recorder: BybitAccountRiskHealthRecorder
     reconciliation_health_recorder: BybitReconciliationHealthRecorder
     session_risk_store: PostgresBybitDemoSessionRiskLedgerStore
+    cash_baseline_store: PostgresBybitDemoCashBaselineStore
     entry_oms: PostgresBybitEntryOms
     clock_ms: ClockMs = lambda: int(time() * 1000)
     monotonic_fn: MonotonicFn = monotonic
@@ -466,15 +474,45 @@ class BybitProductComposition:
             stream = self.private_stream_monitor.snapshot()
         except Exception:
             stream = None
+
+        health_now_ms: int | None = None
+        session_checkpoint = None
+        daily_pnl: Decimal | None = None
         try:
             health_now_ms = self.clock_ms()
-            daily_checkpoint = self.session_risk_store.load_current()
+            session_checkpoint = self.session_risk_store.load_current()
             daily_pnl = realized_all_in_pnl_for_utc_day(
-                daily_checkpoint.ledger,
+                session_checkpoint.ledger,
                 now_ms=health_now_ms,
             )
         except Exception:
             daily_pnl = None
+
+        cash_mismatch: Decimal | None = None
+        try:
+            if session_checkpoint is None or health_now_ms is None:
+                raise RuntimeError("authoritative session state unavailable")
+            active_trade = self.cycle_executor.has_active_trade()
+            baseline = self.cash_baseline_store.load()
+            if active_trade:
+                cash = reconcile_bybit_demo_cash(
+                    baseline,
+                    session_checkpoint.ledger,
+                    broker_wallet_balance_usdt=None,
+                    active_trade=True,
+                )
+            else:
+                wallet = self.accounting_client.get_wallet_balance()
+                cash = reconcile_bybit_demo_cash(
+                    baseline,
+                    session_checkpoint.ledger,
+                    broker_wallet_balance_usdt=wallet.usdt_wallet_balance,
+                    active_trade=False,
+                )
+            cash_mismatch = cash.cash_mismatch_usdt
+        except Exception:
+            cash_mismatch = None
+
         measurements = collect_bybit_operational_measurements(
             now_monotonic=now,
             market_data=self.market_data_health_recorder.snapshot(now_monotonic=now),
@@ -486,6 +524,7 @@ class BybitProductComposition:
             account_risk=self.account_risk_health_recorder.snapshot(),
             daily_pnl=daily_pnl,
         )
+        measurements = replace(measurements, cash_mismatch=cash_mismatch)
         return build_bybit_operational_health(measurements)
 
 
@@ -507,6 +546,7 @@ def build_bybit_product_composition(
         runtime_lease=runtime_lease,
     )
     session_risk_store = PostgresBybitDemoSessionRiskLedgerStore(config.database_url)
+    cash_baseline_store = PostgresBybitDemoCashBaselineStore(config.database_url)
     entry_oms = PostgresBybitEntryOms(config.database_url)
     operator_control = PostgresBybitOperatorControl(config.database_url)
     entry_reference_store = BybitEntryReferenceStore()
@@ -582,11 +622,13 @@ def build_bybit_product_composition(
         cycle_executor=cycle,
         operator_control=operator_control,
         private_stream_monitor=private_stream,
+        accounting_client=accounting_client,
         rest_health_recorder=rest_health,
         market_data_health_recorder=market_data_health,
         account_risk_health_recorder=account_risk_health,
         reconciliation_health_recorder=reconciliation_health,
         session_risk_store=session_risk_store,
+        cash_baseline_store=cash_baseline_store,
         entry_oms=entry_oms,
         clock_ms=active_clock,
         monotonic_fn=monotonic_fn,
@@ -629,6 +671,59 @@ def bootstrap_bybit_product_session(config: BybitProductConfig) -> Decimal:
             )
         )
         return wallet.total_equity_usd
+    finally:
+        lease_store.release(owner_token=lease.owner_token)
+
+
+def bootstrap_bybit_product_cash_baseline(
+    config: BybitProductConfig,
+    *,
+    clock_ms: ClockMs | None = None,
+) -> BybitDemoCashBaseline:
+    """Create the immutable USDT cash baseline only from fully reconciled flat state."""
+
+    config.validate()
+    active_clock = (lambda: int(time() * 1000)) if clock_ms is None else clock_ms
+    lease_store = PostgresBybitDemoRuntimeLease(config.database_url)
+    excursion_store = PostgresBybitDemoExcursionStore(
+        config.database_url,
+        runtime_lease=lease_store,
+    )
+    entry_oms = PostgresBybitEntryOms(config.database_url)
+    broker = BybitDemoBrokerTruthClient(
+        api_key=config.api_key,
+        api_secret=config.api_secret,
+    )
+    accounting = BybitDemoAccountingClient(
+        api_key=config.api_key,
+        api_secret=config.api_secret,
+    )
+    session_store = PostgresBybitDemoSessionRiskLedgerStore(config.database_url)
+    cash_store = PostgresBybitDemoCashBaselineStore(config.database_url)
+
+    lease = lease_store.acquire()
+    try:
+        reconciled = BybitProductStartupReconciler(
+            broker=broker,
+            checkpoint_store=excursion_store,
+            entry_oms=entry_oms,
+            clock_ms=active_clock,
+        ).run()
+        if not reconciled.next_entry_allowed:
+            raise RuntimeError(
+                "cash baseline requires fully reconciled flat broker/local/OMS state"
+            )
+        session = session_store.load_current()
+        wallet = accounting.get_wallet_balance()
+        if wallet.usdt_wallet_balance is None:
+            raise RuntimeError("cash baseline requires broker USDT wallet balance")
+        baseline = build_bybit_demo_cash_baseline(
+            session.ledger,
+            session_revision=session.revision,
+            broker_wallet_balance_usdt=wallet.usdt_wallet_balance,
+            created_time_ms=active_clock(),
+        )
+        return cash_store.initialize(baseline)
     finally:
         lease_store.release(owner_token=lease.owner_token)
 
