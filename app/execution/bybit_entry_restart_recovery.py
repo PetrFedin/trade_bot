@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Protocol
 
 from app.execution.bybit_demo import (
     BybitDemoOrderAck,
@@ -30,6 +31,7 @@ from app.execution.bybit_demo_protection_reconciliation import (
 )
 from app.execution.bybit_entry_recovery import BybitEntryRecoveryRecord
 from app.execution.bybit_order_lookup import BybitOrderTruth
+from app.marketdata.bybit_instruments import BybitInstrumentSpec
 from app.strategy.crypto_entry_economics import revalidate_entry_at_actual_taker_fee
 from app.strategy.crypto_liquidation_safety import evaluate_crypto_liquidation_safety
 from app.strategy.crypto_perp import CryptoSide, CryptoTradePlan
@@ -37,6 +39,7 @@ from app.strategy.crypto_runner_admission import evaluate_crypto_runner_admissio
 
 ProtectionRequest = BybitDemoProtectionRequest | BybitDemoRunnerProtectionRequest
 ProtectionAck = BybitDemoProtectionAck | BybitDemoRunnerProtectionAck
+Sleeper = Callable[[float], None]
 _ZERO = Decimal("0")
 
 
@@ -54,11 +57,12 @@ class BybitExecutedEntryRecoveryStatus(StrEnum):
 
 @dataclass(frozen=True)
 class BybitExecutedEntryRecoveryPlan:
-    """Deterministic safety plan for an ENTRY that executed before local checkpoint creation."""
+    """Deterministic safety plan for an ENTRY executed before checkpoint creation."""
 
     entry_order_link_id: str
     broker_order_id: str
     recovery_record_sha256: str
+    instrument: BybitInstrumentSpec
     position: BybitDemoPosition
     post_fill_trade_plan: CryptoTradePlan
     exit_mode: str
@@ -96,7 +100,11 @@ class _RecoveryClient(Protocol):
 
     def place_market_order(self, request: BybitDemoOrderRequest) -> BybitDemoOrderAck: ...
 
-    def get_positions(self, *, settle_coin: str = "USDT") -> tuple[BybitDemoPosition, ...]: ...
+    def get_positions(
+        self,
+        *,
+        settle_coin: str = "USDT",
+    ) -> tuple[BybitDemoPosition, ...]: ...
 
 
 def plan_bybit_executed_entry_recovery(
@@ -105,20 +113,30 @@ def plan_bybit_executed_entry_recovery(
     order_truth: BybitOrderTruth,
     positions: tuple[BybitDemoPosition, ...],
 ) -> BybitExecutedEntryRecoveryPlan:
-    """Rebuild post-fill protection exclusively from frozen envelope + current broker truth.
+    """Rebuild post-fill protection only from frozen envelope + current broker truth.
 
-    The function is pure: it does not mutate broker or PostgreSQL state. It rejects any mismatch
-    instead of reading current strategy defaults. A pre-entry fixed target can never be upgraded
-    to runner during restart recovery; a frozen runner may only remain a runner or downgrade.
+    The function is pure. It rejects any mismatch instead of reading current strategy defaults.
+    A pre-entry fixed target can never be upgraded to runner during restart recovery; a frozen
+    runner may only remain a runner or downgrade.
     """
 
     if recovery.live_mainnet_order_routing_allowed:
         raise ValueError("executed-entry recovery rejected mainnet-capable recovery record")
     envelope = recovery.envelope
     envelope.validate()
-    _validate_order_truth(envelope.entry_order_link_id, envelope.order_side, envelope.approved_order_quantity, envelope.trade_plan, order_truth)
+    _validate_order_truth(
+        envelope.entry_order_link_id,
+        envelope.order_side,
+        envelope.approved_order_quantity,
+        envelope.trade_plan,
+        order_truth,
+    )
     position = _single_matching_position(envelope.trade_plan, order_truth, positions)
-    if position.average_price is None or not position.average_price.is_finite() or position.average_price <= 0:
+    if (
+        position.average_price is None
+        or not position.average_price.is_finite()
+        or position.average_price <= 0
+    ):
         raise ValueError("executed-entry recovery requires positive broker average entry price")
 
     actual_fill_notional = position.average_price * position.size
@@ -161,7 +179,9 @@ def plan_bybit_executed_entry_recovery(
 
     fee_reasons = tuple(f"POST_FILL_{reason}" for reason in fee_decision.reasons)
     runner_reasons = tuple(post_fill_runner.reasons)
-    reasons = tuple(dict.fromkeys((*protection_plan.reasons, *fee_reasons, *runner_reasons)))
+    reasons = tuple(
+        dict.fromkeys((*protection_plan.reasons, *fee_reasons, *runner_reasons))
+    )
     protection = protection_plan.protection
     if protection is None:
         action = BybitExecutedEntryRecoveryAction.FLATTEN
@@ -191,6 +211,7 @@ def plan_bybit_executed_entry_recovery(
         entry_order_link_id=envelope.entry_order_link_id,
         broker_order_id=order_truth.order_id,
         recovery_record_sha256=recovery.record_sha256,
+        instrument=envelope.instrument,
         position=position,
         post_fill_trade_plan=post_fill_plan,
         exit_mode=exit_mode,
@@ -205,13 +226,13 @@ def execute_bybit_executed_entry_recovery(
     *,
     client: _RecoveryClient,
     policy: BybitDemoProtectionReconciliationPolicy | None = None,
-    sleeper: Any = None,
+    sleeper: Sleeper | None = None,
 ) -> BybitExecutedEntryRecoveryResult:
-    """Execute only safety mutations: protection and, if needed, deterministic reduce-only close.
+    """Execute only safety mutations: protection and deterministic reduce-only close.
 
-    This function has no code path that submits a risk-adding ENTRY. Successful protection still
-    does not authorize new entry: the caller must durably create the active checkpoint and converge
-    OMS state before normal product supervision resumes.
+    There is no code path that submits a risk-adding ENTRY. Successful protection still does not
+    authorize new entry: the caller must durably create the active checkpoint and converge OMS
+    state before normal product supervision resumes.
     """
 
     if plan.live_mainnet_order_routing_allowed:
@@ -222,17 +243,19 @@ def execute_bybit_executed_entry_recovery(
         raise ValueError("executed-entry recovery requires protection-state reads")
     active_policy = BybitDemoProtectionReconciliationPolicy() if policy is None else policy
     active_policy.validate()
-    sleep_fn = (lambda _delay: None) if sleeper is None else sleeper
+    sleep_fn: Sleeper = (lambda _delay: None) if sleeper is None else sleeper
 
     protection_ack: ProtectionAck | None = None
     protection_reason: str | None = None
     if plan.protection_request is not None:
         try:
             if isinstance(plan.protection_request, BybitDemoRunnerProtectionRequest):
-                protection_ack = client.set_open_ended_position_protection(plan.protection_request)
+                protection_ack = client.set_open_ended_position_protection(
+                    plan.protection_request
+                )
             else:
                 protection_ack = client.set_full_position_protection(plan.protection_request)
-        except Exception as exc:  # noqa: BLE001 - recovery falls through to reduce-only flatten.
+        except Exception as exc:  # noqa: BLE001 - fall through to reduce-only flatten.
             protection_reason = f"RECOVERY_PROTECTION_WRITE_FAILED:{type(exc).__name__}"
         else:
             verification = reconcile_bybit_demo_exchange_protection(
@@ -288,7 +311,7 @@ def _flatten_recovered_position(
     *,
     client: _RecoveryClient,
     policy: BybitDemoProtectionReconciliationPolicy,
-    sleeper: Any,
+    sleeper: Sleeper,
     protection_ack: ProtectionAck | None,
     protection_reason: str | None,
 ) -> BybitExecutedEntryRecoveryResult:
@@ -299,7 +322,7 @@ def _flatten_recovered_position(
         close = plan_bybit_demo_reduce_only_close(
             plan.post_fill_trade_plan,
             open_quantity=plan.position.size,
-            instrument=_instrument_from_plan(plan),
+            instrument=plan.instrument,
         )
         if not close.reduce_only:
             raise ValueError("executed-entry recovery close must be reduce-only")
@@ -341,16 +364,6 @@ def _flatten_recovered_position(
         flatten_ack=flatten_ack,
         broker_position_closed=False,
     )
-
-
-def _instrument_from_plan(plan: BybitExecutedEntryRecoveryPlan):
-    # The recovery hash binds the instrument used to build protection. The concrete instrument is
-    # carried indirectly by the already-built protection request, so derive only close granularity
-    # from the immutable plan is impossible. This guard is replaced by the recovery record owner.
-    instrument = getattr(plan, "instrument", None)
-    if instrument is None:
-        raise ValueError("executed-entry recovery plan is missing immutable instrument")
-    return instrument
 
 
 def _validate_order_truth(
