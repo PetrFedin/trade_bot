@@ -353,7 +353,7 @@ def _converge_entry_oms(
             broker_order_id=truth.order_id,
         )
 
-    if truth.status in {"Cancelled", "PartiallyFilledCanceled"}:
+    if truth.status == "Cancelled":
         if current.state is OrderState.PARTIALLY_FILLED:
             current = entry_oms.transition(
                 current.intent_id,
@@ -525,6 +525,8 @@ def _validate_dependencies(
     if runtime_lease.order_writes_supported:
         raise ValueError("entry recovery runtime lease must not expose broker order writes")
     if runtime_lease.automatic_stale_takeover_allowed:
-        raise ValueError("entry recovery requires generic automatic stale takeover to stay disabled")
+        raise ValueError(
+            "entry recovery requires generic automatic stale takeover to stay disabled"
+        )
     if excursion_store.order_writes_supported:
         raise ValueError("entry recovery excursion store must be diagnostics-only")
