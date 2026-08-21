@@ -111,7 +111,10 @@ class OmsAwareBybitDemoStopRatchetClient(ObservedBybitDemoStopRatchetClient):
             if isinstance(dsn, str) and dsn.strip():
                 entry_recovery_store = PostgresBybitEntryRecoveryStore(dsn)
         if entry_recovery_store is not None:
-            if getattr(entry_recovery_store, "live_mainnet_order_routing_allowed", True) is not False:
+            if (
+                getattr(entry_recovery_store, "live_mainnet_order_routing_allowed", True)
+                is not False
+            ):
                 raise ValueError("Bybit entry client rejected mainnet-capable recovery store")
             if getattr(entry_recovery_store, "order_writes_supported", True) is not False:
                 raise ValueError("Bybit recovery store must not expose broker order writes")
