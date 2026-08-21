@@ -206,13 +206,15 @@ def test_flat_cycle_uses_all_completed_universe_bars_and_frozen_strategy(
     assert executor.live_mainnet_order_routing_allowed is False
 
 
-def test_authoritative_session_state_is_projected_to_account_risk_health(
+def test_authoritative_session_state_and_daily_pnl_project_to_account_risk_health(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observations = []
     executor = _executor(
         wallet_equity="950",
-        account_risk_observation_hook=observations.append,
+        account_risk_observation_hook=lambda state, daily_pnl: observations.append(
+            (state, daily_pnl)
+        ),
     )
     monkeypatch.setattr(
         product,
@@ -223,8 +225,10 @@ def test_authoritative_session_state_is_projected_to_account_risk_health(
     executor.run_once()
 
     assert len(observations) == 1
-    assert observations[0].current_equity_usdt == Decimal("950")
-    assert observations[0].peak_equity_usdt == Decimal("1000")
+    state, daily_pnl = observations[0]
+    assert state.current_equity_usdt == Decimal("950")
+    assert state.peak_equity_usdt == Decimal("1000")
+    assert daily_pnl == Decimal("0")
 
 
 def test_missing_session_ledger_does_not_publish_fake_account_risk(
@@ -234,7 +238,9 @@ def test_missing_session_ledger_does_not_publish_fake_account_risk(
     executor = _executor(
         active_symbol="SOLUSDT",
         missing_session=True,
-        account_risk_observation_hook=observations.append,
+        account_risk_observation_hook=lambda state, daily_pnl: observations.append(
+            (state, daily_pnl)
+        ),
     )
     monkeypatch.setattr(
         product,
