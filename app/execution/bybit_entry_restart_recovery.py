@@ -41,6 +41,7 @@ ProtectionRequest = BybitDemoProtectionRequest | BybitDemoRunnerProtectionReques
 ProtectionAck = BybitDemoProtectionAck | BybitDemoRunnerProtectionAck
 Sleeper = Callable[[float], None]
 _ZERO = Decimal("0")
+_EXECUTED_TERMINAL_ORDER_STATUSES = frozenset({"Filled", "Cancelled"})
 
 
 class BybitExecutedEntryRecoveryAction(StrEnum):
@@ -296,10 +297,21 @@ def execute_bybit_executed_entry_recovery(
 def build_recovered_entry_excursion_state(
     result: BybitExecutedEntryRecoveryResult,
 ) -> BybitDemoTradeExcursionState:
-    if result.status is not BybitExecutedEntryRecoveryStatus.PROTECTED:
-        raise ValueError("only a protected recovered entry can initialize active trade state")
-    if result.broker_position_closed is not False:
+    if result.status not in {
+        BybitExecutedEntryRecoveryStatus.PROTECTED,
+        BybitExecutedEntryRecoveryStatus.FLATTENED,
+    }:
+        raise ValueError("unresolved recovered entry cannot initialize durable trade state")
+    if (
+        result.status is BybitExecutedEntryRecoveryStatus.PROTECTED
+        and result.broker_position_closed is not False
+    ):
         raise ValueError("protected recovered entry unexpectedly reports closed broker position")
+    if (
+        result.status is BybitExecutedEntryRecoveryStatus.FLATTENED
+        and result.broker_position_closed is not True
+    ):
+        raise ValueError("flattened recovered entry lacks broker-closed proof")
     return start_bybit_demo_trade_excursion(
         result.plan.post_fill_trade_plan,
         position=result.plan.position,
@@ -382,12 +394,16 @@ def _validate_order_truth(
         raise ValueError("executed-entry recovery broker side mismatch")
     if truth.quantity != approved_quantity:
         raise ValueError("executed-entry recovery broker quantity mismatch")
+    if truth.status not in _EXECUTED_TERMINAL_ORDER_STATUSES:
+        raise ValueError("executed-entry recovery requires terminal Filled/Cancelled broker status")
     if (
         not truth.cumulative_executed_quantity.is_finite()
         or truth.cumulative_executed_quantity <= _ZERO
         or truth.cumulative_executed_quantity > truth.quantity
     ):
         raise ValueError("executed-entry recovery requires positive bounded execution")
+    if truth.status == "Filled" and truth.cumulative_executed_quantity != truth.quantity:
+        raise ValueError("filled broker ENTRY must have full cumulative execution")
     if not truth.order_id.strip():
         raise ValueError("executed-entry recovery requires broker order id")
 
