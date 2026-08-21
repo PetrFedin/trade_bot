@@ -14,6 +14,7 @@ from app.application.bybit_operator_control import (
     PostgresBybitOperatorControl,
 )
 from app.application.bybit_product_composition import (
+    bootstrap_bybit_product_cash_baseline,
     bootstrap_bybit_product_session,
     build_bybit_product_composition,
 )
@@ -58,6 +59,10 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser(
         "bootstrap-session",
         help="Initialize the session-risk ledger while broker and local state are flat.",
+    )
+    commands.add_parser(
+        "bootstrap-cash",
+        help="Initialize the immutable USDT cash baseline from fully reconciled flat state.",
     )
     operator = commands.add_parser(
         "operator",
@@ -262,6 +267,49 @@ def main(
             {
                 "status": "SESSION_BOOTSTRAPPED",
                 "opening_equity_usdt": str(opening_equity),
+                "live_mainnet_order_routing_allowed": False,
+            }
+        )
+        return 0
+
+    if args.command == "bootstrap-cash":
+        logger.emit(
+            "INFO",
+            "BYBIT_CASH_BASELINE_BOOTSTRAP_STARTING",
+            fields={"config": dict(config.redacted())},
+        )
+        try:
+            baseline = bootstrap_bybit_product_cash_baseline(config)
+        except Exception as exc:
+            logger.emit(
+                "CRITICAL",
+                "BYBIT_CASH_BASELINE_BOOTSTRAP_FAILED",
+                fields={"error_type": type(exc).__name__},
+            )
+            raise
+        logger.emit(
+            "INFO",
+            "BYBIT_CASH_BASELINE_BOOTSTRAPPED",
+            fields={
+                "currency": baseline.currency,
+                "wallet_balance_usdt": str(baseline.wallet_balance_usdt),
+                "cumulative_all_in_pnl_usdt": str(
+                    baseline.cumulative_all_in_pnl_usdt
+                ),
+                "session_revision": baseline.session_revision,
+                "created_time_ms": baseline.created_time_ms,
+            },
+        )
+        _emit(
+            {
+                "status": "CASH_BASELINE_BOOTSTRAPPED",
+                "currency": baseline.currency,
+                "wallet_balance_usdt": str(baseline.wallet_balance_usdt),
+                "cumulative_all_in_pnl_usdt": str(
+                    baseline.cumulative_all_in_pnl_usdt
+                ),
+                "session_revision": baseline.session_revision,
+                "created_time_ms": baseline.created_time_ms,
                 "live_mainnet_order_routing_allowed": False,
             }
         )
