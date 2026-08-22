@@ -269,6 +269,7 @@ def diagnose_crypto_funding_attribution(
     for item in complete:
         by_symbol[item.symbol].append(item)
         by_side[item.side].append(item)
+    reconstruction_complete = len(incomplete) == 0
     return {
         "diagnostic": "BYBIT_REPLAY_FUNDING_DOLLAR_RECONSTRUCTION",
         "trade_count": len(records),
@@ -293,12 +294,18 @@ def diagnose_crypto_funding_attribution(
             for key, values in sorted(by_side.items())
         },
         "incomplete_reasons": _missing_reason_counts(incomplete),
-        "funding_formula": "position_value=quantity*mark_price; funding_pnl=side_sign*position_value*rate",
+        "funding_formula": (
+            "position_value=quantity*mark_price; "
+            "funding_pnl=side_sign*position_value*rate"
+        ),
         "mark_price_contract": (
             "uses Bybit mark-price candle open only when candle start exactly equals the funding "
             "settlement timestamp; no interpolation or future fill"
         ),
-        "funding_dollar_cost_reconciled": len(incomplete) == 0,
+        "public_history_funding_reconstruction_complete": reconstruction_complete,
+        "broker_ledger_funding_reconciled": False,
+        "funding_dollar_cost_reconciled": False,
+        "reconstruction_scope": "PUBLIC_BYBIT_FUNDING_AND_MARK_PRICE_HISTORY",
         "parameter_retuning_performed": False,
         "strategy_selection_allowed": False,
         "strategy_promotion_allowed": False,
