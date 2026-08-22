@@ -349,7 +349,8 @@ def run_dynamic_top10_research(
         "interpretation_contract": (
             "Top-10 is a current research universe, not a buy/sell list. Full-history patterns, "
             "correlations, point-in-time derivatives context, reconstructed funding and indicator "
-            "buckets are evidence to validate the fixed strategy and do not guarantee future profit."
+            "buckets are evidence to validate the fixed strategy and do not guarantee future "
+            "profit."
         ),
     }
     _validate_final_boundary(result)
