@@ -341,15 +341,18 @@ class BybitMainnetReadOnlyClient:
                 "Bybit mainnet key must be created as read-only; read/write keys are rejected"
             )
         returned_key = result.get("apiKey")
-        if isinstance(returned_key, str) and returned_key:
-            if not hmac.compare_digest(returned_key, self._api_key):
-                raise BybitMainnetReadOnlyError(
-                    "Bybit API-key identity does not match configured credential"
-                )
+        if not isinstance(returned_key, str) or not returned_key:
+            raise BybitRestProtocolError(
+                "Bybit API-key information is missing apiKey identity",
+                retryable_read=False,
+                ambiguous_mutation=False,
+            )
+        if not hmac.compare_digest(returned_key, self._api_key):
+            raise BybitMainnetReadOnlyError(
+                "Bybit API-key identity does not match configured credential"
+            )
         secret_marker = result.get("secret")
-        if secret_marker is not None and (
-            not isinstance(secret_marker, str) or len(secret_marker) != 0
-        ):
+        if not isinstance(secret_marker, str) or len(secret_marker) != 0:
             raise BybitRestProtocolError(
                 "Bybit API-key information unexpectedly exposed secret material",
                 retryable_read=False,
