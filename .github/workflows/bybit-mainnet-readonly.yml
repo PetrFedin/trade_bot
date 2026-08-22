@@ -43,9 +43,9 @@ jobs:
           python -m pip install --disable-pip-version-check '.[dev]'
           python -m pip check
       - name: Read-only boundary and demo-runtime isolation tests
-        run: pytest -q tests/test_bybit_mainnet_readonly.py tests/test_bybit_mainnet_readonly_config_isolation.py
+        run: pytest -q tests/test_bybit_mainnet_readonly*.py
       - name: Ruff read-only boundary
-        run: ruff check app/execution/bybit_mainnet_readonly.py app/runtime/bybit_mainnet_readonly_probe.py tests/test_bybit_mainnet_readonly.py tests/test_bybit_mainnet_readonly_config_isolation.py
+        run: ruff check app/execution/bybit_mainnet_readonly.py app/runtime/bybit_mainnet_readonly_probe.py tests/test_bybit_mainnet_readonly*.py
       - name: Bandit read-only boundary
         run: bandit -q app/execution/bybit_mainnet_readonly.py app/runtime/bybit_mainnet_readonly_probe.py
       - name: Compile read-only boundary
