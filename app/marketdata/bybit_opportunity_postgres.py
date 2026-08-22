@@ -22,8 +22,6 @@ class PostgresBybitOpportunityStore:
     def __init__(self, dsn: str) -> None:
         if not dsn.strip():
             raise ValueError("Bybit opportunity PostgreSQL DSN is required")
-        if psycopg is None:
-            raise RuntimeError("install the postgresql extra to use opportunity persistence")
         self._dsn = dsn
 
     @property
