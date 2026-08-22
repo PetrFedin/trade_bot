@@ -72,7 +72,9 @@ class BybitResearchUniversePolicy:
             ("maximum_abs_funding_rate", self.maximum_abs_funding_rate),
         ):
             if not value.is_finite() or value < 0:
-                raise ValueError(f"Bybit research universe {name} must be finite and non-negative")
+                raise ValueError(
+                    f"Bybit research universe {name} must be finite and non-negative"
+                )
         if self.maximum_spread_bps <= 0 or self.maximum_abs_funding_rate <= 0:
             raise ValueError("Bybit research universe spread/funding limits must be positive")
         weights = (
@@ -82,7 +84,9 @@ class BybitResearchUniversePolicy:
             self.history_weight,
         )
         if any(not value.is_finite() or value < 0 for value in weights):
-            raise ValueError("Bybit research universe score weights must be finite and non-negative")
+            raise ValueError(
+                "Bybit research universe score weights must be finite and non-negative"
+            )
         if sum(weights, start=_ZERO) != _ONE:
             raise ValueError("Bybit research universe score weights must sum exactly to 1")
 
@@ -100,10 +104,21 @@ class BybitResearchInstrument:
     delivery_time_ms: int
     is_pre_listing: bool
 
-    def structural_reasons(self, *, now_ms: int, minimum_listing_days: int) -> tuple[str, ...]:
+    def structural_reasons(
+        self,
+        *,
+        now_ms: int,
+        minimum_listing_days: int,
+    ) -> tuple[str, ...]:
         reasons: list[str] = []
         if self.symbol != self.symbol.strip().upper() or not self.symbol:
             reasons.append("INVALID_SYMBOL")
+        if self.base_coin != self.base_coin.strip().upper() or not self.base_coin:
+            reasons.append("INVALID_BASE_COIN")
+        if self.quote_coin != self.quote_coin.strip().upper() or not self.quote_coin:
+            reasons.append("INVALID_QUOTE_COIN")
+        if self.settle_coin != self.settle_coin.strip().upper() or not self.settle_coin:
+            reasons.append("INVALID_SETTLE_COIN")
         if self.status != "Trading":
             reasons.append("NOT_TRADING")
         if self.contract_type != "LinearPerpetual":
@@ -122,8 +137,11 @@ class BybitResearchInstrument:
             reasons.append("INSUFFICIENT_LISTING_HISTORY")
         if self.delivery_time_ms < 0:
             reasons.append("INVALID_DELIVERY_TIME")
-        elif self.delivery_time_ms not in {0} and self.delivery_time_ms <= now_ms:
-            reasons.append("DELIVERED_OR_DELISTED")
+        elif self.delivery_time_ms != 0:
+            if self.delivery_time_ms <= now_ms:
+                reasons.append("DELIVERED_OR_DELISTED")
+            else:
+                reasons.append("SCHEDULED_DELISTING")
         return tuple(dict.fromkeys(reasons))
 
 
@@ -142,6 +160,8 @@ class BybitResearchTicker:
 
     @property
     def spread_bps(self) -> Decimal:
+        if not self.bid_price.is_finite() or not self.ask_price.is_finite():
+            return Decimal("Infinity")
         if self.bid_price <= 0 or self.ask_price <= 0 or self.ask_price < self.bid_price:
             return Decimal("Infinity")
         midpoint = (self.bid_price + self.ask_price) / Decimal("2")
@@ -151,7 +171,7 @@ class BybitResearchTicker:
 
     def market_reasons(self, policy: BybitResearchUniversePolicy) -> tuple[str, ...]:
         reasons: list[str] = []
-        for name, value in (
+        values = (
             ("last_price", self.last_price),
             ("bid_price", self.bid_price),
             ("ask_price", self.ask_price),
@@ -161,21 +181,33 @@ class BybitResearchTicker:
             ("open_interest_value_usdt", self.open_interest_value_usdt),
             ("funding_rate", self.funding_rate),
             ("price_24h_fraction", self.price_24h_fraction),
-        ):
+        )
+        for name, value in values:
             if not value.is_finite():
                 reasons.append(f"NON_FINITE_{name.upper()}")
-        if self.last_price <= 0 or self.bid_price <= 0 or self.ask_price <= 0:
-            reasons.append("INVALID_TOP_OF_BOOK")
-        if self.ask_price < self.bid_price:
-            reasons.append("CROSSED_TOP_OF_BOOK")
-        if self.turnover_24h_usdt < policy.minimum_turnover_24h_usdt:
-            reasons.append("TURNOVER_24H_BELOW_MINIMUM")
-        if self.open_interest_value_usdt < policy.minimum_open_interest_value_usdt:
-            reasons.append("OPEN_INTEREST_VALUE_BELOW_MINIMUM")
-        if self.spread_bps > policy.maximum_spread_bps:
-            reasons.append("SPREAD_ABOVE_MAXIMUM")
-        if abs(self.funding_rate) > policy.maximum_abs_funding_rate:
-            reasons.append("FUNDING_RATE_EXTREME")
+        top_of_book_finite = all(
+            value.is_finite() for value in (self.last_price, self.bid_price, self.ask_price)
+        )
+        if top_of_book_finite:
+            if self.last_price <= 0 or self.bid_price <= 0 or self.ask_price <= 0:
+                reasons.append("INVALID_TOP_OF_BOOK")
+            elif self.ask_price < self.bid_price:
+                reasons.append("CROSSED_TOP_OF_BOOK")
+            elif self.spread_bps > policy.maximum_spread_bps:
+                reasons.append("SPREAD_ABOVE_MAXIMUM")
+        if self.turnover_24h_usdt.is_finite():
+            if self.turnover_24h_usdt < policy.minimum_turnover_24h_usdt:
+                reasons.append("TURNOVER_24H_BELOW_MINIMUM")
+        if self.volume_24h.is_finite() and self.volume_24h < 0:
+            reasons.append("NEGATIVE_VOLUME_24H")
+        if self.open_interest.is_finite() and self.open_interest < 0:
+            reasons.append("NEGATIVE_OPEN_INTEREST")
+        if self.open_interest_value_usdt.is_finite():
+            if self.open_interest_value_usdt < policy.minimum_open_interest_value_usdt:
+                reasons.append("OPEN_INTEREST_VALUE_BELOW_MINIMUM")
+        if self.funding_rate.is_finite():
+            if abs(self.funding_rate) > policy.maximum_abs_funding_rate:
+                reasons.append("FUNDING_RATE_EXTREME")
         return tuple(dict.fromkeys(reasons))
 
 
@@ -332,7 +364,9 @@ class BybitResearchUniverseClient:
                     raise ValueError("Bybit research instrument row must be an object")
                 instrument = _parse_instrument(raw)
                 if instrument.symbol in seen_symbols:
-                    raise ValueError("Bybit research instrument pagination returned duplicate symbol")
+                    raise ValueError(
+                        "Bybit research instrument pagination returned duplicate symbol"
+                    )
                 seen_symbols.add(instrument.symbol)
                 rows.append(instrument)
             next_cursor = result.get("nextPageCursor")
@@ -386,8 +420,14 @@ def select_bybit_research_universe(
     active = BybitResearchUniversePolicy() if policy is None else policy
     active.validate()
     normalized_host = validate_bybit_public_research_host(host)
-    if isinstance(observed_at_ms, bool) or not isinstance(observed_at_ms, int) or observed_at_ms < 0:
-        raise ValueError("Bybit research universe observation time must be non-negative integer ms")
+    if (
+        isinstance(observed_at_ms, bool)
+        or not isinstance(observed_at_ms, int)
+        or observed_at_ms < 0
+    ):
+        raise ValueError(
+            "Bybit research universe observation time must be non-negative integer ms"
+        )
     instrument_map = _unique_by_symbol(instruments, kind="instrument")
     ticker_map = _unique_by_symbol(tickers, kind="ticker")
     eligible: list[tuple[BybitResearchInstrument, BybitResearchTicker]] = []
@@ -418,7 +458,9 @@ def select_bybit_research_universe(
         Decimal((observed_at_ms - instrument.launch_time_ms) // _DAY_MS)
         for instrument, _ticker in eligible
     ]
-    scored: list[tuple[str, Decimal, int, BybitResearchTicker, tuple[Decimal, ...]]] = []
+    scored: list[
+        tuple[str, Decimal, int, BybitResearchTicker, tuple[Decimal, ...]]
+    ] = []
     for instrument, ticker in eligible:
         listing_days = (observed_at_ms - instrument.launch_time_ms) // _DAY_MS
         turnover_rank = _percentile(ticker.turnover_24h_usdt, turnover_values)
@@ -498,7 +540,12 @@ def _unique_by_symbol(items: Sequence[Any], *, kind: str) -> dict[str, Any]:
     return result
 
 
-def _percentile(value: Decimal, values: Sequence[Decimal], *, reverse: bool = False) -> Decimal:
+def _percentile(
+    value: Decimal,
+    values: Sequence[Decimal],
+    *,
+    reverse: bool = False,
+) -> Decimal:
     if not values:
         raise ValueError("Bybit research percentile requires a non-empty population")
     if any(not item.is_finite() for item in values) or not value.is_finite():
@@ -514,10 +561,10 @@ def _parse_instrument(row: Mapping[str, Any]) -> BybitResearchInstrument:
     if not isinstance(is_pre_listing, bool):
         raise ValueError("Bybit research instrument isPreListing must be boolean")
     return BybitResearchInstrument(
-        symbol=_required_text(row, "symbol").upper(),
-        base_coin=_required_text(row, "baseCoin").upper(),
-        quote_coin=_required_text(row, "quoteCoin").upper(),
-        settle_coin=_required_text(row, "settleCoin").upper(),
+        symbol=_required_text(row, "symbol"),
+        base_coin=_required_text(row, "baseCoin"),
+        quote_coin=_required_text(row, "quoteCoin"),
+        settle_coin=_required_text(row, "settleCoin"),
         contract_type=_required_text(row, "contractType"),
         status=_required_text(row, "status"),
         symbol_type=_optional_text(row.get("symbolType")),
@@ -529,7 +576,7 @@ def _parse_instrument(row: Mapping[str, Any]) -> BybitResearchInstrument:
 
 def _parse_ticker(row: Mapping[str, Any]) -> BybitResearchTicker:
     return BybitResearchTicker(
-        symbol=_required_text(row, "symbol").upper(),
+        symbol=_required_text(row, "symbol"),
         last_price=_required_decimal(row, "lastPrice"),
         bid_price=_required_decimal(row, "bid1Price"),
         ask_price=_required_decimal(row, "ask1Price"),
@@ -542,7 +589,11 @@ def _parse_ticker(row: Mapping[str, Any]) -> BybitResearchTicker:
     )
 
 
-def _result_object(payload: Mapping[str, Any], *, expected_category: str) -> Mapping[str, Any]:
+def _result_object(
+    payload: Mapping[str, Any],
+    *,
+    expected_category: str,
+) -> Mapping[str, Any]:
     result = payload.get("result")
     if not isinstance(result, Mapping) or result.get("category") != expected_category:
         raise ValueError("Bybit research universe response missing expected result category")
@@ -590,7 +641,10 @@ def _required_decimal(row: Mapping[str, Any], field: str) -> Decimal:
     return parsed
 
 
-def _https_transport(url: str, headers: Mapping[str, str]) -> BybitResearchUniverseHttpJson:
+def _https_transport(
+    url: str,
+    headers: Mapping[str, str],
+) -> BybitResearchUniverseHttpJson:
     parsed = urlsplit(url)
     if parsed.scheme != "https" or parsed.hostname not in _ALLOWED_MAINNET_HOSTS:
         raise ValueError("Bybit research universe transport rejected endpoint")
