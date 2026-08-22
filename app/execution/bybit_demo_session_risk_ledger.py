@@ -77,6 +77,14 @@ class BybitDemoSessionRiskLedger:
             raise ValueError("demo session ledger cannot grant live routing")
 
     @property
+    def cumulative_realized_all_in_pnl_usdt(self) -> Decimal:
+        self.validate()
+        return sum(
+            (outcome.all_in_net_pnl_usdt for outcome in self.outcomes),
+            start=_ZERO,
+        )
+
+    @property
     def realized_peak_equity_usdt(self) -> Decimal:
         cumulative = _ZERO
         realized_peak = self.opening_equity_usdt
@@ -98,10 +106,7 @@ class BybitDemoSessionRiskLedger:
         self.validate()
         if not current_equity_usdt.is_finite() or current_equity_usdt <= 0:
             raise ValueError("demo session current equity must be positive and finite")
-        realized = sum(
-            (outcome.all_in_net_pnl_usdt for outcome in self.outcomes),
-            start=_ZERO,
-        )
+        realized = self.cumulative_realized_all_in_pnl_usdt
         signed_execution_fees = sum(
             (outcome.execution_fees_usdt for outcome in self.outcomes),
             start=_ZERO,
