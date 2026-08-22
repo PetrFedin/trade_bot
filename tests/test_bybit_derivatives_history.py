@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -120,9 +121,17 @@ def test_history_fetches_cursor_series_and_funding_with_zero_write_surface() -> 
         interval="5min",
     )
 
-    assert [point.open_interest for point in history.open_interest] == [9, 10]
-    assert [point.buy_ratio for point in history.account_ratio] == [0.52, 0.55]
-    assert [point.funding_rate for point in history.funding] == [0.0001]
+    assert [point.open_interest for point in history.open_interest] == [
+        Decimal("9"),
+        Decimal("10"),
+    ]
+    assert [point.buy_ratio for point in history.account_ratio] == [
+        Decimal("0.52"),
+        Decimal("0.55"),
+    ]
+    assert [point.funding_rate for point in history.funding] == [
+        Decimal("0.0001")
+    ]
     assert history.request_count == 5
     assert history.host == "api.bybit.eu"
     assert history.live_mainnet_order_routing_allowed is False
@@ -143,7 +152,14 @@ def test_funding_uses_bounded_daily_windows_for_multi_day_range() -> None:
     end = _START + 2 * 86_400_000 + 1_000
     transport = _Transport(
         [
-            _ok({"category": "linear", "symbol": "BTCUSDT", "list": [], "nextPageCursor": ""}),
+            _ok(
+                {
+                    "category": "linear",
+                    "symbol": "BTCUSDT",
+                    "list": [],
+                    "nextPageCursor": "",
+                }
+            ),
             _ok({"list": [], "nextPageCursor": ""}),
             _ok({"category": "linear", "list": []}),
             _ok({"category": "linear", "list": []}),
@@ -157,7 +173,11 @@ def test_funding_uses_bounded_daily_windows_for_multi_day_range() -> None:
         interval="1h",
     )
     assert history.request_count == 5
-    funding_calls = [call for call in transport.calls if call[1] == "/v5/market/funding/history"]
+    funding_calls = [
+        call
+        for call in transport.calls
+        if call[1] == "/v5/market/funding/history"
+    ]
     assert len(funding_calls) == 3
 
 
@@ -198,8 +218,14 @@ def test_repeated_cursor_and_conflicting_duplicate_timestamp_fail_closed() -> No
                     "category": "linear",
                     "symbol": "BTCUSDT",
                     "list": [
-                        {"openInterest": "10", "timestamp": str(_START + 1_000)},
-                        {"openInterest": "11", "timestamp": str(_START + 1_000)},
+                        {
+                            "openInterest": "10",
+                            "timestamp": str(_START + 1_000),
+                        },
+                        {
+                            "openInterest": "11",
+                            "timestamp": str(_START + 1_000),
+                        },
                     ],
                     "nextPageCursor": "",
                 }
@@ -248,7 +274,10 @@ def test_ratio_reconciliation_and_nonfinite_values_fail_closed() -> None:
                     "category": "linear",
                     "symbol": "BTCUSDT",
                     "list": [
-                        {"openInterest": "NaN", "timestamp": str(_START + 1_000)}
+                        {
+                            "openInterest": "NaN",
+                            "timestamp": str(_START + 1_000),
+                        }
                     ],
                     "nextPageCursor": "",
                 }
