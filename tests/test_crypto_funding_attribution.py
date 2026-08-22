@@ -59,7 +59,11 @@ def _derivatives(*, rate: str = "0.0001") -> BybitDerivativesHistory:
     )
 
 
-def _mark_history(*, price: str = "100000", include_settlement: bool = True) -> BybitMarkPriceHistory:
+def _mark_history(
+    *,
+    price: str = "100000",
+    include_settlement: bool = True,
+) -> BybitMarkPriceHistory:
     points = []
     if include_settlement:
         points.append(
@@ -182,7 +186,7 @@ def test_missing_derivatives_or_mark_history_is_explicit() -> None:
     assert missing_mark.missing_reasons == ("MARK_PRICE_HISTORY_MISSING",)
 
 
-def test_diagnostics_reconcile_complete_funding_without_promoting_strategy() -> None:
+def test_diagnostics_reconstruct_complete_funding_without_claiming_broker_reconcile() -> None:
     trade = build_crypto_funding_attribution(
         _replay(),
         {"BTCUSDT": _derivatives()},
@@ -197,7 +201,9 @@ def test_diagnostics_reconcile_complete_funding_without_promoting_strategy() -> 
     assert report["replay_net_pnl_usdt_complete_trades"] == 12.0
     assert report["reconstructed_funding_pnl_usdt"] == pytest.approx(-0.1)
     assert report["net_pnl_after_reconstructed_funding_usdt"] == pytest.approx(11.9)
-    assert report["funding_dollar_cost_reconciled"] is True
+    assert report["public_history_funding_reconstruction_complete"] is True
+    assert report["broker_ledger_funding_reconciled"] is False
+    assert report["funding_dollar_cost_reconciled"] is False
     assert report["strategy_selection_allowed"] is False
     assert report["strategy_promotion_allowed"] is False
     assert report["live_activation_allowed"] is False
