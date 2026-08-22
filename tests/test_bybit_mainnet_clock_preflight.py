@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -138,11 +139,18 @@ def test_clock_preflight_safety_thresholds_cannot_be_relaxed() -> None:
         transport=_ServerTimeTransport(server_time_ms=10_100),
         clock_ms=_SequenceClock([10_000, 10_200]),
     )
-    mutated = preflight.__class__(
-        **{
-            **preflight.__dict__,
-            "max_safe_clock_uncertainty_ms": 5000,
-        }
-    )
+    mutated = replace(preflight, max_safe_clock_uncertainty_ms=5000)
     with pytest.raises(ValueError, match="cannot be relaxed"):
+        mutated.validate()
+
+
+def test_clock_preflight_offset_must_be_strict_integer_ms() -> None:
+    preflight = measure_bybit_mainnet_clock_preflight(
+        host="api.bybit.com",
+        transport=_ServerTimeTransport(server_time_ms=10_100),
+        clock_ms=_SequenceClock([10_000, 10_200]),
+    )
+    mutated = replace(preflight, estimated_clock_offset_ms=0.0)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="estimated offset must be integer"):
         mutated.validate()
