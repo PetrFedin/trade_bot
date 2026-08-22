@@ -30,6 +30,7 @@ def _instrument(
     contract_type: str = "LinearPerpetual",
     quote_coin: str = "USDT",
     settle_coin: str = "USDT",
+    delivery_time_ms: int = 0,
     is_pre_listing: bool = False,
 ) -> BybitResearchInstrument:
     base = symbol.removesuffix("USDT") if base_coin is None else base_coin
@@ -42,7 +43,7 @@ def _instrument(
         status=status,
         symbol_type=symbol_type,
         launch_time_ms=_NOW_MS - launch_days_ago * _DAY_MS,
-        delivery_time_ms=0,
+        delivery_time_ms=delivery_time_ms,
         is_pre_listing=is_pre_listing,
     )
 
@@ -117,7 +118,9 @@ def test_dynamic_universe_ranks_only_eligible_crypto_perpetuals() -> None:
     assert selection.selected[1].score >= selection.selected[2].score
     assert selection.excluded_reasons["USDCUSDT"] == ("STABLECOIN_BASE_EXCLUDED",)
     assert selection.excluded_reasons["XAUUSDT"] == ("NON_CRYPTO_LINEAR_PRODUCT",)
-    assert selection.excluded_reasons["NEWUSDT"] == ("INSUFFICIENT_LISTING_HISTORY",)
+    assert selection.excluded_reasons["NEWUSDT"] == (
+        "INSUFFICIENT_LISTING_HISTORY",
+    )
     assert selection.research_only is True
     assert selection.strategy_parameters_changed is False
     assert selection.strategy_promotion_allowed is False
@@ -215,6 +218,37 @@ def test_market_guardrails_reject_illiquid_wide_and_extreme_funding_candidates()
     }
     assert "SPREAD_ABOVE_MAXIMUM" in selection.excluded_reasons["WIDEUSDT"]
     assert selection.excluded_reasons["FUNDUSDT"] == ("FUNDING_RATE_EXTREME",)
+
+
+def test_nonfinite_market_data_and_scheduled_delisting_fail_closed() -> None:
+    instruments = (
+        _instrument("NANUSDT"),
+        _instrument("DELISTUSDT", delivery_time_ms=_NOW_MS + _DAY_MS),
+    )
+    tickers = (
+        _ticker(
+            "NANUSDT",
+            turnover="100000000",
+            oi_value="100000000",
+            bid="NaN",
+        ),
+        _ticker(
+            "DELISTUSDT",
+            turnover="100000000",
+            oi_value="100000000",
+        ),
+    )
+
+    selection = select_bybit_research_universe(
+        instruments,
+        tickers,
+        observed_at_ms=_NOW_MS,
+        policy=_policy(top_n=1),
+    )
+
+    assert selection.selected == ()
+    assert "NON_FINITE_BID_PRICE" in selection.excluded_reasons["NANUSDT"]
+    assert selection.excluded_reasons["DELISTUSDT"] == ("SCHEDULED_DELISTING",)
 
 
 def test_missing_ticker_is_explicit_and_duplicate_inputs_fail_closed() -> None:
@@ -325,8 +359,16 @@ def test_client_paginates_all_linear_instruments_then_fetches_one_ticker_snapsho
                     "result": {
                         "category": "linear",
                         "list": [
-                            _ticker_row("BTCUSDT", turnover="100000000", oi="50000000"),
-                            _ticker_row("ETHUSDT", turnover="90000000", oi="40000000"),
+                            _ticker_row(
+                                "BTCUSDT",
+                                turnover="100000000",
+                                oi="50000000",
+                            ),
+                            _ticker_row(
+                                "ETHUSDT",
+                                turnover="90000000",
+                                oi="40000000",
+                            ),
                         ],
                     },
                 }
@@ -350,7 +392,9 @@ def test_client_paginates_all_linear_instruments_then_fetches_one_ticker_snapsho
         "https://api.bybit.eu/v5/market/instruments-info?category=linear&limit=1000"
     )
     assert "cursor=page-2" in transport.urls[1]
-    assert transport.urls[2] == "https://api.bybit.eu/v5/market/tickers?category=linear"
+    assert transport.urls[2] == (
+        "https://api.bybit.eu/v5/market/tickers?category=linear"
+    )
     assert client.live_mainnet_order_routing_allowed is False
     assert client.order_writes_supported is False
     assert not hasattr(client, "place_order")
