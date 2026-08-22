@@ -6,7 +6,8 @@ on:
     paths:
       - 'app/execution/bybit_mainnet_readonly.py'
       - 'app/runtime/bybit_mainnet_readonly_probe.py'
-      - 'tests/test_bybit_mainnet_readonly.py'
+      - 'app/runtime/bybit_product_config.py'
+      - 'tests/test_bybit_mainnet_readonly*.py'
       - 'docs/BYBIT_MAINNET_READONLY_CONNECTION.md'
       - '.env.example'
       - '.github/workflows/bybit-mainnet-readonly.yml'
@@ -14,7 +15,8 @@ on:
     paths:
       - 'app/execution/bybit_mainnet_readonly.py'
       - 'app/runtime/bybit_mainnet_readonly_probe.py'
-      - 'tests/test_bybit_mainnet_readonly.py'
+      - 'app/runtime/bybit_product_config.py'
+      - 'tests/test_bybit_mainnet_readonly*.py'
       - 'docs/BYBIT_MAINNET_READONLY_CONNECTION.md'
       - '.env.example'
       - '.github/workflows/bybit-mainnet-readonly.yml'
@@ -40,10 +42,10 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[dev]'
           python -m pip check
-      - name: Read-only boundary tests
-        run: pytest -q tests/test_bybit_mainnet_readonly.py
+      - name: Read-only boundary and demo-runtime isolation tests
+        run: pytest -q tests/test_bybit_mainnet_readonly.py tests/test_bybit_mainnet_readonly_config_isolation.py
       - name: Ruff read-only boundary
-        run: ruff check app/execution/bybit_mainnet_readonly.py app/runtime/bybit_mainnet_readonly_probe.py tests/test_bybit_mainnet_readonly.py
+        run: ruff check app/execution/bybit_mainnet_readonly.py app/runtime/bybit_mainnet_readonly_probe.py tests/test_bybit_mainnet_readonly.py tests/test_bybit_mainnet_readonly_config_isolation.py
       - name: Bandit read-only boundary
         run: bandit -q app/execution/bybit_mainnet_readonly.py app/runtime/bybit_mainnet_readonly_probe.py
       - name: Compile read-only boundary
