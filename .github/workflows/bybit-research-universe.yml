@@ -53,25 +53,30 @@ jobs:
           pytest -q \
             tests/test_bybit_research_universe.py \
             tests/test_crypto_historical_diagnostics.py \
-            tests/test_crypto_market_history_profile.py
+            tests/test_crypto_market_history_profile.py \
+            tests/test_research_bybit_dynamic_top10.py
       - name: Ruff research boundary
         run: |
           ruff check \
             app/marketdata/bybit_research_universe.py \
             app/strategy/crypto_historical_diagnostics.py \
             app/strategy/crypto_market_history_profile.py \
+            tools/research_bybit_dynamic_top10.py \
             tests/test_bybit_research_universe.py \
             tests/test_crypto_historical_diagnostics.py \
-            tests/test_crypto_market_history_profile.py
+            tests/test_crypto_market_history_profile.py \
+            tests/test_research_bybit_dynamic_top10.py
       - name: Bandit research boundary
         run: |
           bandit -q \
             app/marketdata/bybit_research_universe.py \
             app/strategy/crypto_historical_diagnostics.py \
-            app/strategy/crypto_market_history_profile.py
+            app/strategy/crypto_market_history_profile.py \
+            tools/research_bybit_dynamic_top10.py
       - name: Compile research boundary
         run: |
           python -m compileall -q \
             app/marketdata/bybit_research_universe.py \
             app/strategy/crypto_historical_diagnostics.py \
-            app/strategy/crypto_market_history_profile.py
+            app/strategy/crypto_market_history_profile.py \
+            tools/research_bybit_dynamic_top10.py
