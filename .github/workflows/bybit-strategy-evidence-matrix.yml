@@ -1,0 +1,73 @@
+name: bybit-strategy-evidence-matrix
+
+on:
+  pull_request:
+    paths:
+      - 'app/strategy/crypto_historical_diagnostics.py'
+      - 'app/strategy/crypto_strategy_evidence_matrix.py'
+      - 'tools/research_bybit_dynamic_top10.py'
+      - 'tests/test_crypto_strategy_evidence_matrix.py'
+      - 'tests/test_crypto_historical_diagnostics.py'
+      - 'tests/test_research_bybit_dynamic_top10.py'
+      - 'docs/BYBIT_STRATEGY_EVIDENCE_MATRIX.md'
+      - '.github/workflows/bybit-strategy-evidence-matrix.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/strategy/crypto_historical_diagnostics.py'
+      - 'app/strategy/crypto_strategy_evidence_matrix.py'
+      - 'tools/research_bybit_dynamic_top10.py'
+      - 'tests/test_crypto_strategy_evidence_matrix.py'
+      - 'tests/test_crypto_historical_diagnostics.py'
+      - 'tests/test_research_bybit_dynamic_top10.py'
+      - 'docs/BYBIT_STRATEGY_EVIDENCE_MATRIX.md'
+      - '.github/workflows/bybit-strategy-evidence-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-strategy-evidence-matrix-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Evidence matrix and regression tests
+        run: |
+          pytest -q \
+            tests/test_crypto_strategy_evidence_matrix.py \
+            tests/test_crypto_historical_diagnostics.py \
+            tests/test_research_bybit_dynamic_top10.py
+      - name: Ruff evidence matrix
+        run: |
+          ruff check \
+            app/strategy/crypto_historical_diagnostics.py \
+            app/strategy/crypto_strategy_evidence_matrix.py \
+            tools/research_bybit_dynamic_top10.py \
+            tests/test_crypto_strategy_evidence_matrix.py \
+            tests/test_research_bybit_dynamic_top10.py
+      - name: Bandit evidence matrix
+        run: |
+          bandit -q \
+            app/strategy/crypto_historical_diagnostics.py \
+            app/strategy/crypto_strategy_evidence_matrix.py \
+            tools/research_bybit_dynamic_top10.py
+      - name: Compile evidence matrix
+        run: |
+          python -m compileall -q \
+            app/strategy/crypto_historical_diagnostics.py \
+            app/strategy/crypto_strategy_evidence_matrix.py \
+            tools/research_bybit_dynamic_top10.py
