@@ -347,7 +347,9 @@ class BybitMainnetReadOnlyClient:
                     "Bybit API-key identity does not match configured credential"
                 )
         secret_marker = result.get("secret")
-        if secret_marker is not None and secret_marker != "":
+        if secret_marker is not None and (
+            not isinstance(secret_marker, str) or len(secret_marker) != 0
+        ):
             raise BybitRestProtocolError(
                 "Bybit API-key information unexpectedly exposed secret material",
                 retryable_read=False,
