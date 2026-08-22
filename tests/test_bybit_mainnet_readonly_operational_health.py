@@ -10,6 +10,7 @@ from app.execution.bybit_mainnet_readonly import (
     BybitMainnetAccountInfo,
     BybitMainnetApiKeyInfo,
     BybitMainnetPosition,
+    BybitMainnetReadOnlyClient,
     BybitMainnetWalletBalance,
 )
 from app.observability.bybit_mainnet_readonly_health import (
@@ -143,9 +144,9 @@ def test_operational_probe_runs_clock_preflight_before_authenticated_connection(
         events.append(f"clock:{host}")
         return _clock(host=host)
 
-    def connection_probe(client: object) -> BybitMainnetReadOnlySnapshot:
+    def connection_probe(client: BybitMainnetReadOnlyClient) -> BybitMainnetReadOnlySnapshot:
         events.append("private-account")
-        assert getattr(client, "host") == "api.bybit.com"
+        assert client.host == "api.bybit.com"
         return _snapshot()
 
     health = probe_bybit_mainnet_readonly_operational(
@@ -170,7 +171,7 @@ def test_operational_probe_never_performs_private_read_when_clock_is_unsafe() ->
         events.append(f"clock:{host}")
         return _clock(host=host, offset_ms=600)
 
-    def connection_probe(client: object) -> BybitMainnetReadOnlySnapshot:
+    def connection_probe(client: BybitMainnetReadOnlyClient) -> BybitMainnetReadOnlySnapshot:
         events.append("private-account")
         return _snapshot()
 
