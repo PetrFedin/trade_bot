@@ -448,7 +448,10 @@ def select_bybit_research_universe(
         if deduped:
             excluded[symbol] = deduped
             continue
-        assert ticker is not None
+        if ticker is None:
+            raise RuntimeError(
+                "Bybit research universe lost ticker after eligibility validation"
+            )
         eligible.append((instrument, ticker))
 
     turnover_values = [ticker.turnover_24h_usdt for _instrument, ticker in eligible]
