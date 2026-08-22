@@ -1,0 +1,73 @@
+name: bybit-funding-dollar-reconstruction
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/marketdata/bybit_mark_price_history.py'
+      - 'app/strategy/crypto_funding_attribution.py'
+      - 'tools/research_bybit_dynamic_top10.py'
+      - 'tests/test_bybit_mark_price_history.py'
+      - 'tests/test_crypto_funding_attribution.py'
+      - 'tests/test_research_bybit_dynamic_top10.py'
+      - 'docs/BYBIT_FUNDING_DOLLAR_RECONSTRUCTION.md'
+      - '.github/workflows/bybit-funding-dollar-reconstruction.yml'
+  pull_request:
+    paths:
+      - 'app/marketdata/bybit_mark_price_history.py'
+      - 'app/strategy/crypto_funding_attribution.py'
+      - 'tools/research_bybit_dynamic_top10.py'
+      - 'tests/test_bybit_mark_price_history.py'
+      - 'tests/test_crypto_funding_attribution.py'
+      - 'tests/test_research_bybit_dynamic_top10.py'
+      - 'docs/BYBIT_FUNDING_DOLLAR_RECONSTRUCTION.md'
+      - '.github/workflows/bybit-funding-dollar-reconstruction.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-funding-dollar-reconstruction-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Mark-price and funding reconstruction tests
+        run: |
+          pytest -q \
+            tests/test_bybit_mark_price_history.py \
+            tests/test_crypto_funding_attribution.py \
+            tests/test_research_bybit_dynamic_top10.py
+      - name: Ruff funding reconstruction
+        run: |
+          ruff check \
+            app/marketdata/bybit_mark_price_history.py \
+            app/strategy/crypto_funding_attribution.py \
+            tools/research_bybit_dynamic_top10.py \
+            tests/test_bybit_mark_price_history.py \
+            tests/test_crypto_funding_attribution.py \
+            tests/test_research_bybit_dynamic_top10.py
+      - name: Bandit funding reconstruction
+        run: |
+          bandit -q \
+            app/marketdata/bybit_mark_price_history.py \
+            app/strategy/crypto_funding_attribution.py \
+            tools/research_bybit_dynamic_top10.py
+      - name: Compile funding reconstruction
+        run: |
+          python -m compileall -q \
+            app/marketdata/bybit_mark_price_history.py \
+            app/strategy/crypto_funding_attribution.py \
+            tools/research_bybit_dynamic_top10.py

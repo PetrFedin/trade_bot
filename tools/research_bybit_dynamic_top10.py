@@ -13,6 +13,10 @@ from app.marketdata.bybit_derivatives_history import (
     BybitDerivativesHistory,
     BybitHistoricalDerivativesClient,
 )
+from app.marketdata.bybit_mark_price_history import (
+    BybitMarkPriceHistory,
+    BybitMarkPriceHistoryClient,
+)
 from app.marketdata.bybit_public_archive import (
     BybitPublicTradeArchiveClient,
     completed_archive_dates,
@@ -32,6 +36,10 @@ from app.marketdata.bybit_v5 import (
 from app.strategy.crypto_derivatives_context import (
     build_crypto_trade_derivatives_context,
     diagnose_crypto_derivatives_context,
+)
+from app.strategy.crypto_funding_attribution import (
+    build_crypto_funding_attribution,
+    diagnose_crypto_funding_attribution,
 )
 from app.strategy.crypto_historical_diagnostics import (
     CryptoHistoricalDiagnosticsPolicy,
@@ -64,6 +72,7 @@ _SITE_HOSTS = {
     "hk": "api-spark-fintech.com",
 }
 _DERIVATIVES_INTERVAL = "1h"
+_MARK_PRICE_INTERVAL = "60"
 _DERIVATIVES_WARMUP = timedelta(days=1)
 _MICRO_BAR_MINUTES = 5
 
@@ -104,6 +113,17 @@ class _DerivativesClient(Protocol):
     ) -> BybitDerivativesHistory: ...
 
 
+class _MarkPriceClient(Protocol):
+    def fetch_history(
+        self,
+        *,
+        symbol: str,
+        start_ms: int,
+        end_ms: int,
+        interval: str = "60",
+    ) -> BybitMarkPriceHistory: ...
+
+
 def run_dynamic_top10_research(
     *,
     observed_at: datetime | None = None,
@@ -118,8 +138,9 @@ def run_dynamic_top10_research(
     archive_client: _ArchiveClient | None = None,
     kline_client: _KlineClient | None = None,
     derivatives_client: _DerivativesClient | None = None,
+    mark_price_client: _MarkPriceClient | None = None,
 ) -> dict[str, Any]:
-    """Run the complete research-only Top-10 -> history -> strategy evidence pipeline."""
+    """Run the research-only Top-10 -> history -> fixed-strategy evidence pipeline."""
 
     if not opening_equity_usdt.is_finite() or opening_equity_usdt <= 0:
         raise ValueError("dynamic Top-10 research opening equity must be positive and finite")
@@ -166,7 +187,7 @@ def run_dynamic_top10_research(
         )
     symbols = tuple(item.symbol for item in selection.selected)
     if len(symbols) != 10:
-        raise AssertionError("dynamic Top-10 selection must contain exactly ten symbols")
+        raise RuntimeError("dynamic Top-10 selection must contain exactly ten symbols")
 
     instrument_by_symbol = {item.symbol: item for item in instruments}
     if any(symbol not in instrument_by_symbol for symbol in symbols):
@@ -243,6 +264,18 @@ def run_dynamic_top10_research(
             else condition_policy.minimum_pattern_trades
         ),
     )
+    mark_price_histories = _fetch_micro_mark_price_histories(
+        micro.klines,
+        symbols=symbols,
+        host=host,
+        mark_price_client=mark_price_client,
+    )
+    funding_rows = build_crypto_funding_attribution(
+        combined,
+        derivatives_histories,
+        mark_price_histories,
+    )
+    funding_diagnostics = diagnose_crypto_funding_attribution(funding_rows)
 
     result = {
         "research": "BYBIT_DYNAMIC_TOP10_FULL_HISTORY_AND_STRATEGY_DIAGNOSTICS",
@@ -269,6 +302,15 @@ def run_dynamic_top10_research(
             },
             "diagnostics": derivatives_context,
         },
+        "funding_dollar_attribution": {
+            "source": "BYBIT_PUBLIC_FUNDING_AND_MARK_PRICE_HISTORY",
+            "mark_price_interval": _MARK_PRICE_INTERVAL,
+            "request_count_by_symbol": {
+                symbol: mark_price_histories[symbol].request_count
+                for symbol in symbols
+            },
+            "diagnostics": funding_diagnostics,
+        },
         "strategy_walk_forward": walk_forward,
         "strategy_candidate_comparison": compact_candidate_comparison(suite),
         "combined_risk_trade_conditions": trade_conditions,
@@ -288,11 +330,12 @@ def run_dynamic_top10_research(
             "RECENT_OFFICIAL_TRADE_ARCHIVE_AGGREGATED_5M",
             "POINT_IN_TIME_HISTORICAL_OPEN_INTEREST_ACCOUNT_RATIO_PRIOR_FUNDING",
             "POST_ENTRY_SETTLED_FUNDING_RATE_ATTRIBUTION",
+            "REPLAY_QUANTITY_MARK_PRICE_FUNDING_DOLLAR_RECONSTRUCTION",
             "FIXED_PARAMETER_NON_OVERLAPPING_WALK_FORWARD",
             "TRADE_ENTRY_CONDITION_ASSOCIATIONS_WITH_REALIZED_PNL_MFE_MAE",
         ],
         "known_next_evidence_gaps": [
-            "FUNDING_DOLLAR_COST_NOT_YET_RECONCILED_TO_ACTUAL_REPLAY_NOTIONAL",
+            "BROKER_FUNDING_LEDGER_NOT_YET_RECONCILED_READONLY_MAINNET",
             "LIQUIDATION_HISTORY_NOT_YET_JOINED_TO_SIGNAL_CONTEXT",
             "ORDER_BOOK_DEPTH_HISTORY_NOT_AVAILABLE_FROM_STANDARD_V5_KLINE_HISTORY",
         ],
@@ -305,12 +348,23 @@ def run_dynamic_top10_research(
         "real_money_order_submission_supported": False,
         "interpretation_contract": (
             "Top-10 is a current research universe, not a buy/sell list. Full-history patterns, "
-            "correlations, point-in-time derivatives context and indicator buckets are evidence to "
-            "validate the fixed strategy and do not guarantee future profit."
+            "correlations, point-in-time derivatives context, reconstructed funding and indicator "
+            "buckets are evidence to validate the fixed strategy and do not guarantee future "
+            "profit."
         ),
     }
     _validate_final_boundary(result)
     return result
+
+
+def _micro_context_range_ms(acquisition: BybitKlineAcquisition) -> tuple[int, int]:
+    if not acquisition.bars:
+        raise ValueError("dynamic Top-10 derivatives context requires micro bars")
+    first_bar = min(bar.start_time for bar in acquisition.bars)
+    last_bar = max(bar.start_time for bar in acquisition.bars)
+    start = first_bar - _DERIVATIVES_WARMUP
+    end = last_bar + timedelta(minutes=_MICRO_BAR_MINUTES)
+    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
 
 
 def _fetch_micro_derivatives_histories(
@@ -320,14 +374,7 @@ def _fetch_micro_derivatives_histories(
     host: str,
     derivatives_client: _DerivativesClient | None,
 ) -> dict[str, BybitDerivativesHistory]:
-    if not acquisition.bars:
-        raise ValueError("dynamic Top-10 derivatives context requires micro bars")
-    first_bar = min(bar.start_time for bar in acquisition.bars)
-    last_bar = max(bar.start_time for bar in acquisition.bars)
-    start = first_bar - _DERIVATIVES_WARMUP
-    end = last_bar + timedelta(minutes=_MICRO_BAR_MINUTES)
-    start_ms = int(start.timestamp() * 1000)
-    end_ms = int(end.timestamp() * 1000)
+    start_ms, end_ms = _micro_context_range_ms(acquisition)
     client = (
         BybitHistoricalDerivativesClient(host=host)
         if derivatives_client is None
@@ -344,6 +391,34 @@ def _fetch_micro_derivatives_histories(
         history.validate()
         if history.symbol != symbol:
             raise RuntimeError("dynamic Top-10 derivatives history symbol mismatch")
+        histories[symbol] = history
+    return histories
+
+
+def _fetch_micro_mark_price_histories(
+    acquisition: BybitKlineAcquisition,
+    *,
+    symbols: tuple[str, ...],
+    host: str,
+    mark_price_client: _MarkPriceClient | None,
+) -> dict[str, BybitMarkPriceHistory]:
+    start_ms, end_ms = _micro_context_range_ms(acquisition)
+    client = (
+        BybitMarkPriceHistoryClient(host=host)
+        if mark_price_client is None
+        else mark_price_client
+    )
+    histories: dict[str, BybitMarkPriceHistory] = {}
+    for symbol in symbols:
+        history = client.fetch_history(
+            symbol=symbol,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            interval=_MARK_PRICE_INTERVAL,
+        )
+        history.validate()
+        if history.symbol != symbol:
+            raise RuntimeError("dynamic Top-10 mark-price history symbol mismatch")
         histories[symbol] = history
     return histories
 
