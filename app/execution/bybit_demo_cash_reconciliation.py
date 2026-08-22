@@ -52,13 +52,24 @@ class BybitDemoCashReconciliation:
     demo_only: bool = True
     live_mainnet_order_routing_allowed: bool = False
 
+    @property
+    def reconciled(self) -> bool:
+        """True only for an available flat-state reconciliation with zero unexplained cash delta."""
+
+        return (
+            not self.active_trade_deferred
+            and self.expected_wallet_balance_usdt is not None
+            and self.broker_wallet_balance_usdt is not None
+            and self.cash_mismatch_usdt == _ZERO
+            and not self.reasons
+            and self.demo_only
+            and not self.live_mainnet_order_routing_allowed
+        )
+
 
 def cumulative_all_in_pnl_usdt(ledger: BybitDemoSessionRiskLedger) -> Decimal:
     ledger.validate()
-    return sum(
-        (outcome.all_in_net_pnl_usdt for outcome in ledger.outcomes),
-        start=_ZERO,
-    )
+    return ledger.cumulative_realized_all_in_pnl_usdt
 
 
 def build_bybit_demo_cash_baseline(
