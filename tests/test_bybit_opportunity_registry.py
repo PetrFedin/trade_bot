@@ -131,7 +131,7 @@ def test_registry_refuses_fake_top10_when_fewer_than_ten_symbols_are_eligible() 
     assert len(snapshot.top10_symbols) == 7
     assert snapshot.blockers == ("INSUFFICIENT_ELIGIBLE_SYMBOLS_FOR_TOP10",)
     assert snapshot.registry_population_complete is True
-    with pytest.raises(ValueError, match="within \[10, 50\]"):
+    with pytest.raises(ValueError, match=r"within \[10, 50\]"):
         build_bybit_opportunity_snapshot(
             instruments,
             tickers,
