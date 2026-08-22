@@ -94,32 +94,18 @@ jobs:
             --registry-limit 50 \
             --output artifacts/bybit-opportunity-registry.json \
             > artifacts/public-snapshot-smoke.log 2>&1
-          STATUS=$?
+          COMMAND_STATUS=$?
           set -e
-          if [ "$STATUS" -ne 0 ]; then
-            python - <<'PY'
-          import json
-          from pathlib import Path
-
-          log_path = Path('artifacts/public-snapshot-smoke.log')
-          log_text = log_path.read_text(encoding='utf-8')
-          access_blocked = 'BybitPublicAccessBlockedError' in log_text
-          status = {
-              'status': (
-                  'PUBLIC_BYBIT_ACCESS_BLOCKED'
-                  if access_blocked
-                  else 'PUBLIC_SNAPSHOT_UNAVAILABLE'
-              ),
-              'top10_verified': False,
-              'trade_actionable': False,
-              'bybit_live_order_routing_allowed': False,
-          }
-          Path('artifacts/bybit-opportunity-registry-smoke-status.json').write_text(
-              json.dumps(status, indent=2, sort_keys=True) + '\n',
-              encoding='utf-8',
-          )
-          print('BYBIT_PUBLIC_SNAPSHOT_SMOKE=' + json.dumps(status, sort_keys=True))
-          PY
+          if [ "$COMMAND_STATUS" -ne 0 ]; then
+            if grep -q 'BybitPublicAccessBlockedError' artifacts/public-snapshot-smoke.log; then
+              SNAPSHOT_STATUS='PUBLIC_BYBIT_ACCESS_BLOCKED'
+            else
+              SNAPSHOT_STATUS='PUBLIC_SNAPSHOT_UNAVAILABLE'
+            fi
+            printf '{"bybit_live_order_routing_allowed":false,"status":"%s","top10_verified":false,"trade_actionable":false}\n' \
+              "$SNAPSHOT_STATUS" \
+              > artifacts/bybit-opportunity-registry-smoke-status.json
+            cat artifacts/bybit-opportunity-registry-smoke-status.json
           else
             cat artifacts/bybit-opportunity-registry.json
           fi
