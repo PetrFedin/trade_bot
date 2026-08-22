@@ -9,6 +9,10 @@ from app.marketdata.bybit_derivatives_history import (
     BybitHistoricalFundingPoint,
     BybitOpenInterestPoint,
 )
+from app.marketdata.bybit_mark_price_history import (
+    BybitMarkPriceHistory,
+    BybitMarkPricePoint,
+)
 from app.marketdata.bybit_research_universe import (
     BybitResearchInstrument,
     BybitResearchTicker,
@@ -162,6 +166,42 @@ class _DerivativesClient:
         )
 
 
+class _MarkPriceClient:
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, int, int, str]] = []
+
+    def fetch_history(
+        self,
+        *,
+        symbol: str,
+        start_ms: int,
+        end_ms: int,
+        interval: str = "60",
+    ) -> BybitMarkPriceHistory:
+        self.requests.append((symbol, start_ms, end_ms, interval))
+        hourly = tuple(range(start_ms, end_ms + 1, _HOUR_MS))
+        points = tuple(
+            BybitMarkPricePoint(
+                symbol=symbol,
+                start_time_ms=timestamp,
+                open_price=Decimal("100"),
+                high_price=Decimal("101"),
+                low_price=Decimal("99"),
+                close_price=Decimal("100"),
+            )
+            for timestamp in hourly
+        )
+        return BybitMarkPriceHistory(
+            symbol=symbol,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            interval=interval,
+            points=points,
+            request_count=1,
+            host="api.bybit.eu",
+        )
+
+
 def _bars(
     symbol: str,
     times: list[datetime],
@@ -230,6 +270,7 @@ def test_one_command_pipeline_keeps_top10_history_walk_forward_and_safety_bounda
     archive = _ArchiveClient(_micro_acquisition())
     kline = _KlineClient(_macro_acquisition())
     derivatives = _DerivativesClient()
+    marks = _MarkPriceClient()
     report = run_dynamic_top10_research(
         observed_at=_NOW,
         bybit_site="eu",
@@ -252,6 +293,7 @@ def test_one_command_pipeline_keeps_top10_history_walk_forward_and_safety_bounda
         archive_client=archive,
         kline_client=kline,
         derivatives_client=derivatives,
+        mark_price_client=marks,
     )
 
     assert report["top10_symbols"] == list(_SYMBOLS)
@@ -264,14 +306,17 @@ def test_one_command_pipeline_keeps_top10_history_walk_forward_and_safety_bounda
     assert set(report["historical_derivatives_context"]["request_count_by_symbol"]) == set(
         _SYMBOLS
     )
-    assert report["historical_derivatives_context"]["diagnostics"][
-        "funding_dollar_cost_reconciled"
-    ] is False
+    funding = report["funding_dollar_attribution"]
+    assert funding["mark_price_interval"] == "60"
+    assert set(funding["request_count_by_symbol"]) == set(_SYMBOLS)
+    assert funding["diagnostics"]["public_history_funding_reconstruction_complete"] is True
+    assert funding["diagnostics"]["broker_ledger_funding_reconciled"] is False
+    assert funding["diagnostics"]["funding_dollar_cost_reconciled"] is False
     assert report["strategy_walk_forward"]["fold_count"] == 2
     assert "CONDITIONAL_COMBINED_RISK" in report["strategy_candidate_comparison"]
     assert report["combined_risk_trade_conditions"]["causal_claim_allowed"] is False
     assert report["known_next_evidence_gaps"] == [
-        "FUNDING_DOLLAR_COST_NOT_YET_RECONCILED_TO_ACTUAL_REPLAY_NOTIONAL",
+        "BROKER_FUNDING_LEDGER_NOT_YET_RECONCILED_READONLY_MAINNET",
         "LIQUIDATION_HISTORY_NOT_YET_JOINED_TO_SIGNAL_CONTEXT",
         "ORDER_BOOK_DEPTH_HISTORY_NOT_AVAILABLE_FROM_STANDARD_V5_KLINE_HISTORY",
     ]
@@ -288,6 +333,8 @@ def test_one_command_pipeline_keeps_top10_history_walk_forward_and_safety_bounda
     assert kline.requests[0].interval == "60"
     assert [request[0] for request in derivatives.requests] == list(_SYMBOLS)
     assert all(request[3] == "1h" for request in derivatives.requests)
+    assert [request[0] for request in marks.requests] == list(_SYMBOLS)
+    assert all(request[3] == "60" for request in marks.requests)
 
 
 def test_pipeline_rejects_non_top10_policy_and_unknown_site() -> None:
