@@ -1,0 +1,160 @@
+name: bybit-opportunity-registry
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/marketdata/bybit_opportunity_registry.py'
+      - 'app/marketdata/bybit_opportunity_postgres.py'
+      - 'tools/snapshot_bybit_opportunity_registry.py'
+      - 'migrations/v110/001_bybit_opportunity_registry.sql'
+      - 'tests/test_bybit_opportunity_registry.py'
+      - 'docs/BYBIT_OPPORTUNITY_REGISTRY.md'
+      - '.github/workflows/bybit-opportunity-registry.yml'
+  pull_request:
+    paths:
+      - 'app/marketdata/bybit_opportunity_registry.py'
+      - 'app/marketdata/bybit_opportunity_postgres.py'
+      - 'tools/snapshot_bybit_opportunity_registry.py'
+      - 'migrations/v110/001_bybit_opportunity_registry.sql'
+      - 'tests/test_bybit_opportunity_registry.py'
+      - 'docs/BYBIT_OPPORTUNITY_REGISTRY.md'
+      - '.github/workflows/bybit-opportunity-registry.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '*/10 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-opportunity-registry-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Opportunity registry tests
+        run: pytest -q tests/test_bybit_opportunity_registry.py
+      - name: Ruff opportunity registry
+        run: |
+          ruff check \
+            app/marketdata/bybit_opportunity_registry.py \
+            app/marketdata/bybit_opportunity_postgres.py \
+            tools/snapshot_bybit_opportunity_registry.py \
+            tests/test_bybit_opportunity_registry.py
+      - name: Bandit opportunity registry
+        run: |
+          bandit -q \
+            app/marketdata/bybit_opportunity_registry.py \
+            app/marketdata/bybit_opportunity_postgres.py \
+            tools/snapshot_bybit_opportunity_registry.py
+      - name: Compile opportunity registry
+        run: |
+          python -m compileall -q \
+            app/marketdata/bybit_opportunity_registry.py \
+            app/marketdata/bybit_opportunity_postgres.py \
+            tools/snapshot_bybit_opportunity_registry.py
+
+  public-snapshot-smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      BYBIT_RESEARCH_SITE: ${{ vars.BYBIT_RESEARCH_SITE }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install public snapshot dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Attempt current public registry without secrets
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          SITE="${BYBIT_RESEARCH_SITE:-eu}"
+          set +e
+          python -m tools.snapshot_bybit_opportunity_registry \
+            --site "$SITE" \
+            --registry-limit 50 \
+            --output artifacts/bybit-opportunity-registry.json \
+            > artifacts/public-snapshot-smoke.log 2>&1
+          COMMAND_STATUS=$?
+          set -e
+          if [ "$COMMAND_STATUS" -ne 0 ]; then
+            if grep -q 'BybitPublicAccessBlockedError' artifacts/public-snapshot-smoke.log; then
+              SNAPSHOT_STATUS='PUBLIC_BYBIT_ACCESS_BLOCKED'
+            else
+              SNAPSHOT_STATUS='PUBLIC_SNAPSHOT_UNAVAILABLE'
+            fi
+            printf '{"bybit_live_order_routing_allowed":false,"status":"%s","top10_verified":false,"trade_actionable":false}\n' \
+              "$SNAPSHOT_STATUS" \
+              > artifacts/bybit-opportunity-registry-smoke-status.json
+            cat artifacts/bybit-opportunity-registry-smoke-status.json
+          else
+            cat artifacts/bybit-opportunity-registry.json
+          fi
+      - name: Upload public snapshot smoke artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-opportunity-registry-smoke-${{ github.run_id }}
+          path: |
+            artifacts/bybit-opportunity-registry.json
+            artifacts/bybit-opportunity-registry-smoke-status.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  public-snapshot:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      BYBIT_RESEARCH_SITE: ${{ vars.BYBIT_RESEARCH_SITE }}
+      BYBIT_OPPORTUNITY_DATABASE_DSN: ${{ secrets.BYBIT_OPPORTUNITY_DATABASE_DSN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install snapshot dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Capture current public registry
+        shell: bash
+        run: |
+          SITE="${BYBIT_RESEARCH_SITE:-global}"
+          EXTRA_ARGS=()
+          if [ -n "${BYBIT_OPPORTUNITY_DATABASE_DSN:-}" ]; then
+            EXTRA_ARGS+=(--persist-postgres)
+          fi
+          python -m tools.snapshot_bybit_opportunity_registry \
+            --site "$SITE" \
+            --registry-limit 50 \
+            --output artifacts/bybit-opportunity-registry.json \
+            "${EXTRA_ARGS[@]}"
+      - name: Upload timestamped opportunity registry
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-opportunity-registry-${{ github.run_id }}
+          path: artifacts/bybit-opportunity-registry.json
+          if-no-files-found: warn
+          retention-days: 30
