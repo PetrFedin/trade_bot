@@ -3,6 +3,12 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
+from app.marketdata.bybit_derivatives_history import (
+    BybitAccountRatioPoint,
+    BybitDerivativesHistory,
+    BybitHistoricalFundingPoint,
+    BybitOpenInterestPoint,
+)
 from app.marketdata.bybit_research_universe import (
     BybitResearchInstrument,
     BybitResearchTicker,
@@ -19,6 +25,7 @@ from tools.research_bybit_dynamic_top10 import run_dynamic_top10_research
 _NOW = datetime(2026, 8, 22, 12, tzinfo=UTC)
 _NOW_MS = int(_NOW.timestamp() * 1000)
 _DAY_MS = 86_400_000
+_HOUR_MS = 3_600_000
 _SYMBOLS = tuple(f"C{index}USDT" for index in range(10))
 
 
@@ -104,6 +111,57 @@ class _KlineClient:
         return self.acquisition
 
 
+class _DerivativesClient:
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, int, int, str]] = []
+
+    def fetch_history(
+        self,
+        *,
+        symbol: str,
+        start_ms: int,
+        end_ms: int,
+        interval: str = "1h",
+    ) -> BybitDerivativesHistory:
+        self.requests.append((symbol, start_ms, end_ms, interval))
+        hourly = tuple(range(start_ms, end_ms + 1, _HOUR_MS))
+        funding_times = tuple(range(start_ms, end_ms + 1, 8 * _HOUR_MS))
+        return BybitDerivativesHistory(
+            symbol=symbol,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            interval=interval,
+            open_interest=tuple(
+                BybitOpenInterestPoint(
+                    symbol=symbol,
+                    timestamp_ms=timestamp,
+                    open_interest=Decimal("100") + index,
+                    single_open_interest=None,
+                )
+                for index, timestamp in enumerate(hourly)
+            ),
+            account_ratio=tuple(
+                BybitAccountRatioPoint(
+                    symbol=symbol,
+                    timestamp_ms=timestamp,
+                    buy_ratio=Decimal("0.52"),
+                    sell_ratio=Decimal("0.48"),
+                )
+                for timestamp in hourly
+            ),
+            funding=tuple(
+                BybitHistoricalFundingPoint(
+                    symbol=symbol,
+                    timestamp_ms=timestamp,
+                    funding_rate=Decimal("0.0001"),
+                )
+                for timestamp in funding_times
+            ),
+            request_count=3,
+            host="api.bybit.eu",
+        )
+
+
 def _bars(
     symbol: str,
     times: list[datetime],
@@ -171,6 +229,7 @@ def _micro_acquisition() -> BybitKlineAcquisition:
 def test_one_command_pipeline_keeps_top10_history_walk_forward_and_safety_boundaries() -> None:
     archive = _ArchiveClient(_micro_acquisition())
     kline = _KlineClient(_macro_acquisition())
+    derivatives = _DerivativesClient()
     report = run_dynamic_top10_research(
         observed_at=_NOW,
         bybit_site="eu",
@@ -192,6 +251,7 @@ def test_one_command_pipeline_keeps_top10_history_walk_forward_and_safety_bounda
         universe_client=_UniverseClient(),
         archive_client=archive,
         kline_client=kline,
+        derivatives_client=derivatives,
     )
 
     assert report["top10_symbols"] == list(_SYMBOLS)
@@ -199,10 +259,22 @@ def test_one_command_pipeline_keeps_top10_history_walk_forward_and_safety_bounda
     assert report["universe"]["complete_top_n"] is True
     assert report["full_history_hourly"]["symbol_count"] == 10
     assert report["micro_execution_history"]["lookback_days"] == 2
+    assert report["historical_derivatives_context"]["interval"] == "1h"
+    assert report["historical_derivatives_context"]["symbols"] == list(_SYMBOLS)
+    assert set(report["historical_derivatives_context"]["request_count_by_symbol"]) == set(
+        _SYMBOLS
+    )
+    assert report["historical_derivatives_context"]["diagnostics"][
+        "funding_dollar_cost_reconciled"
+    ] is False
     assert report["strategy_walk_forward"]["fold_count"] == 2
     assert "CONDITIONAL_COMBINED_RISK" in report["strategy_candidate_comparison"]
     assert report["combined_risk_trade_conditions"]["causal_claim_allowed"] is False
-    assert report["known_next_evidence_gaps"]
+    assert report["known_next_evidence_gaps"] == [
+        "FUNDING_DOLLAR_COST_NOT_YET_RECONCILED_TO_ACTUAL_REPLAY_NOTIONAL",
+        "LIQUIDATION_HISTORY_NOT_YET_JOINED_TO_SIGNAL_CONTEXT",
+        "ORDER_BOOK_DEPTH_HISTORY_NOT_AVAILABLE_FROM_STANDARD_V5_KLINE_HISTORY",
+    ]
     assert report["parameter_retuning_performed"] is False
     assert report["strategy_selection_allowed"] is False
     assert report["strategy_promotion_allowed"] is False
@@ -214,6 +286,8 @@ def test_one_command_pipeline_keeps_top10_history_walk_forward_and_safety_bounda
     assert archive.requests[0][2] == 5
     assert kline.requests[0].symbols == _SYMBOLS
     assert kline.requests[0].interval == "60"
+    assert [request[0] for request in derivatives.requests] == list(_SYMBOLS)
+    assert all(request[3] == "1h" for request in derivatives.requests)
 
 
 def test_pipeline_rejects_non_top10_policy_and_unknown_site() -> None:
