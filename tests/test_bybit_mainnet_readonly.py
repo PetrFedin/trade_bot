@@ -199,6 +199,16 @@ def test_readonly_boundary_blocks_mutation_path_even_through_internal_get() -> N
     assert transport.calls == []
 
 
+def test_readonly_boundary_rejects_arbitrary_mainnet_host() -> None:
+    with pytest.raises(BybitMainnetReadOnlyError, match="regional allowlist"):
+        BybitMainnetReadOnlyClient(
+            api_key="key",
+            api_secret="secret",
+            host="evil.example",
+            transport=_FakeTransport([]),
+        )
+
+
 def test_wallet_and_position_reads_parse_mainnet_account_without_write_surface() -> None:
     transport = _FakeTransport([_wallet_result(), _positions_result()])
     client = BybitMainnetReadOnlyClient(
@@ -247,6 +257,7 @@ def test_full_probe_verifies_key_before_reading_account_wallet_and_positions() -
         "/v5/position/list",
     ]
     assert safe["environment"] == "BYBIT_MAINNET_READONLY"
+    assert safe["api_host"] == "api.bybit.com"
     assert safe["live_mainnet_order_routing_allowed"] is False
     assert safe["order_writes_supported"] is False
     assert safe["credential_safety"]["read_only_verified"] is True
@@ -270,12 +281,37 @@ def test_mainnet_credentials_use_separate_env_names_and_hide_secrets_from_repr()
 
     assert credentials.api_key == "key"
     assert credentials.api_secret == "secret"
+    assert credentials.site == "global"
+    assert credentials.host == "api.bybit.com"
     assert "key" not in repr(credentials)
     assert "secret" not in repr(credentials)
 
     with pytest.raises(BybitMainnetReadOnlyConfigError):
         BybitMainnetReadOnlyCredentials.from_env(
             {"BYBIT_MAINNET_READONLY_API_KEY": "key"}
+        )
+
+
+def test_mainnet_credentials_select_only_allowlisted_regional_site() -> None:
+    credentials = BybitMainnetReadOnlyCredentials.from_env(
+        {
+            "BYBIT_MAINNET_READONLY_API_KEY": "key",
+            "BYBIT_MAINNET_READONLY_API_SECRET": "secret",
+            "BYBIT_MAINNET_READONLY_SITE": "nl",
+        }
+    )
+
+    assert credentials.site == "nl"
+    assert credentials.host == "api.bybit.nl"
+    assert credentials.build_client().host == "api.bybit.nl"
+
+    with pytest.raises(BybitMainnetReadOnlyConfigError, match="must be one of"):
+        BybitMainnetReadOnlyCredentials.from_env(
+            {
+                "BYBIT_MAINNET_READONLY_API_KEY": "key",
+                "BYBIT_MAINNET_READONLY_API_SECRET": "secret",
+                "BYBIT_MAINNET_READONLY_SITE": "https://api.bybit.com",
+            }
         )
 
 
