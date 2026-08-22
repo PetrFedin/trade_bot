@@ -78,7 +78,9 @@ class BybitMainnetClockPreflight:
             ("worst_case_abs_clock_skew_ms", self.worst_case_abs_clock_skew_ms),
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise ValueError(f"Bybit clock preflight {field_name} must be non-negative integer ms")
+                raise ValueError(
+                    f"Bybit clock preflight {field_name} must be non-negative integer ms"
+                )
         if self.local_receive_time_ms < self.local_send_time_ms:
             raise ValueError("Bybit clock preflight local clock moved backwards")
         if self.round_trip_time_ms != self.local_receive_time_ms - self.local_send_time_ms:
