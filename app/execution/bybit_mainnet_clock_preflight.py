@@ -81,6 +81,10 @@ class BybitMainnetClockPreflight:
                 raise ValueError(
                     f"Bybit clock preflight {field_name} must be non-negative integer ms"
                 )
+        if isinstance(self.estimated_clock_offset_ms, bool) or not isinstance(
+            self.estimated_clock_offset_ms, int
+        ):
+            raise ValueError("Bybit clock preflight estimated offset must be integer ms")
         if self.local_receive_time_ms < self.local_send_time_ms:
             raise ValueError("Bybit clock preflight local clock moved backwards")
         if self.round_trip_time_ms != self.local_receive_time_ms - self.local_send_time_ms:
