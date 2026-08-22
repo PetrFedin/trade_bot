@@ -70,19 +70,19 @@ def profile_crypto_market_history(
 
     active = CryptoMarketHistoryPolicy() if policy is None else policy
     active.validate()
+    if not interval.strip():
+        raise ValueError("crypto full-history profile interval is required")
     bars_by_symbol = _bars_by_symbol(acquisition.bars)
     if len(bars_by_symbol) < 2:
         raise ValueError("crypto full-history profile requires at least two symbols")
 
     symbol_profiles: dict[str, dict[str, Any]] = {}
-    regimes_by_symbol: dict[str, tuple[CryptoRegimePoint, ...]] = {}
     episodes: list[CryptoRegimeEpisode] = []
     returns_by_symbol: dict[str, dict[str, Decimal]] = {}
     for symbol, bars in sorted(bars_by_symbol.items()):
         if len(bars) < active.slow_ema_bars + active.momentum_bars:
             raise ValueError(f"crypto full-history profile has insufficient bars:{symbol}")
         regimes = _regime_points(symbol, bars, policy=active)
-        regimes_by_symbol[symbol] = regimes
         symbol_episodes = _episodes(regimes, policy=active)
         episodes.extend(symbol_episodes)
         returns = _returns_by_time(bars)
@@ -122,7 +122,8 @@ def profile_crypto_market_history(
             key=lambda item: (float(item["correlation"]), item["pair"]),
         )[:10],
         "regime_label_timing": (
-            "each label uses same-bar completed close plus recursively available EMA, momentum and ATR"
+            "each label uses same-bar completed close plus recursively available EMA, "
+            "momentum and ATR"
         ),
         "interpretation_contract": (
             "descriptive completed-history relationships only; correlation and repeated regimes do "
@@ -164,9 +165,15 @@ def _regime_points(
         )
         true_ranges.append(true_range)
         previous_close = bar.close
-        if index < max(policy.slow_ema_bars - 1, policy.momentum_bars, policy.atr_bars - 1):
+        if index < max(
+            policy.slow_ema_bars - 1,
+            policy.momentum_bars,
+            policy.atr_bars - 1,
+        ):
             continue
-        atr = sum(true_ranges[-policy.atr_bars :], start=_ZERO) / Decimal(policy.atr_bars)
+        atr = sum(true_ranges[-policy.atr_bars :], start=_ZERO) / Decimal(
+            policy.atr_bars
+        )
         if atr <= 0:
             raise ValueError("crypto full-history ATR must be positive")
         momentum = bar.close / bars[index - policy.momentum_bars].close - _ONE
@@ -233,11 +240,17 @@ def _symbol_profile(
     episodes: Sequence[CryptoRegimeEpisode],
 ) -> dict[str, Any]:
     closes = [bar.close for bar in bars]
-    returns = [closes[index] / closes[index - 1] - _ONE for index in range(1, len(closes))]
+    returns = [
+        closes[index] / closes[index - 1] - _ONE
+        for index in range(1, len(closes))
+    ]
     total_return = closes[-1] / closes[0] - _ONE
     max_drawdown = _maximum_drawdown(closes)
     mean_return = sum(returns, start=_ZERO) / Decimal(len(returns))
-    mean_abs_return = sum((abs(value) for value in returns), start=_ZERO) / Decimal(len(returns))
+    mean_abs_return = sum(
+        (abs(value) for value in returns),
+        start=_ZERO,
+    ) / Decimal(len(returns))
     volatility = _population_stddev(returns)
     regime_counts = Counter(point.trend_regime for point in regimes)
     episode_counts = Counter(episode.regime for episode in episodes)
@@ -282,7 +295,9 @@ def _episode_summary(episodes: Sequence[CryptoRegimeEpisode]) -> dict[str, Any]:
             "positive_episode_fraction": float(
                 Decimal(sum(value > 0 for value in returns)) / Decimal(len(returns))
             ),
-            "average_episode_bars": float(Decimal(sum(bars)) / Decimal(len(bars))),
+            "average_episode_bars": float(
+                Decimal(sum(bars)) / Decimal(len(bars))
+            ),
             "maximum_episode_bars": max(bars),
         }
     return result
@@ -297,7 +312,9 @@ def _pairwise_correlations(
     result: list[dict[str, Any]] = []
     for index, left in enumerate(symbols):
         for right in symbols[index + 1 :]:
-            common = sorted(set(returns_by_symbol[left]) & set(returns_by_symbol[right]))
+            common = sorted(
+                set(returns_by_symbol[left]) & set(returns_by_symbol[right])
+            )
             if len(common) < minimum_observations:
                 continue
             left_values = [returns_by_symbol[left][time] for time in common]
@@ -338,7 +355,10 @@ def _population_stddev(values: Sequence[Decimal]) -> float:
     if not values:
         return 0.0
     mean = sum(values, start=_ZERO) / Decimal(len(values))
-    variance = sum(((value - mean) ** 2 for value in values), start=_ZERO) / Decimal(len(values))
+    variance = sum(
+        ((value - mean) ** 2 for value in values),
+        start=_ZERO,
+    ) / Decimal(len(values))
     return math.sqrt(float(variance))
 
 
@@ -347,8 +367,12 @@ def _pearson(left: Sequence[Decimal], right: Sequence[Decimal]) -> float | None:
         raise ValueError("crypto history correlation inputs must have equal length >= 3")
     left_mean = sum(left, start=_ZERO) / Decimal(len(left))
     right_mean = sum(right, start=_ZERO) / Decimal(len(right))
+    paired = zip(left, right, strict=True)
     numerator = sum(
-        ((lvalue - left_mean) * (rvalue - right_mean) for lvalue, rvalue in zip(left, right, strict=True)),
+        (
+            (left_value - left_mean) * (right_value - right_mean)
+            for left_value, right_value in paired
+        ),
         start=_ZERO,
     )
     left_ss = sum(((value - left_mean) ** 2 for value in left), start=_ZERO)
