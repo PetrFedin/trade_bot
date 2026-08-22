@@ -4,7 +4,7 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from app.marketdata.bybit_v5 import BybitKlineAcquisition, BybitKlineBar
@@ -67,7 +67,6 @@ class CryptoHistoricalTradeCondition:
                 self.turnover_regime,
             )
         )
-
 
 
 def diagnose_crypto_historical_conditions(
@@ -260,7 +259,11 @@ def _materialize_record(
     breakout_strength = raw["breakout_strength_atr"]
     if not isinstance(breakout_strength, Decimal):
         raise ValueError("crypto diagnostics breakout strength type is invalid")
-    breakout = "BREAKOUT_CONFIRMED" if breakout_strength >= _ZERO else "BREAKOUT_PULLBACK"
+    breakout = (
+        "BREAKOUT_CONFIRMED"
+        if breakout_strength >= _ZERO
+        else "BREAKOUT_PULLBACK"
+    )
 
     turnover = raw["average_turnover_usdt"]
     if not isinstance(turnover, Decimal):
@@ -268,7 +271,9 @@ def _materialize_record(
     if turnover_median is None:
         turnover_regime = "TURNOVER_UNKNOWN"
     else:
-        turnover_regime = "TURNOVER_HIGH" if turnover >= turnover_median else "TURNOVER_LOW"
+        turnover_regime = (
+            "TURNOVER_HIGH" if turnover >= turnover_median else "TURNOVER_LOW"
+        )
 
     return CryptoHistoricalTradeCondition(
         symbol=str(raw["symbol"]),
@@ -352,7 +357,10 @@ def _quantile_condition_table(
     if not records:
         return []
     values = [getattr(record, feature) for record in records]
-    if any(not isinstance(value, Decimal) or not value.is_finite() for value in values):
+    if any(
+        not isinstance(value, Decimal) or not value.is_finite()
+        for value in values
+    ):
         raise ValueError(f"crypto diagnostics feature {feature} must be finite Decimal")
     ordered = sorted(values)
     grouped: dict[int, list[CryptoHistoricalTradeCondition]] = defaultdict(list)
@@ -376,7 +384,12 @@ def _quantile_condition_table(
     return table
 
 
-def _quantile_bucket(value: Decimal, *, ordered: Sequence[Decimal], buckets: int) -> int:
+def _quantile_bucket(
+    value: Decimal,
+    *,
+    ordered: Sequence[Decimal],
+    buckets: int,
+) -> int:
     less = sum(item < value for item in ordered)
     equal = sum(item == value for item in ordered)
     center_rank = Decimal(less) + Decimal(equal) / Decimal("2")
@@ -483,7 +496,9 @@ def _validate_research_replay_boundary(replay: Mapping[str, Any]) -> None:
         "bybit_live_order_routing_allowed",
     ):
         if replay.get(field) is not False:
-            raise ValueError(f"crypto diagnostics rejected replay without explicit {field}=false")
+            raise ValueError(
+                f"crypto diagnostics rejected replay without explicit {field}=false"
+            )
 
 
 def _parse_time(value: str) -> datetime:
@@ -509,7 +524,7 @@ def _required_decimal(row: Mapping[str, Any], field: str) -> Decimal:
         raise ValueError(f"crypto diagnostics missing {field}")
     try:
         parsed = Decimal(str(value))
-    except (TypeError, ValueError) as exc:
+    except (InvalidOperation, TypeError, ValueError) as exc:
         raise ValueError(f"crypto diagnostics invalid {field}") from exc
     if not parsed.is_finite():
         raise ValueError(f"crypto diagnostics non-finite {field}")
