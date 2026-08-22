@@ -1,0 +1,158 @@
+name: bybit-live-evidence-registry
+
+on:
+  pull_request:
+    paths:
+      - 'app/strategy/crypto_strategy_evidence_matrix.py'
+      - 'app/strategy/crypto_live_evidence_ranking.py'
+      - 'app/strategy/crypto_live_evidence_ranking_v2.py'
+      - 'app/strategy/crypto_live_evidence_postgres.py'
+      - 'tools/refresh_bybit_live_evidence_registry.py'
+      - 'migrations/v111/001_bybit_live_evidence_registry.sql'
+      - 'tests/test_crypto_live_evidence_ranking.py'
+      - 'tests/test_crypto_live_evidence_postgres.py'
+      - 'tests/test_refresh_bybit_live_evidence_registry.py'
+      - 'tests/test_crypto_strategy_evidence_matrix.py'
+      - 'docs/BYBIT_LIVE_EVIDENCE_REGISTRY.md'
+      - '.github/workflows/bybit-live-evidence-registry.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/strategy/crypto_strategy_evidence_matrix.py'
+      - 'app/strategy/crypto_live_evidence_ranking.py'
+      - 'app/strategy/crypto_live_evidence_ranking_v2.py'
+      - 'app/strategy/crypto_live_evidence_postgres.py'
+      - 'tools/refresh_bybit_live_evidence_registry.py'
+      - 'migrations/v111/001_bybit_live_evidence_registry.sql'
+      - 'tests/test_crypto_live_evidence_ranking.py'
+      - 'tests/test_crypto_live_evidence_postgres.py'
+      - 'tests/test_refresh_bybit_live_evidence_registry.py'
+      - 'tests/test_crypto_strategy_evidence_matrix.py'
+      - 'docs/BYBIT_LIVE_EVIDENCE_REGISTRY.md'
+      - '.github/workflows/bybit-live-evidence-registry.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '*/10 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-live-evidence-registry-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Live evidence registry and matrix regression tests
+        run: |
+          pytest -q \
+            tests/test_crypto_live_evidence_ranking.py \
+            tests/test_crypto_live_evidence_postgres.py \
+            tests/test_refresh_bybit_live_evidence_registry.py \
+            tests/test_crypto_strategy_evidence_matrix.py
+      - name: Ruff live evidence registry
+        run: |
+          ruff check \
+            app/strategy/crypto_strategy_evidence_matrix.py \
+            app/strategy/crypto_live_evidence_ranking.py \
+            app/strategy/crypto_live_evidence_ranking_v2.py \
+            app/strategy/crypto_live_evidence_postgres.py \
+            tools/refresh_bybit_live_evidence_registry.py \
+            tests/test_crypto_live_evidence_ranking.py \
+            tests/test_crypto_live_evidence_postgres.py \
+            tests/test_refresh_bybit_live_evidence_registry.py \
+            tests/test_crypto_strategy_evidence_matrix.py
+      - name: Bandit live evidence registry
+        run: |
+          bandit -q \
+            app/strategy/crypto_strategy_evidence_matrix.py \
+            app/strategy/crypto_live_evidence_ranking_v2.py \
+            app/strategy/crypto_live_evidence_postgres.py \
+            tools/refresh_bybit_live_evidence_registry.py
+      - name: Compile live evidence registry
+        run: |
+          python -m compileall -q \
+            app/strategy/crypto_strategy_evidence_matrix.py \
+            app/strategy/crypto_live_evidence_ranking.py \
+            app/strategy/crypto_live_evidence_ranking_v2.py \
+            app/strategy/crypto_live_evidence_postgres.py \
+            tools/refresh_bybit_live_evidence_registry.py
+
+  scheduled-refresh:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BYBIT_RESEARCH_SITE: ${{ vars.BYBIT_RESEARCH_SITE }}
+      BYBIT_OPPORTUNITY_DATABASE_DSN: ${{ secrets.BYBIT_OPPORTUNITY_DATABASE_DSN }}
+      BYBIT_RESEARCH_EQUITY_USDT: ${{ vars.BYBIT_RESEARCH_EQUITY_USDT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install operational dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev,postgresql]'
+          python -m pip check
+      - name: Refresh ranked evidence registry when PostgreSQL evidence exists
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          if [ -z "${BYBIT_OPPORTUNITY_DATABASE_DSN:-}" ]; then
+            printf '%s\n' '{"status":"POSTGRES_DSN_UNAVAILABLE","top10_verified":false,"trade_actionable":false,"bybit_live_order_routing_allowed":false}' \
+              > artifacts/bybit-live-evidence-registry-status.json
+            cat artifacts/bybit-live-evidence-registry-status.json
+            exit 0
+          fi
+          SITE="${BYBIT_RESEARCH_SITE:-eu}"
+          EQUITY="${BYBIT_RESEARCH_EQUITY_USDT:-1000}"
+          set +e
+          python -m tools.refresh_bybit_live_evidence_registry \
+            --site "$SITE" \
+            --registry-limit 50 \
+            --equity "$EQUITY" \
+            --equity-source RESEARCH_REFERENCE \
+            --output artifacts/bybit-live-evidence-registry.json \
+            --persist-postgres \
+            > artifacts/bybit-live-evidence-registry.log 2>&1
+          COMMAND_STATUS=$?
+          set -e
+          if [ "$COMMAND_STATUS" -ne 0 ]; then
+            if grep -q 'BybitPublicAccessBlockedError' artifacts/bybit-live-evidence-registry.log; then
+              STATUS='PUBLIC_BYBIT_ACCESS_BLOCKED'
+            elif grep -q 'has no evidence snapshot' artifacts/bybit-live-evidence-registry.log; then
+              STATUS='QUALIFIED_EVIDENCE_SNAPSHOT_UNAVAILABLE'
+            else
+              STATUS='LIVE_EVIDENCE_REFRESH_UNAVAILABLE'
+            fi
+            printf '{"status":"%s","top10_verified":false,"trade_actionable":false,"bybit_live_order_routing_allowed":false}\n' \
+              "$STATUS" \
+              > artifacts/bybit-live-evidence-registry-status.json
+            cat artifacts/bybit-live-evidence-registry-status.json
+          else
+            cat artifacts/bybit-live-evidence-registry.log
+          fi
+      - name: Upload ranked registry or explicit unavailable status
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-live-evidence-registry-${{ github.run_id }}
+          path: |
+            artifacts/bybit-live-evidence-registry.json
+            artifacts/bybit-live-evidence-registry-status.json
+          if-no-files-found: warn
+          retention-days: 30
