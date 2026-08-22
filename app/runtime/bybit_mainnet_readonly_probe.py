@@ -12,10 +12,27 @@ from app.execution.bybit_mainnet_readonly import (
     BybitMainnetPosition,
     BybitMainnetReadOnlyClient,
     BybitMainnetWalletBalance,
+    validate_bybit_mainnet_readonly_host,
 )
 
-_API_KEY_ENV = "BYBIT_MAINNET_READONLY_API_KEY"
-_API_SECRET_ENV = "BYBIT_MAINNET_READONLY_API_SECRET"
+_CREDENTIAL_ENV_NAMES = (
+    "BYBIT_MAINNET_READONLY_API_KEY",
+    "BYBIT_MAINNET_READONLY_API_SECRET",
+)
+_SITE_ENV_NAME = "BYBIT_MAINNET_READONLY_SITE"
+_SITE_HOSTS = {
+    "global": "api.bybit.com",
+    "global-alt": "api.bytick.com",
+    "nl": "api.bybit.nl",
+    "tr": "api.bybit.tr",
+    "kz": "api.bybit.kz",
+    "georgia": "api.bybitgeorgia.ge",
+    "ae": "api.bybit.ae",
+    "eu": "api.bybit.eu",
+    "id": "api.bybit.id",
+    "jp": "api.manepa.jp",
+    "hk": "api-spark-fintech.com",
+}
 
 
 class BybitMainnetReadOnlyConfigError(ValueError):
@@ -26,6 +43,7 @@ class BybitMainnetReadOnlyConfigError(ValueError):
 class BybitMainnetReadOnlyCredentials:
     api_key: str = field(repr=False)
     api_secret: str = field(repr=False)
+    site: str = "global"
 
     @classmethod
     def from_env(
@@ -33,16 +51,26 @@ class BybitMainnetReadOnlyCredentials:
         env: Mapping[str, str] | None = None,
     ) -> BybitMainnetReadOnlyCredentials:
         source = os.environ if env is None else env
-        api_key = source.get(_API_KEY_ENV, "")
-        api_secret = source.get(_API_SECRET_ENV, "")
-        _validate_secret_env_value(api_key, name=_API_KEY_ENV)
-        _validate_secret_env_value(api_secret, name=_API_SECRET_ENV)
-        return cls(api_key=api_key, api_secret=api_secret)
+        api_key = source.get(_CREDENTIAL_ENV_NAMES[0], "")
+        api_secret = source.get(_CREDENTIAL_ENV_NAMES[1], "")
+        site = source.get(_SITE_ENV_NAME, "global").strip().lower()
+        _validate_secret_env_value(api_key, name=_CREDENTIAL_ENV_NAMES[0])
+        _validate_secret_env_value(api_secret, name=_CREDENTIAL_ENV_NAMES[1])
+        if site not in _SITE_HOSTS:
+            raise BybitMainnetReadOnlyConfigError(
+                f"{_SITE_ENV_NAME} must be one of {','.join(sorted(_SITE_HOSTS))}"
+            )
+        return cls(api_key=api_key, api_secret=api_secret, site=site)
+
+    @property
+    def host(self) -> str:
+        return validate_bybit_mainnet_readonly_host(_SITE_HOSTS[self.site])
 
     def build_client(self) -> BybitMainnetReadOnlyClient:
         return BybitMainnetReadOnlyClient(
             api_key=self.api_key,
             api_secret=self.api_secret,
+            host=self.host,
         )
 
 
@@ -52,6 +80,7 @@ class BybitMainnetReadOnlySnapshot:
     account: BybitMainnetAccountInfo
     wallet: BybitMainnetWalletBalance
     positions: tuple[BybitMainnetPosition, ...]
+    api_host: str
     environment: str = "BYBIT_MAINNET_READONLY"
     live_mainnet_order_routing_allowed: bool = False
     order_writes_supported: bool = False
@@ -62,6 +91,7 @@ class BybitMainnetReadOnlySnapshot:
         self.wallet.validate()
         for position in self.positions:
             position.validate()
+        validate_bybit_mainnet_readonly_host(self.api_host)
         if self.environment != "BYBIT_MAINNET_READONLY":
             raise ValueError("Bybit mainnet read-only snapshot environment is invalid")
         if self.live_mainnet_order_routing_allowed or self.order_writes_supported:
@@ -73,6 +103,7 @@ class BybitMainnetReadOnlySnapshot:
         self.validate()
         return {
             "environment": self.environment,
+            "api_host": self.api_host,
             "live_mainnet_order_routing_allowed": False,
             "order_writes_supported": False,
             "credential_safety": {
@@ -147,6 +178,7 @@ def probe_bybit_mainnet_readonly_connection(
         account=account,
         wallet=wallet,
         positions=positions,
+        api_host=client.host,
     )
     snapshot.validate()
     return snapshot
