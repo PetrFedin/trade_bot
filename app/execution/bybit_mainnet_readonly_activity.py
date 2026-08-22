@@ -8,6 +8,7 @@ from typing import Any
 from app.execution.bybit_mainnet_readonly import (
     BybitMainnetReadOnlyClient,
     BybitMainnetReadOnlyError,
+    validate_bybit_mainnet_readonly_host,
 )
 from app.execution.bybit_rest_policy import BybitRestProtocolError
 
@@ -221,6 +222,16 @@ class BybitMainnetTransaction:
     order_id: str | None
     order_link_id: str | None
 
+    @property
+    def broker_identity(self) -> tuple[str, int, str | None, str | None, str]:
+        return (
+            self.transaction_id,
+            self.transaction_time_ms,
+            self.trade_id,
+            self.order_id,
+            self.transaction_type,
+        )
+
     def validate(self, *, window: BybitMainnetActivityWindow) -> None:
         window.validate()
         _validate_required_text(self.transaction_id, name="transaction id")
@@ -291,13 +302,12 @@ class BybitMainnetActivitySnapshot:
 
     def validate(self) -> None:
         self.window.validate()
+        validate_bybit_mainnet_readonly_host(self.api_host)
         if len(self.api_key_fingerprint_sha256) != 64 or any(
             character not in "0123456789abcdef"
             for character in self.api_key_fingerprint_sha256
         ):
             raise ValueError("Bybit activity API-key fingerprint must be sha256 hex")
-        if not self.api_host or self.api_host != self.api_host.strip().lower():
-            raise ValueError("Bybit activity API host must be normalized")
         for record in self.executions:
             record.validate(window=self.window)
         for record in self.closed_pnl:
@@ -548,20 +558,29 @@ def _dedupe_and_sort_transactions(
     *,
     window: BybitMainnetActivityWindow,
 ) -> tuple[BybitMainnetTransaction, ...]:
-    by_id: dict[str, BybitMainnetTransaction] = {}
+    records: dict[
+        tuple[str, int, str | None, str | None, str],
+        BybitMainnetTransaction,
+    ] = {}
     for row in rows:
         record = _parse_transaction(row)
         record.validate(window=window)
-        existing = by_id.get(record.transaction_id)
+        existing = records.get(record.broker_identity)
         if existing is not None and existing != record:
             raise BybitMainnetActivityError(
-                "Bybit transaction ID returned conflicting broker records"
+                "Bybit transaction identity returned conflicting broker records"
             )
-        by_id[record.transaction_id] = record
+        records[record.broker_identity] = record
     return tuple(
         sorted(
-            by_id.values(),
-            key=lambda item: (item.transaction_time_ms, item.transaction_id),
+            records.values(),
+            key=lambda item: (
+                item.transaction_time_ms,
+                item.transaction_id,
+                item.trade_id or "",
+                item.order_id or "",
+                item.transaction_type,
+            ),
         )
     )
 
@@ -627,7 +646,7 @@ def _parse_transaction(row: Mapping[str, Any]) -> BybitMainnetTransaction:
         size=_optional_decimal(row, "size"),
         currency=_required_text(row, "currency"),
         trade_price=_optional_decimal(row, "tradePrice"),
-        funding=_required_decimal(row, "funding"),
+        funding=_blank_decimal_as_zero(row, "funding"),
         fee=_required_decimal(row, "fee"),
         cash_flow=_required_decimal(row, "cashFlow"),
         change=_required_decimal(row, "change"),
@@ -687,6 +706,30 @@ def _required_decimal(row: Mapping[str, Any], field: str) -> Decimal:
             retryable_read=False,
             ambiguous_mutation=False,
         )
+    return _parse_decimal(raw, field=field)
+
+
+def _optional_decimal(row: Mapping[str, Any], field: str) -> Decimal | None:
+    raw = row.get(field)
+    if raw is None or raw == "":
+        return None
+    return _parse_decimal(raw, field=field)
+
+
+def _blank_decimal_as_zero(row: Mapping[str, Any], field: str) -> Decimal:
+    raw = row.get(field)
+    if raw is None:
+        raise BybitRestProtocolError(
+            f"Bybit activity field {field} is required",
+            retryable_read=False,
+            ambiguous_mutation=False,
+        )
+    if raw == "":
+        return _ZERO
+    return _parse_decimal(raw, field=field)
+
+
+def _parse_decimal(raw: Any, *, field: str) -> Decimal:
     try:
         value = Decimal(str(raw))
     except (InvalidOperation, TypeError, ValueError) as exc:
@@ -702,13 +745,6 @@ def _required_decimal(row: Mapping[str, Any], field: str) -> Decimal:
             ambiguous_mutation=False,
         )
     return value
-
-
-def _optional_decimal(row: Mapping[str, Any], field: str) -> Decimal | None:
-    raw = row.get(field)
-    if raw is None or raw == "":
-        return None
-    return _required_decimal(row, field)
 
 
 def _required_int(row: Mapping[str, Any], field: str) -> int:
