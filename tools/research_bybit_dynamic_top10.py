@@ -43,11 +43,18 @@ from app.strategy.crypto_funding_attribution import (
 )
 from app.strategy.crypto_historical_diagnostics import (
     CryptoHistoricalDiagnosticsPolicy,
+    build_crypto_historical_trade_conditions,
     diagnose_crypto_historical_conditions,
 )
 from app.strategy.crypto_market_history_profile import (
     CryptoMarketHistoryPolicy,
     profile_crypto_market_history,
+)
+from app.strategy.crypto_strategy_evidence_matrix import (
+    CryptoStrategyEvidencePolicy,
+    build_crypto_strategy_evidence_rows,
+    build_crypto_trade_execution_economics,
+    diagnose_crypto_strategy_evidence_matrix,
 )
 from tools.qualify_bybit_crypto_walk_forward import (
     CryptoWalkForwardPolicy,
@@ -240,6 +247,10 @@ def run_dynamic_top10_research(
     combined = candidates.get("CONDITIONAL_COMBINED_RISK")
     if not isinstance(combined, Mapping):
         raise RuntimeError("dynamic Top-10 research combined-risk candidate is missing")
+    trade_condition_rows = build_crypto_historical_trade_conditions(
+        micro.klines,
+        combined,
+    )
     trade_conditions = diagnose_crypto_historical_conditions(
         micro.klines,
         combined,
@@ -256,14 +267,30 @@ def run_dynamic_top10_research(
         combined,
         derivatives_histories,
     )
+    minimum_pattern_trades = (
+        CryptoHistoricalDiagnosticsPolicy().minimum_pattern_trades
+        if condition_policy is None
+        else condition_policy.minimum_pattern_trades
+    )
     derivatives_context = diagnose_crypto_derivatives_context(
         derivatives_context_rows,
-        minimum_pattern_trades=(
-            CryptoHistoricalDiagnosticsPolicy().minimum_pattern_trades
-            if condition_policy is None
-            else condition_policy.minimum_pattern_trades
-        ),
+        minimum_pattern_trades=minimum_pattern_trades,
     )
+    execution_economics_rows = build_crypto_trade_execution_economics(combined)
+    evidence_policy = CryptoStrategyEvidencePolicy(
+        minimum_cell_trades=minimum_pattern_trades
+    )
+    evidence_rows = build_crypto_strategy_evidence_rows(
+        trade_condition_rows,
+        derivatives_context_rows,
+        execution_economics_rows,
+        policy=evidence_policy,
+    )
+    evidence_matrix = diagnose_crypto_strategy_evidence_matrix(
+        evidence_rows,
+        policy=evidence_policy,
+    )
+
     mark_price_histories = _fetch_micro_mark_price_histories(
         micro.klines,
         symbols=symbols,
@@ -314,6 +341,7 @@ def run_dynamic_top10_research(
         "strategy_walk_forward": walk_forward,
         "strategy_candidate_comparison": compact_candidate_comparison(suite),
         "combined_risk_trade_conditions": trade_conditions,
+        "strategy_evidence_matrix": evidence_matrix,
         "current_derivatives_snapshot": {
             item.symbol: {
                 "turnover_24h_usdt": float(item.turnover_24h_usdt),
@@ -333,10 +361,13 @@ def run_dynamic_top10_research(
             "REPLAY_QUANTITY_MARK_PRICE_FUNDING_DOLLAR_RECONSTRUCTION",
             "FIXED_PARAMETER_NON_OVERLAPPING_WALK_FORWARD",
             "TRADE_ENTRY_CONDITION_ASSOCIATIONS_WITH_REALIZED_PNL_MFE_MAE",
+            "POINT_IN_TIME_STRESS_PROXY_WITHOUT_RECONSTRUCTED_LIQUIDATIONS",
+            "TRADE_EXECUTION_ECONOMICS_FROM_REPLAY_ENTRY_AND_FIXED_COST_MODEL",
+            "COIN_SIDE_REGIME_MATRIX_WITH_PNL_PF_WINRATE_MFE_MAE_DRAWDOWN_SAMPLE",
         ],
         "known_next_evidence_gaps": [
             "BROKER_FUNDING_LEDGER_NOT_YET_RECONCILED_READONLY_MAINNET",
-            "LIQUIDATION_HISTORY_NOT_YET_JOINED_TO_SIGNAL_CONTEXT",
+            "HISTORICAL_MARKET_WIDE_LIQUIDATION_EVENTS_NOT_RECONSTRUCTED",
             "ORDER_BOOK_DEPTH_HISTORY_NOT_AVAILABLE_FROM_STANDARD_V5_KLINE_HISTORY",
         ],
         "parameter_retuning_performed": False,
@@ -348,9 +379,9 @@ def run_dynamic_top10_research(
         "real_money_order_submission_supported": False,
         "interpretation_contract": (
             "Top-10 is a current research universe, not a buy/sell list. Full-history patterns, "
-            "correlations, point-in-time derivatives context, reconstructed funding and indicator "
-            "buckets are evidence to validate the fixed strategy and do not guarantee future "
-            "profit."
+            "correlations, point-in-time derivatives context, reconstructed funding, stress proxy, "
+            "execution economics and evidence-matrix cells validate historical conditions only and "
+            "do not guarantee future profit."
         ),
     }
     _validate_final_boundary(result)
