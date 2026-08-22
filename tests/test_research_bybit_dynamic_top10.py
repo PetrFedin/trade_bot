@@ -8,7 +8,11 @@ from app.marketdata.bybit_research_universe import (
     BybitResearchTicker,
     BybitResearchUniversePolicy,
 )
-from app.marketdata.bybit_v5 import BybitKlineAcquisition, BybitKlineBar, BybitKlineRequest
+from app.marketdata.bybit_v5 import (
+    BybitKlineAcquisition,
+    BybitKlineBar,
+    BybitKlineRequest,
+)
 from tools.qualify_bybit_crypto_walk_forward import CryptoWalkForwardPolicy
 from tools.research_bybit_dynamic_top10 import run_dynamic_top10_research
 
@@ -43,10 +47,14 @@ class _UniverseClient:
                 last_price=Decimal("100") + index,
                 bid_price=Decimal("99.99") + index,
                 ask_price=Decimal("100.01") + index,
-                turnover_24h_usdt=Decimal("100000000") - index * Decimal("1000000"),
+                turnover_24h_usdt=(
+                    Decimal("100000000") - index * Decimal("1000000")
+                ),
                 volume_24h=Decimal("1000000"),
                 open_interest=Decimal("500000"),
-                open_interest_value_usdt=Decimal("50000000") - index * Decimal("500000"),
+                open_interest_value_usdt=(
+                    Decimal("50000000") - index * Decimal("500000")
+                ),
                 funding_rate=Decimal("0.0001"),
                 price_24h_fraction=Decimal("0.01"),
             )
@@ -235,3 +243,24 @@ def test_pipeline_rejects_non_top10_policy_and_unknown_site() -> None:
         assert "site must be one of" in str(exc)
     else:
         raise AssertionError("arbitrary Bybit research host must fail")
+
+
+def test_pipeline_rejects_naive_time_and_nonfinite_equity_before_network() -> None:
+    try:
+        run_dynamic_top10_research(
+            observed_at=datetime(2026, 8, 22, 12),
+        )
+    except ValueError as exc:
+        assert "timezone-aware" in str(exc)
+    else:
+        raise AssertionError("naive research timestamp must fail")
+
+    try:
+        run_dynamic_top10_research(
+            observed_at=_NOW,
+            opening_equity_usdt=Decimal("NaN"),
+        )
+    except ValueError as exc:
+        assert "positive and finite" in str(exc)
+    else:
+        raise AssertionError("non-finite opening equity must fail")
