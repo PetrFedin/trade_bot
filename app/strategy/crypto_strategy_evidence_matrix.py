@@ -9,7 +9,7 @@ from typing import Any
 
 from app.strategy.crypto_derivatives_context import CryptoTradeDerivativesContext
 from app.strategy.crypto_historical_diagnostics import CryptoHistoricalTradeCondition
-from app.strategy.crypto_perp import CryptoPerpStrategyConfig
+from app.strategy.crypto_perp import CryptoPerpStrategyConfig, CryptoSignal
 
 _ZERO = Decimal("0")
 _ONE = Decimal("1")
@@ -120,6 +120,7 @@ class CryptoStrategyEvidenceRow:
     atr_fraction: Decimal
     one_bar_atr_multiple: Decimal
     quality_score: Decimal
+    average_turnover_usdt: Decimal
     expected_net_edge_usd: Decimal
     modeled_round_trip_cost_usdt: Decimal
     cost_to_expected_edge: Decimal
@@ -158,6 +159,7 @@ class CryptoStrategyEvidenceRow:
             ("atr_fraction", self.atr_fraction),
             ("one_bar_atr_multiple", self.one_bar_atr_multiple),
             ("quality_score", self.quality_score),
+            ("average_turnover_usdt", self.average_turnover_usdt),
             ("expected_net_edge_usd", self.expected_net_edge_usd),
             ("modeled_round_trip_cost_usdt", self.modeled_round_trip_cost_usdt),
             ("cost_to_expected_edge", self.cost_to_expected_edge),
@@ -165,6 +167,8 @@ class CryptoStrategyEvidenceRow:
         ):
             if not value.is_finite():
                 raise ValueError(f"crypto evidence row {name} must be finite")
+        if self.average_turnover_usdt < 0:
+            raise ValueError("crypto evidence row average turnover cannot be negative")
         for name, value in (
             ("open_interest_delta_fraction", self.open_interest_delta_fraction),
             ("long_account_ratio", self.long_account_ratio),
@@ -182,6 +186,134 @@ class CryptoStrategyEvidenceRow:
             raise ValueError("crypto evidence cannot claim unavailable liquidation history")
         if self.liquidation_event_source != "NOT_RECONSTRUCTED":
             raise ValueError("crypto evidence liquidation source must remain explicit")
+
+
+def classify_crypto_signal_market_regime(
+    signal: CryptoSignal,
+    *,
+    turnover_reference_usdt: Decimal,
+    strategy_config: CryptoPerpStrategyConfig | None = None,
+) -> tuple[str, str, str, str, str]:
+    """Classify a current signal with the same regime contract used by historical evidence."""
+
+    config = CryptoPerpStrategyConfig() if strategy_config is None else strategy_config
+    config.validate()
+    if not turnover_reference_usdt.is_finite() or turnover_reference_usdt < 0:
+        raise ValueError("crypto evidence turnover reference must be finite and non-negative")
+    if not signal.atr_fraction.is_finite() or signal.atr_fraction <= 0:
+        raise ValueError("crypto evidence current signal ATR fraction must be positive")
+    atr = signal.reference_price * signal.atr_fraction
+    if not atr.is_finite() or atr <= 0:
+        raise ValueError("crypto evidence current signal ATR must be positive")
+
+    volatility_span = config.maximum_atr_fraction - config.minimum_atr_fraction
+    lower = config.minimum_atr_fraction + volatility_span / Decimal("3")
+    upper = config.minimum_atr_fraction + volatility_span * Decimal("2") / Decimal("3")
+    if signal.atr_fraction <= lower:
+        volatility_regime = "VOL_LOW_NORMAL"
+    elif signal.atr_fraction <= upper:
+        volatility_regime = "VOL_MID_NORMAL"
+    else:
+        volatility_regime = "VOL_HIGH_NORMAL"
+
+    trend_strength = abs(signal.fast_ema - signal.slow_ema) / atr
+    trend_regime = "TREND_STRONG" if trend_strength >= _ONE else "TREND_MODERATE"
+    breakout_regime = (
+        "BREAKOUT_CONFIRMED"
+        if signal.breakout_strength_atr >= _ZERO
+        else "BREAKOUT_PULLBACK"
+    )
+    turnover_regime = (
+        "TURNOVER_HIGH"
+        if signal.average_turnover_usdt >= turnover_reference_usdt
+        else "TURNOVER_LOW"
+    )
+    market_regime = "|".join(
+        (
+            volatility_regime,
+            trend_regime,
+            breakout_regime,
+            turnover_regime,
+        )
+    )
+    return (
+        market_regime,
+        volatility_regime,
+        trend_regime,
+        breakout_regime,
+        turnover_regime,
+    )
+
+
+def classify_crypto_stress_regime(
+    *,
+    volatility_regime: str,
+    one_bar_atr_multiple: Decimal,
+    open_interest_delta_fraction: Decimal | None,
+    crowding_regime: str,
+    prior_funding_regime: str,
+    decision_context_complete: bool,
+    missing_reasons: Sequence[str] = (),
+    strategy_config: CryptoPerpStrategyConfig | None = None,
+    policy: CryptoStrategyEvidencePolicy | None = None,
+) -> tuple[str, int, bool, tuple[str, ...]]:
+    """Apply one shared stress definition to historical and current point-in-time evidence."""
+
+    config = CryptoPerpStrategyConfig() if strategy_config is None else strategy_config
+    config.validate()
+    active = CryptoStrategyEvidencePolicy() if policy is None else policy
+    active.validate()
+    if not one_bar_atr_multiple.is_finite() or one_bar_atr_multiple < 0:
+        raise ValueError("crypto evidence one-bar ATR multiple must be finite and non-negative")
+    if (
+        open_interest_delta_fraction is not None
+        and not open_interest_delta_fraction.is_finite()
+    ):
+        raise ValueError("crypto evidence OI delta fraction must be finite when present")
+
+    reasons: list[str] = []
+    score = 0
+    if volatility_regime == "VOL_HIGH_NORMAL":
+        score += 1
+        reasons.append("HIGH_NORMAL_ATR_REGIME")
+    price_shock_threshold = config.maximum_one_bar_atr_multiple / Decimal("2")
+    if one_bar_atr_multiple >= price_shock_threshold:
+        score += 1
+        reasons.append("ONE_BAR_MOVE_AT_LEAST_HALF_STRATEGY_LIMIT")
+    if (
+        open_interest_delta_fraction is not None
+        and abs(open_interest_delta_fraction) >= active.open_interest_impulse_fraction
+    ):
+        score += 1
+        reasons.append("OPEN_INTEREST_IMPULSE")
+    if crowding_regime in {"LONG_HEAVY", "SHORT_HEAVY"}:
+        score += 1
+        reasons.append("POSITION_HOLDER_CROWDING")
+    funding_pressure = (
+        crowding_regime == "LONG_HEAVY"
+        and prior_funding_regime == "FUNDING_POSITIVE"
+    ) or (
+        crowding_regime == "SHORT_HEAVY"
+        and prior_funding_regime == "FUNDING_NEGATIVE"
+    )
+    if funding_pressure:
+        score += 1
+        reasons.append("CROWDED_SIDE_PAYS_PRIOR_FUNDING")
+
+    if not decision_context_complete:
+        return (
+            "STRESS_UNKNOWN",
+            score,
+            False,
+            tuple(sorted(set(reasons) | set(missing_reasons))),
+        )
+    if score >= active.high_stress_feature_count:
+        regime = "STRESS_HIGH"
+    elif score >= active.elevated_stress_feature_count:
+        regime = "STRESS_ELEVATED"
+    else:
+        regime = "STRESS_CALM"
+    return regime, score, True, tuple(reasons)
 
 
 def build_crypto_trade_execution_economics(
@@ -322,6 +454,7 @@ def build_crypto_strategy_evidence_rows(
             atr_fraction=condition.atr_fraction,
             one_bar_atr_multiple=condition.one_bar_atr_multiple,
             quality_score=condition.quality_score,
+            average_turnover_usdt=condition.average_turnover_usdt,
             expected_net_edge_usd=condition.expected_net_edge_usd,
             modeled_round_trip_cost_usdt=economics_row.modeled_round_trip_cost_usdt,
             cost_to_expected_edge=economics_row.cost_to_expected_edge,
@@ -338,11 +471,14 @@ def diagnose_crypto_strategy_evidence_matrix(
     rows: Sequence[CryptoStrategyEvidenceRow],
     *,
     policy: CryptoStrategyEvidencePolicy | None = None,
+    strategy_config: CryptoPerpStrategyConfig | None = None,
 ) -> dict[str, Any]:
     """Build descriptive coin x side x regime evidence cells from closed trades."""
 
     active = CryptoStrategyEvidencePolicy() if policy is None else policy
     active.validate()
+    config = CryptoPerpStrategyConfig() if strategy_config is None else strategy_config
+    config.validate()
     records = tuple(rows)
     for row in records:
         row.validate()
@@ -371,11 +507,19 @@ def diagnose_crypto_strategy_evidence_matrix(
             }
         )
 
+    turnover_reference = (
+        None
+        if not records
+        else _median_decimal([item.average_turnover_usdt for item in records])
+    )
     return {
         "diagnostic": "BYBIT_CRYPTO_STRATEGY_EVIDENCE_MATRIX",
         "trade_count": len(records),
         "cell_count": len(matrix),
         "minimum_cell_trades": active.minimum_cell_trades,
+        "turnover_reference_usdt": (
+            None if turnover_reference is None else str(turnover_reference)
+        ),
         "dimensions": [
             "symbol",
             "side",
@@ -398,7 +542,7 @@ def diagnose_crypto_strategy_evidence_matrix(
         "stress_policy": {
             "open_interest_impulse_fraction": str(active.open_interest_impulse_fraction),
             "price_shock_atr_threshold": str(
-                CryptoPerpStrategyConfig().maximum_one_bar_atr_multiple / Decimal("2")
+                config.maximum_one_bar_atr_multiple / Decimal("2")
             ),
             "high_stress_feature_count": active.high_stress_feature_count,
             "elevated_stress_feature_count": active.elevated_stress_feature_count,
@@ -442,48 +586,17 @@ def _stress_context(
 ) -> tuple[str, int, bool, tuple[str, ...]]:
     if _condition_identity(condition) != _identity(derivative):
         raise ValueError("crypto evidence condition/derivatives identity mismatch")
-    reasons: list[str] = []
-    score = 0
-    if condition.volatility_regime == "VOL_HIGH_NORMAL":
-        score += 1
-        reasons.append("HIGH_NORMAL_ATR_REGIME")
-    price_shock_threshold = config.maximum_one_bar_atr_multiple / Decimal("2")
-    if condition.one_bar_atr_multiple >= price_shock_threshold:
-        score += 1
-        reasons.append("ONE_BAR_MOVE_AT_LEAST_HALF_STRATEGY_LIMIT")
-    oi_delta = derivative.open_interest_delta_fraction
-    if oi_delta is not None and abs(oi_delta) >= policy.open_interest_impulse_fraction:
-        score += 1
-        reasons.append("OPEN_INTEREST_IMPULSE")
-    if derivative.crowding_regime in {"LONG_HEAVY", "SHORT_HEAVY"}:
-        score += 1
-        reasons.append("POSITION_HOLDER_CROWDING")
-    funding_pressure = (
-        derivative.crowding_regime == "LONG_HEAVY"
-        and derivative.prior_funding_regime == "FUNDING_POSITIVE"
-    ) or (
-        derivative.crowding_regime == "SHORT_HEAVY"
-        and derivative.prior_funding_regime == "FUNDING_NEGATIVE"
+    return classify_crypto_stress_regime(
+        volatility_regime=condition.volatility_regime,
+        one_bar_atr_multiple=condition.one_bar_atr_multiple,
+        open_interest_delta_fraction=derivative.open_interest_delta_fraction,
+        crowding_regime=derivative.crowding_regime,
+        prior_funding_regime=derivative.prior_funding_regime,
+        decision_context_complete=derivative.decision_context_complete,
+        missing_reasons=derivative.missing_reasons,
+        strategy_config=config,
+        policy=policy,
     )
-    if funding_pressure:
-        score += 1
-        reasons.append("CROWDED_SIDE_PAYS_PRIOR_FUNDING")
-
-    complete = derivative.decision_context_complete
-    if not complete:
-        return (
-            "STRESS_UNKNOWN",
-            score,
-            False,
-            tuple(sorted(set(reasons) | set(derivative.missing_reasons))),
-        )
-    if score >= policy.high_stress_feature_count:
-        regime = "STRESS_HIGH"
-    elif score >= policy.elevated_stress_feature_count:
-        regime = "STRESS_ELEVATED"
-    else:
-        regime = "STRESS_CALM"
-    return regime, score, True, tuple(reasons)
 
 
 def _summary(
@@ -505,6 +618,7 @@ def _summary(
             "average_mfe_r": None,
             "average_mae_r": None,
             "maximum_trade_sequence_drawdown_usdt": None,
+            "average_turnover_usdt": None,
             "average_expected_net_edge_usd": None,
             "average_modeled_round_trip_cost_usdt": None,
             "average_cost_to_expected_edge": None,
@@ -537,6 +651,9 @@ def _summary(
             sum((item.maximum_adverse_r for item in records), start=_ZERO) / denominator
         ),
         "maximum_trade_sequence_drawdown_usdt": float(_trade_sequence_drawdown(ordered)),
+        "average_turnover_usdt": float(
+            sum((item.average_turnover_usdt for item in records), start=_ZERO) / denominator
+        ),
         "average_expected_net_edge_usd": float(
             sum((item.expected_net_edge_usd for item in records), start=_ZERO) / denominator
         ),
@@ -562,6 +679,18 @@ def _trade_sequence_drawdown(records: Sequence[CryptoStrategyEvidenceRow]) -> De
         peak = max(peak, cumulative)
         maximum = max(maximum, peak - cumulative)
     return maximum
+
+
+def _median_decimal(values: Sequence[Decimal]) -> Decimal:
+    if not values:
+        raise ValueError("crypto evidence median requires values")
+    if any(not value.is_finite() for value in values):
+        raise ValueError("crypto evidence median values must be finite")
+    ordered = sorted(values)
+    midpoint = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[midpoint]
+    return (ordered[midpoint - 1] + ordered[midpoint]) / Decimal("2")
 
 
 def _condition_identity(
