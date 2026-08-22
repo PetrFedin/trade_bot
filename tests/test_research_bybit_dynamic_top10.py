@@ -315,9 +315,19 @@ def test_one_command_pipeline_keeps_top10_history_walk_forward_and_safety_bounda
     assert report["strategy_walk_forward"]["fold_count"] == 2
     assert "CONDITIONAL_COMBINED_RISK" in report["strategy_candidate_comparison"]
     assert report["combined_risk_trade_conditions"]["causal_claim_allowed"] is False
+    matrix = report["strategy_evidence_matrix"]
+    assert matrix["diagnostic"] == "BYBIT_CRYPTO_STRATEGY_EVIDENCE_MATRIX"
+    assert matrix["liquidation_context"] == {
+        "historical_market_wide_liquidation_events_available": False,
+        "source": "NOT_RECONSTRUCTED",
+        "stress_proxy_used_instead": True,
+    }
+    assert matrix["execution_economics"]["broker_fee_ledger_reconciled"] is False
+    assert matrix["strategy_selection_allowed"] is False
+    assert matrix["bybit_live_order_routing_allowed"] is False
     assert report["known_next_evidence_gaps"] == [
         "BROKER_FUNDING_LEDGER_NOT_YET_RECONCILED_READONLY_MAINNET",
-        "LIQUIDATION_HISTORY_NOT_YET_JOINED_TO_SIGNAL_CONTEXT",
+        "HISTORICAL_MARKET_WIDE_LIQUIDATION_EVENTS_NOT_RECONSTRUCTED",
         "ORDER_BOOK_DEPTH_HISTORY_NOT_AVAILABLE_FROM_STANDARD_V5_KLINE_HISTORY",
     ]
     assert report["parameter_retuning_performed"] is False
