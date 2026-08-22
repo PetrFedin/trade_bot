@@ -130,7 +130,7 @@ def test_execution_economics_reconstructs_fixed_fee_and_slippage_cost() -> None:
     assert row.expected_edge_to_risk == Decimal("3")
 
 
-def test_evidence_rows_combine_price_derivatives_stress_and_execution_without_liquidation_claim() -> None:
+def test_evidence_rows_join_point_in_time_stress_without_liquidation_claim() -> None:
     rows = build_crypto_strategy_evidence_rows(
         (_condition(0, "10"),),
         (_derivatives(0),),
