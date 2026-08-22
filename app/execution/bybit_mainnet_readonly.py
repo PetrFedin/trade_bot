@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import http.client
+import ipaddress
 import json
 import time
 from collections.abc import Callable, Mapping
@@ -97,8 +98,15 @@ class BybitMainnetApiKeyInfo:
             raise ValueError("Bybit API-key fingerprint must be lowercase sha256 hex")
         if not self.read_only:
             raise BybitMainnetReadOnlyError("Bybit API key is not read-only")
-        if any(not value.strip() for value in self.ip_bindings):
-            raise ValueError("Bybit API-key IP bindings must be non-empty strings")
+        for value in self.ip_bindings:
+            if not value or value == "*":
+                raise ValueError("Bybit API-key IP bindings must be concrete IP addresses")
+            try:
+                ipaddress.ip_address(value)
+            except ValueError as exc:
+                raise ValueError("Bybit API-key IP binding is not a valid IP address") from exc
+        if len(set(self.ip_bindings)) != len(self.ip_bindings):
+            raise ValueError("Bybit API-key IP bindings cannot contain duplicates")
         if self.key_type is not None and self.key_type not in {1, 2}:
             raise ValueError("Bybit API-key type is unsupported")
         if self.environment != "BYBIT_MAINNET_READONLY":
@@ -358,14 +366,7 @@ class BybitMainnetReadOnlyClient:
                 retryable_read=False,
                 ambiguous_mutation=False,
             )
-        raw_ips = result.get("ips", [])
-        if not isinstance(raw_ips, list) or any(not isinstance(value, str) for value in raw_ips):
-            raise BybitRestProtocolError(
-                "Bybit API-key information has invalid IP binding list",
-                retryable_read=False,
-                ambiguous_mutation=False,
-            )
-        ip_bindings = tuple(value.strip() for value in raw_ips if value.strip())
+        ip_bindings = _normalize_api_key_ip_bindings(result.get("ips", []))
         if require_ip_binding and not ip_bindings:
             raise BybitMainnetReadOnlyError(
                 "Bybit mainnet read-only key must be bound to at least one server IP"
@@ -609,6 +610,36 @@ def validate_bybit_mainnet_readonly_host(host: str) -> str:
     if host != host.strip().lower() or "/" in host or ":" in host:
         raise BybitMainnetReadOnlyError("Bybit mainnet host must be a bare normalized hostname")
     return host
+
+
+def _normalize_api_key_ip_bindings(raw_ips: Any) -> tuple[str, ...]:
+    if not isinstance(raw_ips, list) or any(not isinstance(value, str) for value in raw_ips):
+        raise BybitRestProtocolError(
+            "Bybit API-key information has invalid IP binding list",
+            retryable_read=False,
+            ambiguous_mutation=False,
+        )
+    values = tuple(value.strip() for value in raw_ips if value.strip())
+    if "*" in values:
+        raise BybitMainnetReadOnlyError(
+            "Bybit wildcard API-key IP setting is unbound and is rejected"
+        )
+    if len(set(values)) != len(values):
+        raise BybitRestProtocolError(
+            "Bybit API-key information contains duplicate IP bindings",
+            retryable_read=False,
+            ambiguous_mutation=False,
+        )
+    for value in values:
+        try:
+            ipaddress.ip_address(value)
+        except ValueError as exc:
+            raise BybitRestProtocolError(
+                "Bybit API-key information contains an invalid IP binding",
+                retryable_read=False,
+                ambiguous_mutation=False,
+            ) from exc
+    return values
 
 
 def _validate_read_path(path: str) -> None:
