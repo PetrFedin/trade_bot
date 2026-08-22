@@ -24,12 +24,14 @@ Create a dedicated API key for the real account. Do not reuse the Demo Trading k
 
 Required controls:
 
-1. The key must be **Read-Only** in Bybit. ASTRA calls `GET /v5/user/query-api` and refuses the key when Bybit reports `readOnly != 1`.
-2. Bind the key to the production server's fixed egress IP address or addresses. The production probe refuses an empty Bybit `ips` list.
-3. Store the key and secret only in the deployment secret manager or protected environment. Never commit them to Git.
-4. Use the dedicated variables `BYBIT_MAINNET_READONLY_API_KEY` and `BYBIT_MAINNET_READONLY_API_SECRET`. The demo order-writing runtime does not consume these names.
-5. Select the Bybit site using `BYBIT_MAINNET_READONLY_SITE`; do not supply a URL or hostname directly.
-6. Do not grant a read/write key merely because the desired permission categories are narrow. The hard safety condition is Bybit's `readOnly=1` result.
+1. Create a **system-generated HMAC API key**. The current read-only adapter signs V5 requests with HMAC-SHA256; self-generated RSA keys are not accepted by this code path.
+2. The key must be **Read-Only** in Bybit. ASTRA calls `GET /v5/user/query-api` and refuses the key when Bybit reports `readOnly != 1`.
+3. The API-key information response must identify the exact configured `apiKey` and must contain Bybit's documented empty `secret` marker. Missing or conflicting identity fields fail closed.
+4. Bind the key to the production server's fixed egress IP address or addresses. The production probe refuses an empty Bybit `ips` list.
+5. Store the key and secret only in the deployment secret manager or protected environment. Never commit them to Git.
+6. Use the dedicated variables `BYBIT_MAINNET_READONLY_API_KEY` and `BYBIT_MAINNET_READONLY_API_SECRET`. The demo order-writing runtime does not consume these names.
+7. Select the Bybit site using `BYBIT_MAINNET_READONLY_SITE`; do not supply a URL or hostname directly.
+8. Do not grant a read/write key merely because the desired permission categories are narrow. The hard safety condition is Bybit's `readOnly=1` result.
 
 Official Bybit references:
 
@@ -63,7 +65,8 @@ it maps a small site profile to an audited hostname allowlist. Current profiles 
 
 Use the site/account profile on which the API key was created. Availability and product scope can
 differ by jurisdiction; the allowlist is a transport safety boundary, not a statement that every
-Bybit product is available in every region.
+Bybit product is available in every region. In particular, follow Bybit's current API documentation
+for region-specific account/API eligibility before deploying a profile.
 
 The client also uses an explicit read-path allowlist. At present it permits only account/broker-truth
 reads needed for visibility and reconciliation:
@@ -88,8 +91,8 @@ enum, not a configurable URL.
 Configure protected deployment secrets and the regional site profile:
 
 ```text
-BYBIT_MAINNET_READONLY_API_KEY=<real account read-only key>
-BYBIT_MAINNET_READONLY_API_SECRET=<real account read-only secret>
+BYBIT_MAINNET_READONLY_API_KEY=<real account read-only HMAC key>
+BYBIT_MAINNET_READONLY_API_SECRET=<real account read-only HMAC secret>
 BYBIT_MAINNET_READONLY_SITE=global
 ```
 
@@ -116,12 +119,14 @@ The probe sequence is deliberately ordered:
 
 1. resolve the configured site only through the audited regional host allowlist;
 2. authenticate against `GET /v5/user/query-api`;
-3. prove `readOnly=1`;
-4. prove at least one server IP binding is present;
-5. read account mode;
-6. read Unified wallet/equity state;
-7. read open USDT linear positions;
-8. emit a sanitized JSON snapshot.
+3. prove the returned API-key identity matches the configured credential;
+4. prove `readOnly=1`;
+5. prove Bybit returned the documented empty secret marker;
+6. prove at least one server IP binding is present;
+7. read account mode;
+8. read Unified wallet/equity state;
+9. read open USDT linear positions;
+10. emit a sanitized JSON snapshot.
 
 The output contains the selected audited API hostname and an SHA-256 fingerprint of the API key for
 operational identity checks, but it never returns or logs the raw API key or API secret.
