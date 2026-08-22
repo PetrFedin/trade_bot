@@ -272,7 +272,10 @@ def build_crypto_strategy_evidence_rows(
         economics_row = economics_map.get((condition.symbol, condition.entry_time))
         if economics_row is None:
             raise ValueError("crypto evidence missing execution economics for closed trade")
-        if economics_row.side != condition.side or economics_row.decision_time != condition.decision_time:
+        if (
+            economics_row.side != condition.side
+            or economics_row.decision_time != condition.decision_time
+        ):
             raise ValueError("crypto evidence execution economics identity mismatch")
         if economics_row.expected_net_edge_usd != condition.expected_net_edge_usd:
             raise ValueError("crypto evidence expected-edge sources do not reconcile")
@@ -507,7 +510,10 @@ def _summary(
             "average_cost_to_expected_edge": None,
             "average_expected_edge_to_risk": None,
         }
-    ordered = sorted(records, key=lambda item: (_parse_time(item.exit_time), item.symbol, item.side))
+    ordered = sorted(
+        records,
+        key=lambda item: (_parse_time(item.exit_time), item.symbol, item.side),
+    )
     wins = [item for item in records if item.net_pnl_usdt > 0]
     losses = [item for item in records if item.net_pnl_usdt < 0]
     gross_profit = sum((item.net_pnl_usdt for item in wins), start=_ZERO)
