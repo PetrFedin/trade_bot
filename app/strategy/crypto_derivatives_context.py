@@ -8,12 +8,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol, TypeVar
 
-from app.marketdata.bybit_derivatives_history import (
-    BybitAccountRatioPoint,
-    BybitDerivativesHistory,
-    BybitHistoricalFundingPoint,
-    BybitOpenInterestPoint,
-)
+from app.marketdata.bybit_derivatives_history import BybitDerivativesHistory
 
 _ZERO = Decimal("0")
 _LONG_HEAVY = Decimal("0.55")
