@@ -19,7 +19,22 @@ from app.execution.bybit_rest_policy import (
     run_bybit_read_with_retry,
 )
 
-_MAINNET_HOST = "api.bybit.com"
+_DEFAULT_MAINNET_HOST = "api.bybit.com"
+_ALLOWED_MAINNET_HOSTS = frozenset(
+    {
+        "api.bybit.com",
+        "api.bytick.com",
+        "api.bybit.nl",
+        "api.bybit.tr",
+        "api.bybit.kz",
+        "api.bybitgeorgia.ge",
+        "api.bybit.ae",
+        "api.bybit.eu",
+        "api.bybit.id",
+        "api.manepa.jp",
+        "api-spark-fintech.com",
+    }
+)
 _RECV_WINDOW_MS = 5000
 _ALLOWED_READ_PATHS = frozenset(
     {
@@ -184,14 +199,19 @@ class BybitMainnetPosition:
 
 
 class BybitMainnetReadOnlyHttpsTransport:
-    """Exact mainnet host HTTPS transport with no mutation method."""
+    """Allowlisted mainnet HTTPS transport with no mutation method."""
 
-    host = _MAINNET_HOST
     environment = "BYBIT_MAINNET_READONLY"
     live_mainnet_order_routing_allowed = False
     order_writes_supported = False
 
-    def __init__(self, *, timeout_seconds: float = 10.0) -> None:
+    def __init__(
+        self,
+        *,
+        host: str = _DEFAULT_MAINNET_HOST,
+        timeout_seconds: float = 10.0,
+    ) -> None:
+        self.host = validate_bybit_mainnet_readonly_host(host)
         if not 0 < timeout_seconds <= 60:
             raise ValueError("Bybit mainnet read timeout must be within (0, 60] seconds")
         self._timeout_seconds = timeout_seconds
@@ -206,7 +226,7 @@ class BybitMainnetReadOnlyHttpsTransport:
         _validate_read_path(path)
         target = path if not query_string else f"{path}?{query_string}"
         connection = http.client.HTTPSConnection(
-            _MAINNET_HOST,
+            self.host,
             443,
             timeout=self._timeout_seconds,
         )
@@ -251,7 +271,6 @@ class BybitMainnetReadOnlyClient:
     proved against ``/v5/user/query-api`` before a production probe may be considered ready.
     """
 
-    host = _MAINNET_HOST
     environment = "BYBIT_MAINNET_READONLY"
     live_mainnet_order_routing_allowed = False
     order_writes_supported = False
@@ -261,6 +280,7 @@ class BybitMainnetReadOnlyClient:
         *,
         api_key: str,
         api_secret: str,
+        host: str = _DEFAULT_MAINNET_HOST,
         transport: BybitMainnetReadOnlyTransport | None = None,
         clock_ms: Callable[[], int] | None = None,
         recv_window_ms: int = _RECV_WINDOW_MS,
@@ -269,6 +289,7 @@ class BybitMainnetReadOnlyClient:
     ) -> None:
         _validate_credential(api_key, name="api_key")
         _validate_credential(api_secret, name="api_secret")
+        self.host = validate_bybit_mainnet_readonly_host(host)
         if not 1000 <= recv_window_ms <= 10_000:
             raise ValueError("Bybit mainnet recv window must be within [1000, 10000]")
         active_policy = BybitRestPolicy() if rest_policy is None else rest_policy
@@ -277,7 +298,8 @@ class BybitMainnetReadOnlyClient:
         self._api_secret = api_secret
         self._transport = (
             BybitMainnetReadOnlyHttpsTransport(
-                timeout_seconds=active_policy.request_timeout_seconds
+                host=self.host,
+                timeout_seconds=active_policy.request_timeout_seconds,
             )
             if transport is None
             else transport
@@ -300,15 +322,21 @@ class BybitMainnetReadOnlyClient:
     ) -> BybitMainnetApiKeyInfo:
         result = self._private_get_result(path="/v5/user/query-api", query={})
         raw_read_only = result.get("readOnly")
+        if raw_read_only is None or isinstance(raw_read_only, bool):
+            raise BybitRestProtocolError(
+                "Bybit API-key information has invalid readOnly flag",
+                retryable_read=False,
+                ambiguous_mutation=False,
+            )
         try:
-            read_only = int(str(raw_read_only)) == 1
+            read_only_value = int(str(raw_read_only))
         except (TypeError, ValueError) as exc:
             raise BybitRestProtocolError(
                 "Bybit API-key information has invalid readOnly flag",
                 retryable_read=False,
                 ambiguous_mutation=False,
             ) from exc
-        if not read_only:
+        if read_only_value != 1:
             raise BybitMainnetReadOnlyError(
                 "Bybit mainnet key must be created as read-only; read/write keys are rejected"
             )
@@ -319,7 +347,7 @@ class BybitMainnetReadOnlyClient:
                     "Bybit API-key identity does not match configured credential"
                 )
         secret_marker = result.get("secret")
-        if secret_marker not in {None, ""}:
+        if secret_marker is not None and secret_marker != "":
             raise BybitRestProtocolError(
                 "Bybit API-key information unexpectedly exposed secret material",
                 retryable_read=False,
@@ -338,7 +366,7 @@ class BybitMainnetReadOnlyClient:
                 "Bybit mainnet read-only key must be bound to at least one server IP"
             )
         raw_type = result.get("type")
-        key_type = None if raw_type in {None, ""} else _required_int(result, "type")
+        key_type = None if raw_type is None or raw_type == "" else _required_int(result, "type")
         raw_note = result.get("note")
         note = raw_note if isinstance(raw_note, str) and raw_note else None
         permissions = _flatten_permissions(result.get("permissions"))
@@ -568,6 +596,16 @@ class BybitMainnetReadOnlyClient:
         )
 
 
+def validate_bybit_mainnet_readonly_host(host: str) -> str:
+    if not isinstance(host, str) or host not in _ALLOWED_MAINNET_HOSTS:
+        raise BybitMainnetReadOnlyError(
+            "Bybit mainnet host must be one of the audited regional allowlist hosts"
+        )
+    if host != host.strip().lower() or "/" in host or ":" in host:
+        raise BybitMainnetReadOnlyError("Bybit mainnet host must be a bare normalized hostname")
+    return host
+
+
 def _validate_read_path(path: str) -> None:
     if not isinstance(path, str) or path not in _ALLOWED_READ_PATHS:
         raise BybitMainnetReadOnlyError("Bybit mainnet path is outside the read-only allowlist")
@@ -627,10 +665,16 @@ def _flatten_permissions(raw: Any) -> tuple[str, ...]:
             retryable_read=False,
             ambiguous_mutation=False,
         )
+    if any(not isinstance(category, str) for category in raw):
+        raise BybitRestProtocolError(
+            "Bybit API-key permission category must be text",
+            retryable_read=False,
+            ambiguous_mutation=False,
+        )
     flattened: list[str] = []
     for category in sorted(raw):
         values = raw[category]
-        if not isinstance(category, str) or not isinstance(values, list):
+        if not isinstance(values, list):
             raise BybitRestProtocolError(
                 "Bybit API-key permissions have invalid structure",
                 retryable_read=False,
@@ -649,7 +693,7 @@ def _flatten_permissions(raw: Any) -> tuple[str, ...]:
 
 def _required_decimal(row: Mapping[str, Any], field: str) -> Decimal:
     raw = row.get(field)
-    if raw in {None, ""}:
+    if raw is None or raw == "":
         raise ValueError(f"Bybit mainnet response is missing {field}")
     try:
         value = Decimal(str(raw))
@@ -662,7 +706,7 @@ def _required_decimal(row: Mapping[str, Any], field: str) -> Decimal:
 
 def _optional_decimal(row: Mapping[str, Any], field: str) -> Decimal | None:
     raw = row.get(field)
-    if raw in {None, ""}:
+    if raw is None or raw == "":
         return None
     return _required_decimal(row, field)
 
