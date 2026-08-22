@@ -4,7 +4,7 @@ import argparse
 import json
 import os
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Protocol
@@ -14,8 +14,6 @@ from app.marketdata.bybit_public_archive import (
     completed_archive_dates,
 )
 from app.marketdata.bybit_research_universe import (
-    BybitResearchInstrument,
-    BybitResearchTicker,
     BybitResearchUniverseClient,
     BybitResearchUniversePolicy,
     BybitResearchUniverseSelection,
@@ -75,7 +73,7 @@ class _ArchiveClient(Protocol):
         self,
         *,
         symbols: tuple[str, ...],
-        dates: tuple,
+        dates: tuple[date, ...],
         interval_minutes: int,
     ) -> _ArchiveAcquisition: ...
 
@@ -100,8 +98,10 @@ def run_dynamic_top10_research(
 ) -> dict[str, Any]:
     """Run the complete research-only Top-10 -> history -> strategy evidence pipeline."""
 
-    if opening_equity_usdt <= 0:
-        raise ValueError("dynamic Top-10 research opening equity must be positive")
+    if not opening_equity_usdt.is_finite() or opening_equity_usdt <= 0:
+        raise ValueError("dynamic Top-10 research opening equity must be positive and finite")
+    if isinstance(micro_lookback_days, bool) or micro_lookback_days < 1:
+        raise ValueError("dynamic Top-10 research micro lookback must be a positive integer")
     active_walk = CryptoWalkForwardPolicy() if walk_forward_policy is None else walk_forward_policy
     active_walk.validate()
     minimum_micro_days = active_walk.fold_days * active_walk.minimum_folds
@@ -109,7 +109,12 @@ def run_dynamic_top10_research(
         raise ValueError(
             f"dynamic Top-10 research needs at least {minimum_micro_days} micro-history days"
         )
-    cutoff = datetime.now(UTC) if observed_at is None else observed_at.astimezone(UTC)
+    if observed_at is None:
+        cutoff = datetime.now(UTC)
+    else:
+        if observed_at.tzinfo is None or observed_at.utcoffset() is None:
+            raise ValueError("dynamic Top-10 research observed_at must be timezone-aware")
+        cutoff = observed_at.astimezone(UTC)
     observed_at_ms = int(cutoff.timestamp() * 1000)
     host = _site_host(bybit_site)
     active_universe = BybitResearchUniversePolicy() if universe_policy is None else universe_policy
@@ -117,7 +122,11 @@ def run_dynamic_top10_research(
     if active_universe.top_n != 10:
         raise ValueError("dynamic Top-10 research requires universe_policy.top_n=10")
 
-    universe = BybitResearchUniverseClient(host=host) if universe_client is None else universe_client
+    universe = (
+        BybitResearchUniverseClient(host=host)
+        if universe_client is None
+        else universe_client
+    )
     instruments = universe.fetch_instruments()
     tickers = universe.fetch_tickers()
     selection = select_bybit_research_universe(
@@ -137,7 +146,11 @@ def run_dynamic_top10_research(
         raise AssertionError("dynamic Top-10 selection must contain exactly ten symbols")
 
     instrument_by_symbol = {item.symbol: item for item in instruments}
-    earliest_launch_ms = min(instrument_by_symbol[symbol].launch_time_ms for symbol in symbols)
+    if any(symbol not in instrument_by_symbol for symbol in symbols):
+        raise RuntimeError("dynamic Top-10 selected symbol is missing instrument metadata")
+    earliest_launch_ms = min(
+        instrument_by_symbol[symbol].launch_time_ms for symbol in symbols
+    )
     macro_end_ms = last_completed_kline_end_ms(now_ms=observed_at_ms, interval="60")
     if earliest_launch_ms >= macro_end_ms:
         raise RuntimeError("dynamic Top-10 macro-history interval is empty")
@@ -157,7 +170,10 @@ def run_dynamic_top10_research(
         interval="60",
     )
 
-    archive_dates = completed_archive_dates(now=cutoff, lookback_days=micro_lookback_days)
+    archive_dates = completed_archive_dates(
+        now=cutoff,
+        lookback_days=micro_lookback_days,
+    )
     archive = BybitPublicTradeArchiveClient() if archive_client is None else archive_client
     micro = archive.fetch_klines(
         symbols=symbols,
@@ -174,7 +190,10 @@ def run_dynamic_top10_research(
         micro.klines,
         opening_equity_usdt=opening_equity_usdt,
     )
-    combined = suite["candidates"].get("CONDITIONAL_COMBINED_RISK")
+    candidates = suite.get("candidates")
+    if not isinstance(candidates, Mapping):
+        raise RuntimeError("dynamic Top-10 research strategy candidates are missing")
+    combined = candidates.get("CONDITIONAL_COMBINED_RISK")
     if not isinstance(combined, Mapping):
         raise RuntimeError("dynamic Top-10 research combined-risk candidate is missing")
     trade_conditions = diagnose_crypto_historical_conditions(
