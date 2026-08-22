@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from decimal import Decimal
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from app.marketdata.bybit_research_universe import (
     BybitResearchInstrument,
     BybitResearchTicker,
+    BybitResearchUniverseCandidate,
     BybitResearchUniversePolicy,
     select_bybit_research_universe,
     validate_bybit_public_research_host,
@@ -314,7 +316,7 @@ def build_bybit_opportunity_snapshot(
 
 
 def _opportunity_candidate(
-    item: Any,
+    item: BybitResearchUniverseCandidate,
     policy: BybitResearchUniversePolicy,
 ) -> BybitOpportunityCandidate:
     contributions = {
