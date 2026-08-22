@@ -69,22 +69,14 @@ class CryptoHistoricalTradeCondition:
         )
 
 
-def diagnose_crypto_historical_conditions(
+def build_crypto_historical_trade_conditions(
     acquisition: BybitKlineAcquisition,
     replay: Mapping[str, Any],
     *,
     strategy_config: CryptoPerpStrategyConfig | None = None,
-    policy: CryptoHistoricalDiagnosticsPolicy | None = None,
-) -> dict[str, Any]:
-    """Explain conditional historical performance without changing or promoting the strategy.
+) -> tuple[CryptoHistoricalTradeCondition, ...]:
+    """Reconstruct one point-in-time condition row for every closed replay trade."""
 
-    Features are reconstructed strictly from completed bars at each trade decision timestamp. The
-    result describes observed associations only; it is not a causal claim and cannot authorize
-    demo or live execution.
-    """
-
-    active = CryptoHistoricalDiagnosticsPolicy() if policy is None else policy
-    active.validate()
     config = CryptoPerpStrategyConfig() if strategy_config is None else strategy_config
     config.validate()
     _validate_research_replay_boundary(replay)
@@ -158,7 +150,7 @@ def diagnose_crypto_historical_conditions(
 
     turnover_values = [record["average_turnover_usdt"] for record in raw_records]
     turnover_median = _median(turnover_values) if turnover_values else None
-    records = tuple(
+    return tuple(
         _materialize_record(
             record,
             config=config,
@@ -166,6 +158,30 @@ def diagnose_crypto_historical_conditions(
         )
         for record in raw_records
     )
+
+
+def diagnose_crypto_historical_conditions(
+    acquisition: BybitKlineAcquisition,
+    replay: Mapping[str, Any],
+    *,
+    strategy_config: CryptoPerpStrategyConfig | None = None,
+    policy: CryptoHistoricalDiagnosticsPolicy | None = None,
+) -> dict[str, Any]:
+    """Explain conditional historical performance without changing or promoting the strategy.
+
+    Features are reconstructed strictly from completed bars at each trade decision timestamp. The
+    result describes observed associations only; it is not a causal claim and cannot authorize
+    demo or live execution.
+    """
+
+    active = CryptoHistoricalDiagnosticsPolicy() if policy is None else policy
+    active.validate()
+    records = build_crypto_historical_trade_conditions(
+        acquisition,
+        replay,
+        strategy_config=strategy_config,
+    )
+    bars_by_symbol = _bars_by_symbol(acquisition.bars)
     feature_quantiles = {
         feature: _quantile_condition_table(
             records,
