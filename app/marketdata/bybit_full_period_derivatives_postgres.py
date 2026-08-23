@@ -217,12 +217,15 @@ class PostgresBybitFullPeriodDerivativesStore:
                             raise RuntimeError("derivatives complete-day lookup lost row")
                         if (
                             row["attempt_id"] != attempt_id
-                            or _utc(row["query_start_at"]) != _parse_time(audit.query_start_at)
-                            or _utc(row["query_end_at"]) != _parse_time(audit.query_end_at)
+                            or _utc(row["query_start_at"])
+                            != _parse_time(audit.query_start_at)
+                            or _utc(row["query_end_at"])
+                            != _parse_time(audit.query_end_at)
                             or int(row["point_count"]) != audit.actual_point_count
                             or _optional_int(row["expected_point_count"])
                             != audit.expected_point_count
-                            or bool(row["exact_grid_required"]) != audit.exact_grid_required
+                            or bool(row["exact_grid_required"])
+                            != audit.exact_grid_required
                             or row["point_fingerprint"] != fingerprint
                         ):
                             raise ValueError(
@@ -307,8 +310,7 @@ class PostgresBybitFullPeriodDerivativesStore:
         end_at: datetime,
     ) -> tuple[BybitOpenInterestPoint, ...]:
         rows = self._load_rows(
-            table="astra_bybit_open_interest_v114",
-            fields="symbol, timestamp_at, open_interest, single_open_interest",
+            source=OPEN_INTEREST,
             symbol=symbol,
             start_at=start_at,
             end_at=end_at,
@@ -338,8 +340,7 @@ class PostgresBybitFullPeriodDerivativesStore:
         end_at: datetime,
     ) -> tuple[BybitAccountRatioPoint, ...]:
         rows = self._load_rows(
-            table="astra_bybit_account_ratio_v114",
-            fields="symbol, timestamp_at, buy_ratio, sell_ratio",
+            source=ACCOUNT_RATIO,
             symbol=symbol,
             start_at=start_at,
             end_at=end_at,
@@ -365,8 +366,7 @@ class PostgresBybitFullPeriodDerivativesStore:
         end_at: datetime,
     ) -> tuple[BybitHistoricalFundingPoint, ...]:
         rows = self._load_rows(
-            table="astra_bybit_funding_rate_v114",
-            fields="symbol, timestamp_at, funding_rate",
+            source=FUNDING,
             symbol=symbol,
             start_at=start_at,
             end_at=end_at,
@@ -386,31 +386,45 @@ class PostgresBybitFullPeriodDerivativesStore:
     def _load_rows(
         self,
         *,
-        table: str,
-        fields: str,
+        source: str,
         symbol: str,
         start_at: datetime,
         end_at: datetime,
     ) -> list[Mapping[str, Any]]:
-        if table not in {
-            "astra_bybit_open_interest_v114",
-            "astra_bybit_account_ratio_v114",
-            "astra_bybit_funding_rate_v114",
-        }:
-            raise ValueError("derivatives load table is not allowlisted")
+        _validate_source_value(source)
         _validate_symbols((symbol,))
         start = _utc(start_at)
         end = _utc(end_at)
         if end <= start:
             raise ValueError("derivatives load interval is invalid")
-        query = (
-            f"SELECT {fields} FROM {table} "  # noqa: S608 - table/fields are internal allowlists
-            "WHERE symbol=%s AND timestamp_at >= %s AND timestamp_at < %s "
-            "ORDER BY timestamp_at"
-        )
         with self._connect() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(query, (symbol, start, end))
+                if source == OPEN_INTEREST:
+                    cursor.execute(
+                        """SELECT symbol, timestamp_at, open_interest, single_open_interest
+                        FROM astra_bybit_open_interest_v114
+                        WHERE symbol=%s AND timestamp_at >= %s AND timestamp_at < %s
+                        ORDER BY timestamp_at""",
+                        (symbol, start, end),
+                    )
+                elif source == ACCOUNT_RATIO:
+                    cursor.execute(
+                        """SELECT symbol, timestamp_at, buy_ratio, sell_ratio
+                        FROM astra_bybit_account_ratio_v114
+                        WHERE symbol=%s AND timestamp_at >= %s AND timestamp_at < %s
+                        ORDER BY timestamp_at""",
+                        (symbol, start, end),
+                    )
+                elif source == FUNDING:
+                    cursor.execute(
+                        """SELECT symbol, timestamp_at, funding_rate
+                        FROM astra_bybit_funding_rate_v114
+                        WHERE symbol=%s AND timestamp_at >= %s AND timestamp_at < %s
+                        ORDER BY timestamp_at""",
+                        (symbol, start, end),
+                    )
+                else:  # pragma: no cover - validated above
+                    raise RuntimeError("derivatives source validation drifted")
                 return list(cursor.fetchall())
 
     def _persist_point(
@@ -440,8 +454,6 @@ class PostgresBybitFullPeriodDerivativesStore:
                     created_at,
                 ),
             )
-            table = "astra_bybit_open_interest_v114"
-            fields = "point_id, open_interest, single_open_interest"
         elif source == ACCOUNT_RATIO and isinstance(point, BybitAccountRatioPoint):
             cursor.execute(
                 """INSERT INTO astra_bybit_account_ratio_v114
@@ -458,8 +470,6 @@ class PostgresBybitFullPeriodDerivativesStore:
                     created_at,
                 ),
             )
-            table = "astra_bybit_account_ratio_v114"
-            fields = "point_id, buy_ratio, sell_ratio"
         elif source == FUNDING and isinstance(point, BybitHistoricalFundingPoint):
             cursor.execute(
                 """INSERT INTO astra_bybit_funding_rate_v114
@@ -475,20 +485,52 @@ class PostgresBybitFullPeriodDerivativesStore:
                     created_at,
                 ),
             )
-            table = "astra_bybit_funding_rate_v114"
-            fields = "point_id, funding_rate"
         else:
             raise ValueError("derivatives point type does not match source")
         if cursor.rowcount != 0:
             return
-        query = (
-            f"SELECT {fields} FROM {table} "  # noqa: S608 - internal fixed table/field set
-            "WHERE symbol=%s AND timestamp_at=%s"
+        row = self._load_existing_point(
+            cursor,
+            source=source,
+            symbol=point.symbol,
+            timestamp_at=timestamp_at,
         )
-        cursor.execute(query, (point.symbol, timestamp_at))
-        row = cursor.fetchone()
         if row is None or row["point_id"] != point_id:
             raise ValueError("derivatives point conflicts with stored immutable history")
+
+    @staticmethod
+    def _load_existing_point(
+        cursor: Any,
+        *,
+        source: str,
+        symbol: str,
+        timestamp_at: datetime,
+    ) -> Mapping[str, Any] | None:
+        if source == OPEN_INTEREST:
+            cursor.execute(
+                """SELECT point_id, open_interest, single_open_interest
+                FROM astra_bybit_open_interest_v114
+                WHERE symbol=%s AND timestamp_at=%s""",
+                (symbol, timestamp_at),
+            )
+        elif source == ACCOUNT_RATIO:
+            cursor.execute(
+                """SELECT point_id, buy_ratio, sell_ratio
+                FROM astra_bybit_account_ratio_v114
+                WHERE symbol=%s AND timestamp_at=%s""",
+                (symbol, timestamp_at),
+            )
+        elif source == FUNDING:
+            cursor.execute(
+                """SELECT point_id, funding_rate
+                FROM astra_bybit_funding_rate_v114
+                WHERE symbol=%s AND timestamp_at=%s""",
+                (symbol, timestamp_at),
+            )
+        else:
+            raise ValueError("derivatives point lookup source is invalid")
+        row = cursor.fetchone()
+        return row if isinstance(row, Mapping) else None
 
 
 def _point_payload(
