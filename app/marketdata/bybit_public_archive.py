@@ -273,8 +273,8 @@ def _validate_request(
     dates: Sequence[date],
     interval_minutes: int,
 ) -> None:
-    if len(symbols) < 2:
-        raise ValueError("Bybit archive replay requires at least two symbols")
+    if not symbols:
+        raise ValueError("Bybit archive replay requires at least one symbol")
     normalized = tuple(symbol.strip().upper() for symbol in symbols)
     if normalized != symbols or len(set(symbols)) != len(symbols):
         raise ValueError("Bybit archive symbols must be unique normalized uppercase")

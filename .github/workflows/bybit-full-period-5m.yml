@@ -1,0 +1,148 @@
+name: bybit-full-period-5m
+
+on:
+  pull_request:
+    paths:
+      - 'app/marketdata/bybit_public_archive.py'
+      - 'app/marketdata/bybit_full_period_5m.py'
+      - 'app/marketdata/bybit_full_period_5m_postgres.py'
+      - 'tools/backfill_bybit_full_period_5m.py'
+      - 'migrations/v113/001_bybit_full_period_5m.sql'
+      - 'tests/test_bybit_full_period_5m.py'
+      - 'tests/test_bybit_public_archive_single_symbol.py'
+      - 'tests/test_bybit_full_period_5m_postgres.py'
+      - 'tests/test_backfill_bybit_full_period_5m.py'
+      - 'docs/BYBIT_FULL_PERIOD_5M_BACKFILL.md'
+      - '.github/workflows/bybit-full-period-5m.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/marketdata/bybit_public_archive.py'
+      - 'app/marketdata/bybit_full_period_5m.py'
+      - 'app/marketdata/bybit_full_period_5m_postgres.py'
+      - 'tools/backfill_bybit_full_period_5m.py'
+      - 'migrations/v113/001_bybit_full_period_5m.sql'
+      - 'tests/test_bybit_full_period_5m.py'
+      - 'tests/test_bybit_public_archive_single_symbol.py'
+      - 'tests/test_bybit_full_period_5m_postgres.py'
+      - 'tests/test_backfill_bybit_full_period_5m.py'
+      - 'docs/BYBIT_FULL_PERIOD_5M_BACKFILL.md'
+      - '.github/workflows/bybit-full-period-5m.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-full-period-5m-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Full-period 5m regression tests
+        run: |
+          pytest -q \
+            tests/test_bybit_full_period_5m.py \
+            tests/test_bybit_public_archive_single_symbol.py \
+            tests/test_bybit_full_period_5m_postgres.py \
+            tests/test_backfill_bybit_full_period_5m.py
+      - name: Ruff full-period 5m
+        run: |
+          ruff check \
+            app/marketdata/bybit_public_archive.py \
+            app/marketdata/bybit_full_period_5m.py \
+            app/marketdata/bybit_full_period_5m_postgres.py \
+            tools/backfill_bybit_full_period_5m.py \
+            tests/test_bybit_full_period_5m.py \
+            tests/test_bybit_public_archive_single_symbol.py \
+            tests/test_bybit_full_period_5m_postgres.py \
+            tests/test_backfill_bybit_full_period_5m.py
+      - name: Bandit full-period 5m
+        run: |
+          bandit -q \
+            app/marketdata/bybit_public_archive.py \
+            app/marketdata/bybit_full_period_5m.py \
+            app/marketdata/bybit_full_period_5m_postgres.py \
+            tools/backfill_bybit_full_period_5m.py
+      - name: Compile full-period 5m
+        run: |
+          python -m compileall -q \
+            app/marketdata/bybit_public_archive.py \
+            app/marketdata/bybit_full_period_5m.py \
+            app/marketdata/bybit_full_period_5m_postgres.py \
+            tools/backfill_bybit_full_period_5m.py
+
+  scheduled-backfill:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BYBIT_RESEARCH_SITE: ${{ vars.BYBIT_RESEARCH_SITE }}
+      BYBIT_FULL_PERIOD_MAX_DAYS_PER_RUN: ${{ vars.BYBIT_FULL_PERIOD_MAX_DAYS_PER_RUN }}
+      BYBIT_OPPORTUNITY_DATABASE_DSN: ${{ secrets.BYBIT_OPPORTUNITY_DATABASE_DSN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install operational dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev,postgresql]'
+          python -m pip check
+      - name: Backfill bounded official archive history
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          STATUS_FILE='artifacts/bybit-full-period-5m-status.json'
+          LOG_FILE='artifacts/bybit-full-period-5m.log'
+          if [ -z "${BYBIT_OPPORTUNITY_DATABASE_DSN:-}" ]; then
+            printf '%s\n' '{"status":"POSTGRES_DSN_UNAVAILABLE","full_period_claim_allowed":false,"trade_actionable":false,"bybit_live_order_routing_allowed":false}' > "$STATUS_FILE"
+            cat "$STATUS_FILE"
+            exit 0
+          fi
+          SITE="${BYBIT_RESEARCH_SITE:-eu}"
+          LIMIT="${BYBIT_FULL_PERIOD_MAX_DAYS_PER_RUN:-20}"
+          set +e
+          python -m tools.backfill_bybit_full_period_5m \
+            --site "$SITE" \
+            --maximum-days-per-run "$LIMIT" \
+            > "$LOG_FILE" 2>&1
+          COMMAND_STATUS=$?
+          set -e
+          if [ "$COMMAND_STATUS" -eq 0 ]; then
+            cat "$LOG_FILE"
+            exit 0
+          fi
+          if grep -Eq 'astra_bybit_5m_archive_day_v113|UndefinedTable' "$LOG_FILE"; then
+            STATUS='FULL_PERIOD_5M_SCHEMA_NOT_MIGRATED'
+            printf '{"status":"%s","full_period_claim_allowed":false,"trade_actionable":false,"bybit_live_order_routing_allowed":false}\n' "$STATUS" > "$STATUS_FILE"
+            cat "$STATUS_FILE"
+            exit 0
+          fi
+          cat "$LOG_FILE"
+          exit "$COMMAND_STATUS"
+      - name: Upload explicit backfill status
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-full-period-5m-${{ github.run_id }}
+          path: |
+            artifacts/bybit-full-period-5m-status.json
+            artifacts/bybit-full-period-5m.log
+          if-no-files-found: ignore
+          retention-days: 30
