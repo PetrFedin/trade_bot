@@ -1,0 +1,67 @@
+name: bybit-source-common-period-portfolio
+
+on:
+  pull_request:
+    paths:
+      - 'app/strategy/crypto_source_common_period_portfolio.py'
+      - 'tools/replay_bybit_source_common_period_portfolio.py'
+      - 'tests/test_crypto_source_common_period_portfolio.py'
+      - 'tests/test_replay_bybit_source_common_period_portfolio.py'
+      - 'docs/BYBIT_SOURCE_COMMON_PERIOD_PORTFOLIO.md'
+      - '.github/workflows/bybit-source-common-period-portfolio.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/strategy/crypto_source_common_period_portfolio.py'
+      - 'tools/replay_bybit_source_common_period_portfolio.py'
+      - 'tests/test_crypto_source_common_period_portfolio.py'
+      - 'tests/test_replay_bybit_source_common_period_portfolio.py'
+      - 'docs/BYBIT_SOURCE_COMMON_PERIOD_PORTFOLIO.md'
+      - '.github/workflows/bybit-source-common-period-portfolio.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-source-common-period-portfolio-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Source-common portfolio regression tests
+        run: |
+          pytest -q \
+            tests/test_crypto_source_common_period_portfolio.py \
+            tests/test_replay_bybit_source_common_period_portfolio.py \
+            tests/test_crypto_source_common_period_evidence.py \
+            tests/test_research_bybit_source_common_period_evidence.py
+      - name: Ruff source-common portfolio
+        run: |
+          ruff check \
+            app/strategy/crypto_source_common_period_portfolio.py \
+            tools/replay_bybit_source_common_period_portfolio.py \
+            tests/test_crypto_source_common_period_portfolio.py \
+            tests/test_replay_bybit_source_common_period_portfolio.py
+      - name: Bandit source-common portfolio
+        run: |
+          bandit -q \
+            app/strategy/crypto_source_common_period_portfolio.py \
+            tools/replay_bybit_source_common_period_portfolio.py
+      - name: Compile source-common portfolio
+        run: |
+          python -m compileall -q \
+            app/strategy/crypto_source_common_period_portfolio.py \
+            tools/replay_bybit_source_common_period_portfolio.py
