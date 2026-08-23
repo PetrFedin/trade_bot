@@ -111,7 +111,7 @@ def run_full_period_derivatives_backfill(
         query_start = max(day_start, source_start)
         query_end = day_start + timedelta(days=1)
         start_ms = int(query_start.timestamp() * 1000)
-        end_ms = int(query_end.timestamp() * 1000)
+        end_ms = int(query_end.timestamp() * 1000) - 1
         try:
             if work.source == OPEN_INTEREST:
                 points, requests = derivatives.fetch_open_interest(
