@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from app.marketdata.bybit_derivatives_history import BybitDerivativesHistory
@@ -321,7 +321,8 @@ def _maximum_initial_gross_notional(trades: Sequence[Any]) -> Decimal:
         if notional <= 0:
             raise ValueError("source-common portfolio entry notional must be positive")
         events.append((entry, 1, notional))
-        events.append((exit_at, 0, -notional))
+        exit_priority = 2 if exit_at == entry else 0
+        events.append((exit_at, exit_priority, -notional))
     events.sort(key=lambda item: (item[0], item[1]))
     active = _ZERO
     maximum = _ZERO
@@ -388,7 +389,7 @@ def _required_decimal(row: Mapping[str, Any], field: str) -> Decimal:
     value = row.get(field)
     try:
         parsed = Decimal(str(value))
-    except Exception as exc:  # pragma: no cover - defensive conversion boundary
+    except (InvalidOperation, ValueError) as exc:
         raise ValueError(f"source-common portfolio trade {field} is invalid") from exc
     if not parsed.is_finite():
         raise ValueError(f"source-common portfolio trade {field} must be finite")
@@ -399,7 +400,7 @@ def _decimal_metric(metrics: Mapping[str, Any], field: str) -> Decimal:
     value = metrics.get(field)
     try:
         parsed = Decimal(str(value))
-    except Exception as exc:  # pragma: no cover - defensive conversion boundary
+    except (InvalidOperation, ValueError) as exc:
         raise ValueError(f"source-common portfolio metric {field} is invalid") from exc
     if not parsed.is_finite():
         raise ValueError(f"source-common portfolio metric {field} must be finite")
