@@ -19,7 +19,11 @@ from app.execution.bybit_demo_operator_approval import (
 )
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
 from app.marketdata.bybit_v5 import BybitKlineBar
-from app.strategy.crypto_perp import CryptoPerpStrategyConfig, build_trade_plan, evaluate_crypto_signal
+from app.strategy.crypto_perp import (
+    CryptoPerpStrategyConfig,
+    build_trade_plan,
+    evaluate_crypto_signal,
+)
 from app.strategy.crypto_session_risk import CryptoSessionRiskState
 
 _START = datetime(2026, 8, 24, 0, tzinfo=UTC)
@@ -30,7 +34,9 @@ _COUNT = 120
 def _bars(symbol: str, *, trending: bool) -> tuple[BybitKlineBar, ...]:
     rows: list[BybitKlineBar] = []
     for index in range(_COUNT):
-        base = Decimal("100") + (Decimal(index) * Decimal("0.35") if trending else Decimal("0"))
+        base = Decimal("100") + (
+            Decimal(index) * Decimal("0.35") if trending else Decimal("0")
+        )
         opened = base
         close = opened + (Decimal("0.15") if trending else Decimal("0"))
         rows.append(
