@@ -46,51 +46,42 @@ def _observation(
 
 
 def test_positive_evidence_is_compared_prospectively_against_controls() -> None:
-    observations = (
+    positive = tuple(
         _observation(
-            0,
+            index,
             state="QUALIFIED_POSITIVE_EVIDENCE",
-            evidence_rank=1,
-            pnl=Decimal("12"),
+            evidence_rank=index + 1,
+            pnl=Decimal("12") - Decimal(index),
             touch="TARGET_FIRST",
-        ),
-        _observation(
-            1,
-            state="QUALIFIED_POSITIVE_EVIDENCE",
-            evidence_rank=2,
-            pnl=Decimal("8"),
-            touch="TARGET_FIRST",
-        ),
-        _observation(
-            2,
-            state="QUALIFIED_MIXED_EVIDENCE",
-            evidence_rank=8,
-            pnl=Decimal("-5"),
-            touch="STOP_FIRST",
-        ),
-        _observation(
-            3,
-            state="QUALIFIED_MIXED_EVIDENCE",
-            evidence_rank=9,
-            pnl=Decimal("-3"),
-            touch="STOP_FIRST",
-        ),
+        )
+        for index in range(5)
     )
+    mixed = tuple(
+        _observation(
+            index + 5,
+            state="QUALIFIED_MIXED_EVIDENCE",
+            evidence_rank=index + 6,
+            pnl=Decimal("-3") - Decimal(index),
+            touch="STOP_FIRST",
+        )
+        for index in range(5)
+    )
+    observations = positive + mixed
     dataset = CryptoProspectiveCalibrationDataset(
-        raw_final_seed_count=5,
+        raw_final_seed_count=11,
         observations=observations,
     )
     report = diagnose_crypto_prospective_ranking_calibration(
         dataset,
         policy=CryptoProspectiveCalibrationPolicy(
-            minimum_group_observations=2,
-            minimum_comparison_observations=2,
+            minimum_group_observations=5,
+            minimum_comparison_observations=5,
         ),
     )
 
-    assert report["deduplicated_signal_observation_count"] == 4
+    assert report["deduplicated_signal_observation_count"] == 10
     assert report["duplicate_signal_observation_count"] == 1
-    assert report["overall"]["observation_count"] == 4
+    assert report["overall"]["observation_count"] == 10
     assert report["by_qualification_state"]["QUALIFIED_POSITIVE_EVIDENCE"][
         "sample_sufficient"
     ] is True
@@ -131,22 +122,36 @@ def test_ambiguous_same_bar_is_not_counted_as_ordered_target_or_stop() -> None:
             pnl=Decimal("2"),
             touch="AMBIGUOUS_SAME_BAR",
         ),
+        _observation(
+            3,
+            state="QUALIFIED_POSITIVE_EVIDENCE",
+            evidence_rank=4,
+            pnl=Decimal("2"),
+            touch="AMBIGUOUS_SAME_BAR",
+        ),
+        _observation(
+            4,
+            state="QUALIFIED_POSITIVE_EVIDENCE",
+            evidence_rank=5,
+            pnl=Decimal("1"),
+            touch="NEITHER",
+        ),
     )
     report = diagnose_crypto_prospective_ranking_calibration(
         CryptoProspectiveCalibrationDataset(
-            raw_final_seed_count=3,
+            raw_final_seed_count=5,
             observations=observations,
         ),
         policy=CryptoProspectiveCalibrationPolicy(
-            minimum_group_observations=2,
-            minimum_comparison_observations=2,
+            minimum_group_observations=5,
+            minimum_comparison_observations=5,
         ),
     )
     positive = report["by_qualification_state"]["QUALIFIED_POSITIVE_EVIDENCE"]
     assert positive["ordered_touch_count"] == 2
-    assert positive["ambiguous_same_bar_count"] == 1
+    assert positive["ambiguous_same_bar_count"] == 2
     assert Decimal(positive["target_first_rate_of_ordered_touches"]) == Decimal("0.5")
-    assert Decimal(positive["ambiguous_same_bar_rate"]) == Decimal("1") / Decimal("3")
+    assert Decimal(positive["ambiguous_same_bar_rate"]) == Decimal("0.4")
 
 
 def test_rank_buckets_are_mutually_exclusive_and_preserve_all_observations() -> None:
