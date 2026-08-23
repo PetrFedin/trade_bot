@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'app/strategy/crypto_full_period_fixed_replay.py'
+      - 'tools/replay_bybit_crypto_single_symbol.py'
+      - 'tools/research_bybit_crypto_strategy_v2.py'
       - 'tools/research_bybit_full_period_fixed_strategy.py'
       - 'tests/test_crypto_full_period_fixed_replay.py'
       - 'tests/test_research_bybit_full_period_fixed_strategy.py'
@@ -13,6 +15,8 @@ on:
     branches: [main]
     paths:
       - 'app/strategy/crypto_full_period_fixed_replay.py'
+      - 'tools/replay_bybit_crypto_single_symbol.py'
+      - 'tools/research_bybit_crypto_strategy_v2.py'
       - 'tools/research_bybit_full_period_fixed_strategy.py'
       - 'tests/test_crypto_full_period_fixed_replay.py'
       - 'tests/test_research_bybit_full_period_fixed_strategy.py'
@@ -50,6 +54,8 @@ jobs:
         run: |
           ruff check \
             app/strategy/crypto_full_period_fixed_replay.py \
+            tools/replay_bybit_crypto_single_symbol.py \
+            tools/research_bybit_crypto_strategy_v2.py \
             tools/research_bybit_full_period_fixed_strategy.py \
             tests/test_crypto_full_period_fixed_replay.py \
             tests/test_research_bybit_full_period_fixed_strategy.py
@@ -57,9 +63,13 @@ jobs:
         run: |
           bandit -q \
             app/strategy/crypto_full_period_fixed_replay.py \
+            tools/replay_bybit_crypto_single_symbol.py \
+            tools/research_bybit_crypto_strategy_v2.py \
             tools/research_bybit_full_period_fixed_strategy.py
       - name: Compile full-period fixed replay
         run: |
           python -m compileall -q \
             app/strategy/crypto_full_period_fixed_replay.py \
+            tools/replay_bybit_crypto_single_symbol.py \
+            tools/research_bybit_crypto_strategy_v2.py \
             tools/research_bybit_full_period_fixed_strategy.py
