@@ -53,7 +53,7 @@ def _bars() -> tuple[BybitKlineBar, ...]:
                 low=opened - Decimal("0.10"),
                 close=close,
                 volume=Decimal("1000"),
-                turnover=Decimal("100000"),
+                turnover=Decimal("2000000"),
             )
         )
     return tuple(rows)
@@ -103,6 +103,7 @@ def test_source_common_period_builds_exact_point_in_time_evidence_rows() -> None
         funding=_funding(),
         common_start_at=_START,
         end_exclusive_at=_END,
+        opening_equity_usdt=Decimal("10000"),
     )
 
     assert rows
