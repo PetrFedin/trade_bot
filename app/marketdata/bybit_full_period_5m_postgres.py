@@ -259,23 +259,42 @@ class PostgresBybitFullPeriod5mStore:
         end = None if end_at is None else _utc(end_at)
         if start is not None and end is not None and end <= start:
             raise ValueError("full-period 5m load interval is invalid")
-        clauses = ["symbol = ANY(%s)"]
-        params: list[Any] = [list(normalized)]
-        if start is not None:
-            clauses.append("start_time >= %s")
-            params.append(start)
-        if end is not None:
-            clauses.append("start_time < %s")
-            params.append(end)
-        query = (
-            "SELECT symbol, start_time, open, high, low, close, volume, turnover "
-            "FROM astra_bybit_5m_bar_v113 WHERE "
-            + " AND ".join(clauses)
-            + " ORDER BY symbol, start_time"
-        )
         with self._connect() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(query, tuple(params))
+                if start is None and end is None:
+                    cursor.execute(
+                        """SELECT symbol, start_time, open, high, low, close, volume, turnover
+                        FROM astra_bybit_5m_bar_v113
+                        WHERE symbol = ANY(%s)
+                        ORDER BY symbol, start_time""",
+                        (list(normalized),),
+                    )
+                elif start is not None and end is None:
+                    cursor.execute(
+                        """SELECT symbol, start_time, open, high, low, close, volume, turnover
+                        FROM astra_bybit_5m_bar_v113
+                        WHERE symbol = ANY(%s) AND start_time >= %s
+                        ORDER BY symbol, start_time""",
+                        (list(normalized), start),
+                    )
+                elif start is None and end is not None:
+                    cursor.execute(
+                        """SELECT symbol, start_time, open, high, low, close, volume, turnover
+                        FROM astra_bybit_5m_bar_v113
+                        WHERE symbol = ANY(%s) AND start_time < %s
+                        ORDER BY symbol, start_time""",
+                        (list(normalized), end),
+                    )
+                else:
+                    cursor.execute(
+                        """SELECT symbol, start_time, open, high, low, close, volume, turnover
+                        FROM astra_bybit_5m_bar_v113
+                        WHERE symbol = ANY(%s)
+                          AND start_time >= %s
+                          AND start_time < %s
+                        ORDER BY symbol, start_time""",
+                        (list(normalized), start, end),
+                    )
                 rows = cursor.fetchall()
         bars = tuple(
             BybitKlineBar(
