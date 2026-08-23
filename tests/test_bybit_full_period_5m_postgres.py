@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -21,8 +22,8 @@ def test_full_period_store_has_no_order_surface_and_validates_before_connect() -
     with pytest.raises(ValueError, match="load interval"):
         store.load_bars(
             symbols=("BTCUSDT",),
-            start_at=__import__("datetime").datetime(2026, 8, 23, tzinfo=__import__("datetime").UTC),
-            end_at=__import__("datetime").datetime(2026, 8, 23, tzinfo=__import__("datetime").UTC),
+            start_at=datetime(2026, 8, 23, tzinfo=UTC),
+            end_at=datetime(2026, 8, 23, tzinfo=UTC),
         )
 
 
