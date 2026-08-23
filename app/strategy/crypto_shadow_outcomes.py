@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -12,7 +12,6 @@ from app.marketdata.bybit_v5 import BybitKlineBar
 from app.strategy.crypto_live_evidence_ranking import CryptoLiveOpportunitySnapshot
 from app.strategy.crypto_perp import (
     CryptoPerpStrategyConfig,
-    CryptoSide,
     build_trade_plan,
     evaluate_crypto_signal,
     execution_levels,
