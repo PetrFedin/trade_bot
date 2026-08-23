@@ -11,6 +11,9 @@ from app.strategy.crypto_runner_admission import CryptoRunnerAdmissionPolicy
 from app.strategy.crypto_session_risk import CryptoSessionRiskPolicy
 from app.strategy.crypto_trade_management import CryptoProtectionPolicy
 from tools.replay_bybit_crypto_runner import replay_open_ended_crypto_runner
+from tools.replay_bybit_crypto_single_symbol import (
+    replay_open_ended_crypto_runner_single_symbol,
+)
 
 _CONDITIONAL_EDGE_MULTIPLE = Decimal("1.50")
 _TIGHT_PROFIT_LOCK_ACTIVATION_R = Decimal("1.00")
@@ -29,6 +32,14 @@ def run_crypto_strategy_v2_suite(
 
     if opening_equity_usdt <= 0:
         raise ValueError("crypto strategy-v2 opening equity must be positive")
+    symbols = {bar.symbol for bar in acquisition.bars}
+    if not symbols:
+        raise ValueError("crypto strategy-v2 acquisition cannot be empty")
+    replay = (
+        replay_open_ended_crypto_runner_single_symbol
+        if len(symbols) == 1
+        else replay_open_ended_crypto_runner
+    )
     admission = CryptoRunnerAdmissionPolicy(
         minimum_expected_edge_multiple=_CONDITIONAL_EDGE_MULTIPLE
     )
@@ -57,11 +68,11 @@ def run_crypto_strategy_v2_suite(
         "interval": interval,
     }
     candidates = {
-        "CONDITIONAL_1_5X": replay_open_ended_crypto_runner(
+        "CONDITIONAL_1_5X": replay(
             acquisition,
             **common,
         ),
-        "CONDITIONAL_TIGHT_PROFIT_LOCK": replay_open_ended_crypto_runner(
+        "CONDITIONAL_TIGHT_PROFIT_LOCK": replay(
             acquisition,
             protection_policy=tight_profit_lock,
             opening_equity_usdt=opening_equity_usdt,
@@ -69,22 +80,22 @@ def run_crypto_strategy_v2_suite(
             runner_admission_policy=admission,
             interval=interval,
         ),
-        "CONDITIONAL_SESSION_RISK": replay_open_ended_crypto_runner(
+        "CONDITIONAL_SESSION_RISK": replay(
             acquisition,
             session_risk_policy=session,
             **common,
         ),
-        "CONDITIONAL_DIVERSIFIED": replay_open_ended_crypto_runner(
+        "CONDITIONAL_DIVERSIFIED": replay(
             acquisition,
             correlation_policy=correlation,
             **common,
         ),
-        "CONDITIONAL_EXECUTION_RISK": replay_open_ended_crypto_runner(
+        "CONDITIONAL_EXECUTION_RISK": replay(
             acquisition,
             execution_risk_policy=execution,
             **common,
         ),
-        "CONDITIONAL_COMBINED_RISK": replay_open_ended_crypto_runner(
+        "CONDITIONAL_COMBINED_RISK": replay(
             acquisition,
             session_risk_policy=session,
             correlation_policy=correlation,

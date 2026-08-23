@@ -1,0 +1,75 @@
+name: bybit-full-period-fixed-replay
+
+on:
+  pull_request:
+    paths:
+      - 'app/strategy/crypto_full_period_fixed_replay.py'
+      - 'tools/replay_bybit_crypto_single_symbol.py'
+      - 'tools/research_bybit_crypto_strategy_v2.py'
+      - 'tools/research_bybit_full_period_fixed_strategy.py'
+      - 'tests/test_crypto_full_period_fixed_replay.py'
+      - 'tests/test_research_bybit_full_period_fixed_strategy.py'
+      - 'docs/BYBIT_FULL_PERIOD_FIXED_STRATEGY_REPLAY.md'
+      - '.github/workflows/bybit-full-period-fixed-replay.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/strategy/crypto_full_period_fixed_replay.py'
+      - 'tools/replay_bybit_crypto_single_symbol.py'
+      - 'tools/research_bybit_crypto_strategy_v2.py'
+      - 'tools/research_bybit_full_period_fixed_strategy.py'
+      - 'tests/test_crypto_full_period_fixed_replay.py'
+      - 'tests/test_research_bybit_full_period_fixed_strategy.py'
+      - 'docs/BYBIT_FULL_PERIOD_FIXED_STRATEGY_REPLAY.md'
+      - '.github/workflows/bybit-full-period-fixed-replay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-full-period-fixed-replay-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Full-period fixed replay regression tests
+        run: |
+          pytest -q \
+            tests/test_crypto_full_period_fixed_replay.py \
+            tests/test_research_bybit_full_period_fixed_strategy.py
+      - name: Ruff full-period fixed replay
+        run: |
+          ruff check \
+            app/strategy/crypto_full_period_fixed_replay.py \
+            tools/replay_bybit_crypto_single_symbol.py \
+            tools/research_bybit_crypto_strategy_v2.py \
+            tools/research_bybit_full_period_fixed_strategy.py \
+            tests/test_crypto_full_period_fixed_replay.py \
+            tests/test_research_bybit_full_period_fixed_strategy.py
+      - name: Bandit full-period fixed replay
+        run: |
+          bandit -q \
+            app/strategy/crypto_full_period_fixed_replay.py \
+            tools/replay_bybit_crypto_single_symbol.py \
+            tools/research_bybit_crypto_strategy_v2.py \
+            tools/research_bybit_full_period_fixed_strategy.py
+      - name: Compile full-period fixed replay
+        run: |
+          python -m compileall -q \
+            app/strategy/crypto_full_period_fixed_replay.py \
+            tools/replay_bybit_crypto_single_symbol.py \
+            tools/research_bybit_crypto_strategy_v2.py \
+            tools/research_bybit_full_period_fixed_strategy.py
