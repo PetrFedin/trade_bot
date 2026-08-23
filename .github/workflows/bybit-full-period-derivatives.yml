@@ -1,0 +1,77 @@
+name: bybit-full-period-derivatives
+
+on:
+  pull_request:
+    paths:
+      - 'app/marketdata/bybit_full_period_derivatives.py'
+      - 'app/marketdata/bybit_full_period_derivatives_postgres.py'
+      - 'tools/backfill_bybit_full_period_derivatives.py'
+      - 'migrations/v114/001_bybit_full_period_derivatives.sql'
+      - 'tests/test_bybit_full_period_derivatives.py'
+      - 'tests/test_bybit_full_period_derivatives_postgres.py'
+      - 'tests/test_backfill_bybit_full_period_derivatives.py'
+      - 'docs/BYBIT_FULL_PERIOD_DERIVATIVES.md'
+      - '.github/workflows/bybit-full-period-derivatives.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/marketdata/bybit_full_period_derivatives.py'
+      - 'app/marketdata/bybit_full_period_derivatives_postgres.py'
+      - 'tools/backfill_bybit_full_period_derivatives.py'
+      - 'migrations/v114/001_bybit_full_period_derivatives.sql'
+      - 'tests/test_bybit_full_period_derivatives.py'
+      - 'tests/test_bybit_full_period_derivatives_postgres.py'
+      - 'tests/test_backfill_bybit_full_period_derivatives.py'
+      - 'docs/BYBIT_FULL_PERIOD_DERIVATIVES.md'
+      - '.github/workflows/bybit-full-period-derivatives.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-full-period-derivatives-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Full-period derivatives regression tests
+        run: |
+          pytest -q \
+            tests/test_bybit_full_period_derivatives.py \
+            tests/test_bybit_full_period_derivatives_postgres.py \
+            tests/test_backfill_bybit_full_period_derivatives.py \
+            tests/test_bybit_derivatives_history.py
+      - name: Ruff full-period derivatives
+        run: |
+          ruff check \
+            app/marketdata/bybit_full_period_derivatives.py \
+            app/marketdata/bybit_full_period_derivatives_postgres.py \
+            tools/backfill_bybit_full_period_derivatives.py \
+            tests/test_bybit_full_period_derivatives.py \
+            tests/test_bybit_full_period_derivatives_postgres.py \
+            tests/test_backfill_bybit_full_period_derivatives.py
+      - name: Bandit full-period derivatives
+        run: |
+          bandit -q \
+            app/marketdata/bybit_full_period_derivatives.py \
+            app/marketdata/bybit_full_period_derivatives_postgres.py \
+            tools/backfill_bybit_full_period_derivatives.py
+      - name: Compile full-period derivatives
+        run: |
+          python -m compileall -q \
+            app/marketdata/bybit_full_period_derivatives.py \
+            app/marketdata/bybit_full_period_derivatives_postgres.py \
+            tools/backfill_bybit_full_period_derivatives.py
