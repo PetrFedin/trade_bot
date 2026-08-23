@@ -115,7 +115,9 @@ class PostgresCryptoReadOnlyAccountContextStore:
                         )
                         row = cursor.fetchone()
                         if row is None:
-                            raise RuntimeError("read-only account context idempotency lookup lost row")
+                            raise RuntimeError(
+                                "read-only account context idempotency lookup lost row"
+                            )
                         if row["ranking_snapshot_id"] != snapshot.ranking_snapshot_id:
                             raise ValueError("read-only account context ranking identity mismatch")
                         if _canonical_json(row["context_json"]) != payload_json:
