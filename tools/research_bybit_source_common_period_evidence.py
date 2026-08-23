@@ -22,7 +22,6 @@ from app.marketdata.bybit_full_period_derivatives_postgres import (
     PostgresBybitFullPeriodDerivativesStore,
 )
 from app.marketdata.bybit_research_universe import (
-    BybitResearchInstrument,
     BybitResearchUniverseClient,
     BybitResearchUniversePolicy,
     select_bybit_research_universe,
