@@ -26,17 +26,17 @@ _SYMBOLS = ("C00USDT", "C01USDT", "C02USDT")
 
 def _bars(symbol: str, seed: int) -> tuple[BybitKlineBar, ...]:
     rows: list[BybitKlineBar] = []
-    base = Decimal("100") + Decimal(seed * 10)
+    base = Decimal("100") + Decimal(seed * 2)
     for index in range(_COUNT):
-        opened = base + Decimal(index) * Decimal("0.20")
-        close = opened + Decimal("0.12")
+        opened = base + Decimal(index) * Decimal("0.35")
+        close = opened + Decimal("0.15")
         rows.append(
             BybitKlineBar(
                 symbol=symbol,
                 start_time=_START + index * _STEP,
                 open=opened,
-                high=close + Decimal("0.12"),
-                low=opened - Decimal("0.12"),
+                high=close + Decimal("0.50"),
+                low=opened - Decimal("0.50"),
                 close=close,
                 volume=Decimal("10000"),
                 turnover=Decimal("2000000") + Decimal(index * 1000),
