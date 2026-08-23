@@ -212,7 +212,7 @@ def test_backfill_executes_oldest_dynamic_top10_source_day_once() -> None:
             "source": ACCOUNT_RATIO,
             "symbol": "C00USDT",
             "start_ms": int(_LAUNCH_AT.timestamp() * 1000),
-            "end_ms": int((_LAUNCH_AT + timedelta(days=1)).timestamp() * 1000),
+            "end_ms": int((_LAUNCH_AT + timedelta(days=1)).timestamp() * 1000) - 1,
             "interval": "5min",
         }
     ]
