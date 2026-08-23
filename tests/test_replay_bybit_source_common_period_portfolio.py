@@ -140,7 +140,9 @@ class _DerivativesStore:
         return ()
 
 
-def test_orchestration_uses_latest_symbol_common_start_and_one_universe_snapshot(monkeypatch) -> None:
+def test_orchestration_uses_latest_symbol_common_start_and_one_universe_snapshot(
+    monkeypatch,
+) -> None:
     universe = _Universe()
     price = _PriceStore(universe)
     derivatives = _DerivativesStore(universe)
