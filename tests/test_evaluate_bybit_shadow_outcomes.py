@@ -4,7 +4,11 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from app.marketdata.bybit_v5 import BybitKlineAcquisition, BybitKlineBar
-from app.strategy.crypto_perp import CryptoPerpStrategyConfig, build_trade_plan, evaluate_crypto_signal
+from app.strategy.crypto_perp import (
+    CryptoPerpStrategyConfig,
+    build_trade_plan,
+    evaluate_crypto_signal,
+)
 from app.strategy.crypto_shadow_outcomes import CryptoShadowSourceCandidate
 from tools.evaluate_bybit_shadow_outcomes import run_shadow_outcome_cycle
 
