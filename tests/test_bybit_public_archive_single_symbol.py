@@ -10,11 +10,11 @@ from app.marketdata.bybit_public_archive import BybitPublicTradeArchiveClient
 
 def test_public_archive_supports_one_symbol_day_for_incremental_backfill() -> None:
     rows = (
-        "timestamp,symbol,side,size,price,tickDirection,trdMatchID,grossValue,homeNotional,foreignNotional\n"
-        "1787443201,BTCUSDT,Buy,1,100,PlusTick,x,0,0,0\n"
-        "1787443301,BTCUSDT,Sell,2,101,PlusTick,y,0,0,0\n"
-        "1787443501,BTCUSDT,Buy,1,99,MinusTick,z,0,0,0\n"
-    ).encode()
+        b"timestamp,symbol,side,size,price,tickDirection,trdMatchID,grossValue,homeNotional,foreignNotional\n"
+        b"1787443201,BTCUSDT,Buy,1,100,PlusTick,x,0,0,0\n"
+        b"1787443301,BTCUSDT,Sell,2,101,PlusTick,y,0,0,0\n"
+        b"1787443501,BTCUSDT,Buy,1,99,MinusTick,z,0,0,0\n"
+    )
     compressed = gzip.compress(rows)
     opened: list[str] = []
 
