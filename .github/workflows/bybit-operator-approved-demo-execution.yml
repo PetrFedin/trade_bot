@@ -1,0 +1,77 @@
+name: bybit-operator-approved-demo-execution
+
+on:
+  pull_request:
+    paths:
+      - 'app/execution/bybit_demo_operator_approval.py'
+      - 'app/execution/bybit_demo_approved_bridge.py'
+      - 'tools/prepare_bybit_demo_operator_approval.py'
+      - 'tests/test_bybit_demo_operator_approval.py'
+      - 'tests/test_bybit_demo_approved_bridge.py'
+      - 'tests/test_prepare_bybit_demo_operator_approval.py'
+      - 'docs/BYBIT_OPERATOR_APPROVED_DEMO_EXECUTION.md'
+      - '.github/workflows/bybit-operator-approved-demo-execution.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/execution/bybit_demo_operator_approval.py'
+      - 'app/execution/bybit_demo_approved_bridge.py'
+      - 'tools/prepare_bybit_demo_operator_approval.py'
+      - 'tests/test_bybit_demo_operator_approval.py'
+      - 'tests/test_bybit_demo_approved_bridge.py'
+      - 'tests/test_prepare_bybit_demo_operator_approval.py'
+      - 'docs/BYBIT_OPERATOR_APPROVED_DEMO_EXECUTION.md'
+      - '.github/workflows/bybit-operator-approved-demo-execution.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-operator-approved-demo-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Operator-approved demo regression tests
+        run: |
+          pytest -q \
+            tests/test_bybit_demo_operator_approval.py \
+            tests/test_bybit_demo_approved_bridge.py \
+            tests/test_prepare_bybit_demo_operator_approval.py \
+            tests/test_bybit_demo_account_sized_strategy.py \
+            tests/test_bybit_demo_strategy_selector.py \
+            tests/test_bybit_demo_cycle.py
+      - name: Ruff operator-approved demo boundary
+        run: |
+          ruff check \
+            app/execution/bybit_demo_operator_approval.py \
+            app/execution/bybit_demo_approved_bridge.py \
+            tools/prepare_bybit_demo_operator_approval.py \
+            tests/test_bybit_demo_operator_approval.py \
+            tests/test_bybit_demo_approved_bridge.py \
+            tests/test_prepare_bybit_demo_operator_approval.py
+      - name: Bandit operator-approved demo boundary
+        run: |
+          bandit -q \
+            app/execution/bybit_demo_operator_approval.py \
+            app/execution/bybit_demo_approved_bridge.py \
+            tools/prepare_bybit_demo_operator_approval.py
+      - name: Compile operator-approved demo boundary
+        run: |
+          python -m compileall -q \
+            app/execution/bybit_demo_operator_approval.py \
+            app/execution/bybit_demo_approved_bridge.py \
+            tools/prepare_bybit_demo_operator_approval.py
