@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -377,7 +378,11 @@ def test_unsafe_evidence_or_custom_strategy_config_fails_closed() -> None:
         )
 
     safe_report = _report([_cell(cell_key, positive=True)])
-    custom = CryptoPerpStrategyConfig(minimum_signal_quality=Decimal("1.01"))
+    default_config = CryptoPerpStrategyConfig()
+    custom = replace(
+        default_config,
+        maximum_atr_fraction=default_config.maximum_atr_fraction + Decimal("0.001"),
+    )
     with pytest.raises(ValueError, match="qualified fixed strategy config"):
         build_crypto_live_opportunity_snapshot(
             market,
