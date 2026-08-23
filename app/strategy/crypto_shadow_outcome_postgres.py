@@ -160,7 +160,9 @@ class PostgresCryptoShadowOutcomeStore:
                         if row is None:
                             raise RuntimeError("crypto shadow seed idempotency lookup lost row")
                         if row["seed_id"] != seed.seed_id:
-                            raise ValueError("crypto shadow source identity produced divergent seed")
+                            raise ValueError(
+                                "crypto shadow source identity produced divergent seed"
+                            )
                         if _canonical_json(row["seed_json"]) != payload_json:
                             raise ValueError("crypto shadow seed payload mismatch")
         return seed.seed_id
