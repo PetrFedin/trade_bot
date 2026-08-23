@@ -62,8 +62,8 @@ class BybitKlineRequest:
     maximum_pages_per_symbol: int = 100
 
     def validate(self) -> None:
-        if len(self.symbols) < 2:
-            raise ValueError("Bybit crypto research requires at least two symbols")
+        if not self.symbols:
+            raise ValueError("Bybit kline request requires at least one symbol")
         normalized = tuple(symbol.strip().upper() for symbol in self.symbols)
         if normalized != self.symbols or len(set(normalized)) != len(normalized):
             raise ValueError("Bybit symbols must be unique normalized uppercase")
