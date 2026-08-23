@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
@@ -56,20 +57,18 @@ class _KlineClient:
         bar = BybitKlineBar(
             symbol=request.symbols[0],
             start_time=_DECISION,
-            open=prepare_tool.Decimal("100"),
-            high=prepare_tool.Decimal("101"),
-            low=prepare_tool.Decimal("99"),
-            close=prepare_tool.Decimal("100.5"),
-            volume=prepare_tool.Decimal("1"),
-            turnover=prepare_tool.Decimal("100"),
+            open=Decimal("100"),
+            high=Decimal("101"),
+            low=Decimal("99"),
+            close=Decimal("100.5"),
+            volume=Decimal("1"),
+            turnover=Decimal("100"),
         )
-        # The real approval builder is mocked in these orchestration tests, but acquisition
-        # validation still needs the fixed strategy minimum history count.
         count = prepare_tool.minimum_history_bars(prepare_tool.CryptoPerpStrategyConfig())
         bars = tuple(
             BybitKlineBar(
                 symbol=bar.symbol,
-                start_time=_DECISION - prepare_tool.timedelta(minutes=5 * (count - 1 - index)),
+                start_time=_DECISION - timedelta(minutes=5 * (count - 1 - index)),
                 open=bar.open,
                 high=bar.high,
                 low=bar.low,
