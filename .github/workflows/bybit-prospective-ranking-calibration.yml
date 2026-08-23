@@ -1,0 +1,145 @@
+name: bybit-prospective-ranking-calibration
+
+on:
+  pull_request:
+    paths:
+      - 'app/strategy/crypto_prospective_ranking_calibration.py'
+      - 'app/strategy/crypto_prospective_calibration_postgres.py'
+      - 'tools/report_bybit_prospective_ranking_calibration.py'
+      - 'tests/test_crypto_prospective_ranking_calibration.py'
+      - 'tests/test_crypto_prospective_calibration_postgres.py'
+      - 'tests/test_report_bybit_prospective_ranking_calibration.py'
+      - 'docs/BYBIT_PROSPECTIVE_RANKING_CALIBRATION.md'
+      - '.github/workflows/bybit-prospective-ranking-calibration.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/strategy/crypto_prospective_ranking_calibration.py'
+      - 'app/strategy/crypto_prospective_calibration_postgres.py'
+      - 'tools/report_bybit_prospective_ranking_calibration.py'
+      - 'tests/test_crypto_prospective_ranking_calibration.py'
+      - 'tests/test_crypto_prospective_calibration_postgres.py'
+      - 'tests/test_report_bybit_prospective_ranking_calibration.py'
+      - 'docs/BYBIT_PROSPECTIVE_RANKING_CALIBRATION.md'
+      - '.github/workflows/bybit-prospective-ranking-calibration.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */6 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-prospective-calibration-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Prospective calibration regression tests
+        run: |
+          pytest -q \
+            tests/test_crypto_prospective_ranking_calibration.py \
+            tests/test_crypto_prospective_calibration_postgres.py \
+            tests/test_report_bybit_prospective_ranking_calibration.py \
+            tests/test_crypto_shadow_outcomes.py \
+            tests/test_crypto_shadow_outcome_postgres.py
+      - name: Ruff prospective calibration
+        run: |
+          ruff check \
+            app/strategy/crypto_prospective_ranking_calibration.py \
+            app/strategy/crypto_prospective_calibration_postgres.py \
+            tools/report_bybit_prospective_ranking_calibration.py \
+            tests/test_crypto_prospective_ranking_calibration.py \
+            tests/test_crypto_prospective_calibration_postgres.py \
+            tests/test_report_bybit_prospective_ranking_calibration.py
+      - name: Bandit prospective calibration
+        run: |
+          bandit -q \
+            app/strategy/crypto_prospective_ranking_calibration.py \
+            app/strategy/crypto_prospective_calibration_postgres.py \
+            tools/report_bybit_prospective_ranking_calibration.py
+      - name: Compile prospective calibration
+        run: |
+          python -m compileall -q \
+            app/strategy/crypto_prospective_ranking_calibration.py \
+            app/strategy/crypto_prospective_calibration_postgres.py \
+            tools/report_bybit_prospective_ranking_calibration.py
+
+  scheduled-report:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BYBIT_OPPORTUNITY_DATABASE_DSN: ${{ secrets.BYBIT_OPPORTUNITY_DATABASE_DSN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install operational dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev,postgresql]'
+          python -m pip check
+      - name: Build all-time and 30-day calibration artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          STATUS_FILE='artifacts/bybit-prospective-calibration-status.json'
+          if [ -z "${BYBIT_OPPORTUNITY_DATABASE_DSN:-}" ]; then
+            printf '%s\n' '{"status":"POSTGRES_DSN_UNAVAILABLE","trade_actionable":false,"bybit_live_order_routing_allowed":false}' > "$STATUS_FILE"
+            cat "$STATUS_FILE"
+            exit 0
+          fi
+          set +e
+          python -m tools.report_bybit_prospective_ranking_calibration \
+            --output artifacts/bybit-prospective-calibration-all.json \
+            > artifacts/bybit-prospective-calibration.log 2>&1
+          ALL_STATUS=$?
+          if [ "$ALL_STATUS" -eq 0 ]; then
+            python -m tools.report_bybit_prospective_ranking_calibration \
+              --since-days 30 \
+              --output artifacts/bybit-prospective-calibration-30d.json \
+              >> artifacts/bybit-prospective-calibration.log 2>&1
+            WINDOW_STATUS=$?
+          else
+            WINDOW_STATUS=$ALL_STATUS
+          fi
+          set -e
+          if [ "$ALL_STATUS" -eq 0 ] && [ "$WINDOW_STATUS" -eq 0 ]; then
+            printf '%s\n' '{"status":"CALIBRATION_REPORTS_COMPLETE","trade_actionable":false,"bybit_live_order_routing_allowed":false}' > "$STATUS_FILE"
+            cat "$STATUS_FILE"
+            exit 0
+          fi
+          if grep -Eq 'astra_bybit_shadow_seed_v112|astra_bybit_shadow_outcome_v112|UndefinedTable' \
+            artifacts/bybit-prospective-calibration.log; then
+            STATUS='SHADOW_SCHEMA_NOT_MIGRATED'
+          else
+            STATUS='PROSPECTIVE_CALIBRATION_FAILED'
+          fi
+          printf '{"status":"%s","trade_actionable":false,"bybit_live_order_routing_allowed":false}\n' \
+            "$STATUS" > "$STATUS_FILE"
+          cat "$STATUS_FILE"
+          if [ "$STATUS" = 'PROSPECTIVE_CALIBRATION_FAILED' ]; then
+            exit 1
+          fi
+      - name: Upload prospective calibration artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-prospective-calibration-${{ github.run_id }}
+          path: artifacts/bybit-prospective-calibration-*.json
+          if-no-files-found: ignore
+          retention-days: 30
