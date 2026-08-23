@@ -22,7 +22,6 @@ from app.marketdata.bybit_instruments import BybitInstrumentSpec
 from app.marketdata.bybit_v5 import BybitKlineBar
 from app.strategy.crypto_perp import (
     CryptoPerpStrategyConfig,
-    CryptoSide,
     CryptoTradePlan,
     build_trade_plan,
     evaluate_crypto_signal,
