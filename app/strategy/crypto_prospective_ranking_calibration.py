@@ -176,8 +176,16 @@ def diagnose_crypto_prospective_ranking_calibration(
 
     overall = _summary(rows, policy=active)
     by_state = _group_table(rows, key=lambda item: item.qualification_state, policy=active)
-    by_evidence_rank = _group_table(rows, key=lambda item: _rank_bucket(item.evidence_rank), policy=active)
-    by_market_rank = _group_table(rows, key=lambda item: _rank_bucket(item.market_rank), policy=active)
+    by_evidence_rank = _group_table(
+        rows,
+        key=lambda item: _rank_bucket(item.evidence_rank),
+        policy=active,
+    )
+    by_market_rank = _group_table(
+        rows,
+        key=lambda item: _rank_bucket(item.market_rank),
+        policy=active,
+    )
     by_side = _group_table(rows, key=lambda item: item.side, policy=active)
     by_symbol = _group_table(rows, key=lambda item: item.symbol, policy=active)
     by_state_rank = _group_table(
