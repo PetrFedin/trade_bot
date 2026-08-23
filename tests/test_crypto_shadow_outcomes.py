@@ -124,7 +124,12 @@ def test_shadow_short_stop_first_and_directional_horizon_pnl() -> None:
     bars = (
         _bar(_AVAILABLE, high="101.5", low="99.5", close="101"),
         _bar(_AVAILABLE + timedelta(minutes=5), close="100"),
-        _bar(_AVAILABLE + timedelta(minutes=10), close="98"),
+        _bar(
+            _AVAILABLE + timedelta(minutes=10),
+            high="100.5",
+            low="97.5",
+            close="98",
+        ),
     )
     outcome = evaluate_crypto_shadow_outcome(
         seed,
