@@ -244,7 +244,9 @@ def evidence_report_id(report: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
-def extract_evidence_report(payload: Mapping[str, Any]) -> tuple[Mapping[str, Any], datetime | None]:
+def extract_evidence_report(
+    payload: Mapping[str, Any],
+) -> tuple[Mapping[str, Any], datetime | None]:
     """Accept either a matrix payload or the canonical dynamic Top-10 research artifact."""
 
     if payload.get("diagnostic") == "BYBIT_CRYPTO_STRATEGY_EVIDENCE_MATRIX":
