@@ -20,6 +20,9 @@ from app.strategy.crypto_readonly_account_context import (
     build_crypto_account_aware_registry_snapshot,
     build_crypto_readonly_account_context,
 )
+from app.strategy.crypto_readonly_account_postgres import (
+    PostgresCryptoReadOnlyAccountContextStore,
+)
 from tools.refresh_bybit_live_evidence_registry import (
     persist_live_refresh,
     run_live_evidence_refresh,
@@ -48,6 +51,11 @@ def run_mainnet_readonly_account_aware_refresh(
     sizing_capital = account.sizing_capital_usd_equivalent
     if sizing_capital is None:
         raise RuntimeError("mainnet read-only account has no positive available sizing capital")
+    if not account.position_exposure_complete:
+        raise RuntimeError(
+            "mainnet read-only account position exposure is incomplete:"
+            + ",".join(account.position_exposure_missing_reasons)
+        )
     market_snapshot, ranking = run_live_evidence_refresh(
         evidence_report=evidence_report,
         observed_at=observed,
@@ -124,6 +132,7 @@ def main() -> int:
     _write_json(account_aware.to_payload(), args.account_context_output)
 
     postgres_persisted = False
+    account_context_postgres_persisted = False
     if args.persist_postgres:
         persist_live_refresh(
             market_snapshot,
@@ -133,7 +142,12 @@ def main() -> int:
             dsn=dsn,
             migrate=args.migrate_postgres,
         )
+        account_store = PostgresCryptoReadOnlyAccountContextStore(dsn)
+        if args.migrate_postgres:
+            account_store.migrate()
+        account_store.persist(account_aware)
         postgres_persisted = True
+        account_context_postgres_persisted = True
 
     summary = {
         "ranking_snapshot_id": ranking.snapshot_id,
@@ -147,6 +161,7 @@ def main() -> int:
         "qualified_positive_count": ranking.qualified_positive_count,
         "qualified_mixed_count": ranking.qualified_mixed_count,
         "postgres_persisted": postgres_persisted,
+        "account_context_postgres_persisted": account_context_postgres_persisted,
         "read_only_verified": account.read_only_verified,
         "ip_binding_verified": account.ip_binding_verified,
         "operator_review_required": True,
