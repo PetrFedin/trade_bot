@@ -122,7 +122,9 @@ def run_live_evidence_refresh(
         interval=_CURRENT_INTERVAL,
         maximum_pages_per_symbol=5,
     )
-    public_klines = BybitPublicKlineClient() if kline_client is None else kline_client
+    public_klines = (
+        BybitPublicKlineClient(host=host) if kline_client is None else kline_client
+    )
     acquisition = public_klines.fetch(request)
     acquisition.validate(requested_symbols=symbols, minimum_bars=60)
     bars_by_symbol = _bars_by_symbol(acquisition)
