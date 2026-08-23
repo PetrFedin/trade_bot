@@ -59,10 +59,16 @@ def test_full_period_plan_partitions_complete_blocked_and_pending_days() -> None
     assert eth.full_period_complete is True
     assert plan.full_period_complete is False
     assert plan.to_payload()["full_period_claim_allowed"] is False
-    assert [(item.archive_date.isoformat(), item.symbol) for item in plan.next_work_items(limit=5)] == [
-        ("2026-08-22", "BTCUSDT")
+    work = [
+        (item.archive_date.isoformat(), item.symbol)
+        for item in plan.next_work_items(limit=5)
     ]
-    assert plan.trade_actionable if hasattr(plan, "trade_actionable") else True
+    assert work == [("2026-08-22", "BTCUSDT")]
+    payload = plan.to_payload()
+    assert payload["strategy_promotion_allowed"] is False
+    assert payload["demo_activation_allowed"] is False
+    assert payload["live_activation_allowed"] is False
+    assert payload["bybit_live_order_routing_allowed"] is False
 
 
 def test_retryable_unavailable_day_returns_to_work_queue() -> None:
