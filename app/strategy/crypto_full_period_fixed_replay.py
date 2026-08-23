@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Sequence
+from typing import Any
 
 from app.marketdata.bybit_research_universe import BybitResearchInstrument
 from app.marketdata.bybit_v5 import BybitKlineAcquisition, BybitKlineBar
