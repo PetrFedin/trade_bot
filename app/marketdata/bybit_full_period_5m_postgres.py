@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -140,7 +140,12 @@ class PostgresBybitFullPeriod5mStore:
             with connection.transaction():
                 with connection.cursor() as cursor:
                     for bar in bars:
-                        self._persist_bar(cursor, bar, archive_date=archive_date, created_at=created)
+                        self._persist_bar(
+                            cursor,
+                            bar,
+                            archive_date=archive_date,
+                            created_at=created,
+                        )
                     cursor.execute(
                         """INSERT INTO astra_bybit_5m_archive_day_v113
                         (attempt_id, symbol, archive_date, source_url, state, error_code,
