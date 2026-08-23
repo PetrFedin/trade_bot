@@ -9,9 +9,11 @@ from typing import Any
 from urllib.parse import urlencode, urlsplit
 
 from app.marketdata.bybit_http import decode_public_json_response
+from app.marketdata.bybit_research_universe import validate_bybit_public_research_host
 
 _BYBIT_MAINNET_HOST = "api.bybit.com"
 BYBIT_KLINE_URL = f"https://{_BYBIT_MAINNET_HOST}/v5/market/kline"
+_KLINE_PATH = "/v5/market/kline"
 _ALLOWED_INTERVALS = {"1", "3", "5", "15", "30", "60", "120", "240", "360", "720"}
 
 
@@ -60,8 +62,8 @@ class BybitKlineRequest:
     maximum_pages_per_symbol: int = 100
 
     def validate(self) -> None:
-        if len(self.symbols) < 2:
-            raise ValueError("Bybit crypto research requires at least two symbols")
+        if not self.symbols:
+            raise ValueError("Bybit kline request requires at least one symbol")
         normalized = tuple(symbol.strip().upper() for symbol in self.symbols)
         if normalized != self.symbols or len(set(normalized)) != len(normalized):
             raise ValueError("Bybit symbols must be unique normalized uppercase")
@@ -128,14 +130,28 @@ Transport = Callable[[str, Mapping[str, str]], BybitHttpJson]
 
 
 class BybitPublicKlineClient:
-    """Read-only Bybit V5 historical kline client.
+    """Read-only Bybit V5 historical kline client on an audited mainnet host.
 
     Pagination walks backward by timestamp because `/v5/market/kline` returns newest
     rows first and does not expose a cursor. No API key is needed for public market data.
     """
 
-    def __init__(self, *, transport: Transport | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        host: str = _BYBIT_MAINNET_HOST,
+        transport: Transport | None = None,
+    ) -> None:
+        self.host = validate_bybit_public_research_host(host)
         self._transport = _https_transport if transport is None else transport
+
+    @property
+    def live_mainnet_order_routing_allowed(self) -> bool:
+        return False
+
+    @property
+    def order_writes_supported(self) -> bool:
+        return False
 
     def fetch(self, request: BybitKlineRequest) -> BybitKlineAcquisition:
         request.validate()
@@ -161,7 +177,12 @@ class BybitPublicKlineClient:
         while page_end >= request.start_ms:
             if pages >= request.maximum_pages_per_symbol:
                 raise ValueError(f"Bybit pagination exceeded maximum pages:{symbol}")
-            url = _build_kline_url(request, symbol=symbol, end_ms=page_end)
+            url = _build_kline_url(
+                request,
+                symbol=symbol,
+                end_ms=page_end,
+                host=self.host,
+            )
             response = self._transport(url, {"Accept": "application/json"})
             pages += 1
             if response.status_code != 200:
@@ -187,7 +208,14 @@ class BybitPublicKlineClient:
         return [result[key] for key in sorted(result)], pages
 
 
-def _build_kline_url(request: BybitKlineRequest, *, symbol: str, end_ms: int) -> str:
+def _build_kline_url(
+    request: BybitKlineRequest,
+    *,
+    symbol: str,
+    end_ms: int,
+    host: str = _BYBIT_MAINNET_HOST,
+) -> str:
+    normalized_host = validate_bybit_public_research_host(host)
     params = {
         "category": request.category,
         "symbol": symbol,
@@ -196,7 +224,7 @@ def _build_kline_url(request: BybitKlineRequest, *, symbol: str, end_ms: int) ->
         "end": str(end_ms),
         "limit": str(request.limit),
     }
-    return f"{BYBIT_KLINE_URL}?{urlencode(params)}"
+    return f"https://{normalized_host}{_KLINE_PATH}?{urlencode(params)}"
 
 
 def _response_rows(payload: Mapping[str, Any], *, expected_symbol: str) -> list[list[Any]]:
@@ -250,16 +278,17 @@ def last_completed_kline_end_ms(*, now_ms: int, interval: str) -> int:
 
 def _https_transport(url: str, headers: Mapping[str, str]) -> BybitHttpJson:
     parsed = urlsplit(url)
-    if parsed.scheme != "https" or parsed.hostname != _BYBIT_MAINNET_HOST:
-        raise ValueError("Bybit market-data transport rejected non-allowlisted endpoint")
+    if parsed.scheme != "https" or parsed.hostname is None:
+        raise ValueError("Bybit market-data transport rejected non-HTTPS endpoint")
+    host = validate_bybit_public_research_host(parsed.hostname)
     if parsed.username is not None or parsed.password is not None or parsed.fragment:
         raise ValueError("Bybit market-data transport rejected ambiguous URL authority")
     if parsed.port not in (None, 443):
         raise ValueError("Bybit market-data transport requires HTTPS port 443")
-    if parsed.path != "/v5/market/kline":
+    if parsed.path != _KLINE_PATH:
         raise ValueError("Bybit market-data transport rejected unexpected path")
     target = parsed.path + (f"?{parsed.query}" if parsed.query else "")
-    connection = HTTPSConnection(_BYBIT_MAINNET_HOST, 443, timeout=30)
+    connection = HTTPSConnection(host, 443, timeout=30)
     try:
         connection.request("GET", target, headers=dict(headers))
         response = connection.getresponse()
