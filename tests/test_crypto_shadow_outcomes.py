@@ -75,7 +75,11 @@ def test_shadow_outcome_ignores_decision_bar_and_future_uncompleted_bar() -> Non
         _bar(_DECISION, high="110", low="90", close="105"),
         _bar(_AVAILABLE, close="100.5"),
         _bar(_AVAILABLE + timedelta(minutes=5), high="102.5", close="102"),
-        _bar(_AVAILABLE + timedelta(minutes=10), close="101"),
+        _bar(
+            _AVAILABLE + timedelta(minutes=10),
+            high="101.5",
+            close="101",
+        ),
         _bar(
             _AVAILABLE + timedelta(minutes=15),
             high="105",
