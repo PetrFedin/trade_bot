@@ -14,7 +14,9 @@ from app.strategy.crypto_perp import CryptoPerpStrategyConfig
 from app.strategy.crypto_profit_runner import CryptoProfitRunnerPolicy
 from app.strategy.crypto_runner_admission import CryptoRunnerAdmissionPolicy
 from app.strategy.crypto_trade_management import CryptoProtectionPolicy
-from tools.replay_bybit_crypto_runner import replay_open_ended_crypto_runner
+from tools.replay_bybit_crypto_single_symbol import (
+    replay_open_ended_crypto_runner_single_symbol,
+)
 
 _INTERVAL = timedelta(minutes=5)
 _INTERVAL_MS = 5 * 60 * 1000
@@ -193,7 +195,7 @@ def run_qualified_full_period_symbol_replay(
         pages_by_symbol={instrument.symbol: 1},
     )
     acquisition.validate(requested_symbols=(instrument.symbol,), minimum_bars=60)
-    replay = replay_open_ended_crypto_runner(
+    replay = replay_open_ended_crypto_runner_single_symbol(
         acquisition,
         opening_equity_usdt=opening_equity_usdt,
         base_config=active_config,
