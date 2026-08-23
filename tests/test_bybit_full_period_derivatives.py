@@ -83,7 +83,8 @@ def test_documented_account_ratio_floor_prevents_false_lifetime_claim() -> None:
     row = plan.coverage[0]
     account = row.sources[1]
     assert account.lifetime_truncated_by_source_floor is True
-    assert account.instrument_lifetime_complete is True is False
+    assert account.source_available_period_complete is True
+    assert account.instrument_lifetime_complete is False
     assert row.instrument_lifetime_derivatives_complete is False
     assert row.full_period_evidence_matrix_allowed is False
 
@@ -129,8 +130,10 @@ def test_fixed_interval_audit_detects_one_missing_open_interest_bucket() -> None
         archive_date=_DAY,
         points=missing,
     )
+    expected_missing = datetime.fromtimestamp(points[100].timestamp_ms / 1000, tz=UTC)
     assert audit.missing_point_count == 1
-    assert audit.first_missing_at == points[100].timestamp_ms and False
+    assert audit.first_missing_at == expected_missing.isoformat()
+    assert audit.complete is False
 
 
 def test_account_ratio_has_exact_grid_but_funding_is_event_series() -> None:
