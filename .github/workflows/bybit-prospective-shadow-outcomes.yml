@@ -1,0 +1,158 @@
+name: bybit-prospective-shadow-outcomes
+
+on:
+  pull_request:
+    paths:
+      - 'app/marketdata/bybit_v5.py'
+      - 'app/strategy/crypto_shadow_outcomes.py'
+      - 'app/strategy/crypto_shadow_outcome_postgres.py'
+      - 'tools/evaluate_bybit_shadow_outcomes.py'
+      - 'tools/refresh_bybit_live_evidence_registry.py'
+      - 'migrations/v112/001_bybit_prospective_shadow_outcomes.sql'
+      - 'tests/test_bybit_v5_regional_host.py'
+      - 'tests/test_crypto_shadow_outcomes.py'
+      - 'tests/test_crypto_shadow_outcome_postgres.py'
+      - 'tests/test_evaluate_bybit_shadow_outcomes.py'
+      - 'tests/test_refresh_bybit_live_evidence_registry.py'
+      - 'docs/BYBIT_PROSPECTIVE_SHADOW_OUTCOMES.md'
+      - '.github/workflows/bybit-prospective-shadow-outcomes.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/marketdata/bybit_v5.py'
+      - 'app/strategy/crypto_shadow_outcomes.py'
+      - 'app/strategy/crypto_shadow_outcome_postgres.py'
+      - 'tools/evaluate_bybit_shadow_outcomes.py'
+      - 'tools/refresh_bybit_live_evidence_registry.py'
+      - 'migrations/v112/001_bybit_prospective_shadow_outcomes.sql'
+      - 'tests/test_bybit_v5_regional_host.py'
+      - 'tests/test_crypto_shadow_outcomes.py'
+      - 'tests/test_crypto_shadow_outcome_postgres.py'
+      - 'tests/test_evaluate_bybit_shadow_outcomes.py'
+      - 'tests/test_refresh_bybit_live_evidence_registry.py'
+      - 'docs/BYBIT_PROSPECTIVE_SHADOW_OUTCOMES.md'
+      - '.github/workflows/bybit-prospective-shadow-outcomes.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '*/10 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-prospective-shadow-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Prospective shadow and live-registry regression tests
+        run: |
+          pytest -q \
+            tests/test_bybit_v5_regional_host.py \
+            tests/test_crypto_shadow_outcomes.py \
+            tests/test_crypto_shadow_outcome_postgres.py \
+            tests/test_evaluate_bybit_shadow_outcomes.py \
+            tests/test_refresh_bybit_live_evidence_registry.py
+      - name: Ruff prospective shadow outcomes
+        run: |
+          ruff check \
+            app/marketdata/bybit_v5.py \
+            app/strategy/crypto_shadow_outcomes.py \
+            app/strategy/crypto_shadow_outcome_postgres.py \
+            tools/evaluate_bybit_shadow_outcomes.py \
+            tools/refresh_bybit_live_evidence_registry.py \
+            tests/test_bybit_v5_regional_host.py \
+            tests/test_crypto_shadow_outcomes.py \
+            tests/test_crypto_shadow_outcome_postgres.py \
+            tests/test_evaluate_bybit_shadow_outcomes.py \
+            tests/test_refresh_bybit_live_evidence_registry.py
+      - name: Bandit prospective shadow outcomes
+        run: |
+          bandit -q \
+            app/marketdata/bybit_v5.py \
+            app/strategy/crypto_shadow_outcomes.py \
+            app/strategy/crypto_shadow_outcome_postgres.py \
+            tools/evaluate_bybit_shadow_outcomes.py \
+            tools/refresh_bybit_live_evidence_registry.py
+      - name: Compile prospective shadow outcomes
+        run: |
+          python -m compileall -q \
+            app/marketdata/bybit_v5.py \
+            app/strategy/crypto_shadow_outcomes.py \
+            app/strategy/crypto_shadow_outcome_postgres.py \
+            tools/evaluate_bybit_shadow_outcomes.py \
+            tools/refresh_bybit_live_evidence_registry.py
+
+  scheduled-evaluation:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BYBIT_RESEARCH_SITE: ${{ vars.BYBIT_RESEARCH_SITE }}
+      BYBIT_OPPORTUNITY_DATABASE_DSN: ${{ secrets.BYBIT_OPPORTUNITY_DATABASE_DSN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install operational dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev,postgresql]'
+          python -m pip check
+      - name: Evaluate matured shadow observations
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          STATUS_FILE='artifacts/bybit-prospective-shadow-status.json'
+          if [ -z "${BYBIT_OPPORTUNITY_DATABASE_DSN:-}" ]; then
+            printf '%s\n' '{"status":"POSTGRES_DSN_UNAVAILABLE","trade_actionable":false,"bybit_live_order_routing_allowed":false}' > "$STATUS_FILE"
+            cat "$STATUS_FILE"
+            exit 0
+          fi
+          SITE="${BYBIT_RESEARCH_SITE:-eu}"
+          set +e
+          python -m tools.evaluate_bybit_shadow_outcomes \
+            --site "$SITE" \
+            > artifacts/bybit-prospective-shadow.log 2>&1
+          COMMAND_STATUS=$?
+          set -e
+          if [ "$COMMAND_STATUS" -eq 0 ]; then
+            cat artifacts/bybit-prospective-shadow.log
+            exit 0
+          fi
+          if grep -Eq 'kline request failed:403|BybitPublicAccessBlockedError' \
+            artifacts/bybit-prospective-shadow.log; then
+            STATUS='PUBLIC_BYBIT_ACCESS_BLOCKED'
+          elif grep -Eq 'astra_bybit_shadow_seed_v112|UndefinedTable' \
+            artifacts/bybit-prospective-shadow.log; then
+            STATUS='SHADOW_SCHEMA_NOT_MIGRATED'
+          else
+            STATUS='SHADOW_EVALUATION_FAILED'
+          fi
+          printf '{"status":"%s","trade_actionable":false,"bybit_live_order_routing_allowed":false}\n' \
+            "$STATUS" > "$STATUS_FILE"
+          cat "$STATUS_FILE"
+          if [ "$STATUS" = 'SHADOW_EVALUATION_FAILED' ]; then
+            exit "$COMMAND_STATUS"
+          fi
+      - name: Upload explicit operational status
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-prospective-shadow-${{ github.run_id }}
+          path: artifacts/bybit-prospective-shadow-status.json
+          if-no-files-found: ignore
+          retention-days: 30
