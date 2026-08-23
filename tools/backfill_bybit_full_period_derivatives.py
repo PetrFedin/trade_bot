@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +22,7 @@ from app.marketdata.bybit_full_period_derivatives_postgres import (
 from app.marketdata.bybit_research_universe import (
     BybitResearchUniverseClient,
     BybitResearchUniversePolicy,
+    select_bybit_research_universe,
 )
 
 _SITE_HOSTS = {
@@ -68,9 +69,14 @@ def run_full_period_derivatives_backfill(
         else derivatives_client
     )
     instruments = universe.fetch_instruments()
-    selection = universe.fetch_and_select(
+    tickers = universe.fetch_tickers()
+    policy = BybitResearchUniversePolicy(top_n=10)
+    selection = select_bybit_research_universe(
+        instruments,
+        tickers,
         observed_at_ms=int(cutoff.timestamp() * 1000),
-        policy=BybitResearchUniversePolicy(top_n=10),
+        host=host,
+        policy=policy,
     )
     if not selection.complete_top_n:
         raise RuntimeError("full-period derivatives backfill requires a complete dynamic Top-10")
