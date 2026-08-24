@@ -9,6 +9,8 @@ The qualified execution stack now has durable PostgreSQL runtime state (v119) an
 The preflight verifies:
 
 - authenticated access to `api-demo.bybit.com` through a GET-only account client;
+- the actual credential reports `readOnly=1` through authenticated `GET /v5/user/query-api`;
+- whether an IP binding exists, without publishing any bound IP values;
 - positive usable Demo account equity and account metadata without publishing exact balances;
 - current open linear USDT positions;
 - presence of all required v119/v120 PostgreSQL relations;
@@ -19,13 +21,13 @@ The preflight verifies:
 - exact current quantity and average entry agreement with the durable checkpoint;
 - existence of an exchange execution carrying the checkpoint's exact deterministic `ASTRA-DEMO-*` entry `orderLinkId`, symbol, and side.
 
-The last check prevents a manual or unrelated Demo position on the same symbol and side from being mistaken for the canonical bot trade.
+The last group of checks prevents a manual or unrelated Demo position on the same symbol and side from being mistaken for the canonical bot trade.
 
-It never imports or instantiates `BybitDemoOrderClient` and the account client exposes no `place_order` or `cancel_order` method. Entry identity is verified through the authenticated GET `/v5/execution/list` endpoint only.
+It never imports or instantiates `BybitDemoOrderClient` and the account client exposes no `place_order` or `cancel_order` method. Credential capability, position state, and entry identity are verified through authenticated GET endpoints only.
 
 ## Credential isolation
 
-Create a **separate Bybit Demo read-only API key** for this gate. Do not reuse the future write-enabled Demo trading key.
+Create a **separate Bybit Demo read-only API key** for this gate. Do not reuse the future write-enabled Demo trading key. The preflight does not trust the secret name: it asks Bybit for the current key metadata and blocks unless the exchange returns `readOnly=1`.
 
 GitHub Secrets required by the manual workflow:
 
@@ -36,6 +38,8 @@ BYBIT_DEMO_DATABASE_DSN
 ```
 
 `BYBIT_DEMO_DATABASE_DSN` must point to the PostgreSQL database where migrations v119 and v120 are already applied. The preflight performs only read transactions and does not migrate schemas.
+
+An IP binding is reported as a boolean operational signal but is not a hard gate for the GitHub-hosted runner because its outbound address is not assumed to be static. If a stable egress runner is introduced later, IP binding should become mandatory there.
 
 A future write-enabled operator-approved worker must use a different credential namespace and a protected GitHub Environment. That later worker is not introduced by this gate.
 
@@ -55,22 +59,23 @@ The operational step writes one sanitized artifact:
 artifacts/bybit-demo-connected-preflight.json
 ```
 
-The artifact intentionally excludes API keys, secrets, DSN, exact equity, exact available balance, wallet amounts, position quantities, entry prices, and execution identifiers.
+The artifact intentionally excludes API keys, secrets, DSN, exact equity, exact available balance, wallet amounts, position quantities, entry prices, execution identifiers, and bound IP values.
 
 ## Status meanings
 
 ### `READY_FOR_MANUAL_OPERATOR_APPROVAL`
 
-The account has no open position, the durable active checkpoint is empty, the canonical runtime lease is free, and v119/v120 guards are present. This status means only that infrastructure is consistent enough to proceed to a separate manual operator-approval step. It does **not** make any market opportunity actionable.
+The supplied credential is verified read-only, the account has no open position, the durable active checkpoint is empty, the canonical runtime lease is free, and v119/v120 guards are present. This status means only that infrastructure is consistent enough to proceed to a separate manual operator-approval step. It does **not** make any market opportunity actionable.
 
 ### `EXISTING_TRADE_MANAGEMENT_REQUIRED`
 
-Exactly one open Demo position exists and its symbol, side, current quantity and average entry agree with the durable active checkpoint, and the checkpoint's deterministic entry `orderLinkId` is present in exchange execution history for the same trade identity. A future connected runtime may manage/reconcile that existing trade, but a new entry must not be started.
+The supplied credential is verified read-only. Exactly one open Demo position exists and its symbol, side, current quantity and average entry agree with the durable active checkpoint, and the checkpoint's deterministic entry `orderLinkId` is present in exchange execution history for the same trade identity. A future connected runtime may manage/reconcile that existing trade, but a new entry must not be started.
 
 ### `BLOCKED`
 
 At least one fail-closed condition exists, including:
 
+- supplied Demo credential is not actually read-only;
 - v119/v120 schema missing;
 - append-only v120 triggers missing;
 - canonical runtime lease already present;
