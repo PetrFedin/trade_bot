@@ -69,10 +69,10 @@ class BybitDemoTradingCredentialPreflightResult:
 
     @property
     def passed(self) -> bool:
-        return (
-            self.status
-            is BybitDemoTradingCredentialPreflightStatus.READY_FOR_OPERATOR_GATED_DEMO_WORKER_CREDENTIAL
+        ready = (
+            BybitDemoTradingCredentialPreflightStatus.READY_FOR_OPERATOR_GATED_DEMO_WORKER_CREDENTIAL
         )
+        return self.status is ready
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -388,7 +388,9 @@ def _validate_result_capabilities(result: BybitDemoTradingCredentialPreflightRes
     if result.order_write_performed or result.order_writes_supported:
         raise ValueError("Bybit Demo trading credential preflight result cannot grant order writes")
     if result.live_mainnet_order_routing_allowed:
-        raise ValueError("Bybit Demo trading credential preflight result cannot grant mainnet routing")
+        raise ValueError(
+            "Bybit Demo trading credential preflight result cannot grant mainnet routing"
+        )
 
 
 __all__ = [
