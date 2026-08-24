@@ -120,8 +120,12 @@ def apply_bybit_demo_postgres_bootstrap(
         if acquired is None or acquired[0] is not True:
             raise RuntimeError("Bybit Demo PostgreSQL bootstrap advisory lock is busy")
         try:
-            for _version, path in _MIGRATIONS:
-                connection.execute(path.read_text(encoding="utf-8"))
+            try:
+                for _version, path in _MIGRATIONS:
+                    connection.execute(path.read_text(encoding="utf-8"))
+            except Exception:
+                connection.rollback()
+                raise
         finally:
             connection.execute(
                 "SELECT pg_advisory_unlock(%s)",
