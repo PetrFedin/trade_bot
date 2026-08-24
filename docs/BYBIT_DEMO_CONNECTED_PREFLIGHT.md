@@ -15,9 +15,13 @@ The preflight verifies:
 - presence of all three v120 append-only audit triggers;
 - absence of an already-held canonical runtime lease;
 - one-position maximum for the current canonical runtime;
-- exact agreement between an open exchange position and the durable active checkpoint symbol/side.
+- exact agreement between an open exchange position and the durable active checkpoint symbol/side;
+- exact current quantity and average entry agreement with the durable checkpoint;
+- existence of an exchange execution carrying the checkpoint's exact deterministic `ASTRA-DEMO-*` entry `orderLinkId`, symbol, and side.
 
-It never imports or instantiates `BybitDemoOrderClient` and the account client exposes no `place_order` or `cancel_order` method.
+The last check prevents a manual or unrelated Demo position on the same symbol and side from being mistaken for the canonical bot trade.
+
+It never imports or instantiates `BybitDemoOrderClient` and the account client exposes no `place_order` or `cancel_order` method. Entry identity is verified through the authenticated GET `/v5/execution/list` endpoint only.
 
 ## Credential isolation
 
@@ -51,7 +55,7 @@ The operational step writes one sanitized artifact:
 artifacts/bybit-demo-connected-preflight.json
 ```
 
-The artifact intentionally excludes API keys, secrets, DSN, exact equity, exact available balance, and wallet amounts.
+The artifact intentionally excludes API keys, secrets, DSN, exact equity, exact available balance, wallet amounts, position quantities, entry prices, and execution identifiers.
 
 ## Status meanings
 
@@ -61,7 +65,7 @@ The account has no open position, the durable active checkpoint is empty, the ca
 
 ### `EXISTING_TRADE_MANAGEMENT_REQUIRED`
 
-Exactly one open Demo position exists and its symbol/side agrees with the durable active checkpoint. A future connected runtime may manage/reconcile that existing trade, but a new entry must not be started.
+Exactly one open Demo position exists and its symbol, side, current quantity and average entry agree with the durable active checkpoint, and the checkpoint's deterministic entry `orderLinkId` is present in exchange execution history for the same trade identity. A future connected runtime may manage/reconcile that existing trade, but a new entry must not be started.
 
 ### `BLOCKED`
 
@@ -74,7 +78,10 @@ At least one fail-closed condition exists, including:
 - exchange position without durable checkpoint;
 - durable checkpoint without exchange position;
 - checkpoint symbol mismatch;
-- checkpoint side mismatch.
+- checkpoint side mismatch;
+- checkpoint current quantity mismatch;
+- checkpoint average entry mismatch;
+- exact checkpoint entry execution not found on the exchange.
 
 A blocked preflight must be reconciled before any write-enabled Demo worker is introduced.
 
