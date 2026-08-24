@@ -5,9 +5,16 @@ on:
     paths:
       - 'app/execution/bybit_demo_operator_approval.py'
       - 'app/execution/bybit_demo_approved_bridge.py'
+      - 'app/execution/bybit_demo_approval_lineage.py'
+      - 'app/execution/bybit_demo_approval_lineage_store.py'
+      - 'app/execution/bybit_demo_approved_runtime.py'
+      - 'app/execution/bybit_demo_approved_trade_attribution.py'
       - 'tools/prepare_bybit_demo_operator_approval.py'
       - 'tests/test_bybit_demo_operator_approval.py'
       - 'tests/test_bybit_demo_approved_bridge.py'
+      - 'tests/test_bybit_demo_approval_lineage_store.py'
+      - 'tests/test_bybit_demo_approved_runtime.py'
+      - 'tests/test_bybit_demo_approved_trade_attribution.py'
       - 'tests/test_prepare_bybit_demo_operator_approval.py'
       - 'docs/BYBIT_OPERATOR_APPROVED_DEMO_EXECUTION.md'
       - '.github/workflows/bybit-operator-approved-demo-execution.yml'
@@ -16,9 +23,16 @@ on:
     paths:
       - 'app/execution/bybit_demo_operator_approval.py'
       - 'app/execution/bybit_demo_approved_bridge.py'
+      - 'app/execution/bybit_demo_approval_lineage.py'
+      - 'app/execution/bybit_demo_approval_lineage_store.py'
+      - 'app/execution/bybit_demo_approved_runtime.py'
+      - 'app/execution/bybit_demo_approved_trade_attribution.py'
       - 'tools/prepare_bybit_demo_operator_approval.py'
       - 'tests/test_bybit_demo_operator_approval.py'
       - 'tests/test_bybit_demo_approved_bridge.py'
+      - 'tests/test_bybit_demo_approval_lineage_store.py'
+      - 'tests/test_bybit_demo_approved_runtime.py'
+      - 'tests/test_bybit_demo_approved_trade_attribution.py'
       - 'tests/test_prepare_bybit_demo_operator_approval.py'
       - 'docs/BYBIT_OPERATOR_APPROVED_DEMO_EXECUTION.md'
       - '.github/workflows/bybit-operator-approved-demo-execution.yml'
@@ -45,33 +59,55 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[dev]'
           python -m pip check
-      - name: Operator-approved demo regression tests
+      - name: Operator-approved canonical runtime regression tests
         run: |
           pytest -q \
             tests/test_bybit_demo_operator_approval.py \
             tests/test_bybit_demo_approved_bridge.py \
+            tests/test_bybit_demo_approval_lineage_store.py \
+            tests/test_bybit_demo_approved_runtime.py \
+            tests/test_bybit_demo_approved_trade_attribution.py \
             tests/test_prepare_bybit_demo_operator_approval.py \
+            tests/test_bybit_demo_trading_runtime.py \
+            tests/test_bybit_demo_entry_provenance.py \
+            tests/test_bybit_demo_entry_provenance_store.py \
+            tests/test_bybit_demo_trade_attribution.py \
             tests/test_bybit_demo_account_sized_strategy.py \
             tests/test_bybit_demo_strategy_selector.py \
             tests/test_bybit_demo_cycle.py
-      - name: Ruff operator-approved demo boundary
+      - name: Ruff operator-approved canonical runtime
         run: |
           ruff check \
             app/execution/bybit_demo_operator_approval.py \
             app/execution/bybit_demo_approved_bridge.py \
+            app/execution/bybit_demo_approval_lineage.py \
+            app/execution/bybit_demo_approval_lineage_store.py \
+            app/execution/bybit_demo_approved_runtime.py \
+            app/execution/bybit_demo_approved_trade_attribution.py \
             tools/prepare_bybit_demo_operator_approval.py \
             tests/test_bybit_demo_operator_approval.py \
             tests/test_bybit_demo_approved_bridge.py \
+            tests/test_bybit_demo_approval_lineage_store.py \
+            tests/test_bybit_demo_approved_runtime.py \
+            tests/test_bybit_demo_approved_trade_attribution.py \
             tests/test_prepare_bybit_demo_operator_approval.py
-      - name: Bandit operator-approved demo boundary
+      - name: Bandit operator-approved canonical runtime
         run: |
           bandit -q \
             app/execution/bybit_demo_operator_approval.py \
             app/execution/bybit_demo_approved_bridge.py \
+            app/execution/bybit_demo_approval_lineage.py \
+            app/execution/bybit_demo_approval_lineage_store.py \
+            app/execution/bybit_demo_approved_runtime.py \
+            app/execution/bybit_demo_approved_trade_attribution.py \
             tools/prepare_bybit_demo_operator_approval.py
-      - name: Compile operator-approved demo boundary
+      - name: Compile operator-approved canonical runtime
         run: |
           python -m compileall -q \
             app/execution/bybit_demo_operator_approval.py \
             app/execution/bybit_demo_approved_bridge.py \
+            app/execution/bybit_demo_approval_lineage.py \
+            app/execution/bybit_demo_approval_lineage_store.py \
+            app/execution/bybit_demo_approved_runtime.py \
+            app/execution/bybit_demo_approved_trade_attribution.py \
             tools/prepare_bybit_demo_operator_approval.py
