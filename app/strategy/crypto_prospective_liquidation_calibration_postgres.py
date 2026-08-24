@@ -157,8 +157,9 @@ class PostgresCryptoProspectiveLiquidationCalibrationReader:
 def _validate_header_identity(header: Mapping[str, Any], base: Any) -> None:
     if str(header["symbol"]) != base.symbol or str(header["side"]) != base.side:
         raise ValueError("liquidation calibration context market identity mismatch")
-    signal = _utc(header["signal_available_at"]).isoformat()
-    if signal != base.signal_available_at:
+    context_signal = _utc(header["signal_available_at"])
+    base_signal = _parse_iso_time(base.signal_available_at)
+    if context_signal != base_signal:
         raise ValueError("liquidation calibration signal timestamp mismatch")
 
 
@@ -234,6 +235,17 @@ def _integer(value: Any, field: str) -> int:
         return int(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"liquidation calibration {field} is invalid") from exc
+
+
+def _parse_iso_time(value: Any) -> datetime:
+    if not isinstance(value, str) or not value:
+        raise ValueError("liquidation calibration base signal timestamp is invalid")
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ValueError("liquidation calibration base signal timestamp is invalid") from exc
+    return _utc(parsed)
 
 
 def _utc(value: datetime) -> datetime:
