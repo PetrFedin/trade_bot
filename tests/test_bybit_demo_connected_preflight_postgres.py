@@ -28,14 +28,6 @@ def _apply(path: str) -> None:
 def test_postgres_preflight_reads_v119_v120_guards_and_runtime_lease() -> None:
     _apply("migrations/v119/001_bybit_demo_durable_runtime.sql")
     _apply("migrations/v120/001_bybit_demo_durable_audit_lifecycle.sql")
-    with psycopg.connect(_DSN, autocommit=True) as connection:
-        connection.execute("DELETE FROM astra_bybit_demo_runtime_lease_v119")
-        connection.execute("DELETE FROM astra_bybit_demo_active_excursion_v119")
-        connection.execute(
-            "DELETE FROM astra_bybit_demo_approved_entry_authorization_v120"
-        )
-        connection.execute("DELETE FROM astra_bybit_demo_entry_provenance_v120")
-        connection.execute("DELETE FROM astra_bybit_demo_terminal_evidence_v120")
 
     reader = PostgresBybitDemoOperationalStateReader(_DSN)
     clean = reader.read_state()
