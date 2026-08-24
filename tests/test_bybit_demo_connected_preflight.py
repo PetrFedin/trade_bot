@@ -13,6 +13,7 @@ from app.execution.bybit_demo_connected_preflight import (
     BybitDemoOperationalDatabaseState,
     BybitDemoPreflightAccountClient,
     BybitDemoReadOnlyApiKeyInfo,
+    BybitDemoReadOnlyOpenOrder,
     BybitDemoReadOnlyOpenPosition,
     run_bybit_demo_connected_preflight,
 )
@@ -43,14 +44,18 @@ class _Account:
         self,
         positions: tuple[BybitDemoReadOnlyOpenPosition, ...] = (),
         *,
+        orders: tuple[BybitDemoReadOnlyOpenOrder, ...] = (),
         entry_execution_found: bool = True,
         api_key_read_only: bool = True,
         api_key_ip_binding_present: bool = False,
+        available_balance: Decimal = Decimal("900"),
     ) -> None:
         self.positions = positions
+        self.orders = orders
         self.entry_execution_found = entry_execution_found
         self.api_key_read_only = api_key_read_only
         self.api_key_ip_binding_present = api_key_ip_binding_present
+        self.available_balance = available_balance
         self.execution_queries: list[tuple[str, str, str]] = []
 
     def get_api_key_info(self) -> BybitDemoReadOnlyApiKeyInfo:
@@ -64,7 +69,7 @@ class _Account:
             total_equity_usd=Decimal("1000"),
             total_wallet_balance_usd=Decimal("1000"),
             total_margin_balance_usd=Decimal("1000"),
-            total_available_balance_usd=Decimal("900"),
+            total_available_balance_usd=self.available_balance,
             total_perp_upl_usd=Decimal("0"),
             total_initial_margin_usd=Decimal("0"),
             total_maintenance_margin_usd=Decimal("0"),
@@ -80,6 +85,9 @@ class _Account:
 
     def get_open_positions(self) -> tuple[BybitDemoReadOnlyOpenPosition, ...]:
         return self.positions
+
+    def get_open_orders(self) -> tuple[BybitDemoReadOnlyOpenOrder, ...]:
+        return self.orders
 
     def has_entry_execution(
         self,
@@ -149,6 +157,19 @@ def _position(
     )
 
 
+def _order(
+    symbol: str = "BTCUSDT",
+    side: str = "Sell",
+    *,
+    reduce_only: bool = True,
+) -> BybitDemoReadOnlyOpenOrder:
+    return BybitDemoReadOnlyOpenOrder(
+        symbol=symbol,
+        side=side,
+        reduce_only=reduce_only,
+    )
+
+
 def test_clean_account_is_ready_only_for_manual_operator_approval() -> None:
     result = run_bybit_demo_connected_preflight(_Account(), _Database(_state()))
 
@@ -156,6 +177,7 @@ def test_clean_account_is_ready_only_for_manual_operator_approval() -> None:
     assert result.reasons == ()
     assert result.passed is True
     assert result.read_only_api_key_verified is True
+    assert result.open_order_count == 0
     assert result.trade_actionable is False
     assert result.order_writes_supported is False
     assert result.live_mainnet_order_routing_allowed is False
@@ -176,8 +198,30 @@ def test_write_enabled_api_key_is_blocked_even_though_client_code_is_get_only() 
     assert result.read_only_api_key_verified is False
 
 
+def test_no_position_with_nonpositive_available_balance_is_blocked() -> None:
+    result = run_bybit_demo_connected_preflight(
+        _Account(available_balance=Decimal("0")),
+        _Database(_state()),
+    )
+
+    assert result.status is BybitDemoConnectedPreflightStatus.BLOCKED
+    assert result.reasons == ("DEMO_AVAILABLE_BALANCE_NOT_POSITIVE",)
+    assert result.positive_available_balance is False
+
+
+def test_no_position_with_pending_order_is_blocked() -> None:
+    result = run_bybit_demo_connected_preflight(
+        _Account(orders=(_order(reduce_only=False),)),
+        _Database(_state()),
+    )
+
+    assert result.status is BybitDemoConnectedPreflightStatus.BLOCKED
+    assert result.reasons == ("DEMO_OPEN_ORDERS_WITHOUT_POSITION",)
+    assert result.open_order_count == 1
+
+
 def test_matching_exchange_position_and_checkpoint_requires_management_only() -> None:
-    account = _Account((_position(),))
+    account = _Account((_position(),), orders=(_order(),))
     result = run_bybit_demo_connected_preflight(
         account,
         _Database(_state(checkpoint_symbol="BTCUSDT", checkpoint_side="LONG")),
@@ -187,7 +231,27 @@ def test_matching_exchange_position_and_checkpoint_requires_management_only() ->
     assert result.reasons == ()
     assert result.passed is True
     assert result.open_position_symbols == ("BTCUSDT",)
+    assert result.open_order_symbols == ("BTCUSDT",)
     assert account.execution_queries == [("BTCUSDT", "Buy", "ASTRA-DEMO-E-TEST")]
+
+
+def test_existing_trade_rejects_orders_that_can_increase_or_escape_exposure() -> None:
+    result = run_bybit_demo_connected_preflight(
+        _Account(
+            (_position(),),
+            orders=(
+                _order("ETHUSDT"),
+                _order(side="Buy"),
+                _order(reduce_only=False),
+            ),
+        ),
+        _Database(_state(checkpoint_symbol="BTCUSDT", checkpoint_side="LONG")),
+    )
+
+    assert result.status is BybitDemoConnectedPreflightStatus.BLOCKED
+    assert "DEMO_OPEN_ORDER_OUTSIDE_ACTIVE_POSITION" in result.reasons
+    assert "DEMO_NON_REDUCE_ONLY_OPEN_ORDER_PRESENT" in result.reasons
+    assert "DEMO_OPEN_ORDER_SIDE_CAN_INCREASE_EXPOSURE" in result.reasons
 
 
 def test_exchange_position_without_checkpoint_is_blocked() -> None:
@@ -324,6 +388,37 @@ def test_preflight_position_reader_uses_demo_get_only_and_skips_zero_positions()
     assert client.order_writes_supported is False
     assert not hasattr(client, "place_order")
     assert not hasattr(client, "cancel_order")
+
+
+def test_preflight_open_order_reader_uses_demo_get_only() -> None:
+    transport = _FakeTransport(
+        {
+            "retCode": 0,
+            "result": {
+                "list": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "Sell",
+                        "reduceOnly": True,
+                    }
+                ],
+                "nextPageCursor": "",
+            },
+        }
+    )
+    client = BybitDemoPreflightAccountClient(
+        api_key="key",
+        api_secret="secret",
+        transport=transport,
+        clock_ms=lambda: 1,
+    )
+
+    orders = client.get_open_orders()
+
+    assert orders == (BybitDemoReadOnlyOpenOrder("BTCUSDT", "Sell", True),)
+    path, query, _headers = transport.calls[0]
+    assert path == "/v5/order/realtime"
+    assert query == "category=linear&limit=50&openOnly=0&settleCoin=USDT"
 
 
 def test_preflight_entry_execution_reader_requires_exact_order_identity() -> None:
