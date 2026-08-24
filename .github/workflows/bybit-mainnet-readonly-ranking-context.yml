@@ -25,6 +25,8 @@ on:
       - 'docs/BYBIT_MAINNET_READONLY_RANKING_CONTEXT.md'
       - '.github/workflows/bybit-mainnet-readonly-ranking-context.yml'
   workflow_dispatch:
+  schedule:
+    - cron: '7-59/10 * * * *'
 
 permissions:
   contents: read
@@ -35,6 +37,7 @@ concurrency:
 
 jobs:
   qualify:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -80,3 +83,84 @@ jobs:
             app/strategy/crypto_readonly_account_context.py \
             app/strategy/crypto_readonly_account_postgres.py \
             tools/refresh_bybit_mainnet_readonly_evidence_registry.py
+
+  operational-refresh:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && vars.BYBIT_MAINNET_READONLY_OPERATIONAL_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BYBIT_MAINNET_READONLY_API_KEY: ${{ secrets.BYBIT_MAINNET_READONLY_API_KEY }}
+      BYBIT_MAINNET_READONLY_API_SECRET: ${{ secrets.BYBIT_MAINNET_READONLY_API_SECRET }}
+      BYBIT_MAINNET_READONLY_SITE: ${{ vars.BYBIT_MAINNET_READONLY_SITE }}
+      BYBIT_OPPORTUNITY_DATABASE_DSN: ${{ secrets.BYBIT_OPPORTUNITY_DATABASE_DSN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install operational dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev,postgresql]'
+          python -m pip check
+      - name: Refresh verified mainnet read-only account-aware registry
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          STATUS_FILE='artifacts/bybit-mainnet-readonly-ranking-status.json'
+          LOG_FILE='artifacts/bybit-mainnet-readonly-ranking.log'
+          RANKING_FILE='artifacts/bybit-mainnet-readonly-ranking.json'
+          ACCOUNT_FILE='artifacts/bybit-mainnet-readonly-account-context.json'
+          if [ -z "${BYBIT_MAINNET_READONLY_API_KEY:-}" ] || \
+             [ -z "${BYBIT_MAINNET_READONLY_API_SECRET:-}" ] || \
+             [ -z "${BYBIT_OPPORTUNITY_DATABASE_DSN:-}" ]; then
+            printf '%s\n' '{"status":"READONLY_OPERATIONAL_CONFIG_UNAVAILABLE","refreshed":false,"trade_actionable":false,"order_writes_supported":false,"bybit_live_order_routing_allowed":false}' > "$STATUS_FILE"
+            cat "$STATUS_FILE"
+            exit 0
+          fi
+          export BYBIT_MAINNET_READONLY_SITE="${BYBIT_MAINNET_READONLY_SITE:-global}"
+          set +e
+          python -m tools.refresh_bybit_mainnet_readonly_evidence_registry \
+            --registry-limit 50 \
+            --ranking-output "$RANKING_FILE" \
+            --account-context-output "$ACCOUNT_FILE" \
+            --persist-postgres \
+            > "$LOG_FILE" 2>&1
+          COMMAND_STATUS=$?
+          set -e
+          if [ "$COMMAND_STATUS" -eq 0 ]; then
+            printf '%s\n' '{"status":"READONLY_ACCOUNT_AWARE_REGISTRY_REFRESHED","refreshed":true,"trade_actionable":false,"order_writes_supported":false,"bybit_live_order_routing_allowed":false}' > "$STATUS_FILE"
+            cat "$STATUS_FILE"
+            exit 0
+          fi
+          if grep -Eq 'readOnly|read-only|IP binding|api key identity|secret marker' "$LOG_FILE"; then
+            STATUS='READONLY_SAFETY_VERIFICATION_FAILED'
+          elif grep -Eq 'astra_bybit_mainnet_readonly_context_v115|UndefinedTable' "$LOG_FILE"; then
+            STATUS='READONLY_CONTEXT_SCHEMA_NOT_MIGRATED'
+          elif grep -Eq 'BybitPublicAccessBlockedError|request failed:403|HTTP 403' "$LOG_FILE"; then
+            STATUS='BYBIT_ACCESS_BLOCKED'
+          else
+            STATUS='READONLY_ACCOUNT_AWARE_REFRESH_FAILED'
+          fi
+          printf '{"status":"%s","refreshed":false,"trade_actionable":false,"order_writes_supported":false,"bybit_live_order_routing_allowed":false}\n' \
+            "$STATUS" > "$STATUS_FILE"
+          cat "$STATUS_FILE"
+          if [ "$STATUS" = 'READONLY_SAFETY_VERIFICATION_FAILED' ] || \
+             [ "$STATUS" = 'READONLY_ACCOUNT_AWARE_REFRESH_FAILED' ]; then
+            cat "$LOG_FILE"
+            exit "$COMMAND_STATUS"
+          fi
+      - name: Upload sanitized account-aware registry artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-mainnet-readonly-ranking-${{ github.run_id }}
+          path: |
+            artifacts/bybit-mainnet-readonly-ranking.json
+            artifacts/bybit-mainnet-readonly-account-context.json
+            artifacts/bybit-mainnet-readonly-ranking-status.json
+            artifacts/bybit-mainnet-readonly-ranking.log
+          if-no-files-found: warn
+          retention-days: 7
