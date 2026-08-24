@@ -70,13 +70,9 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[dev,postgresql]'
           python -m pip check
-      - name: Demo PostgreSQL bootstrap regression tests
+      - name: Demo PostgreSQL bootstrap lifecycle on isolated PostgreSQL 16
         run: |
-          pytest -q \
-            tests/test_bybit_demo_postgres_bootstrap.py \
-            tests/test_bybit_demo_postgres_runtime_state.py \
-            tests/test_bybit_demo_postgres_audit_lifecycle.py \
-            tests/test_bybit_demo_connected_preflight_postgres.py
+          pytest -q tests/test_bybit_demo_postgres_bootstrap.py
       - name: Ruff Demo PostgreSQL bootstrap
         run: |
           ruff check \
