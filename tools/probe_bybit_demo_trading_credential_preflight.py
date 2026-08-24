@@ -52,14 +52,14 @@ def main() -> int:
     args = _parser().parse_args()
     trading_api_key = os.environ.get("BYBIT_DEMO_TRADING_API_KEY", "")
     trading_api_secret = os.environ.get("BYBIT_DEMO_TRADING_API_SECRET", "")
-    demo_readonly_api_key = os.environ.get("BYBIT_DEMO_READONLY_API_KEY", "")
-    mainnet_readonly_api_key = os.environ.get("BYBIT_MAINNET_READONLY_API_KEY", "")
+    demo_readonly_sha = os.environ.get("BYBIT_DEMO_READONLY_API_KEY_SHA256", "")
+    mainnet_readonly_sha = os.environ.get("BYBIT_MAINNET_READONLY_API_KEY_SHA256", "")
     if not all(
         (
             trading_api_key,
             trading_api_secret,
-            demo_readonly_api_key,
-            mainnet_readonly_api_key,
+            demo_readonly_sha,
+            mainnet_readonly_sha,
         )
     ):
         payload = _failure("DEMO_TRADING_CREDENTIAL_CONFIG_UNAVAILABLE")
@@ -74,8 +74,8 @@ def main() -> int:
         )
         result = run_bybit_demo_trading_credential_preflight(
             inspector,
-            demo_readonly_api_key=demo_readonly_api_key,
-            mainnet_readonly_api_key=mainnet_readonly_api_key,
+            demo_readonly_api_key_sha256=demo_readonly_sha,
+            mainnet_readonly_api_key_sha256=mainnet_readonly_sha,
         )
         payload = result.to_payload()
         exit_code = 0 if result.passed else 2
