@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from app.execution.bybit_demo_approval_lineage import (
@@ -14,6 +14,9 @@ from app.execution.bybit_demo_approval_lineage_store import (
 )
 from app.execution.bybit_demo_approved_bridge import (
     execute_operator_approved_account_sized_bybit_demo_cycle,
+)
+from app.execution.bybit_demo_control_plane import (
+    ControlPlaneGuardedBybitDemoClient,
 )
 from app.execution.bybit_demo_durable_approval_client import (
     DurableApprovalLineageBybitDemoClient,
@@ -101,6 +104,8 @@ def run_operator_approved_bybit_demo_trading_runtime(
     quote_client: Any,
     runtime_lease: Any,
     approval_authorization_store: Any,
+    new_entry_control_plane: Any | None = None,
+    control_now_provider: Callable[[], datetime] | None = None,
     terminal_evidence_store: Any | None = None,
     entry_provenance_store: Any | None = None,
     managed_policy: Any | None = None,
@@ -109,29 +114,37 @@ def run_operator_approved_bybit_demo_trading_runtime(
     build_entry_provenance: Any | None = None,
     **entry_kwargs: Any,
 ) -> BybitDemoOperatorApprovedTradingRuntimeResult:
-    """Use one short-lived evidence approval only at the canonical new-entry boundary.
+    """Use approval lineage plus a fail-closed control plane at the new-entry boundary.
 
     The canonical runtime acquires the exclusive lease and checks durable active-trade state before
     this approval is consulted. If an active checkpoint exists, normal management/terminal handoff
-    proceeds without requiring a still-valid approval. Only a genuinely new entry reaches the
-    closure below.
+    proceeds without requiring a still-valid approval or an ARMED new-entry state. Only a genuinely
+    new entry reaches the closure below.
 
-    For a new entry, source identity and the canonical selector are first revalidated without a
-    mutation. The approved runtime owns the write-time protection orchestrator exactly like the
-    canonical resilient path: Demo writes require exchange protection-state reads and force the
-    protection-reconciled orchestrator. That orchestrator receives a capability view which still
-    delegates every actual read/write method through the exact-identity approval guard. A durable
-    lineage client sits underneath the approval guard. Account, fee, session-risk and fresh-quote
-    checks remain free to reject the candidate without burning the approval. Only when the guarded
-    stack is about to send the exact non-reduce-only Demo entry does the lower client atomically
-    persist the outcome-free authorization. Existing durable authorization is recovery-only state
-    and blocks resubmission. No ranked fallback to a different symbol is allowed.
+    New exposure is fail-closed unless a Demo control plane is supplied. The first ARM check happens
+    inside the canonical runtime lease before the approved selector/account path starts. The raw
+    client is additionally wrapped so ARM is checked again immediately before the non-reduce-only
+    market-order mutation. The durable authorization wrapper remains outside that final guard: the
+    immutable authorization is persisted first, then ARM is rechecked, then the network mutation is
+    allowed. If ARM disappears after authorization persistence, the order is blocked and that
+    authorization becomes recovery-only state instead of resubmit permission.
+
+    Reduce-only close and protection operations are deliberately not blocked by HALT, so a control
+    stop cannot strand existing exposure. No ranked fallback to another symbol is allowed and
+    mainnet routing remains physically rejected by every layer.
     """
 
     _validate_authorization_store(approval_authorization_store)
+    if new_entry_control_plane is not None:
+        _validate_new_entry_control_plane(new_entry_control_plane)
     if "entry_executor" in entry_kwargs:
         raise ValueError("operator-approved runtime owns the entry_executor boundary")
 
+    active_control_now = (
+        (lambda: datetime.now(UTC))
+        if control_now_provider is None
+        else control_now_provider
+    )
     authorization_holder: list[BybitDemoApprovedEntryAuthorization] = []
     receipt_holder: list[BybitDemoApprovedEntryAuthorizationReceipt] = []
 
@@ -139,6 +152,17 @@ def run_operator_approved_bybit_demo_trading_runtime(
         inner_bars: Mapping[str, Sequence[BybitKlineBar]],
         **inner_kwargs: Any,
     ) -> BybitDemoResilientAccountSizedCycleResult:
+        if new_entry_control_plane is None:
+            raise RuntimeError("Bybit Demo new entry requires v121 control plane")
+        control_decision = new_entry_control_plane.read_decision(now=active_control_now())
+        _reject_live(control_decision, name="new-entry control decision")
+        if getattr(control_decision, "order_writes_supported", True) is not False:
+            raise ValueError("new-entry control decision cannot support order writes")
+        if getattr(control_decision, "new_entry_allowed", None) is not True:
+            reasons = getattr(control_decision, "reasons", ())
+            detail = ",".join(str(item) for item in reasons) or "DEMO_CONTROL_HALTED"
+            raise RuntimeError(f"Bybit Demo new entry halted before selection: {detail}")
+
         inner = dict(inner_kwargs)
         inner_instruments = inner.pop("instruments")
         inner_strategy_config = inner.pop("strategy_config")
@@ -171,8 +195,13 @@ def run_operator_approved_bybit_demo_trading_runtime(
             now=inner_now,
         )
         authorization_holder.append(authorization)
-        durable_client = DurableApprovalLineageBybitDemoClient(
+        controlled_client = ControlPlaneGuardedBybitDemoClient(
             inner_client,
+            new_entry_control_plane,
+            now_provider=active_control_now,
+        )
+        durable_client = DurableApprovalLineageBybitDemoClient(
+            controlled_client,
             approval,
             authorization,
             store=approval_authorization_store,
@@ -290,6 +319,19 @@ def _validate_authorization_store(store: Any) -> None:
         raise ValueError("operator-approved runtime authorization store must be outcome-free")
     if getattr(store, "realized_pnl_storage_allowed", True) is not False:
         raise ValueError("operator-approved runtime authorization store cannot store realized PnL")
+
+
+def _validate_new_entry_control_plane(control_plane: Any) -> None:
+    if getattr(control_plane, "live_mainnet_order_routing_allowed", True) is not False:
+        raise ValueError("operator-approved runtime rejected mainnet-capable control plane")
+    if getattr(control_plane, "order_writes_supported", True) is not False:
+        raise ValueError("operator-approved runtime control plane cannot write orders")
+    if getattr(control_plane, "order_submission_supported", True) is not False:
+        raise ValueError("operator-approved runtime control plane cannot submit orders")
+    if getattr(control_plane, "immutable_records", False) is not True:
+        raise ValueError("operator-approved runtime requires immutable control records")
+    if not callable(getattr(control_plane, "read_decision", None)):
+        raise ValueError("operator-approved runtime control plane requires read_decision")
 
 
 def _reject_live(value: Any, *, name: str) -> None:

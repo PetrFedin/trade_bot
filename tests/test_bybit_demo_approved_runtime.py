@@ -10,6 +10,10 @@ from app.execution.bybit_demo import BybitDemoOrderAck, BybitDemoOrderRequest
 from app.execution.bybit_demo_approval_lineage_store import (
     BybitDemoApprovedEntryAuthorizationReceipt,
 )
+from app.execution.bybit_demo_control_plane import (
+    BybitDemoControlDecision,
+    BybitDemoControlMode,
+)
 from app.execution.bybit_demo_cycle import BybitDemoCyclePolicy
 from app.execution.bybit_demo_operator_approval import BybitDemoOperatorApproval
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
@@ -91,6 +95,43 @@ def _session() -> CryptoSessionRiskState:
     )
 
 
+def _control_decision(*, armed: bool) -> BybitDemoControlDecision:
+    return BybitDemoControlDecision(
+        mode=(
+            BybitDemoControlMode.ARMED_NEW_ENTRIES
+            if armed
+            else BybitDemoControlMode.HALTED
+        ),
+        reasons=() if armed else ("DEMO_CONTROL_OPERATOR_HALT",),
+        new_entry_allowed=armed,
+        latest_event_id="c" * 64,
+        latest_event_kind="ARM_NEW_ENTRIES" if armed else "HALT_NEW_ENTRIES",
+        armed_until=_APPROVED + timedelta(minutes=2) if armed else None,
+    )
+
+
+class _ControlPlane:
+    live_mainnet_order_routing_allowed = False
+    order_writes_supported = False
+    order_submission_supported = False
+    immutable_records = True
+
+    def __init__(self, decisions: list[BybitDemoControlDecision] | None = None) -> None:
+        self.decisions = (
+            [_control_decision(armed=True) for _ in range(8)]
+            if decisions is None
+            else decisions
+        )
+        self.read_calls = 0
+
+    def read_decision(self, *, now: datetime) -> BybitDemoControlDecision:
+        assert now.tzinfo is not None
+        self.read_calls += 1
+        if not self.decisions:
+            raise AssertionError("unexpected control-plane read")
+        return self.decisions.pop(0)
+
+
 class _AuthorizationStore:
     live_mainnet_order_routing_allowed = False
     order_writes_supported = False
@@ -148,6 +189,8 @@ def _call(
     events: list[str],
     now: datetime = _APPROVED,
     canonical_runtime,
+    control_plane: _ControlPlane | None = None,
+    supply_control_plane: bool = True,
 ):
     monkeypatch.setattr(
         approved_runtime,
@@ -159,6 +202,11 @@ def _call(
         "run_bybit_demo_trading_runtime",
         canonical_runtime,
     )
+    active_control = _ControlPlane() if control_plane is None else control_plane
+    kwargs: dict[str, Any] = {}
+    if supply_control_plane:
+        kwargs["new_entry_control_plane"] = active_control
+        kwargs["control_now_provider"] = lambda: now
     return approved_runtime.run_operator_approved_bybit_demo_trading_runtime(
         _approval(),
         _review_row(),
@@ -183,6 +231,7 @@ def _call(
         approval_authorization_store=store,
         session_ledger=SimpleNamespace(),
         cycle_policy=BybitDemoCyclePolicy(writes_enabled=True),
+        **kwargs,
     )
 
 
@@ -219,6 +268,7 @@ def _assert_owned_protection_orchestrator(kwargs: dict[str, Any]) -> None:
 def test_authorization_is_durable_immediately_before_raw_network(monkeypatch) -> None:
     events: list[str] = []
     store = _AuthorizationStore(events)
+    control = _ControlPlane()
 
     def bridge(*args: Any, **kwargs: Any):
         _assert_owned_protection_orchestrator(kwargs)
@@ -244,9 +294,11 @@ def test_authorization_is_durable_immediately_before_raw_network(monkeypatch) ->
         store=store,
         events=events,
         canonical_runtime=canonical,
+        control_plane=control,
     )
 
     assert events == ["approved_bridge", "persist_authorization", "raw_network"]
+    assert control.read_calls == 2
     assert result.authorization_persisted is True
     assert result.authorization is not None
     assert result.authorization_receipt is not None
@@ -358,6 +410,70 @@ def test_existing_authorization_is_recovery_state_not_resubmit_permission(monkey
     assert result.authorization_persisted is False
 
 
+def test_control_halt_after_authorization_blocks_network_and_burns_receipt(monkeypatch) -> None:
+    events: list[str] = []
+    store = _AuthorizationStore(events)
+    control = _ControlPlane(
+        [_control_decision(armed=True), _control_decision(armed=False)]
+    )
+
+    def bridge(*args: Any, **kwargs: Any):
+        events.append("approved_bridge")
+        kwargs["client"].place_market_order(_approved_entry_request())
+        raise AssertionError("HALT before network must interrupt bridge")
+
+    def canonical(*args: Any, **kwargs: Any):
+        try:
+            _invoke_entry(kwargs)
+        except RuntimeError as exc:
+            assert "halted by control plane" in str(exc)
+        return SimpleNamespace(live_mainnet_order_routing_allowed=False)
+
+    monkeypatch.setattr(
+        approved_runtime,
+        "execute_operator_approved_account_sized_bybit_demo_cycle",
+        bridge,
+    )
+    result = _call(
+        monkeypatch,
+        store=store,
+        events=events,
+        canonical_runtime=canonical,
+        control_plane=control,
+    )
+
+    assert control.read_calls == 2
+    assert events == ["approved_bridge", "persist_authorization"]
+    assert "raw_network" not in events
+    assert result.authorization_persisted is True
+    assert result.authorization_receipt is not None
+
+
+def test_missing_control_plane_fails_closed_before_authorization(monkeypatch) -> None:
+    events: list[str] = []
+    store = _AuthorizationStore(events)
+
+    def canonical(*args: Any, **kwargs: Any):
+        try:
+            _invoke_entry(kwargs)
+        except RuntimeError as exc:
+            assert "requires v121 control plane" in str(exc)
+        return SimpleNamespace(live_mainnet_order_routing_allowed=False)
+
+    result = _call(
+        monkeypatch,
+        store=store,
+        events=events,
+        canonical_runtime=canonical,
+        supply_control_plane=False,
+    )
+
+    assert events == []
+    assert store.persist_calls == 0
+    assert result.authorization is None
+    assert result.authorization_persisted is False
+
+
 def test_missing_protection_state_reads_block_before_approval_or_bridge(monkeypatch) -> None:
     events: list[str] = []
     store = _AuthorizationStore(events)
@@ -394,9 +510,10 @@ def test_missing_protection_state_reads_block_before_approval_or_bridge(monkeypa
     assert result.authorization_persisted is False
 
 
-def test_active_trade_management_does_not_require_fresh_entry_approval(monkeypatch) -> None:
+def test_active_trade_management_does_not_require_armed_new_entry(monkeypatch) -> None:
     events: list[str] = []
     store = _AuthorizationStore(events)
+    control = _ControlPlane([_control_decision(armed=False)])
 
     def canonical(*args: Any, **kwargs: Any):
         assert "entry_executor" in kwargs
@@ -408,8 +525,10 @@ def test_active_trade_management_does_not_require_fresh_entry_approval(monkeypat
         events=events,
         now=_APPROVED + timedelta(hours=1),
         canonical_runtime=canonical,
+        control_plane=control,
     )
 
+    assert control.read_calls == 0
     assert store.persist_calls == 0
     assert events == []
     assert result.authorization is None
