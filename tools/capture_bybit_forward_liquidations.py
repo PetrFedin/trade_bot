@@ -6,8 +6,12 @@ import json
 import os
 from datetime import UTC, datetime, timedelta
 
-from app.marketdata.bybit_liquidation_forward import capture_bybit_public_liquidations
-from app.marketdata.bybit_liquidation_postgres import PostgresBybitLiquidationStore
+from app.marketdata.bybit_liquidation_forward import (
+    capture_bybit_public_liquidations,
+)
+from app.marketdata.bybit_liquidation_postgres import (
+    PostgresBybitLiquidationStore,
+)
 
 _DEFAULT_DSN_ENV = "BYBIT_OPPORTUNITY_DATABASE_DSN"
 
@@ -17,14 +21,21 @@ async def run_forward_liquidation_capture(
     dsn: str,
     ws_host: str = "stream.bybit.com",
     rank_limit: int = 50,
-    maximum_snapshot_age: timedelta = timedelta(minutes=20),
+    maximum_snapshot_age: timedelta | None = None,
     run_seconds: float | None = None,
     migrate: bool = False,
 ) -> dict[str, object]:
     if not dsn.strip():
         raise ValueError("Bybit liquidation database DSN is required")
     if run_seconds is not None and not 1 <= run_seconds <= 86_400:
-        raise ValueError("liquidation bounded runtime must be within [1, 86400] seconds")
+        raise ValueError(
+            "liquidation bounded runtime must be within [1, 86400] seconds"
+        )
+    active_maximum_age = (
+        timedelta(minutes=20)
+        if maximum_snapshot_age is None
+        else maximum_snapshot_age
+    )
     store = PostgresBybitLiquidationStore(dsn)
     if migrate:
         await asyncio.to_thread(store.migrate)
@@ -33,7 +44,7 @@ async def run_forward_liquidation_capture(
         store.load_latest_universe,
         rank_limit=rank_limit,
         now=now,
-        maximum_snapshot_age=maximum_snapshot_age,
+        maximum_snapshot_age=active_maximum_age,
     )
     subscription_id = await asyncio.to_thread(
         store.create_subscription,
@@ -44,10 +55,17 @@ async def run_forward_liquidation_capture(
     stop_event = asyncio.Event()
     timer: asyncio.TimerHandle | None = None
     if run_seconds is not None:
-        timer = asyncio.get_running_loop().call_later(run_seconds, stop_event.set)
+        timer = asyncio.get_running_loop().call_later(
+            run_seconds,
+            stop_event.set,
+        )
 
     async def on_events(events) -> None:
-        await asyncio.to_thread(store.persist_events, subscription_id, events)
+        await asyncio.to_thread(
+            store.persist_events,
+            subscription_id,
+            events,
+        )
 
     async def on_status(
         state: str,
@@ -64,11 +82,13 @@ async def run_forward_liquidation_capture(
             reason_code=reason_code,
         )
 
-    initial = {
+    initial: dict[str, object] = {
         "schema": "BYBIT_FORWARD_LIQUIDATION_CAPTURE_V116",
         "subscription_id": subscription_id,
         "source_opportunity_snapshot_id": universe.source_snapshot_id,
-        "source_snapshot_observed_at": universe.source_snapshot_observed_at.isoformat(),
+        "source_snapshot_observed_at": (
+            universe.source_snapshot_observed_at.isoformat()
+        ),
         "source_host": universe.source_host,
         "ws_host": ws_host,
         "rank_limit": rank_limit,
@@ -80,7 +100,10 @@ async def run_forward_liquidation_capture(
         "trade_actionable": False,
         "bybit_live_order_routing_allowed": False,
     }
-    print("BYBIT_LIQUIDATION_CAPTURE_START=" + json.dumps(initial, sort_keys=True))
+    print(
+        "BYBIT_LIQUIDATION_CAPTURE_START="
+        + json.dumps(initial, sort_keys=True)
+    )
     try:
         await capture_bybit_public_liquidations(
             universe.symbols,
@@ -98,8 +121,9 @@ async def run_forward_liquidation_capture(
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Capture Bybit public all-liquidation events for the latest immutable Top-10/Top-50 "
-            "opportunity snapshot. This command has no authenticated or order-write surface."
+            "Capture Bybit public all-liquidation events for the latest immutable "
+            "Top-10/Top-50 opportunity snapshot. This command has no authenticated "
+            "or order-write surface."
         )
     )
     parser.add_argument("--ws-host", default="stream.bybit.com")
@@ -114,7 +138,9 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
     if not 1 <= args.source_max_age_minutes <= 120:
-        raise SystemExit("--source-max-age-minutes must be within [1, 120]")
+        raise SystemExit(
+            "--source-max-age-minutes must be within [1, 120]"
+        )
     dsn = os.environ.get(args.database_dsn_env, "")
     if not dsn.strip():
         raise SystemExit(
@@ -127,13 +153,15 @@ def main() -> None:
                 dsn=dsn,
                 ws_host=args.ws_host,
                 rank_limit=args.rank_limit,
-                maximum_snapshot_age=timedelta(minutes=args.source_max_age_minutes),
+                maximum_snapshot_age=timedelta(
+                    minutes=args.source_max_age_minutes
+                ),
                 run_seconds=args.run_seconds,
                 migrate=args.migrate_postgres,
             )
         )
     except KeyboardInterrupt:
-        pass
+        return
 
 
 if __name__ == "__main__":
