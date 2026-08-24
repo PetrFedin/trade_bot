@@ -199,7 +199,10 @@ def _decode_record(raw: str) -> tuple[dict[str, Any], str, str]:
         raise ValueError("approved entry authorization record must be an object")
     if envelope.get("schema_version") != _SCHEMA_VERSION or envelope.get("kind") != _KIND:
         raise ValueError("approved entry authorization schema is unsupported")
-    if envelope.get("demo_only") is not True or envelope.get("pre_submit_authorization") is not True:
+    if (
+        envelope.get("demo_only") is not True
+        or envelope.get("pre_submit_authorization") is not True
+    ):
         raise ValueError("approved entry authorization lost Demo pre-submit markers")
     if envelope.get("outcome_free") is not True or envelope.get("immutable") is not True:
         raise ValueError("approved entry authorization must remain immutable/outcome-free")
