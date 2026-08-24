@@ -127,6 +127,7 @@ class _AuthorizationStore:
 class _RawDemoClient:
     environment = "BYBIT_DEMO"
     live_mainnet_order_routing_allowed = False
+    protection_state_read_supported = True
 
     def __init__(self, events: list[str]) -> None:
         self.events = events
@@ -211,11 +212,16 @@ def _approved_entry_request() -> BybitDemoOrderRequest:
     )
 
 
+def _assert_owned_protection_orchestrator(kwargs: dict[str, Any]) -> None:
+    assert kwargs["orchestrator"] is approved_runtime._execute_approved_protection_reconciled_cycle
+
+
 def test_authorization_is_durable_immediately_before_raw_network(monkeypatch) -> None:
     events: list[str] = []
     store = _AuthorizationStore(events)
 
     def bridge(*args: Any, **kwargs: Any):
+        _assert_owned_protection_orchestrator(kwargs)
         events.append("approved_bridge")
         kwargs["client"].place_market_order(_approved_entry_request())
         return SimpleNamespace(
@@ -253,6 +259,7 @@ def test_pre_order_block_does_not_burn_authorization(monkeypatch) -> None:
     store = _AuthorizationStore(events)
 
     def bridge(*args: Any, **kwargs: Any):
+        _assert_owned_protection_orchestrator(kwargs)
         events.append("approved_bridge_blocked_before_order")
         return SimpleNamespace(
             live_mainnet_order_routing_allowed=False,
@@ -286,6 +293,7 @@ def test_authorization_persistence_failure_prevents_raw_network(monkeypatch) -> 
     store = _AuthorizationStore(events, fail=True)
 
     def bridge(*args: Any, **kwargs: Any):
+        _assert_owned_protection_orchestrator(kwargs)
         events.append("approved_bridge")
         kwargs["client"].place_market_order(_approved_entry_request())
         raise AssertionError("persistence failure must interrupt bridge")
@@ -320,6 +328,7 @@ def test_existing_authorization_is_recovery_state_not_resubmit_permission(monkey
     store = _AuthorizationStore(events, existing=True)
 
     def bridge(*args: Any, **kwargs: Any):
+        _assert_owned_protection_orchestrator(kwargs)
         events.append("approved_bridge")
         kwargs["client"].place_market_order(_approved_entry_request())
         raise AssertionError("existing authorization must interrupt bridge")
@@ -346,6 +355,42 @@ def test_existing_authorization_is_recovery_state_not_resubmit_permission(monkey
     assert events == ["approved_bridge", "persist_authorization"]
     assert "raw_network" not in events
     assert result.authorization is not None
+    assert result.authorization_persisted is False
+
+
+def test_missing_protection_state_reads_block_before_approval_or_bridge(monkeypatch) -> None:
+    events: list[str] = []
+    store = _AuthorizationStore(events)
+    bridge_calls = 0
+    monkeypatch.setattr(_RawDemoClient, "protection_state_read_supported", False)
+
+    def bridge(*args: Any, **kwargs: Any):
+        nonlocal bridge_calls
+        bridge_calls += 1
+        raise AssertionError("bridge must not be reached without protection-state reads")
+
+    def canonical(*args: Any, **kwargs: Any):
+        try:
+            _invoke_entry(kwargs)
+        except ValueError as exc:
+            assert "protection-state read capability" in str(exc)
+        return SimpleNamespace(live_mainnet_order_routing_allowed=False)
+
+    monkeypatch.setattr(
+        approved_runtime,
+        "execute_operator_approved_account_sized_bybit_demo_cycle",
+        bridge,
+    )
+    result = _call(
+        monkeypatch,
+        store=store,
+        events=events,
+        canonical_runtime=canonical,
+    )
+
+    assert bridge_calls == 0
+    assert store.persist_calls == 0
+    assert result.authorization is None
     assert result.authorization_persisted is False
 
 
