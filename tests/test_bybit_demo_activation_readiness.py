@@ -111,7 +111,8 @@ def _assemble(
 def test_all_safe_evidence_is_ready_but_never_actionable() -> None:
     result = _assemble()
 
-    assert result.status is BybitDemoActivationReadinessStatus.READY_FOR_EXPLICIT_ACTIVATION_GATES
+    ready = BybitDemoActivationReadinessStatus.READY_FOR_EXPLICIT_ACTIVATION_GATES
+    assert result.status is ready
     assert result.passed is True
     assert result.reasons == ()
     assert result.ready_for_explicit_arm is True
