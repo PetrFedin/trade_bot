@@ -21,13 +21,14 @@ latest v111 positive-evidence review queue
 -> durable active-trade checkpoint check
 -> latest review-row identity recheck
 -> current canonical demo selector independently chooses the same signal
--> immutable pre-submit authorization lineage
-   source snapshot/ranks -> approval_id -> deterministic entry orderLinkId
 -> demo wallet / margin / session ledger / previous-trade reconciliation
 -> fresh demo quote + execution-risk resize
 -> exact-identity single-use demo client guard
--> existing guarded Bybit Demo orchestrator
--> protection / recovery / accounting
+-> exact non-reduce-only entry reaches the pre-network boundary
+-> immutable authorization lineage is persisted and burned
+   source snapshot/ranks -> approval_id -> deterministic entry orderLinkId
+-> raw Bybit Demo entry HTTP mutation
+-> existing guarded protection / recovery / accounting
 -> immutable protected-entry provenance on the same orderLinkId
 -> restart-safe active-trade management
 -> terminal evidence + fees + funding + realized PnL
@@ -98,7 +99,24 @@ The short-lived approval is consulted only when the canonical runtime has proven
 
 ## Durable pre-submit authorization lineage
 
-Before the approved bridge can reach an order mutation, the runtime persists an immutable outcome-free record keyed by the deterministic expected entry `orderLinkId`.
+The durable record is intentionally written as late as possible while still being strictly **before the raw Demo HTTP mutation**.
+
+The client stack for an approved entry is:
+
+```text
+canonical trading runtime
+-> approved account-sized bridge
+-> OperatorApprovedBybitDemoClient
+   (exact identity + in-process single-use guard)
+-> DurableApprovalLineageBybitDemoClient
+   (durable pre-network burn)
+-> raw BybitDemoOrderClient
+   (api-demo.bybit.com HTTP mutation)
+```
+
+This ordering matters. Wallet, margin, session-risk, fee, fresh-quote, quantity and other pre-order checks happen before the durable layer receives an entry request. A harmless pre-order rejection therefore does **not** burn the approval.
+
+Only when the exact approved non-reduce-only order is actually about to be sent does the durable layer persist an immutable outcome-free record keyed by the deterministic expected entry `orderLinkId`. The raw Demo client is called only after that persistence succeeds.
 
 The record contains:
 
@@ -114,13 +132,13 @@ The record contains:
 
 It deliberately contains no fill, fee, funding, MFE/MAE or realized PnL. Those are future outcomes and remain outside the pre-submit decision record.
 
-The authorization payload is deterministic from the approval. Replaying the same approval does not create a different record merely because the process restarted at another second.
+The authorization payload is deterministic from the approval. Its authorization timestamp is the approval timestamp rather than the process restart time, so the same approval cannot create a different payload merely because the process restarted at another second.
 
 ### Durable single-use semantics
 
-The first successful authorization persistence **burns the approval/order identity for new submissions before network mutation**.
+The first successful authorization persistence **burns the approval/order identity for new submissions before the network mutation**.
 
-If the same authorization record is found again on a later invocation, the runtime treats it as:
+If the same authorization record is found again on a later invocation, the pre-network client treats it as:
 
 ```text
 RECOVERY / RECONCILIATION REQUIRED
@@ -128,15 +146,15 @@ RECOVERY / RECONCILIATION REQUIRED
 
 not as permission to resubmit.
 
-This deliberately closes the crash window in which a process could have sent an entry and died before local post-submit state became durable. Even if the prior network outcome is unknown, the same approval cannot issue another entry. Recovery must first determine exchange state through the existing reconciliation paths.
+This closes the crash window in which a process could have reached the network and died before local post-submit state became durable. Even if the prior HTTP outcome is unknown, the same approval cannot issue another entry. Recovery must first determine exchange state through the existing reconciliation paths.
 
-A failure to durably persist authorization prevents the approved bridge from being called at all.
+A failure to durably persist authorization interrupts the order call before the raw Demo network client is reached.
 
 ## Last-line demo client guard
 
-The underlying qualified `BybitDemoOrderClient` can only reach `api-demo.bybit.com`. It is additionally wrapped by `OperatorApprovedBybitDemoClient` for an approved cycle.
+The qualified `BybitDemoOrderClient` can only reach `api-demo.bybit.com`. It is additionally wrapped by `OperatorApprovedBybitDemoClient` for an approved cycle, with the durable lineage client directly beneath that guard.
 
-The wrapper permits:
+The approval guard permits:
 
 - one non-reduce-only entry only;
 - the exact approved symbol;
@@ -147,7 +165,7 @@ The wrapper permits:
 - emergency reduce-only close only for the same trade identity and quantity cap;
 - execution/cancel reads only for the same approved order identities.
 
-The in-memory entry authorization is consumed **before** the underlying network mutation. The new durable authorization lineage adds restart safety above this existing per-process single-use guard.
+The in-memory entry authorization is consumed before the lower client is invoked. The lower client then makes durable single-use/restart semantics explicit before forwarding the exact request to the raw Demo network client.
 
 ## End-to-end evidence attribution
 
@@ -201,7 +219,9 @@ The bridge delegates execution to the existing account-sized reconciled demo run
 
 The GitHub workflow in this stage remains a **qualification workflow only**. It does not connect Demo credentials or submit a network order.
 
-A later connected Demo execution workflow should be added only after this canonical runtime/lineage layer is fully qualified. That workflow must still require an explicit short-lived operator approval and dedicated Demo credentials. It must never reuse the mainnet read-only key or turn evidence rows into autonomous order instructions.
+A later connected Demo execution path should be added only after this canonical runtime/lineage layer is fully qualified. It must still require an explicit short-lived operator approval and dedicated Demo credentials. It must never reuse the mainnet read-only key or turn evidence rows into autonomous order instructions.
+
+A persistent execution runtime is preferable to a GitHub-hosted ephemeral runner for the actual managed-trade lifecycle because runtime lease, active excursion state, provenance and terminal handoff must survive process restarts. Any connected Demo deployment must prove that durable-state boundary before it is allowed to place a Demo entry.
 
 ## What this does not do
 
