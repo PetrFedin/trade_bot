@@ -27,6 +27,9 @@ from app.execution.bybit_demo_operator_approval import (
     BybitDemoOperatorApproval,
     dry_check_approved_opportunity_matches_demo_selector,
 )
+from app.execution.bybit_demo_protection_reconciliation import (
+    execute_protection_reconciled_guarded_bybit_demo_cycle,
+)
 from app.execution.bybit_demo_ranked_fallback import (
     BybitDemoResilientAccountSizedCycleResult,
 )
@@ -84,12 +87,14 @@ def run_operator_approved_bybit_demo_trading_runtime(
     closure below.
 
     For a new entry, source identity and the canonical selector are first revalidated without a
-    mutation. A durable lineage client is then placed underneath the existing single-use
-    ``OperatorApprovedBybitDemoClient``. Account, fee, session-risk and fresh-quote checks therefore
-    remain free to reject the candidate without burning the approval. Only when the guarded stack
-    is about to send the exact non-reduce-only Demo entry does the lower client atomically persist
-    the outcome-free authorization. Existing durable authorization is recovery-only state and
-    blocks resubmission. No ranked fallback to a different symbol is allowed.
+    mutation. The approved runtime owns the write-time protection orchestrator exactly like the
+    canonical resilient path: Demo writes require exchange protection-state reads and force the
+    protection-reconciled orchestrator. A durable lineage client is placed underneath the existing
+    single-use ``OperatorApprovedBybitDemoClient``. Account, fee, session-risk and fresh-quote
+    checks remain free to reject the candidate without burning the approval. Only when the guarded
+    stack is about to send the exact non-reduce-only Demo entry does the lower client atomically
+    persist the outcome-free authorization. Existing durable authorization is recovery-only state
+    and blocks resubmission. No ranked fallback to a different symbol is allowed.
     """
 
     _validate_authorization_store(approval_authorization_store)
@@ -111,6 +116,14 @@ def run_operator_approved_bybit_demo_trading_runtime(
         inner_client = inner.pop("client")
         inner_accounting_client = inner.pop("accounting_client")
         inner_excursion_store = inner.pop("excursion_store")
+
+        if "orchestrator" in inner:
+            raise ValueError("operator-approved runtime owns the protection orchestrator boundary")
+        if getattr(inner_client, "protection_state_read_supported", False) is not True:
+            raise ValueError(
+                "operator-approved Demo writes require protection-state read capability"
+            )
+        inner["orchestrator"] = execute_protection_reconciled_guarded_bybit_demo_cycle
 
         authorization = build_bybit_demo_approved_entry_authorization(
             approval,
@@ -134,6 +147,8 @@ def run_operator_approved_bybit_demo_trading_runtime(
             store=approval_authorization_store,
             on_persisted=receipt_holder.append,
         )
+        if not durable_client.protection_state_read_supported:
+            raise ValueError("durable approved client lost protection-state read capability")
 
         account_result = execute_operator_approved_account_sized_bybit_demo_cycle(
             approval,
