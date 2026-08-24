@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,6 +25,9 @@ def _apply_v110() -> None:
 def _seed_v110(now: datetime) -> str:
     snapshot_id = "b" * 64
     symbols = tuple(f"COIN{index}USDT" for index in range(1, 11))
+    rank_drivers = json.dumps(
+        ["TURNOVER_24H", "OPEN_INTEREST_VALUE", "SPREAD_QUALITY", "LISTING_HISTORY"]
+    )
     with psycopg.connect(_DSN, autocommit=True) as connection:
         connection.execute(
             """INSERT INTO astra_bybit_opportunity_snapshot_v110
@@ -41,7 +45,7 @@ def _seed_v110(now: datetime) -> str:
                 snapshot_id,
                 now,
                 int(now.timestamp() * 1000),
-                __import__("json").dumps(list(symbols)),
+                json.dumps(list(symbols)),
                 now,
             ),
         )
@@ -55,11 +59,10 @@ def _seed_v110(now: datetime) -> str:
                  trade_actionable, strategy_promotion_allowed, live_activation_allowed,
                  bybit_live_order_routing_allowed)
                 VALUES (%s, %s, %s, true, 0.9, 100, 1000000, 500000, 1, 0.0001,
-                        0.01, 0.9, 0.9, 0.9, 0.9,
-                        '["TURNOVER_24H","OPEN_INTEREST_VALUE","SPREAD_QUALITY",'
-                        '"LISTING_HISTORY"]'::jsonb, 'UNASSIGNED', false, false, false, false)
+                        0.01, 0.9, 0.9, 0.9, 0.9, %s::jsonb, 'UNASSIGNED',
+                        false, false, false, false)
                 ON CONFLICT (snapshot_id, rank) DO NOTHING""",
-                (snapshot_id, rank, symbol),
+                (snapshot_id, rank, symbol, rank_drivers),
             )
     return snapshot_id
 
