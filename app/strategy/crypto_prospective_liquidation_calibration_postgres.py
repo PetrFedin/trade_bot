@@ -119,21 +119,21 @@ class PostgresCryptoProspectiveLiquidationCalibrationReader:
                    coverage_qualified, coverage_reason_codes
             FROM astra_bybit_shadow_liquidation_context_v117
             WHERE seed_id = ANY(%s::text[])"""
-        windows_sql = """SELECT context.seed_id, window.window_minutes,
-                   window.event_count, window.long_liquidation_count,
-                   window.short_liquidation_count,
-                   window.long_estimated_notional_usdt,
-                   window.short_estimated_notional_usdt,
-                   window.total_estimated_notional_usdt,
-                   window.long_minus_short_estimated_notional_usdt,
-                   window.normalized_long_minus_short_imbalance,
-                   window.largest_event_estimated_notional_usdt,
-                   window.known_zero
+        windows_sql = """SELECT context.seed_id, liq_window.window_minutes,
+                   liq_window.event_count, liq_window.long_liquidation_count,
+                   liq_window.short_liquidation_count,
+                   liq_window.long_estimated_notional_usdt,
+                   liq_window.short_estimated_notional_usdt,
+                   liq_window.total_estimated_notional_usdt,
+                   liq_window.long_minus_short_estimated_notional_usdt,
+                   liq_window.normalized_long_minus_short_imbalance,
+                   liq_window.largest_event_estimated_notional_usdt,
+                   liq_window.known_zero
             FROM astra_bybit_shadow_liquidation_context_v117 AS context
-            JOIN astra_bybit_shadow_liquidation_window_v117 AS window
-              ON window.context_id = context.context_id
+            JOIN astra_bybit_shadow_liquidation_window_v117 AS liq_window
+              ON liq_window.context_id = context.context_id
             WHERE context.seed_id = ANY(%s::text[])
-            ORDER BY context.seed_id, window.window_minutes"""
+            ORDER BY context.seed_id, liq_window.window_minutes"""
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(headers_sql, (seed_ids,))
