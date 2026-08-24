@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 from dataclasses import replace
+from datetime import datetime
 from typing import Any
 
 from app.execution.bybit_demo_connected_preflight import (
@@ -11,6 +12,10 @@ from app.execution.bybit_demo_connected_preflight import (
     BybitDemoReadOnlyApiKeyInfo,
     PostgresBybitDemoOperationalStateReader,
     run_bybit_demo_connected_preflight,
+)
+from app.execution.bybit_demo_control_plane import (
+    BybitDemoControlEventReceipt,
+    PostgresBybitDemoControlPlane,
 )
 
 
@@ -88,6 +93,32 @@ def require_fixed_egress_ready_for_arm(result: BybitDemoConnectedPreflightResult
         raise ValueError("Bybit Demo ARM rejected unsafe connected preflight capability")
 
 
+class FixedEgressPostgresBybitDemoControlPlane(PostgresBybitDemoControlPlane):
+    """Operational v121 plane that cannot persist ARM from a non-zone-bound preflight."""
+
+    fixed_egress_required = True
+
+    def arm_new_entries(
+        self,
+        preflight: BybitDemoConnectedPreflightResult,
+        *,
+        operator_id: str,
+        reason: str,
+        now: datetime,
+        preflight_observed_at: datetime,
+        ttl_seconds: int = 120,
+    ) -> BybitDemoControlEventReceipt:
+        require_fixed_egress_ready_for_arm(preflight)
+        return super().arm_new_entries(
+            preflight,
+            operator_id=operator_id,
+            reason=reason,
+            now=now,
+            preflight_observed_at=preflight_observed_at,
+            ttl_seconds=ttl_seconds,
+        )
+
+
 def _validate_fixed_egress_client(client: Any) -> None:
     if getattr(client, "host", None) != "api-demo.bybit.com":
         raise ValueError("Bybit Demo fixed-egress preflight rejected non-demo host")
@@ -104,6 +135,7 @@ def _validate_fixed_egress_client(client: Any) -> None:
 
 __all__ = [
     "BybitDemoFixedEgressPreflightAccountClient",
+    "FixedEgressPostgresBybitDemoControlPlane",
     "require_fixed_egress_ready_for_arm",
     "run_bybit_demo_fixed_egress_connected_preflight",
 ]
