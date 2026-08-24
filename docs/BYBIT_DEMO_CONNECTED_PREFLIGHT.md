@@ -1,0 +1,92 @@
+# Connected Bybit Demo preflight
+
+This gate is the first connected step between the repository and a real Bybit Demo account. It is deliberately **read-only** and cannot submit, amend, cancel, protect, or close an order.
+
+## Why this gate exists
+
+The qualified execution stack now has durable PostgreSQL runtime state (v119) and immutable approval/provenance/terminal evidence (v120). Before any write-enabled Demo credential is introduced, the system must prove that the real Demo account and durable state agree.
+
+The preflight verifies:
+
+- authenticated access to `api-demo.bybit.com` through a GET-only account client;
+- positive usable Demo account equity and account metadata without publishing exact balances;
+- current open linear USDT positions;
+- presence of all required v119/v120 PostgreSQL relations;
+- presence of all three v120 append-only audit triggers;
+- absence of an already-held canonical runtime lease;
+- one-position maximum for the current canonical runtime;
+- exact agreement between an open exchange position and the durable active checkpoint symbol/side.
+
+It never imports or instantiates `BybitDemoOrderClient` and the account client exposes no `place_order` or `cancel_order` method.
+
+## Credential isolation
+
+Create a **separate Bybit Demo read-only API key** for this gate. Do not reuse the future write-enabled Demo trading key.
+
+GitHub Secrets required by the manual workflow:
+
+```text
+BYBIT_DEMO_READONLY_API_KEY
+BYBIT_DEMO_READONLY_API_SECRET
+BYBIT_DEMO_DATABASE_DSN
+```
+
+`BYBIT_DEMO_DATABASE_DSN` must point to the PostgreSQL database where migrations v119 and v120 are already applied. The preflight performs only read transactions and does not migrate schemas.
+
+A future write-enabled operator-approved worker must use a different credential namespace and a protected GitHub Environment. That later worker is not introduced by this gate.
+
+## Manual operation
+
+Run the GitHub Actions workflow:
+
+```text
+bybit-demo-connected-preflight
+```
+
+It has `workflow_dispatch` only for connected operation. There is no schedule and no autonomous execution path.
+
+The operational step writes one sanitized artifact:
+
+```text
+artifacts/bybit-demo-connected-preflight.json
+```
+
+The artifact intentionally excludes API keys, secrets, DSN, exact equity, exact available balance, and wallet amounts.
+
+## Status meanings
+
+### `READY_FOR_MANUAL_OPERATOR_APPROVAL`
+
+The account has no open position, the durable active checkpoint is empty, the canonical runtime lease is free, and v119/v120 guards are present. This status means only that infrastructure is consistent enough to proceed to a separate manual operator-approval step. It does **not** make any market opportunity actionable.
+
+### `EXISTING_TRADE_MANAGEMENT_REQUIRED`
+
+Exactly one open Demo position exists and its symbol/side agrees with the durable active checkpoint. A future connected runtime may manage/reconcile that existing trade, but a new entry must not be started.
+
+### `BLOCKED`
+
+At least one fail-closed condition exists, including:
+
+- v119/v120 schema missing;
+- append-only v120 triggers missing;
+- canonical runtime lease already present;
+- more than one open position;
+- exchange position without durable checkpoint;
+- durable checkpoint without exchange position;
+- checkpoint symbol mismatch;
+- checkpoint side mismatch.
+
+A blocked preflight must be reconciled before any write-enabled Demo worker is introduced.
+
+## Safety boundary
+
+Every preflight output remains:
+
+```text
+preflight_only=true
+trade_actionable=false
+order_writes_supported=false
+live_mainnet_order_routing_allowed=false
+```
+
+Mainnet connectivity is unaffected and remains in the separately qualified read-only boundary.
