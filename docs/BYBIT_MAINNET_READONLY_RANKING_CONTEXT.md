@@ -88,7 +88,7 @@ The proposed notional is additionally shown relative to sizing capital and again
 
 If Bybit reports an open position without a usable `positionValue`, the account exposure is marked incomplete and the operational account-aware refresh fails closed before ranking. Missing position value is never treated as zero exposure.
 
-## What this PR intentionally does not do
+## What this layer intentionally does not do
 
 This layer does not introduce arbitrary new account-risk thresholds such as:
 
@@ -140,6 +140,53 @@ It persists only safe operational state:
 Update/delete mutations are rejected by trigger. `PUBLIC` privileges are revoked.
 
 The existing v111 evidence snapshot is content-addressed. During a normal account-aware refresh it has already been read from the same PostgreSQL store; the existing persistence path is idempotent and does not change the stored evidence observation time on conflict.
+
+## Operational GitHub workflow
+
+The account-aware tool already performs the complete authenticated read-only probe and registry refresh. The operational workflow now exposes that path without putting credentials into the repository.
+
+Configure GitHub Actions **Secrets**:
+
+```text
+BYBIT_MAINNET_READONLY_API_KEY
+BYBIT_MAINNET_READONLY_API_SECRET
+BYBIT_OPPORTUNITY_DATABASE_DSN
+```
+
+Configure GitHub Actions **Variables**:
+
+```text
+BYBIT_MAINNET_READONLY_SITE=eu
+BYBIT_MAINNET_READONLY_OPERATIONAL_ENABLED=false
+```
+
+Use the regional profile actually associated with the issued API key. `global` is used only when the site variable is absent during an explicit manual run.
+
+### First connection sequence
+
+1. Create a dedicated Bybit mainnet HMAC API key with **Read-Only** enabled.
+2. Bind it to the fixed egress IP address or addresses of the runner/deployment path that will make the request.
+3. Save key and secret as protected GitHub Actions secrets; never place them in a PR, issue, chat transcript, repository file or workflow input.
+4. Keep `BYBIT_MAINNET_READONLY_OPERATIONAL_ENABLED=false`.
+5. Apply the already-qualified v110/v111/v115 PostgreSQL migrations through the controlled migration path.
+6. Run `bybit-mainnet-readonly-ranking-context` manually through `workflow_dispatch`.
+7. Verify the sanitized artifact reports `read_only_verified=true`, `ip_binding_verified=true`, `order_writes_supported=false` and `bybit_live_order_routing_allowed=false`.
+8. Only after the manual probe is proven stable may the repository variable be changed to `BYBIT_MAINNET_READONLY_OPERATIONAL_ENABLED=true` to enable the ten-minute read-only refresh.
+
+The scheduled job runs at minute 7/17/27/37/47/57. This offset reduces contention with the market/shadow/materialization jobs already using the 0/5-minute portions of the ten-minute cycle. GitHub cron remains best-effort rather than a hard real-time scheduler.
+
+### Operational outputs
+
+A successful run writes:
+
+- current evidence-ranked Top-50/Top-10 JSON using real account sizing capital;
+- sanitized account-aware context JSON;
+- explicit status JSON;
+- a short operational log.
+
+Artifacts are retained for seven days because they contain account balances and exposure context even though they contain no API secret or raw API key.
+
+Missing secrets/DSN produce `READONLY_OPERATIONAL_CONFIG_UNAVAILABLE`. Missing v115 schema or regional public access is reported explicitly. A failed key-identity, read-only, secret-marker or IP-binding verification is a hard workflow failure.
 
 ## Safety boundary
 
