@@ -82,8 +82,10 @@ def run_operator_approved_bybit_demo_trading_runtime(
 
     Before any Demo order write, the exact approval/review/selector identity is revalidated and an
     immutable outcome-free authorization record is persisted. Failure to persist that lineage
-    prevents the approved bridge from being called. The existing bridge then keeps its own repeated
-    validation plus single-use network guard. No ranked fallback to a different symbol is allowed.
+    prevents the approved bridge from being called. The first durable authorization burns the
+    approval/order identity for new submissions: seeing the same record again is a recovery state,
+    never permission to resubmit. The existing bridge then keeps its own repeated validation plus
+    single-use network guard. No ranked fallback to a different symbol is allowed.
     """
 
     _validate_authorization_store(approval_authorization_store)
@@ -126,8 +128,13 @@ def run_operator_approved_bybit_demo_trading_runtime(
             raise ValueError("approved entry authorization receipt orderLinkId mismatch")
         if receipt.approval_id != approval.approval_id:
             raise ValueError("approved entry authorization receipt approval id mismatch")
+        _validate_sha256(receipt.record_sha256, name="authorization receipt checksum")
         authorization_holder.append(authorization)
         receipt_holder.append(receipt)
+        if receipt.idempotent_existing_record:
+            raise ValueError(
+                "approved entry authorization already exists; reconcile before any resubmit"
+            )
 
         account_result = execute_operator_approved_account_sized_bybit_demo_cycle(
             approval,
@@ -238,6 +245,11 @@ def _validate_authorization_store(store: Any) -> None:
         raise ValueError("operator-approved runtime authorization store must be outcome-free")
     if getattr(store, "realized_pnl_storage_allowed", True) is not False:
         raise ValueError("operator-approved runtime authorization store cannot store realized PnL")
+
+
+def _validate_sha256(value: str, *, name: str) -> None:
+    if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+        raise ValueError(f"operator-approved runtime invalid {name}")
 
 
 def _reject_live(value: Any, *, name: str) -> None:
