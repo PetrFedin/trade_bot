@@ -1,6 +1,6 @@
 # Bybit Demo PostgreSQL bootstrap
 
-This gate operationalizes the existing v119/v120 durable Demo schema before any connected Bybit Demo runtime is allowed to depend on it.
+This gate operationalizes the durable Bybit Demo PostgreSQL schema before any connected runtime is allowed to depend on it.
 
 It is database infrastructure only. It does not use a Bybit API key, does not create an order-capable client, and cannot submit, amend, cancel, protect, or close an order.
 
@@ -11,9 +11,10 @@ The bootstrap applies exactly these repository migrations, in order:
 ```text
 migrations/v119/001_bybit_demo_durable_runtime.sql
 migrations/v120/001_bybit_demo_durable_audit_lifecycle.sql
+migrations/v121/001_bybit_demo_control_plane.sql
 ```
 
-v119 provides the canonical single-writer runtime lease and active excursion checkpoint. v120 provides immutable approval authorization, protected-entry provenance, and fully reconciled terminal evidence with database-level append-only guards.
+v119 provides the canonical single-writer runtime lease and active excursion checkpoint. v120 provides immutable approval authorization, protected-entry provenance, and fully reconciled terminal evidence. v121 adds the append-only operator control journal used to HALT or short-lived ARM new Demo entries.
 
 The tool computes a SHA-256 fingerprint of each exact migration file and includes those fingerprints in the sanitized result artifact.
 
@@ -21,19 +22,19 @@ The tool computes a SHA-256 fingerprint of each exact migration file and include
 
 ### `verify`
 
-Read-only. No DDL is executed. The command checks that all required v119/v120 relations exist and that all three v120 append-only triggers are present.
+Read-only. No DDL is executed. The command checks all required v119/v120 relations and triggers plus the v121 control relation and append-only trigger.
 
 ### `apply`
 
 Schema mutation is permitted only when the exact confirmation phrase is supplied:
 
 ```text
-APPLY_BYBIT_DEMO_V119_V120
+APPLY_BYBIT_DEMO_V119_V121
 ```
 
-The command acquires a PostgreSQL session advisory lock before DDL so two bootstrap processes cannot apply the same operational migration sequence concurrently. It then applies v119 followed by v120 and independently re-opens the read-only operational-state verifier.
+The command acquires PostgreSQL session advisory lock `119121` before DDL so two bootstrap processes cannot apply the same operational migration sequence concurrently. It then applies v119, v120, and v121 in order and independently re-opens read-only verifiers afterward.
 
-If a migration fails inside its transaction, the failed transaction is rolled back before the advisory lock is released. A later corrected run can safely re-run the idempotent migration sequence and must still pass the final relation/trigger verification.
+If a migration fails inside its transaction, the failed transaction is rolled back before the advisory lock is released. A corrected run can safely re-run the idempotent migration sequence and must still pass final relation/trigger verification.
 
 ## GitHub Actions
 
@@ -49,9 +50,9 @@ Required GitHub Secret:
 BYBIT_DEMO_DATABASE_DSN
 ```
 
-There is no schedule. The operational workflow supports `verify` and `apply`. `apply` additionally requires the exact confirmation phrase above.
+There is no schedule. The operational workflow supports `verify` and `apply`; apply additionally requires the exact confirmation phrase above.
 
-The pull-request job never uses the production DSN. It qualifies the lifecycle against an isolated PostgreSQL 16 service database.
+The pull-request job never uses the operational DSN. It qualifies the full v119-v121 lifecycle against an isolated PostgreSQL 16 service database.
 
 ## Sanitized artifact
 
@@ -61,39 +62,21 @@ The workflow writes:
 artifacts/bybit-demo-postgres-bootstrap.json
 ```
 
-The artifact includes:
-
-- status;
-- whether schema mutation occurred;
-- required-relation readiness;
-- append-only-trigger readiness;
-- v119/v120 migration paths and SHA-256 fingerprints.
-
-It deliberately excludes:
-
-- DSN;
-- host;
-- database name;
-- username/password;
-- Bybit credentials;
-- account balances;
-- positions;
-- order identities.
+The artifact contains status, whether schema mutation occurred, relation/trigger readiness, and migration paths with SHA-256 fingerprints. It deliberately excludes DSN, host, database name, credentials, balances, positions, prices, quantities and order identities.
 
 ## Required deployment sequence
 
-The safe operational sequence is:
-
 ```text
-1. Configure BYBIT_DEMO_DATABASE_DSN
-2. Run bybit-demo-postgres-bootstrap in verify mode
-3. If SCHEMA_NOT_READY, inspect the target and backup/PITR posture
-4. Run apply with APPLY_BYBIT_DEMO_V119_V120
-5. Run verify again and require VERIFIED_READY
-6. Configure separate BYBIT_DEMO_READONLY_API_KEY / SECRET
-7. Run bybit-demo-connected-preflight
-8. Require READY_FOR_MANUAL_OPERATOR_APPROVAL or a fully reconciled EXISTING_TRADE_MANAGEMENT_REQUIRED state
-9. Only after that consider a separate write-enabled, operator-approved Demo worker
+1. Configure BYBIT_DEMO_DATABASE_DSN.
+2. Run bybit-demo-postgres-bootstrap in verify mode.
+3. If SCHEMA_NOT_READY, verify target identity and backup/PITR posture.
+4. Run apply with APPLY_BYBIT_DEMO_V119_V121.
+5. Run verify again and require VERIFIED_READY.
+6. Configure separate BYBIT_DEMO_READONLY_API_KEY / SECRET.
+7. Run bybit-demo-connected-preflight and inspect its sanitized evidence.
+8. Use bybit-demo-control-plane status; absence of any control event is HALTED by default.
+9. ARM only through bybit-demo-control-plane. ARM itself reruns connected read-only preflight and only accepts READY_FOR_MANUAL_OPERATOR_APPROVAL.
+10. Only a separately protected, operator-approved Demo execution runtime may consume that short-lived ARM state.
 ```
 
 A successful bootstrap proves database schema readiness only. It does not prove connected Bybit account readiness and does not authorize trading.
