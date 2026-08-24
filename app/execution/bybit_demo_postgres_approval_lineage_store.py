@@ -129,7 +129,9 @@ class PostgresBybitDemoApprovedEntryAuthorizationStore:
         try:
             payload = json.loads(canonical)
         except json.JSONDecodeError as exc:
-            raise ValueError("approved entry authorization canonical record is invalid JSON") from exc
+            raise ValueError(
+                "approved entry authorization canonical record is invalid JSON"
+            ) from exc
         if not isinstance(payload, dict):
             raise ValueError("approved entry authorization canonical record must be an object")
         authorization = _authorization_from_payload(payload)
