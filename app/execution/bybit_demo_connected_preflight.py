@@ -50,6 +50,19 @@ class BybitDemoReadOnlyOpenPosition:
 
 
 @dataclass(frozen=True)
+class BybitDemoReadOnlyOpenOrder:
+    symbol: str
+    side: str
+    reduce_only: bool
+
+    def validate(self) -> None:
+        if self.symbol != self.symbol.strip().upper() or not self.symbol.endswith("USDT"):
+            raise ValueError("Bybit Demo preflight order symbol must be normalized USDT")
+        if self.side not in {"Buy", "Sell"}:
+            raise ValueError("Bybit Demo preflight order side must be Buy or Sell")
+
+
+@dataclass(frozen=True)
 class BybitDemoReadOnlyApiKeyInfo:
     read_only: bool
     ip_binding_present: bool
@@ -101,6 +114,36 @@ class BybitDemoPreflightAccountClient(BybitDemoAccountingClient):
             position.validate()
             positions.append(position)
         return tuple(positions)
+
+    def get_open_orders(self) -> tuple[BybitDemoReadOnlyOpenOrder, ...]:
+        page = self._private_get_page(  # noqa: SLF001 - bounded read-only subclass extension.
+            path="/v5/order/realtime",
+            query={
+                "category": "linear",
+                "settleCoin": "USDT",
+                "openOnly": "0",
+                "limit": "50",
+            },
+        )
+        if page.next_page_cursor is not None:
+            raise RuntimeError("Bybit Demo preflight open-order read unexpectedly paginated")
+        orders: list[BybitDemoReadOnlyOpenOrder] = []
+        for row in page.rows:
+            symbol = row.get("symbol")
+            side = row.get("side")
+            reduce_only = row.get("reduceOnly")
+            if not isinstance(symbol, str) or not isinstance(side, str):
+                raise ValueError("Bybit Demo preflight open order is missing symbol/side")
+            if not isinstance(reduce_only, bool):
+                raise ValueError("Bybit Demo preflight open order reduceOnly flag is invalid")
+            order = BybitDemoReadOnlyOpenOrder(
+                symbol=symbol,
+                side=side,
+                reduce_only=reduce_only,
+            )
+            order.validate()
+            orders.append(order)
+        return tuple(orders)
 
     def has_entry_execution(
         self,
@@ -296,6 +339,8 @@ class BybitDemoConnectedPreflightResult:
     usdt_wallet_visible: bool
     open_position_count: int
     open_position_symbols: tuple[str, ...]
+    open_order_count: int
+    open_order_symbols: tuple[str, ...]
     active_checkpoint_present: bool
     active_checkpoint_symbol: str | None
     runtime_lease_present: bool
@@ -331,6 +376,8 @@ class BybitDemoConnectedPreflightResult:
                 "usdt_wallet_visible": self.usdt_wallet_visible,
                 "open_position_count": self.open_position_count,
                 "open_position_symbols": list(self.open_position_symbols),
+                "open_order_count": self.open_order_count,
+                "open_order_symbols": list(self.open_order_symbols),
             },
             "credential": {
                 "read_only_api_key_verified": self.read_only_api_key_verified,
@@ -366,6 +413,7 @@ def run_bybit_demo_connected_preflight(
     wallet = account_client.get_wallet_balance()
     account = account_client.get_account_info()
     positions = account_client.get_open_positions()
+    orders = account_client.get_open_orders()
     database = database_reader.read_state()
 
     reasons: list[str] = []
@@ -381,13 +429,19 @@ def run_bybit_demo_connected_preflight(
         reasons.append("DEMO_MULTIPLE_OPEN_POSITIONS_NOT_SUPPORTED")
 
     checkpoint = database.active_checkpoint_present
-    if not positions and checkpoint:
-        reasons.append("DEMO_CHECKPOINT_WITHOUT_EXCHANGE_POSITION")
-    elif positions and not checkpoint:
+    if not positions:
+        if wallet.total_available_balance_usd <= 0:
+            reasons.append("DEMO_AVAILABLE_BALANCE_NOT_POSITIVE")
+        if orders:
+            reasons.append("DEMO_OPEN_ORDERS_WITHOUT_POSITION")
+        if checkpoint:
+            reasons.append("DEMO_CHECKPOINT_WITHOUT_EXCHANGE_POSITION")
+    elif not checkpoint:
         reasons.append("DEMO_EXCHANGE_POSITION_WITHOUT_CHECKPOINT")
-    elif len(positions) == 1 and checkpoint:
+    elif len(positions) == 1:
         position = positions[0]
         expected_side = "LONG" if position.side == "Buy" else "SHORT"
+        protective_side = "Sell" if position.side == "Buy" else "Buy"
         if position.symbol != database.active_checkpoint_symbol:
             reasons.append("DEMO_POSITION_CHECKPOINT_SYMBOL_MISMATCH")
         if expected_side != database.active_checkpoint_side:
@@ -396,6 +450,12 @@ def run_bybit_demo_connected_preflight(
             reasons.append("DEMO_POSITION_CHECKPOINT_QUANTITY_MISMATCH")
         if position.average_price != database.active_checkpoint_entry_price:
             reasons.append("DEMO_POSITION_CHECKPOINT_ENTRY_PRICE_MISMATCH")
+        if any(order.symbol != position.symbol for order in orders):
+            reasons.append("DEMO_OPEN_ORDER_OUTSIDE_ACTIVE_POSITION")
+        if any(not order.reduce_only for order in orders):
+            reasons.append("DEMO_NON_REDUCE_ONLY_OPEN_ORDER_PRESENT")
+        if any(order.side != protective_side for order in orders):
+            reasons.append("DEMO_OPEN_ORDER_SIDE_CAN_INCREASE_EXPOSURE")
         if (
             position.symbol == database.active_checkpoint_symbol
             and expected_side == database.active_checkpoint_side
@@ -425,6 +485,8 @@ def run_bybit_demo_connected_preflight(
         usdt_wallet_visible=wallet.usdt_wallet_balance is not None,
         open_position_count=len(positions),
         open_position_symbols=tuple(position.symbol for position in positions),
+        open_order_count=len(orders),
+        open_order_symbols=tuple(sorted({order.symbol for order in orders})),
         active_checkpoint_present=checkpoint,
         active_checkpoint_symbol=database.active_checkpoint_symbol,
         runtime_lease_present=database.runtime_lease_present,
@@ -491,6 +553,7 @@ __all__ = [
     "BybitDemoOperationalDatabaseState",
     "BybitDemoPreflightAccountClient",
     "BybitDemoReadOnlyApiKeyInfo",
+    "BybitDemoReadOnlyOpenOrder",
     "BybitDemoReadOnlyOpenPosition",
     "PostgresBybitDemoOperationalStateReader",
     "run_bybit_demo_connected_preflight",
