@@ -1,0 +1,92 @@
+name: bybit-forward-liquidation-evidence
+
+on:
+  pull_request:
+    paths:
+      - 'app/marketdata/bybit_liquidation_forward.py'
+      - 'app/marketdata/bybit_liquidation_postgres.py'
+      - 'tools/capture_bybit_forward_liquidations.py'
+      - 'migrations/v116/001_bybit_forward_liquidation_evidence.sql'
+      - 'tests/test_bybit_liquidation_forward.py'
+      - 'tests/test_bybit_liquidation_v116_contract.py'
+      - 'tests/test_bybit_liquidation_postgres_e2e.py'
+      - 'docs/BYBIT_FORWARD_LIQUIDATION_EVIDENCE.md'
+      - '.github/workflows/bybit-forward-liquidation-evidence.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/marketdata/bybit_liquidation_forward.py'
+      - 'app/marketdata/bybit_liquidation_postgres.py'
+      - 'tools/capture_bybit_forward_liquidations.py'
+      - 'migrations/v116/001_bybit_forward_liquidation_evidence.sql'
+      - 'tests/test_bybit_liquidation_forward.py'
+      - 'tests/test_bybit_liquidation_v116_contract.py'
+      - 'tests/test_bybit_liquidation_postgres_e2e.py'
+      - 'docs/BYBIT_FORWARD_LIQUIDATION_EVIDENCE.md'
+      - '.github/workflows/bybit-forward-liquidation-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-forward-liquidation-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra
+          POSTGRES_DB: astra_liquidation
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra_liquidation"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ASTRA_LIQUIDATION_TEST_DSN: postgresql://astra:astra@localhost:5432/astra_liquidation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Forward liquidation regression and PostgreSQL E2E
+        run: |
+          pytest -q \
+            tests/test_bybit_liquidation_forward.py \
+            tests/test_bybit_liquidation_v116_contract.py \
+            tests/test_bybit_liquidation_postgres_e2e.py
+      - name: Ruff forward liquidation boundary
+        run: |
+          ruff check \
+            app/marketdata/bybit_liquidation_forward.py \
+            app/marketdata/bybit_liquidation_postgres.py \
+            tools/capture_bybit_forward_liquidations.py \
+            tests/test_bybit_liquidation_forward.py \
+            tests/test_bybit_liquidation_v116_contract.py \
+            tests/test_bybit_liquidation_postgres_e2e.py
+      - name: Bandit forward liquidation boundary
+        run: |
+          bandit -q \
+            app/marketdata/bybit_liquidation_forward.py \
+            app/marketdata/bybit_liquidation_postgres.py \
+            tools/capture_bybit_forward_liquidations.py
+      - name: Compile forward liquidation boundary
+        run: |
+          python -m compileall -q \
+            app/marketdata/bybit_liquidation_forward.py \
+            app/marketdata/bybit_liquidation_postgres.py \
+            tools/capture_bybit_forward_liquidations.py
