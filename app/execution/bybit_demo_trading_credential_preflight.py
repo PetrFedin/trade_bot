@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import hmac
 import ipaddress
 from collections.abc import Mapping, Sequence
@@ -98,9 +99,9 @@ class BybitDemoTradingCredentialPreflightResult:
 class BybitDemoTradingCredentialReadOnlyInspector(BybitDemoAccountingClient):
     """Inspect a write-capable Demo key through authenticated GET only.
 
-    The credential being inspected may itself have order permissions. This client deliberately does
-    not expose any order mutation method: it inherits the existing exact-host GET-only Demo
-    accounting transport and calls only ``GET /v5/user/query-api``.
+    The inspected credential may itself have order permissions. This client deliberately exposes no
+    mutation method: it inherits the exact-host GET-only Demo accounting transport and calls only
+    ``GET /v5/user/query-api``.
     """
 
     environment = "BYBIT_DEMO_TRADING_CREDENTIAL_PREFLIGHT"
@@ -108,6 +109,10 @@ class BybitDemoTradingCredentialReadOnlyInspector(BybitDemoAccountingClient):
     order_writes_supported = False
     order_submission_supported = False
     authenticated_get_only = True
+
+    @property
+    def api_key_fingerprint_sha256(self) -> str:
+        return hashlib.sha256(self._api_key.encode("utf-8")).hexdigest()
 
     def inspect(self) -> BybitDemoTradingApiKeyInfo:
         result = self._private_get_result(path="/v5/user/query-api", query={})
@@ -180,27 +185,36 @@ class BybitDemoTradingCredentialReadOnlyInspector(BybitDemoAccountingClient):
         info.validate()
         return info
 
-    def matches_configured_api_key(self, candidate: str) -> bool:
-        if not candidate:
-            raise ValueError("reference API key cannot be empty")
-        return hmac.compare_digest(self._api_key, candidate)
+    def matches_api_key_fingerprint(self, candidate_sha256: str) -> bool:
+        _validate_sha256(candidate_sha256, label="reference API-key fingerprint")
+        return hmac.compare_digest(self.api_key_fingerprint_sha256, candidate_sha256)
 
 
 def run_bybit_demo_trading_credential_preflight(
     client: BybitDemoTradingCredentialReadOnlyInspector,
     *,
-    demo_readonly_api_key: str,
-    mainnet_readonly_api_key: str,
+    demo_readonly_api_key_sha256: str,
+    mainnet_readonly_api_key_sha256: str,
 ) -> BybitDemoTradingCredentialPreflightResult:
     """Prove credential shape and namespace isolation without any order mutation."""
 
     _validate_inspector_capabilities(client)
-    if not demo_readonly_api_key or not mainnet_readonly_api_key:
-        raise ValueError("both read-only reference API keys are required")
+    _validate_sha256(
+        demo_readonly_api_key_sha256,
+        label="Demo read-only API-key fingerprint",
+    )
+    _validate_sha256(
+        mainnet_readonly_api_key_sha256,
+        label="mainnet read-only API-key fingerprint",
+    )
 
     info = client.inspect()
-    distinct_demo = not client.matches_configured_api_key(demo_readonly_api_key)
-    distinct_mainnet = not client.matches_configured_api_key(mainnet_readonly_api_key)
+    distinct_demo = not client.matches_api_key_fingerprint(
+        demo_readonly_api_key_sha256
+    )
+    distinct_mainnet = not client.matches_api_key_fingerprint(
+        mainnet_readonly_api_key_sha256
+    )
 
     reasons: list[str] = []
     if not info.read_write_enabled:
@@ -336,6 +350,11 @@ def _strict_int(raw: Any, *, field: str) -> int:
             ambiguous_mutation=False,
         ) from exc
     return value
+
+
+def _validate_sha256(value: str, *, label: str) -> None:
+    if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+        raise ValueError(f"{label} must be lowercase SHA-256 hex")
 
 
 def _validate_inspector_capabilities(client: Any) -> None:
