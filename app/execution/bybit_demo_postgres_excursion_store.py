@@ -219,7 +219,10 @@ def _checkpoint_from_row(row) -> BybitDemoExcursionCheckpoint:
     entry_order_link_id = row["entry_order_link_id"]
     revision = row["revision"]
     state_payload = row["state_json"]
-    if not isinstance(entry_order_link_id, str) or not entry_order_link_id.startswith("ASTRA-DEMO-"):
+    if (
+        not isinstance(entry_order_link_id, str)
+        or not entry_order_link_id.startswith("ASTRA-DEMO-")
+    ):
         raise ValueError("demo excursion PostgreSQL checkpoint has invalid orderLinkId")
     _validate_revision(revision)
     if not isinstance(state_payload, dict):
