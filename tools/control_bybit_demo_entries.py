@@ -11,9 +11,9 @@ from app.execution.bybit_demo_connected_preflight import (
     BybitDemoConnectedPreflightStatus,
     PostgresBybitDemoOperationalStateReader,
 )
-from app.execution.bybit_demo_control_plane import PostgresBybitDemoControlPlane
 from app.execution.bybit_demo_fixed_egress import (
     BybitDemoFixedEgressPreflightAccountClient,
+    FixedEgressPostgresBybitDemoControlPlane,
     require_fixed_egress_ready_for_arm,
     run_bybit_demo_fixed_egress_connected_preflight,
 )
@@ -77,7 +77,7 @@ def main() -> int:
         return 2
 
     try:
-        plane = PostgresBybitDemoControlPlane(dsn)
+        plane = FixedEgressPostgresBybitDemoControlPlane(dsn)
         if args.mode == "status":
             decision = plane.read_decision(now=datetime.now(UTC))
             payload = _base(mode=args.mode, status="STATUS_READ", passed=True) | {
