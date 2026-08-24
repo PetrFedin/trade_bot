@@ -68,7 +68,7 @@ def build_bybit_demo_approved_entry_authorization(
         expires_at=approval.expires_at,
         expected_entry_order_link_id=approval.expected_entry_order_link_id,
         expected_close_order_link_id=approval.expected_close_order_link_id,
-        authorized_at=now.isoformat(),
+        authorized_at=approval.approved_at,
     )
     validate_bybit_demo_approved_entry_authorization(authorization)
     return authorization
@@ -99,6 +99,8 @@ def validate_bybit_demo_approved_entry_authorization(
         parsed = datetime.fromisoformat(value)
         if parsed.tzinfo is None or parsed.utcoffset() is None:
             raise ValueError(f"approved entry authorization {name} must be timezone-aware")
+    if authorization.authorized_at != authorization.approved_at:
+        raise ValueError("approved entry authorization timestamp must be approval-deterministic")
     if not authorization.expected_entry_order_link_id.startswith("ASTRA-DEMO-"):
         raise ValueError("approved entry authorization requires Demo entry orderLinkId")
     if not authorization.expected_close_order_link_id.startswith("ASTRA-DEMO-"):
