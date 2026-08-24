@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -202,7 +203,7 @@ def test_reader_preserves_exact_source_cell_and_final_outcome() -> None:
     assert observation.source_cell.evidence_cell_key == _CELL
     assert observation.source_cell.market_regime == "BULL"
     assert observation.source_cell.open_interest_regime == "OI_RISING"
-    assert observation.source_cell.historical_profit_factor == 1.4
-    assert observation.prospective.base.horizon_240_modeled_net_pnl_usdt == 3
+    assert observation.source_cell.historical_profit_factor == Decimal("1.4")
+    assert observation.prospective.base.horizon_240_modeled_net_pnl_usdt == Decimal("3")
     assert reader.order_writes_supported is False
     assert reader.live_mainnet_order_routing_allowed is False
