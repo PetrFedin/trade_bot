@@ -130,7 +130,13 @@ class BybitDemoTradingCredentialReadOnlyInspector(BybitDemoAccountingClient):
                 ambiguous_mutation=False,
             )
         secret_marker = result.get("secret")
-        if not isinstance(secret_marker, str) or secret_marker != "":
+        if not isinstance(secret_marker, str):
+            raise BybitRestProtocolError(
+                "Bybit Demo API-key information returned invalid secret marker",
+                retryable_read=False,
+                ambiguous_mutation=False,
+            )
+        if secret_marker:
             raise BybitRestProtocolError(
                 "Bybit Demo API-key information unexpectedly exposed secret material",
                 retryable_read=False,
