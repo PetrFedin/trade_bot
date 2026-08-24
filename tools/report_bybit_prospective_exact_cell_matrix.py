@@ -6,6 +6,12 @@ import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from app.strategy.crypto_prospective_evidence_materialization import (
+    build_prospective_evidence_materialization_metadata,
+)
+from app.strategy.crypto_prospective_evidence_postgres import (
+    PostgresCryptoProspectiveEvidenceStore,
+)
 from app.strategy.crypto_prospective_exact_cell_matrix import (
     CryptoProspectiveExactCellPolicy,
     diagnose_crypto_prospective_exact_cell_matrix,
@@ -45,6 +51,10 @@ def build_prospective_exact_cell_report(
         else f"ROLLING_{rolling_days}_DAYS"
     )
     report["signal_available_at_or_after"] = None if start is None else start.isoformat()
+    report["source_lineage"] = build_prospective_evidence_materialization_metadata(
+        dataset,
+        generated_at=now,
+    )
     return report
 
 
@@ -58,12 +68,16 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--rolling-days", type=int)
     parser.add_argument("--maximum-final-seeds", type=int, default=100_000)
     parser.add_argument("--output")
+    parser.add_argument("--persist-postgres", action="store_true")
+    parser.add_argument("--migrate-postgres", action="store_true")
     parser.add_argument("--database-dsn-env", default=_DEFAULT_DSN_ENV)
     return parser.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
+    if args.migrate_postgres and not args.persist_postgres:
+        raise SystemExit("--migrate-postgres requires --persist-postgres")
     dsn = os.environ.get(args.database_dsn_env, "")
     if not dsn.strip():
         raise SystemExit(
@@ -82,6 +96,11 @@ def main() -> None:
         temporary = destination.with_suffix(destination.suffix + ".tmp")
         temporary.write_text(encoded + "\n", encoding="utf-8")
         temporary.replace(destination)
+    if args.persist_postgres:
+        store = PostgresCryptoProspectiveEvidenceStore(dsn)
+        if args.migrate_postgres:
+            store.migrate()
+        store.persist(report)
     print(encoded)
 
 
