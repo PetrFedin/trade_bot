@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -19,7 +20,15 @@ from app.execution.bybit_demo_entry_provenance import BybitDemoEntryDecisionProv
 from app.execution.bybit_demo_entry_provenance_store import (
     JsonFileBybitDemoEntryProvenanceStore,
 )
+from app.execution.bybit_demo_excursion_runtime import (
+    BybitDemoExcursionRuntimeResult,
+    BybitDemoExcursionRuntimeStatus,
+)
 from app.execution.bybit_demo_excursion_tracker import start_bybit_demo_trade_excursion
+from app.execution.bybit_demo_managed_trade_poll import (
+    BybitDemoManagedTradePollPhase,
+    BybitDemoManagedTradePollResult,
+)
 from app.execution.bybit_demo_operator_approval import BybitDemoOperatorApproval
 from app.execution.bybit_demo_post_trade_accounting import BybitDemoProfitOutcomeStatus
 from app.execution.bybit_demo_postgres_approval_lineage_store import (
@@ -45,7 +54,8 @@ from app.execution.bybit_demo_terminal_evidence_store import (
     JsonFileBybitDemoTerminalEvidenceStore,
 )
 from app.execution.bybit_demo_terminal_handoff import (
-    persist_bybit_demo_terminal_evidence_handoff,
+    BybitDemoTerminalHandoffStatus,
+    persist_and_acknowledge_bybit_demo_terminal_evidence,
 )
 from app.strategy.crypto_perp import CryptoSide, CryptoTradePlan
 
@@ -74,7 +84,9 @@ def _reset_schema() -> None:
         connection.execute(
             "DROP TABLE IF EXISTS astra_bybit_demo_approved_entry_authorization_v120 CASCADE"
         )
-        connection.execute("DROP FUNCTION IF EXISTS astra_reject_bybit_demo_audit_mutation_v120()")
+        connection.execute(
+            "DROP FUNCTION IF EXISTS astra_reject_bybit_demo_audit_mutation_v120()"
+        )
         connection.execute("DROP TABLE IF EXISTS astra_bybit_demo_active_excursion_v119 CASCADE")
         connection.execute("DROP TABLE IF EXISTS astra_bybit_demo_runtime_lease_v119 CASCADE")
         connection.execute(v119)
@@ -237,6 +249,31 @@ def _position() -> BybitDemoPosition:
     )
 
 
+def _terminal_poll(checkpoint) -> BybitDemoManagedTradePollResult:
+    excursion = BybitDemoExcursionRuntimeResult(
+        status=BybitDemoExcursionRuntimeStatus.TERMINAL_EVIDENCE_READY,
+        reasons=(),
+        checkpoint=checkpoint,
+        trade=object(),
+        final=object(),
+        checkpoint_clear_allowed=True,
+    )
+    return BybitDemoManagedTradePollResult(
+        phase=BybitDemoManagedTradePollPhase.TERMINAL_EVIDENCE_READY,
+        reasons=(),
+        excursion=excursion,
+        management=None,
+        max_hold_close=None,
+        accounting=SimpleNamespace(
+            lifecycle=SimpleNamespace(next_entry_allowed=True),
+            live_mainnet_order_routing_allowed=False,
+        ),
+        profit_evidence=_evidence(),
+        terminal_evidence_ack_required=True,
+        fully_reconciled_all_in=True,
+    )
+
+
 def test_postgres_approval_store_matches_file_identity_and_round_trips(tmp_path) -> None:
     _reset_schema()
     authorization = build_bybit_demo_approved_entry_authorization(
@@ -360,17 +397,19 @@ def test_postgres_terminal_handoff_persists_before_checkpoint_clear() -> None:
         state=start_bybit_demo_trade_excursion(_trade_plan(), position=_position()),
     )
 
-    receipt = persist_bybit_demo_terminal_evidence_handoff(
-        entry_order_link_id=entry_order_link_id,
-        checkpoint=checkpoint,
-        evidence=_evidence(),
-        terminal_evidence_store=terminal_store,
+    result = persist_and_acknowledge_bybit_demo_terminal_evidence(
+        _terminal_poll(checkpoint),
+        evidence_store=terminal_store,
         excursion_store=excursion_store,
     )
 
-    assert receipt.entry_order_link_id == entry_order_link_id
-    assert receipt.checkpoint_revision == checkpoint.revision
-    assert receipt.checkpoint_cleared is True
-    assert receipt.live_mainnet_order_routing_allowed is False
+    assert result.status is BybitDemoTerminalHandoffStatus.COMPLETE
+    assert result.receipt is not None
+    assert result.receipt.entry_order_link_id == entry_order_link_id
+    assert result.receipt.checkpoint_revision == checkpoint.revision
+    assert result.evidence_durable is True
+    assert result.checkpoint_cleared is True
+    assert result.next_entry_allowed is True
+    assert result.live_mainnet_order_routing_allowed is False
     with pytest.raises(FileNotFoundError):
         excursion_store.load()
