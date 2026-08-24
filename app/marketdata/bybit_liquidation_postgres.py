@@ -19,6 +19,10 @@ except ImportError:  # pragma: no cover - optional dependency boundary
     psycopg = None
     dict_row = None
 
+_STREAM_STATES = frozenset(
+    {"CONNECTING", "CONNECTED", "HEARTBEAT", "DISCONNECTED", "STOPPED"}
+)
+
 
 @dataclass(frozen=True)
 class BybitLiquidationUniverse:
@@ -49,7 +53,9 @@ class BybitLiquidationUniverse:
             raise ValueError("liquidation universe symbols must be unique")
         for symbol in self.symbols:
             if symbol != symbol.upper() or not symbol or not symbol.isalnum():
-                raise ValueError("liquidation universe symbols must be uppercase alphanumeric")
+                raise ValueError(
+                    "liquidation universe symbols must be uppercase alphanumeric"
+                )
 
 
 class PostgresBybitLiquidationStore:
@@ -88,12 +94,19 @@ class PostgresBybitLiquidationStore:
         *,
         rank_limit: int = 50,
         now: datetime | None = None,
-        maximum_snapshot_age: timedelta = timedelta(minutes=20),
+        maximum_snapshot_age: timedelta | None = None,
     ) -> BybitLiquidationUniverse:
+        active_maximum_age = (
+            timedelta(minutes=20)
+            if maximum_snapshot_age is None
+            else maximum_snapshot_age
+        )
         if not 10 <= rank_limit <= 50:
             raise ValueError("liquidation rank limit must be within [10, 50]")
-        if not timedelta(minutes=1) <= maximum_snapshot_age <= timedelta(hours=2):
-            raise ValueError("liquidation source snapshot age bound must be within [1m, 2h]")
+        if not timedelta(minutes=1) <= active_maximum_age <= timedelta(hours=2):
+            raise ValueError(
+                "liquidation source snapshot age bound must be within [1m, 2h]"
+            )
         moment = datetime.now(UTC) if now is None else _utc(now)
         with self._connect() as connection:
             with connection.cursor() as cursor:
@@ -106,12 +119,16 @@ class PostgresBybitLiquidationStore:
                 )
                 snapshot = cursor.fetchone()
                 if snapshot is None:
-                    raise RuntimeError("no complete Bybit v110 opportunity snapshot is available")
+                    raise RuntimeError(
+                        "no complete Bybit v110 opportunity snapshot is available"
+                    )
                 observed_at = _utc(snapshot["observed_at"])
                 age = moment - observed_at
                 if age < timedelta(minutes=-1):
-                    raise RuntimeError("latest Bybit opportunity snapshot is implausibly future-dated")
-                if age > maximum_snapshot_age:
+                    raise RuntimeError(
+                        "latest Bybit opportunity snapshot is implausibly future-dated"
+                    )
+                if age > active_maximum_age:
                     raise RuntimeError("latest Bybit opportunity snapshot is stale")
                 source_registry_limit = int(snapshot["registry_limit"])
                 if rank_limit > source_registry_limit:
@@ -128,7 +145,9 @@ class PostgresBybitLiquidationStore:
                 rows = cursor.fetchall()
         symbols = tuple(str(row["symbol"]) for row in rows)
         if len(symbols) < 10:
-            raise RuntimeError("complete v110 snapshot is missing its ranked Top-10 candidates")
+            raise RuntimeError(
+                "complete v110 snapshot is missing its ranked Top-10 candidates"
+            )
         universe = BybitLiquidationUniverse(
             source_snapshot_id=str(snapshot["snapshot_id"]),
             source_snapshot_observed_at=observed_at,
@@ -209,8 +228,14 @@ class PostgresBybitLiquidationStore:
                 with connection.cursor() as cursor:
                     for event in events:
                         event.validate()
-                        event_time = datetime.fromtimestamp(event.event_time_ms / 1000, tz=UTC)
-                        bucket_start = datetime.fromtimestamp(event.bucket_start_ms / 1000, tz=UTC)
+                        event_time = datetime.fromtimestamp(
+                            event.event_time_ms / 1000,
+                            tz=UTC,
+                        )
+                        bucket_start = datetime.fromtimestamp(
+                            event.bucket_start_ms / 1000,
+                            tz=UTC,
+                        )
                         cursor.execute(
                             """INSERT INTO astra_bybit_liquidation_event_v116
                             (event_id, first_subscription_id, system_ts_ms, event_time,
@@ -256,7 +281,7 @@ class PostgresBybitLiquidationStore:
         created_at: datetime | None = None,
     ) -> str:
         _validate_sha(subscription_id, "subscription id")
-        if state not in {"CONNECTING", "CONNECTED", "HEARTBEAT", "DISCONNECTED", "STOPPED"}:
+        if state not in _STREAM_STATES:
             raise ValueError("invalid Bybit liquidation stream status")
         if len(connection_epoch) != 32 or any(
             char not in "0123456789abcdef" for char in connection_epoch
