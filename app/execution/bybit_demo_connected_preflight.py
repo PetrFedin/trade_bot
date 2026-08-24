@@ -158,15 +158,21 @@ class PostgresBybitDemoOperationalStateReader:
                            WHERE checkpoint_name='ACTIVE'"""
                     )
                     checkpoint = cursor.fetchone()
-                    counts = []
-                    for table in (
-                        "astra_bybit_demo_approved_entry_authorization_v120",
-                        "astra_bybit_demo_entry_provenance_v120",
-                        "astra_bybit_demo_terminal_evidence_v120",
-                    ):
-                        cursor.execute(f"SELECT count(*) AS count FROM {table}")  # noqa: S608
-                        row = cursor.fetchone()
-                        counts.append(0 if row is None else int(row["count"]))
+                    cursor.execute(
+                        """SELECT count(*) AS count
+                           FROM astra_bybit_demo_approved_entry_authorization_v120"""
+                    )
+                    approval_row = cursor.fetchone()
+                    cursor.execute(
+                        """SELECT count(*) AS count
+                           FROM astra_bybit_demo_entry_provenance_v120"""
+                    )
+                    provenance_row = cursor.fetchone()
+                    cursor.execute(
+                        """SELECT count(*) AS count
+                           FROM astra_bybit_demo_terminal_evidence_v120"""
+                    )
+                    terminal_row = cursor.fetchone()
         checkpoint_link = None
         checkpoint_symbol = None
         checkpoint_side = None
@@ -193,9 +199,9 @@ class PostgresBybitDemoOperationalStateReader:
             active_checkpoint_order_link_id=checkpoint_link,
             active_checkpoint_symbol=checkpoint_symbol,
             active_checkpoint_side=checkpoint_side,
-            approval_record_count=counts[0],
-            provenance_record_count=counts[1],
-            terminal_record_count=counts[2],
+            approval_record_count=_count_value(approval_row),
+            provenance_record_count=_count_value(provenance_row),
+            terminal_record_count=_count_value(terminal_row),
         )
 
 
@@ -348,6 +354,12 @@ def _validate_read_only_dependencies(
         raise ValueError("Bybit Demo preflight rejected mainnet-capable database reader")
     if database_reader.order_writes_supported or database_reader.schema_mutation_supported:
         raise ValueError("Bybit Demo preflight database reader must remain read-only")
+
+
+def _count_value(row: Any) -> int:
+    if row is None:
+        return 0
+    return int(row["count"])
 
 
 def _decimal(value: object, label: str) -> Decimal:
