@@ -48,11 +48,11 @@ def _failure(error_type: str) -> dict[str, Any]:
 
 def main() -> int:
     args = _parser().parse_args()
-    api_key = os.environ.get("BYBIT_DEMO_API_KEY", "")
-    api_secret = os.environ.get("BYBIT_DEMO_API_SECRET", "")
+    api_key = os.environ.get("BYBIT_DEMO_READONLY_API_KEY", "")
+    api_secret = os.environ.get("BYBIT_DEMO_READONLY_API_SECRET", "")
     database_dsn = os.environ.get("BYBIT_DEMO_DATABASE_DSN", "")
     if not api_key or not api_secret or not database_dsn:
-        payload = _failure("DEMO_OPERATIONAL_CONFIG_UNAVAILABLE")
+        payload = _failure("DEMO_READONLY_OPERATIONAL_CONFIG_UNAVAILABLE")
         _write(args.output, payload)
         print(json.dumps(payload, sort_keys=True))
         return 2
