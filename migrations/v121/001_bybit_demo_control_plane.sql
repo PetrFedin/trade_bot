@@ -6,9 +6,14 @@ CREATE TABLE IF NOT EXISTS astra_bybit_demo_control_event_v121 (
     event_kind text NOT NULL CHECK (event_kind IN ('ARM_NEW_ENTRIES', 'HALT_NEW_ENTRIES')),
     operator_id text NOT NULL CHECK (btrim(operator_id) <> '' AND length(operator_id) <= 128),
     reason text NOT NULL CHECK (btrim(reason) <> '' AND length(reason) <= 1000),
+    preflight_status text NULL CHECK (
+        preflight_status IS NULL
+        OR preflight_status = 'READY_FOR_MANUAL_OPERATOR_APPROVAL'
+    ),
     preflight_record_sha256 text NULL CHECK (
         preflight_record_sha256 IS NULL OR preflight_record_sha256 ~ '^[0-9a-f]{64}$'
     ),
+    preflight_canonical_record text NULL,
     preflight_observed_at timestamptz NULL,
     armed_until timestamptz NULL,
     created_at timestamptz NOT NULL,
@@ -20,17 +25,23 @@ CREATE TABLE IF NOT EXISTS astra_bybit_demo_control_event_v121 (
     CHECK (
         (
             event_kind = 'ARM_NEW_ENTRIES'
+            AND preflight_status = 'READY_FOR_MANUAL_OPERATOR_APPROVAL'
             AND preflight_record_sha256 IS NOT NULL
+            AND preflight_canonical_record IS NOT NULL
+            AND btrim(preflight_canonical_record) <> ''
             AND preflight_observed_at IS NOT NULL
             AND armed_until IS NOT NULL
             AND preflight_observed_at <= created_at
+            AND preflight_observed_at >= created_at - interval '30 seconds'
             AND armed_until > created_at
             AND armed_until <= created_at + interval '5 minutes'
         )
         OR
         (
             event_kind = 'HALT_NEW_ENTRIES'
+            AND preflight_status IS NULL
             AND preflight_record_sha256 IS NULL
+            AND preflight_canonical_record IS NULL
             AND preflight_observed_at IS NULL
             AND armed_until IS NULL
         )
