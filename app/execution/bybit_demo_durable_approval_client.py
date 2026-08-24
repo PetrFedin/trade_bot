@@ -53,6 +53,10 @@ class DurableApprovalLineageBybitDemoClient:
     def entry_authorization_recorded(self) -> bool:
         return self._entry_authorization_recorded
 
+    @property
+    def protection_state_read_supported(self) -> bool:
+        return getattr(self._client, "protection_state_read_supported", False) is True
+
     def get_fee_rate(self, *, symbol: str):
         self._require_symbol(symbol)
         return self._client.get_fee_rate(symbol=symbol)
