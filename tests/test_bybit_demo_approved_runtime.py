@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from app.execution import bybit_demo_approved_runtime as approved_runtime
+from app.execution.bybit_demo import BybitDemoOrderAck, BybitDemoOrderRequest
 from app.execution.bybit_demo_approval_lineage_store import (
     BybitDemoApprovedEntryAuthorizationReceipt,
 )
@@ -123,10 +124,27 @@ class _AuthorizationStore:
         )
 
 
+class _RawDemoClient:
+    environment = "BYBIT_DEMO"
+    live_mainnet_order_routing_allowed = False
+
+    def __init__(self, events: list[str]) -> None:
+        self.events = events
+
+    def place_market_order(self, request: BybitDemoOrderRequest) -> BybitDemoOrderAck:
+        self.events.append("raw_network")
+        return BybitDemoOrderAck(
+            order_id="OID-1",
+            order_link_id=request.order_link_id,
+            accepted=True,
+        )
+
+
 def _call(
     monkeypatch,
     *,
     store: _AuthorizationStore,
+    events: list[str],
     now: datetime = _APPROVED,
     canonical_runtime,
 ):
@@ -149,7 +167,7 @@ def _call(
         session_state=_session(),
         now=now,
         now_ms=int(now.timestamp() * 1000),
-        client=SimpleNamespace(live_mainnet_order_routing_allowed=False),
+        client=_RawDemoClient(events),
         accounting_client=SimpleNamespace(
             live_mainnet_order_routing_allowed=False,
             order_writes_supported=False,
@@ -183,12 +201,23 @@ def _invoke_entry(kwargs: dict[str, Any]):
     )
 
 
-def test_authorization_is_durable_before_approved_bridge_is_called(monkeypatch) -> None:
+def _approved_entry_request() -> BybitDemoOrderRequest:
+    approval = _approval()
+    return BybitDemoOrderRequest(
+        symbol=approval.symbol,
+        side="Buy",
+        quantity=Decimal("1"),
+        order_link_id=approval.expected_entry_order_link_id,
+    )
+
+
+def test_authorization_is_durable_immediately_before_raw_network(monkeypatch) -> None:
     events: list[str] = []
     store = _AuthorizationStore(events)
 
     def bridge(*args: Any, **kwargs: Any):
         events.append("approved_bridge")
+        kwargs["client"].place_market_order(_approved_entry_request())
         return SimpleNamespace(
             live_mainnet_order_routing_allowed=False,
             strategy_cycle_result=None,
@@ -207,10 +236,11 @@ def test_authorization_is_durable_before_approved_bridge_is_called(monkeypatch) 
     result = _call(
         monkeypatch,
         store=store,
+        events=events,
         canonical_runtime=canonical,
     )
 
-    assert events == ["persist_authorization", "approved_bridge"]
+    assert events == ["approved_bridge", "persist_authorization", "raw_network"]
     assert result.authorization_persisted is True
     assert result.authorization is not None
     assert result.authorization_receipt is not None
@@ -218,15 +248,47 @@ def test_authorization_is_durable_before_approved_bridge_is_called(monkeypatch) 
     assert result.live_mainnet_order_routing_allowed is False
 
 
-def test_authorization_persistence_failure_prevents_bridge_call(monkeypatch) -> None:
+def test_pre_order_block_does_not_burn_authorization(monkeypatch) -> None:
     events: list[str] = []
-    store = _AuthorizationStore(events, fail=True)
-    bridge_calls = 0
+    store = _AuthorizationStore(events)
 
     def bridge(*args: Any, **kwargs: Any):
-        nonlocal bridge_calls
-        bridge_calls += 1
-        raise AssertionError("bridge must not be reached")
+        events.append("approved_bridge_blocked_before_order")
+        return SimpleNamespace(
+            live_mainnet_order_routing_allowed=False,
+            strategy_cycle_result=None,
+        )
+
+    def canonical(*args: Any, **kwargs: Any):
+        _invoke_entry(kwargs)
+        return SimpleNamespace(live_mainnet_order_routing_allowed=False)
+
+    monkeypatch.setattr(
+        approved_runtime,
+        "execute_operator_approved_account_sized_bybit_demo_cycle",
+        bridge,
+    )
+    result = _call(
+        monkeypatch,
+        store=store,
+        events=events,
+        canonical_runtime=canonical,
+    )
+
+    assert events == ["approved_bridge_blocked_before_order"]
+    assert store.persist_calls == 0
+    assert result.authorization is not None
+    assert result.authorization_persisted is False
+
+
+def test_authorization_persistence_failure_prevents_raw_network(monkeypatch) -> None:
+    events: list[str] = []
+    store = _AuthorizationStore(events, fail=True)
+
+    def bridge(*args: Any, **kwargs: Any):
+        events.append("approved_bridge")
+        kwargs["client"].place_market_order(_approved_entry_request())
+        raise AssertionError("persistence failure must interrupt bridge")
 
     def canonical(*args: Any, **kwargs: Any):
         try:
@@ -243,24 +305,24 @@ def test_authorization_persistence_failure_prevents_bridge_call(monkeypatch) -> 
     result = _call(
         monkeypatch,
         store=store,
+        events=events,
         canonical_runtime=canonical,
     )
 
-    assert events == ["persist_authorization"]
-    assert bridge_calls == 0
+    assert events == ["approved_bridge", "persist_authorization"]
+    assert "raw_network" not in events
+    assert result.authorization is not None
     assert result.authorization_persisted is False
-    assert result.authorization is None
 
 
 def test_existing_authorization_is_recovery_state_not_resubmit_permission(monkeypatch) -> None:
     events: list[str] = []
     store = _AuthorizationStore(events, existing=True)
-    bridge_calls = 0
 
     def bridge(*args: Any, **kwargs: Any):
-        nonlocal bridge_calls
-        bridge_calls += 1
-        raise AssertionError("bridge must not be reached")
+        events.append("approved_bridge")
+        kwargs["client"].place_market_order(_approved_entry_request())
+        raise AssertionError("existing authorization must interrupt bridge")
 
     def canonical(*args: Any, **kwargs: Any):
         try:
@@ -277,15 +339,14 @@ def test_existing_authorization_is_recovery_state_not_resubmit_permission(monkey
     result = _call(
         monkeypatch,
         store=store,
+        events=events,
         canonical_runtime=canonical,
     )
 
-    assert events == ["persist_authorization"]
-    assert bridge_calls == 0
-    assert result.authorization_persisted is True
+    assert events == ["approved_bridge", "persist_authorization"]
+    assert "raw_network" not in events
     assert result.authorization is not None
-    assert result.authorization_receipt is not None
-    assert result.authorization_receipt.idempotent_existing_record is True
+    assert result.authorization_persisted is False
 
 
 def test_active_trade_management_does_not_require_fresh_entry_approval(monkeypatch) -> None:
@@ -299,6 +360,7 @@ def test_active_trade_management_does_not_require_fresh_entry_approval(monkeypat
     result = _call(
         monkeypatch,
         store=store,
+        events=events,
         now=_APPROVED + timedelta(hours=1),
         canonical_runtime=canonical,
     )
