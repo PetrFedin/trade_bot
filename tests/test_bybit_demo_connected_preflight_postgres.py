@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -25,7 +27,7 @@ def _apply(path: str) -> None:
         connection.execute(sql)
 
 
-def test_postgres_preflight_reads_v119_v120_guards_and_runtime_lease() -> None:
+def test_postgres_preflight_reads_v119_v120_guards_and_runtime_identity() -> None:
     _apply("migrations/v119/001_bybit_demo_durable_runtime.sql")
     _apply("migrations/v120/001_bybit_demo_durable_audit_lifecycle.sql")
 
@@ -43,6 +45,15 @@ def test_postgres_preflight_reads_v119_v120_guards_and_runtime_lease() -> None:
     assert reader.schema_mutation_supported is False
     assert reader.live_mainnet_order_routing_allowed is False
 
+    state = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "entry_price": "60000",
+        "initial_quantity": "0.01",
+        "current_quantity": "0.009",
+        "stop_fraction": "0.01",
+    }
+    now = datetime.now(UTC)
     with psycopg.connect(_DSN, autocommit=True) as connection:
         connection.execute(
             """INSERT INTO astra_bybit_demo_runtime_lease_v119
@@ -50,8 +61,23 @@ def test_postgres_preflight_reads_v119_v120_guards_and_runtime_lease() -> None:
              automatic_stale_takeover_allowed, live_mainnet_order_routing_allowed,
              created_at)
             VALUES ('CANONICAL_DEMO_TRADING_RUNTIME', %s, 1, 1, false, false, %s)""",
-            ("a" * 64, datetime.now(UTC)),
+            ("a" * 64, now),
+        )
+        connection.execute(
+            """INSERT INTO astra_bybit_demo_active_excursion_v119
+            (checkpoint_name, entry_order_link_id, revision, state_json,
+             diagnostics_only, exit_threshold_retuning_allowed,
+             live_mainnet_order_routing_allowed, created_at, updated_at)
+            VALUES ('ACTIVE', 'ASTRA-DEMO-E-TEST', %s, %s::jsonb,
+                    true, false, false, %s, %s)""",
+            ("b" * 64, json.dumps(state), now, now),
         )
 
-    leased = reader.read_state()
-    assert leased.runtime_lease_present is True
+    active = reader.read_state()
+    assert active.runtime_lease_present is True
+    assert active.active_checkpoint_present is True
+    assert active.active_checkpoint_order_link_id == "ASTRA-DEMO-E-TEST"
+    assert active.active_checkpoint_symbol == "BTCUSDT"
+    assert active.active_checkpoint_side == "LONG"
+    assert active.active_checkpoint_entry_price == Decimal("60000")
+    assert active.active_checkpoint_current_quantity == Decimal("0.009")
