@@ -12,6 +12,7 @@ from app.execution.bybit_demo_connected_preflight import (
     BybitDemoConnectedPreflightStatus,
     BybitDemoOperationalDatabaseState,
     BybitDemoPreflightAccountClient,
+    BybitDemoReadOnlyApiKeyInfo,
     BybitDemoReadOnlyOpenPosition,
     run_bybit_demo_connected_preflight,
 )
@@ -43,10 +44,20 @@ class _Account:
         positions: tuple[BybitDemoReadOnlyOpenPosition, ...] = (),
         *,
         entry_execution_found: bool = True,
+        api_key_read_only: bool = True,
+        api_key_ip_binding_present: bool = False,
     ) -> None:
         self.positions = positions
         self.entry_execution_found = entry_execution_found
+        self.api_key_read_only = api_key_read_only
+        self.api_key_ip_binding_present = api_key_ip_binding_present
         self.execution_queries: list[tuple[str, str, str]] = []
+
+    def get_api_key_info(self) -> BybitDemoReadOnlyApiKeyInfo:
+        return BybitDemoReadOnlyApiKeyInfo(
+            read_only=self.api_key_read_only,
+            ip_binding_present=self.api_key_ip_binding_present,
+        )
 
     def get_wallet_balance(self) -> BybitDemoWalletBalance:
         return BybitDemoWalletBalance(
@@ -144,12 +155,25 @@ def test_clean_account_is_ready_only_for_manual_operator_approval() -> None:
     assert result.status is BybitDemoConnectedPreflightStatus.READY_FOR_MANUAL_OPERATOR_APPROVAL
     assert result.reasons == ()
     assert result.passed is True
+    assert result.read_only_api_key_verified is True
     assert result.trade_actionable is False
     assert result.order_writes_supported is False
     assert result.live_mainnet_order_routing_allowed is False
     payload = result.to_payload()
     assert payload["account"]["positive_equity"] is True
+    assert payload["credential"]["read_only_api_key_verified"] is True
     assert "total_equity_usd" not in payload["account"]
+
+
+def test_write_enabled_api_key_is_blocked_even_though_client_code_is_get_only() -> None:
+    result = run_bybit_demo_connected_preflight(
+        _Account(api_key_read_only=False),
+        _Database(_state()),
+    )
+
+    assert result.status is BybitDemoConnectedPreflightStatus.BLOCKED
+    assert result.reasons == ("DEMO_API_KEY_IS_NOT_READ_ONLY",)
+    assert result.read_only_api_key_verified is False
 
 
 def test_matching_exchange_position_and_checkpoint_requires_management_only() -> None:
@@ -236,6 +260,32 @@ def test_more_than_one_exchange_position_is_blocked() -> None:
 
     assert result.status is BybitDemoConnectedPreflightStatus.BLOCKED
     assert "DEMO_MULTIPLE_OPEN_POSITIONS_NOT_SUPPORTED" in result.reasons
+
+
+def test_preflight_api_key_reader_proves_read_only_capability() -> None:
+    transport = _FakeTransport(
+        {
+            "retCode": 0,
+            "result": {
+                "readOnly": 1,
+                "ips": ["*"],
+            },
+        }
+    )
+    client = BybitDemoPreflightAccountClient(
+        api_key="key",
+        api_secret="secret",
+        transport=transport,
+        clock_ms=lambda: 1,
+    )
+
+    info = client.get_api_key_info()
+
+    assert info.read_only is True
+    assert info.ip_binding_present is False
+    path, query, _headers = transport.calls[0]
+    assert path == "/v5/user/query-api"
+    assert query == ""
 
 
 def test_preflight_position_reader_uses_demo_get_only_and_skips_zero_positions() -> None:
