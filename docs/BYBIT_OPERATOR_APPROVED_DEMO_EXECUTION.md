@@ -6,12 +6,13 @@ This layer connects the evidence-ranked review queue to the canonical Bybit Demo
 
 Mainnet remains read-only. There is no mainnet order client, no mainnet order mutation, and no path that turns evidence rows directly into autonomous orders.
 
-A new Demo entry now requires **both**:
+A new Demo entry now requires separate evidence for three independent capabilities:
 
-1. the existing short-lived exact operator approval for one evidence-ranked decision; and
-2. a separate short-lived v121 `ARM_NEW_ENTRIES` control state created from a fresh connected read-only preflight.
+1. a short-lived exact operator approval for one evidence-ranked decision;
+2. a short-lived v121 `ARM_NEW_ENTRIES` control state created from a fresh connected read-only preflight; and
+3. a separately provisioned Demo trading credential that has passed the GET-only least-privilege credential preflight.
 
-These capabilities solve different problems. Approval binds the exact trade identity/economics. v121 ARM is the operational kill-switch boundary for whether any new Demo exposure may be opened at all.
+Approval binds the exact trade identity/economics. v121 ARM is the operational kill-switch boundary. Credential preflight proves only that the future execution credential is a distinct IP-bound personal UTA Demo key with exactly the required ContractTrade permissions. None of these gates can substitute for either of the others.
 
 ## Canonical flow
 
@@ -23,6 +24,7 @@ latest positive-evidence review queue
 -> <= 2 minute BYBIT_DEMO trade approval
 -> PostgreSQL v119-v121 VERIFIED_READY
 -> connected read-only Demo preflight
+-> Demo trading credential preflight READY
 -> explicit short-lived v121 ARM
 -> canonical single-writer runtime lease
 -> durable active-trade checkpoint check
@@ -77,6 +79,25 @@ Important properties:
 - ARM persists sanitized canonical preflight evidence plus SHA-256 in append-only PostgreSQL;
 - the ARM transaction refuses active v119 runtime lease/checkpoint state;
 - HALT blocks new non-reduce-only exposure, not protection/reduce-only recovery of an existing trade.
+
+## Demo trading credential gate
+
+See `docs/BYBIT_DEMO_TRADING_CREDENTIAL_PREFLIGHT.md`.
+
+The future order-capable worker must use a dedicated Demo key. Before that key may be wired into an execution process, the GET-only credential preflight requires:
+
+```text
+readOnly=0
+concrete IP binding
+type=1 personal key
+uta=1
+ContractTrade permissions exactly {Order, Position}
+all other permission categories empty
+```
+
+Namespace isolation is checked against SHA-256 fingerprints of the existing Demo read-only and mainnet read-only API keys. The raw reference keys and their secrets are not loaded into the credential-preflight workflow.
+
+Passing this credential gate does not authorize an order and does not prove `order/create`; the gate itself has no order mutation method.
 
 ## Canonical single-writer runtime
 
@@ -168,11 +189,12 @@ The minimum operational sequence before any future write-enabled Demo worker may
 ```text
 1. bybit-demo-postgres-bootstrap -> VERIFIED_READY for v119-v121
 2. bybit-demo-connected-preflight -> real authenticated read-only PASS
-3. bybit-demo-control-plane status -> observe effective state
-4. explicit ARM -> same invocation reruns connected read-only preflight
-5. future operator-approved Demo worker -> consumes approval + ARM through canonical runtime
+3. bybit-demo-trading-credential-preflight -> real authenticated GET-only credential PASS
+4. bybit-demo-control-plane status -> observe effective state
+5. explicit ARM -> same invocation reruns connected read-only preflight
+6. future operator-approved Demo worker -> consumes approval + ARM through canonical runtime
 ```
 
-The current v121 control workflow contains no trading API credential and cannot submit an order. A future worker must use a **separate Demo trading credential**, never the read-only preflight key and never a mainnet key.
+The v121 control workflow contains no trading API credential and cannot submit an order. The credential-preflight workflow sees the future Demo trading credential but contains no mutation transport. The future worker must use that **separate Demo trading credential**, never the read-only preflight key and never a mainnet key.
 
 No schedule or autonomous ARM is allowed. Mainnet order creation/amendment/cancellation remains prohibited.
