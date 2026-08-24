@@ -80,6 +80,42 @@ class BybitDemoPreflightAccountClient(BybitDemoAccountingClient):
             positions.append(position)
         return tuple(positions)
 
+    def has_entry_execution(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        entry_order_link_id: str,
+    ) -> bool:
+        if symbol != symbol.strip().upper() or not symbol.endswith("USDT"):
+            raise ValueError("Bybit Demo preflight execution symbol must be normalized USDT")
+        if side not in {"Buy", "Sell"}:
+            raise ValueError("Bybit Demo preflight execution side must be Buy or Sell")
+        if not entry_order_link_id.startswith("ASTRA-DEMO-"):
+            raise ValueError("Bybit Demo preflight execution requires ASTRA-DEMO orderLinkId")
+        page = self._private_get_page(  # noqa: SLF001 - bounded read-only subclass extension.
+            path="/v5/execution/list",
+            query={
+                "category": "linear",
+                "symbol": symbol,
+                "orderLinkId": entry_order_link_id,
+                "limit": "100",
+            },
+        )
+        if page.next_page_cursor is not None:
+            raise RuntimeError("Bybit Demo preflight execution read unexpectedly paginated")
+        found = False
+        for row in page.rows:
+            if row.get("orderLinkId") != entry_order_link_id:
+                continue
+            if row.get("symbol") != symbol or row.get("side") != side:
+                raise ValueError("Bybit Demo preflight execution identity mismatch")
+            quantity = _decimal(row.get("execQty"), "execution quantity")
+            if quantity <= 0:
+                raise ValueError("Bybit Demo preflight execution quantity must be positive")
+            found = True
+        return found
+
 
 @dataclass(frozen=True)
 class BybitDemoOperationalDatabaseState:
@@ -89,6 +125,8 @@ class BybitDemoOperationalDatabaseState:
     active_checkpoint_order_link_id: str | None
     active_checkpoint_symbol: str | None
     active_checkpoint_side: str | None
+    active_checkpoint_entry_price: Decimal | None
+    active_checkpoint_current_quantity: Decimal | None
     approval_record_count: int
     provenance_record_count: int
     terminal_record_count: int
@@ -133,6 +171,8 @@ class PostgresBybitDemoOperationalStateReader:
                             active_checkpoint_order_link_id=None,
                             active_checkpoint_symbol=None,
                             active_checkpoint_side=None,
+                            active_checkpoint_entry_price=None,
+                            active_checkpoint_current_quantity=None,
                             approval_record_count=0,
                             provenance_record_count=0,
                             terminal_record_count=0,
@@ -176,6 +216,8 @@ class PostgresBybitDemoOperationalStateReader:
         checkpoint_link = None
         checkpoint_symbol = None
         checkpoint_side = None
+        checkpoint_entry_price = None
+        checkpoint_current_quantity = None
         if checkpoint is not None:
             checkpoint_link = checkpoint["entry_order_link_id"]
             state = checkpoint["state_json"]
@@ -190,6 +232,14 @@ class PostgresBybitDemoOperationalStateReader:
             checkpoint_side = state.get("side")
             if not isinstance(checkpoint_symbol, str) or not isinstance(checkpoint_side, str):
                 raise ValueError("Bybit Demo preflight checkpoint identity is incomplete")
+            checkpoint_entry_price = _positive_decimal(
+                state.get("entry_price"),
+                "checkpoint entry price",
+            )
+            checkpoint_current_quantity = _positive_decimal(
+                state.get("current_quantity"),
+                "checkpoint current quantity",
+            )
         return BybitDemoOperationalDatabaseState(
             required_relations_present=True,
             append_only_triggers_present=(
@@ -199,6 +249,8 @@ class PostgresBybitDemoOperationalStateReader:
             active_checkpoint_order_link_id=checkpoint_link,
             active_checkpoint_symbol=checkpoint_symbol,
             active_checkpoint_side=checkpoint_side,
+            active_checkpoint_entry_price=checkpoint_entry_price,
+            active_checkpoint_current_quantity=checkpoint_current_quantity,
             approval_record_count=_count_value(approval_row),
             provenance_record_count=_count_value(provenance_row),
             terminal_record_count=_count_value(terminal_row),
@@ -309,6 +361,21 @@ def run_bybit_demo_connected_preflight(
             reasons.append("DEMO_POSITION_CHECKPOINT_SYMBOL_MISMATCH")
         if expected_side != database.active_checkpoint_side:
             reasons.append("DEMO_POSITION_CHECKPOINT_SIDE_MISMATCH")
+        if position.size != database.active_checkpoint_current_quantity:
+            reasons.append("DEMO_POSITION_CHECKPOINT_QUANTITY_MISMATCH")
+        if position.average_price != database.active_checkpoint_entry_price:
+            reasons.append("DEMO_POSITION_CHECKPOINT_ENTRY_PRICE_MISMATCH")
+        if (
+            position.symbol == database.active_checkpoint_symbol
+            and expected_side == database.active_checkpoint_side
+            and database.active_checkpoint_order_link_id is not None
+            and not account_client.has_entry_execution(
+                symbol=position.symbol,
+                side=position.side,
+                entry_order_link_id=database.active_checkpoint_order_link_id,
+            )
+        ):
+            reasons.append("DEMO_CHECKPOINT_ENTRY_EXECUTION_NOT_FOUND")
 
     if reasons:
         status = BybitDemoConnectedPreflightStatus.BLOCKED
@@ -369,6 +436,13 @@ def _decimal(value: object, label: str) -> Decimal:
         raise ValueError(f"Bybit Demo preflight {label} is invalid") from exc
     if not parsed.is_finite():
         raise ValueError(f"Bybit Demo preflight {label} must be finite")
+    return parsed
+
+
+def _positive_decimal(value: object, label: str) -> Decimal:
+    parsed = _decimal(value, label)
+    if parsed <= 0:
+        raise ValueError(f"Bybit Demo preflight {label} must be positive")
     return parsed
 
 
