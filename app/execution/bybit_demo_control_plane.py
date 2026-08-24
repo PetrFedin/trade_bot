@@ -23,6 +23,7 @@ except ImportError:  # pragma: no cover - optional dependency boundary
 
 _CONTROL_RELATION = "astra_bybit_demo_control_event_v121"
 _CONTROL_TRIGGER = "astra_bybit_demo_control_append_only_v121"
+_READY_STATUS = "READY_FOR_MANUAL_OPERATOR_APPROVAL"
 _MAX_ARM_TTL = timedelta(minutes=5)
 _MAX_PREFLIGHT_AGE = timedelta(seconds=30)
 _MAX_FUTURE_CLOCK_SKEW = timedelta(seconds=5)
@@ -94,7 +95,10 @@ class PostgresBybitDemoControlPlane:
 
     Missing schema, missing events, malformed state and expired ARM windows all resolve to HALT.
     ARM is deliberately short-lived and can only be created from a fresh, clean, read-only
-    connected preflight. The control plane itself cannot submit, amend, cancel or protect orders.
+    connected preflight. The sanitized canonical preflight is retained with its SHA-256 in the
+    append-only journal so the durable audit does not depend on short-lived CI artifacts.
+
+    The control plane itself cannot submit, amend, cancel, protect or close exchange orders.
     """
 
     live_mainnet_order_routing_allowed = False
@@ -133,7 +137,8 @@ class PostgresBybitDemoControlPlane:
                     if trigger is None or int(trigger["count"]) != 1:
                         return _halted("DEMO_CONTROL_APPEND_ONLY_TRIGGER_NOT_READY")
                     cursor.execute(
-                        """SELECT event_id, event_kind, preflight_record_sha256,
+                        """SELECT event_id, event_kind, preflight_status,
+                                  preflight_record_sha256, preflight_canonical_record,
                                   preflight_observed_at, armed_until, created_at
                            FROM astra_bybit_demo_control_event_v121
                            ORDER BY event_seq DESC
@@ -174,12 +179,14 @@ class PostgresBybitDemoControlPlane:
             observed_at = created_at
         _validate_arm_preflight(preflight)
 
-        preflight_sha = _sha256_json(preflight.to_payload())
+        preflight_record = _canonical_json(preflight.to_payload())
+        preflight_sha = _sha256_text(preflight_record)
         armed_until = created_at + ttl
         event = {
             "event_kind": "ARM_NEW_ENTRIES",
             "operator_id": operator_id.strip(),
             "reason": reason.strip(),
+            "preflight_status": _READY_STATUS,
             "preflight_record_sha256": preflight_sha,
             "preflight_observed_at": observed_at.isoformat(),
             "armed_until": armed_until.isoformat(),
@@ -191,7 +198,9 @@ class PostgresBybitDemoControlPlane:
             event_kind="ARM_NEW_ENTRIES",
             operator_id=operator_id.strip(),
             reason=reason.strip(),
+            preflight_status=_READY_STATUS,
             preflight_record_sha256=preflight_sha,
+            preflight_canonical_record=preflight_record,
             preflight_observed_at=observed_at,
             armed_until=armed_until,
             created_at=created_at,
@@ -219,7 +228,9 @@ class PostgresBybitDemoControlPlane:
             event_kind="HALT_NEW_ENTRIES",
             operator_id=operator_id.strip(),
             reason=reason.strip(),
+            preflight_status=None,
             preflight_record_sha256=None,
+            preflight_canonical_record=None,
             preflight_observed_at=None,
             armed_until=None,
             created_at=created_at,
@@ -233,7 +244,9 @@ class PostgresBybitDemoControlPlane:
         event_kind: str,
         operator_id: str,
         reason: str,
+        preflight_status: str | None,
         preflight_record_sha256: str | None,
+        preflight_canonical_record: str | None,
         preflight_observed_at: datetime | None,
         armed_until: datetime | None,
         created_at: datetime,
@@ -272,17 +285,21 @@ class PostgresBybitDemoControlPlane:
                                event_kind,
                                operator_id,
                                reason,
+                               preflight_status,
                                preflight_record_sha256,
+                               preflight_canonical_record,
                                preflight_observed_at,
                                armed_until,
                                created_at
-                           ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                           ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                         (
                             event_id,
                             event_kind,
                             operator_id,
                             reason,
+                            preflight_status,
                             preflight_record_sha256,
+                            preflight_canonical_record,
                             preflight_observed_at,
                             armed_until,
                             created_at,
@@ -306,7 +323,7 @@ class ControlPlaneGuardedBybitDemoClient:
     def __init__(
         self,
         client: Any,
-        control_plane: PostgresBybitDemoControlPlane,
+        control_plane: Any,
         *,
         now_provider: Callable[[], datetime] | None = None,
     ) -> None:
@@ -352,6 +369,16 @@ def _decision_from_row(row: Any, *, now: datetime) -> BybitDemoControlDecision:
         )
     if event_kind != "ARM_NEW_ENTRIES":
         return _halted("DEMO_CONTROL_EVENT_INVALID")
+    if row["preflight_status"] != _READY_STATUS:
+        return _halted("DEMO_CONTROL_EVENT_INVALID")
+    canonical = row["preflight_canonical_record"]
+    if not isinstance(canonical, str) or not canonical:
+        return _halted("DEMO_CONTROL_EVENT_INVALID")
+    if not _is_sha256(row["preflight_record_sha256"]):
+        return _halted("DEMO_CONTROL_EVENT_INVALID")
+    if _sha256_text(canonical) != row["preflight_record_sha256"]:
+        return _halted("DEMO_CONTROL_PREFLIGHT_AUDIT_HASH_MISMATCH")
+
     created_at = row["created_at"]
     observed_at = row["preflight_observed_at"]
     armed_until = row["armed_until"]
@@ -363,12 +390,14 @@ def _decision_from_row(row: Any, *, now: datetime) -> BybitDemoControlDecision:
     created_at = _require_aware_utc(created_at, "stored control event time")
     observed_at = _require_aware_utc(observed_at, "stored preflight observation time")
     armed_until = _require_aware_utc(armed_until, "stored control armed-until time")
-    if not _is_sha256(row["preflight_record_sha256"]):
+    if created_at - observed_at > _MAX_PREFLIGHT_AGE:
         return _halted("DEMO_CONTROL_EVENT_INVALID")
     if observed_at > created_at or armed_until <= created_at:
         return _halted("DEMO_CONTROL_EVENT_INVALID")
     if armed_until - created_at > _MAX_ARM_TTL:
         return _halted("DEMO_CONTROL_EVENT_INVALID")
+    if created_at - now > _MAX_FUTURE_CLOCK_SKEW:
+        return _halted("DEMO_CONTROL_EVENT_CLOCK_INVALID")
     if now >= armed_until:
         return _halted(
             "DEMO_CONTROL_ARM_EXPIRED",
@@ -459,14 +488,21 @@ def _require_aware_utc(value: datetime, label: str) -> datetime:
     return value.astimezone(UTC)
 
 
-def _sha256_json(value: Any) -> str:
-    encoded = json.dumps(
+def _canonical_json(value: Any) -> str:
+    return json.dumps(
         value,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=True,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    )
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _sha256_json(value: Any) -> str:
+    return _sha256_text(_canonical_json(value))
 
 
 def _is_sha256(value: object) -> bool:
