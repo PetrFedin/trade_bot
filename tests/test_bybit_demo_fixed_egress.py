@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -17,9 +19,12 @@ from app.execution.bybit_demo_connected_preflight import (
 )
 from app.execution.bybit_demo_fixed_egress import (
     BybitDemoFixedEgressPreflightAccountClient,
+    FixedEgressPostgresBybitDemoControlPlane,
     require_fixed_egress_ready_for_arm,
     run_bybit_demo_fixed_egress_connected_preflight,
 )
+
+_NOW = datetime(2026, 8, 25, 0, 0, tzinfo=UTC)
 
 
 class _Transport:
@@ -184,13 +189,33 @@ def test_arm_guard_rejects_non_bound_result_even_if_status_is_forged_ready() -> 
         _Account(ip_bound=False),
         _Database(),  # type: ignore[arg-type]
     )
-    forged = blocked.__class__(
-        **{
-            **blocked.__dict__,
-            "status": BybitDemoConnectedPreflightStatus.READY_FOR_MANUAL_OPERATOR_APPROVAL,
-            "reasons": (),
-        }
+    forged = replace(
+        blocked,
+        status=BybitDemoConnectedPreflightStatus.READY_FOR_MANUAL_OPERATOR_APPROVAL,
+        reasons=(),
     )
 
     with pytest.raises(ValueError, match="IP-bound"):
         require_fixed_egress_ready_for_arm(forged)
+
+
+def test_operational_control_plane_rejects_forged_ready_without_ip_before_database() -> None:
+    blocked = run_bybit_demo_fixed_egress_connected_preflight(
+        _Account(ip_bound=False),
+        _Database(),  # type: ignore[arg-type]
+    )
+    forged = replace(
+        blocked,
+        status=BybitDemoConnectedPreflightStatus.READY_FOR_MANUAL_OPERATOR_APPROVAL,
+        reasons=(),
+    )
+    plane = FixedEgressPostgresBybitDemoControlPlane("postgresql://not-used")
+
+    with pytest.raises(ValueError, match="IP-bound"):
+        plane.arm_new_entries(
+            forged,
+            operator_id="operator",
+            reason="must reject before database access",
+            now=_NOW,
+            preflight_observed_at=_NOW,
+        )
