@@ -7,15 +7,19 @@ from pathlib import Path
 from typing import Any
 
 from app.execution.bybit_demo_connected_preflight import (
-    BybitDemoPreflightAccountClient,
     PostgresBybitDemoOperationalStateReader,
-    run_bybit_demo_connected_preflight,
+)
+from app.execution.bybit_demo_fixed_egress import (
+    BybitDemoFixedEgressPreflightAccountClient,
+    run_bybit_demo_fixed_egress_connected_preflight,
 )
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Read-only connected Bybit Demo + PostgreSQL operational preflight."
+        description=(
+            "Read-only fixed-egress Bybit Demo + PostgreSQL operational preflight."
+        )
     )
     parser.add_argument(
         "--output",
@@ -39,6 +43,7 @@ def _failure(error_type: str) -> dict[str, Any]:
         "status": "PREFLIGHT_FAILED",
         "passed": False,
         "error_type": error_type,
+        "fixed_egress_required": True,
         "preflight_only": True,
         "trade_actionable": False,
         "order_writes_supported": False,
@@ -58,13 +63,17 @@ def main() -> int:
         return 2
 
     try:
-        account_client = BybitDemoPreflightAccountClient(
+        account_client = BybitDemoFixedEgressPreflightAccountClient(
             api_key=api_key,
             api_secret=api_secret,
         )
         database_reader = PostgresBybitDemoOperationalStateReader(database_dsn)
-        result = run_bybit_demo_connected_preflight(account_client, database_reader)
+        result = run_bybit_demo_fixed_egress_connected_preflight(
+            account_client,
+            database_reader,
+        )
         payload = result.to_payload()
+        payload["fixed_egress_required"] = True
         exit_code = 0 if result.passed else 2
     except Exception as exc:  # noqa: BLE001 - output must stay sanitized on any preflight failure.
         payload = _failure(type(exc).__name__)
