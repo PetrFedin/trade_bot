@@ -1,0 +1,93 @@
+name: bybit-prospective-liquidation-context
+
+on:
+  pull_request:
+    paths:
+      - 'app/strategy/crypto_prospective_liquidation_context.py'
+      - 'app/strategy/crypto_prospective_liquidation_postgres.py'
+      - 'tools/materialize_bybit_liquidation_research_context.py'
+      - 'migrations/v117/001_bybit_prospective_liquidation_context.sql'
+      - 'tests/test_crypto_prospective_liquidation_context.py'
+      - 'tests/test_bybit_prospective_liquidation_v117_contract.py'
+      - 'tests/test_bybit_prospective_liquidation_postgres_e2e.py'
+      - 'docs/BYBIT_PROSPECTIVE_LIQUIDATION_CONTEXT.md'
+      - '.github/workflows/bybit-prospective-liquidation-context.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/strategy/crypto_prospective_liquidation_context.py'
+      - 'app/strategy/crypto_prospective_liquidation_postgres.py'
+      - 'tools/materialize_bybit_liquidation_research_context.py'
+      - 'migrations/v117/001_bybit_prospective_liquidation_context.sql'
+      - 'tests/test_crypto_prospective_liquidation_context.py'
+      - 'tests/test_bybit_prospective_liquidation_v117_contract.py'
+      - 'tests/test_bybit_prospective_liquidation_postgres_e2e.py'
+      - 'docs/BYBIT_PROSPECTIVE_LIQUIDATION_CONTEXT.md'
+      - '.github/workflows/bybit-prospective-liquidation-context.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-prospective-liquidation-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra
+          POSTGRES_DB: astra_liquidation_context
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra_liquidation_context"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ASTRA_LIQUIDATION_CONTEXT_TEST_DSN: >-
+        postgresql://astra:astra@localhost:5432/astra_liquidation_context
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Prospective liquidation unit and PostgreSQL E2E
+        run: |
+          pytest -q \
+            tests/test_crypto_prospective_liquidation_context.py \
+            tests/test_bybit_prospective_liquidation_v117_contract.py \
+            tests/test_bybit_prospective_liquidation_postgres_e2e.py
+      - name: Ruff prospective liquidation boundary
+        run: |
+          ruff check \
+            app/strategy/crypto_prospective_liquidation_context.py \
+            app/strategy/crypto_prospective_liquidation_postgres.py \
+            tools/materialize_bybit_liquidation_research_context.py \
+            tests/test_crypto_prospective_liquidation_context.py \
+            tests/test_bybit_prospective_liquidation_v117_contract.py \
+            tests/test_bybit_prospective_liquidation_postgres_e2e.py
+      - name: Bandit prospective liquidation boundary
+        run: |
+          bandit -q \
+            app/strategy/crypto_prospective_liquidation_context.py \
+            app/strategy/crypto_prospective_liquidation_postgres.py \
+            tools/materialize_bybit_liquidation_research_context.py
+      - name: Compile prospective liquidation boundary
+        run: |
+          python -m compileall -q \
+            app/strategy/crypto_prospective_liquidation_context.py \
+            app/strategy/crypto_prospective_liquidation_postgres.py \
+            tools/materialize_bybit_liquidation_research_context.py
