@@ -1,0 +1,123 @@
+name: bybit-demo-connected-preflight
+
+on:
+  pull_request:
+    paths:
+      - 'app/execution/bybit_demo_connected_preflight.py'
+      - 'tools/probe_bybit_demo_connected_preflight.py'
+      - 'tests/test_bybit_demo_connected_preflight.py'
+      - 'tests/test_bybit_demo_connected_preflight_postgres.py'
+      - 'docs/BYBIT_DEMO_CONNECTED_PREFLIGHT.md'
+      - '.github/workflows/bybit-demo-connected-preflight.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/execution/bybit_demo_connected_preflight.py'
+      - 'tools/probe_bybit_demo_connected_preflight.py'
+      - 'tests/test_bybit_demo_connected_preflight.py'
+      - 'tests/test_bybit_demo_connected_preflight_postgres.py'
+      - 'docs/BYBIT_DEMO_CONNECTED_PREFLIGHT.md'
+      - '.github/workflows/bybit-demo-connected-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-demo-connected-preflight-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra
+          POSTGRES_DB: astra_demo_preflight
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra_demo_preflight"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ASTRA_DEMO_PREFLIGHT_TEST_DSN: postgresql://astra:astra@localhost:5432/astra_demo_preflight
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev,postgresql]'
+          python -m pip check
+      - name: Connected Demo preflight regression tests
+        run: |
+          pytest -q \
+            tests/test_bybit_demo_connected_preflight.py \
+            tests/test_bybit_demo_connected_preflight_postgres.py \
+            tests/test_bybit_demo_account_reader.py \
+            tests/test_bybit_demo_postgres_runtime_state.py \
+            tests/test_bybit_demo_postgres_audit_lifecycle.py
+      - name: Ruff connected Demo preflight
+        run: |
+          ruff check \
+            app/execution/bybit_demo_connected_preflight.py \
+            tools/probe_bybit_demo_connected_preflight.py \
+            tests/test_bybit_demo_connected_preflight.py \
+            tests/test_bybit_demo_connected_preflight_postgres.py
+      - name: Bandit connected Demo preflight
+        run: |
+          bandit -q \
+            app/execution/bybit_demo_connected_preflight.py \
+            tools/probe_bybit_demo_connected_preflight.py
+      - name: Compile connected Demo preflight
+        run: |
+          python -m compileall -q \
+            app/execution/bybit_demo_connected_preflight.py \
+            tools/probe_bybit_demo_connected_preflight.py
+
+  connected-preflight:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BYBIT_DEMO_READONLY_API_KEY: ${{ secrets.BYBIT_DEMO_READONLY_API_KEY }}
+      BYBIT_DEMO_READONLY_API_SECRET: ${{ secrets.BYBIT_DEMO_READONLY_API_SECRET }}
+      BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install read-only preflight dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[postgresql]'
+          python -m pip check
+      - name: Run connected Demo preflight
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          set +e
+          python -m tools.probe_bybit_demo_connected_preflight \
+            --output artifacts/bybit-demo-connected-preflight.json
+          PREFLIGHT_STATUS=$?
+          set -e
+          cat artifacts/bybit-demo-connected-preflight.json
+          exit "$PREFLIGHT_STATUS"
+      - name: Upload sanitized preflight artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-demo-connected-preflight-${{ github.run_id }}
+          path: artifacts/bybit-demo-connected-preflight.json
+          if-no-files-found: warn
+          retention-days: 7
