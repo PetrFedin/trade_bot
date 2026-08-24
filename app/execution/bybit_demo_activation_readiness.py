@@ -37,7 +37,10 @@ class BybitDemoActivationReadinessResult:
 
     @property
     def passed(self) -> bool:
-        return self.status is BybitDemoActivationReadinessStatus.READY_FOR_EXPLICIT_ACTIVATION_GATES
+        ready = (
+            BybitDemoActivationReadinessStatus.READY_FOR_EXPLICIT_ACTIVATION_GATES
+        )
+        return self.status is ready
 
     def to_payload(self) -> dict[str, Any]:
         payload = {
@@ -155,7 +158,10 @@ def _validate_connected(payload: Mapping[str, Any], reasons: list[str]) -> None:
         reasons.append("CONNECTED_PREFLIGHT_KEY_NOT_READ_ONLY")
     if payload.get("api_key_ip_binding_present") is not True:
         reasons.append("CONNECTED_PREFLIGHT_KEY_NOT_IP_BOUND")
-    if payload.get("preflight_only") is not True or payload.get("trade_actionable") is not False:
+    if (
+        payload.get("preflight_only") is not True
+        or payload.get("trade_actionable") is not False
+    ):
         reasons.append("CONNECTED_PREFLIGHT_UNSAFE_ACTIONABILITY")
     if payload.get("order_writes_supported") is not False:
         reasons.append("CONNECTED_PREFLIGHT_UNSAFE_ORDER_CAPABILITY")
@@ -201,7 +207,10 @@ def _validate_control(payload: Mapping[str, Any], reasons: list[str]) -> str:
         return "UNKNOWN"
     if payload.get("mode") != "status" or payload.get("status") != "STATUS_READ":
         reasons.append("CONTROL_STATUS_READ_INVALID")
-    if payload.get("passed") is not True or payload.get("fixed_egress_required") is not True:
+    if (
+        payload.get("passed") is not True
+        or payload.get("fixed_egress_required") is not True
+    ):
         reasons.append("CONTROL_STATUS_NOT_FIXED_EGRESS_READY")
     if payload.get("order_writes_supported") is not False:
         reasons.append("CONTROL_STATUS_UNSAFE_ORDER_CAPABILITY")
@@ -226,8 +235,11 @@ def _safe_string(value: Any) -> str:
 
 
 def _validate_git_sha(value: str) -> None:
-    if len(value) != 40 or any(char not in "0123456789abcdef" for char in value):
-        raise ValueError("Bybit Demo activation readiness git SHA must be lowercase 40-char hex")
+    valid_hex = all(char in "0123456789abcdef" for char in value)
+    if len(value) != 40 or not valid_hex:
+        raise ValueError(
+            "Bybit Demo activation readiness git SHA must be lowercase 40-char hex"
+        )
 
 
 def _validate_sha256(value: str, *, label: str) -> None:
