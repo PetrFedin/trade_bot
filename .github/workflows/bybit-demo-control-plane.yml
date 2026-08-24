@@ -5,29 +5,35 @@ on:
     paths:
       - 'app/execution/bybit_demo_control_plane.py'
       - 'app/execution/bybit_demo_approved_runtime.py'
+      - 'app/execution/bybit_demo_fixed_egress.py'
       - 'tools/control_bybit_demo_entries.py'
       - 'migrations/v121/**'
       - 'tests/test_bybit_demo_control_plane.py'
       - 'tests/test_bybit_demo_control_plane_postgres.py'
       - 'tests/test_bybit_demo_approved_runtime.py'
+      - 'tests/test_bybit_demo_fixed_egress.py'
       - 'docs/BYBIT_DEMO_CONTROL_PLANE.md'
+      - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE.md'
       - '.github/workflows/bybit-demo-control-plane.yml'
   push:
     branches: [main]
     paths:
       - 'app/execution/bybit_demo_control_plane.py'
       - 'app/execution/bybit_demo_approved_runtime.py'
+      - 'app/execution/bybit_demo_fixed_egress.py'
       - 'tools/control_bybit_demo_entries.py'
       - 'migrations/v121/**'
       - 'tests/test_bybit_demo_control_plane.py'
       - 'tests/test_bybit_demo_control_plane_postgres.py'
       - 'tests/test_bybit_demo_approved_runtime.py'
+      - 'tests/test_bybit_demo_fixed_egress.py'
       - 'docs/BYBIT_DEMO_CONTROL_PLANE.md'
+      - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE.md'
       - '.github/workflows/bybit-demo-control-plane.yml'
   workflow_dispatch:
     inputs:
       mode:
-        description: 'status reads state; halt blocks new entries; arm requires fresh connected preflight'
+        description: 'status reads state; halt blocks new entries; arm requires fixed-egress connected preflight'
         required: true
         default: status
         type: choice
@@ -94,32 +100,38 @@ jobs:
           pytest -q \
             tests/test_bybit_demo_control_plane.py \
             tests/test_bybit_demo_control_plane_postgres.py \
-            tests/test_bybit_demo_approved_runtime.py
+            tests/test_bybit_demo_approved_runtime.py \
+            tests/test_bybit_demo_fixed_egress.py
       - name: Ruff Demo control plane
         run: |
           ruff check \
             app/execution/bybit_demo_control_plane.py \
             app/execution/bybit_demo_approved_runtime.py \
+            app/execution/bybit_demo_fixed_egress.py \
             tools/control_bybit_demo_entries.py \
             tests/test_bybit_demo_control_plane.py \
             tests/test_bybit_demo_control_plane_postgres.py \
-            tests/test_bybit_demo_approved_runtime.py
+            tests/test_bybit_demo_approved_runtime.py \
+            tests/test_bybit_demo_fixed_egress.py
       - name: Bandit Demo control plane
         run: |
           bandit -q \
             app/execution/bybit_demo_control_plane.py \
             app/execution/bybit_demo_approved_runtime.py \
+            app/execution/bybit_demo_fixed_egress.py \
             tools/control_bybit_demo_entries.py
       - name: Compile Demo control plane
         run: |
           python -m compileall -q \
             app/execution/bybit_demo_control_plane.py \
             app/execution/bybit_demo_approved_runtime.py \
+            app/execution/bybit_demo_fixed_egress.py \
             tools/control_bybit_demo_entries.py
 
   operational:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, bybit-demo]
+    environment: bybit-demo
     timeout-minutes: 15
     env:
       BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
@@ -141,13 +153,13 @@ jobs:
           python -m pip check
       - name: Require v119-v121 operational schema
         run: |
+          mkdir -p artifacts
           python -m tools.bootstrap_bybit_demo_postgres \
             --mode verify \
             --output artifacts/bybit-demo-postgres-bootstrap.json
       - name: Read or explicitly change Demo new-entry control state
         shell: bash
         run: |
-          mkdir -p artifacts
           set +e
           python -m tools.control_bybit_demo_entries \
             --mode "$CONTROL_MODE" \
