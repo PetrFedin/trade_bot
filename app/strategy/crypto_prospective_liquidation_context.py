@@ -8,19 +8,21 @@ from decimal import Decimal
 from typing import Any
 
 _WINDOWS = (5, 15, 60)
+_CONNECTED_STATES = frozenset({"CONNECTED", "HEARTBEAT"})
 _ALLOWED_COVERAGE_REASONS = frozenset(
     {
         "NO_ELIGIBLE_SUBSCRIPTION",
         "START_STATUS_MISSING",
         "START_STATUS_STALE",
         "START_STATUS_NOT_CONNECTED",
+        "NON_CONNECTED_STATUS_IN_WINDOW",
         "DISCONNECT_IN_WINDOW",
+        "STATUS_GAP_IN_WINDOW",
         "END_STATUS_MISSING",
         "END_STATUS_STALE",
         "END_STATUS_NOT_CONNECTED",
     }
 )
-_CONNECTED_STATES = frozenset({"CONNECTED", "HEARTBEAT"})
 
 
 @dataclass(frozen=True)
@@ -35,10 +37,8 @@ class LiquidationPoint:
         _utc(self.event_time)
         if self.liquidated_position_side not in {"LONG", "SHORT"}:
             raise ValueError("liquidation point side must be LONG or SHORT")
-        if (
-            not self.estimated_notional_usdt.is_finite()
-            or self.estimated_notional_usdt <= 0
-        ):
+        value = self.estimated_notional_usdt
+        if not value.is_finite() or value <= 0:
             raise ValueError("liquidation point notional must be positive and finite")
 
 
@@ -83,8 +83,8 @@ class ProspectiveLiquidationWindow:
         start = _utc(self.window_start_at)
         end = _utc(self.window_end_at)
         if end - start != timedelta(minutes=self.window_minutes):
-            raise ValueError("liquidation context window timestamps do not match duration")
-        values = (
+            raise ValueError("liquidation context window duration is inconsistent")
+        metrics = (
             self.event_count,
             self.long_liquidation_count,
             self.short_liquidation_count,
@@ -96,21 +96,19 @@ class ProspectiveLiquidationWindow:
             self.largest_event_estimated_notional_usdt,
         )
         if self.event_count is None:
-            if any(value is not None for value in values[1:]):
+            if any(value is not None for value in metrics[1:]):
                 raise ValueError("uncovered liquidation window cannot carry metrics")
             if self.first_event_at is not None or self.last_event_at is not None:
-                raise ValueError("uncovered liquidation window cannot carry event timestamps")
+                raise ValueError("uncovered liquidation window cannot carry timestamps")
             if self.known_zero:
                 raise ValueError("uncovered liquidation window cannot be a known zero")
             return
-        if any(value is None for value in values[1:]):
+        if any(value is None for value in metrics[1:]):
             raise ValueError("covered liquidation window requires complete metrics")
-        if self.event_count < 0:
-            raise ValueError("liquidation window event count cannot be negative")
         long_count = _required_int(self.long_liquidation_count)
         short_count = _required_int(self.short_liquidation_count)
-        if long_count < 0 or short_count < 0:
-            raise ValueError("liquidation window side counts cannot be negative")
+        if self.event_count < 0 or long_count < 0 or short_count < 0:
+            raise ValueError("liquidation window counts cannot be negative")
         if self.event_count != long_count + short_count:
             raise ValueError("liquidation window event counts do not reconcile")
         long_notional = _required_decimal(self.long_estimated_notional_usdt)
@@ -119,7 +117,7 @@ class ProspectiveLiquidationWindow:
         signed = _required_decimal(self.long_minus_short_estimated_notional_usdt)
         imbalance = _required_decimal(self.normalized_long_minus_short_imbalance)
         largest = _required_decimal(self.largest_event_estimated_notional_usdt)
-        if long_notional < 0 or short_notional < 0 or total < 0 or largest < 0:
+        if min(long_notional, short_notional, total, largest) < 0:
             raise ValueError("liquidation window notionals cannot be negative")
         if total != long_notional + short_notional:
             raise ValueError("liquidation window total notional does not reconcile")
@@ -128,27 +126,31 @@ class ProspectiveLiquidationWindow:
         if not Decimal("-1") <= imbalance <= Decimal("1"):
             raise ValueError("liquidation window imbalance must be within [-1, 1]")
         if self.event_count == 0:
-            if any(
-                value != 0
-                for value in (long_count, short_count, long_notional, short_notional, total, signed)
-            ):
+            zero_values = (
+                long_count,
+                short_count,
+                long_notional,
+                short_notional,
+                total,
+                signed,
+                imbalance,
+                largest,
+            )
+            if any(value != 0 for value in zero_values):
                 raise ValueError("known-zero liquidation window must have zero metrics")
-            if imbalance != 0 or largest != 0:
-                raise ValueError("known-zero liquidation window must have zero intensity")
             if self.first_event_at is not None or self.last_event_at is not None:
                 raise ValueError("known-zero liquidation window cannot carry timestamps")
             if not self.known_zero:
-                raise ValueError("zero-event covered window must be marked known_zero")
+                raise ValueError("covered zero-event window must be marked known_zero")
             return
         if self.known_zero:
             raise ValueError("non-empty liquidation window cannot be marked known_zero")
         if total <= 0 or largest <= 0:
             raise ValueError("non-empty liquidation window must have positive notional")
-        expected_imbalance = signed / total
-        if imbalance != expected_imbalance:
+        if imbalance != signed / total:
             raise ValueError("liquidation window imbalance does not reconcile")
         if self.first_event_at is None or self.last_event_at is None:
-            raise ValueError("non-empty liquidation window requires event timestamps")
+            raise ValueError("non-empty liquidation window requires timestamps")
         first = _utc(self.first_event_at)
         last = _utc(self.last_event_at)
         if not start <= first <= last < end:
@@ -223,38 +225,46 @@ class ProspectiveLiquidationContext:
         start = _utc(self.coverage_window_start_at)
         evaluated = _utc(self.evaluated_at)
         if start != signal - timedelta(minutes=60):
-            raise ValueError("liquidation context must cover exactly 60 minutes before signal")
+            raise ValueError("liquidation context must cover 60 minutes before signal")
         if evaluated < signal + timedelta(seconds=60):
-            raise ValueError("liquidation context evaluation is too early for coverage proof")
+            raise ValueError("liquidation context evaluation is too early")
         if not 20 <= self.maximum_status_age_seconds <= 300:
             raise ValueError("liquidation context status-age bound is invalid")
         if len(set(self.coverage_reason_codes)) != len(self.coverage_reason_codes):
-            raise ValueError("liquidation context coverage reasons must be unique")
-        if any(reason not in _ALLOWED_COVERAGE_REASONS for reason in self.coverage_reason_codes):
-            raise ValueError("liquidation context coverage reason is unsupported")
+            raise ValueError("liquidation coverage reasons must be unique")
+        if any(
+            reason not in _ALLOWED_COVERAGE_REASONS
+            for reason in self.coverage_reason_codes
+        ):
+            raise ValueError("liquidation coverage reason is unsupported")
         if self.coverage_qualified:
             if self.coverage_subscription_id is None:
-                raise ValueError("qualified liquidation context requires subscription identity")
-            _validate_sha(self.coverage_subscription_id, "liquidation subscription")
+                raise ValueError("qualified context requires subscription identity")
+            _validate_sha(
+                self.coverage_subscription_id,
+                "liquidation subscription",
+            )
             if self.coverage_reason_codes:
-                raise ValueError("qualified liquidation context cannot carry coverage blockers")
-            if self.coverage_start_status_at is None or self.coverage_end_status_at is None:
-                raise ValueError("qualified liquidation context requires coverage timestamps")
+                raise ValueError("qualified context cannot carry coverage blockers")
+            if self.coverage_start_status_at is None:
+                raise ValueError("qualified context requires start coverage status")
+            if self.coverage_end_status_at is None:
+                raise ValueError("qualified context requires end coverage status")
             _utc(self.coverage_start_status_at)
             _utc(self.coverage_end_status_at)
             if any(item.event_count is None for item in self.windows):
-                raise ValueError("qualified liquidation context requires window metrics")
+                raise ValueError("qualified context requires liquidation metrics")
         else:
             if not self.coverage_reason_codes:
-                raise ValueError("unqualified liquidation context requires coverage blockers")
+                raise ValueError("unqualified context requires coverage blockers")
             if any(item.event_count is not None for item in self.windows):
-                raise ValueError("unqualified liquidation context cannot carry liquidation metrics")
+                raise ValueError("unqualified context cannot carry liquidation metrics")
         if tuple(item.window_minutes for item in self.windows) != _WINDOWS:
             raise ValueError("liquidation context windows must be 5m/15m/60m")
         for item in self.windows:
             item.validate()
             if _utc(item.window_end_at) != signal:
-                raise ValueError("liquidation context window must end at signal availability")
+                raise ValueError("liquidation context windows must end at signal")
         if (
             not self.prospective
             or self.liquidation_feature_used_for_source_ranking
@@ -265,7 +275,7 @@ class ProspectiveLiquidationContext:
             or self.live_activation_allowed
             or self.bybit_live_order_routing_allowed
         ):
-            raise ValueError("prospective liquidation context cannot grant trading activation")
+            raise ValueError("prospective liquidation context cannot activate trading")
 
     @property
     def context_id(self) -> str:
@@ -285,11 +295,15 @@ class ProspectiveLiquidationContext:
             "symbol": self.symbol,
             "side": self.side,
             "signal_available_at": _utc(self.signal_available_at).isoformat(),
-            "coverage_window_start_at": _utc(self.coverage_window_start_at).isoformat(),
+            "coverage_window_start_at": _utc(
+                self.coverage_window_start_at
+            ).isoformat(),
             "coverage_subscription_id": self.coverage_subscription_id,
             "coverage_qualified": self.coverage_qualified,
             "coverage_reason_codes": list(self.coverage_reason_codes),
-            "coverage_start_status_at": _time_text(self.coverage_start_status_at),
+            "coverage_start_status_at": _time_text(
+                self.coverage_start_status_at
+            ),
             "coverage_end_status_at": _time_text(self.coverage_end_status_at),
             "maximum_status_age_seconds": self.maximum_status_age_seconds,
             "evaluated_at": _utc(self.evaluated_at).isoformat(),
@@ -303,7 +317,9 @@ class ProspectiveLiquidationContext:
             "strategy_promotion_allowed": self.strategy_promotion_allowed,
             "demo_activation_allowed": self.demo_activation_allowed,
             "live_activation_allowed": self.live_activation_allowed,
-            "bybit_live_order_routing_allowed": self.bybit_live_order_routing_allowed,
+            "bybit_live_order_routing_allowed": (
+                self.bybit_live_order_routing_allowed
+            ),
             "causal_claim_allowed": False,
             "predictive_guarantee_allowed": False,
         }
@@ -322,18 +338,18 @@ def assess_single_subscription_coverage(
     start = _utc(window_start)
     signal = _utc(signal_available_at)
     if signal <= start:
-        raise ValueError("liquidation coverage window must end after it starts")
+        raise ValueError("liquidation coverage window must have positive duration")
     if not 20 <= maximum_status_age_seconds <= 300:
         raise ValueError("liquidation coverage status-age bound is invalid")
     for status in statuses:
         status.validate()
-    ordered = tuple(sorted(statuses, key=lambda item: item.observed_at))
-    at_or_before_start = [item for item in ordered if _utc(item.observed_at) <= start]
-    at_or_before_end = [item for item in ordered if _utc(item.observed_at) <= signal]
-    reasons: list[str] = []
-    start_point = at_or_before_start[-1] if at_or_before_start else None
-    end_point = at_or_before_end[-1] if at_or_before_end else None
+    ordered = tuple(sorted(statuses, key=lambda item: _utc(item.observed_at)))
+    before_start = [item for item in ordered if _utc(item.observed_at) <= start]
+    before_end = [item for item in ordered if _utc(item.observed_at) <= signal]
+    start_point = before_start[-1] if before_start else None
+    end_point = before_end[-1] if before_end else None
     maximum_age = timedelta(seconds=maximum_status_age_seconds)
+    reasons: list[str] = []
     if start_point is None:
         reasons.append("START_STATUS_MISSING")
     else:
@@ -348,6 +364,19 @@ def assess_single_subscription_coverage(
     ]
     if any(item.state in {"DISCONNECTED", "STOPPED"} for item in in_window):
         reasons.append("DISCONNECT_IN_WINDOW")
+    if any(item.state not in _CONNECTED_STATES for item in in_window):
+        reasons.append("NON_CONNECTED_STATUS_IN_WINDOW")
+    connected_points = [
+        item for item in in_window if item.state in _CONNECTED_STATES
+    ]
+    if start_point is not None and start_point.state in _CONNECTED_STATES:
+        previous = start
+        for point in connected_points:
+            observed = _utc(point.observed_at)
+            if observed - previous > maximum_age:
+                reasons.append("STATUS_GAP_IN_WINDOW")
+                break
+            previous = observed
     if end_point is None:
         reasons.append("END_STATUS_MISSING")
     else:
@@ -380,13 +409,16 @@ def build_prospective_liquidation_context(
     signal = _utc(signal_available_at)
     coverage_start = signal - timedelta(minutes=60)
     if coverage_subscription_id is None:
-        coverage_qualified = False
+        qualified = False
         reasons = ("NO_ELIGIBLE_SUBSCRIPTION",)
         start_status_at = None
         end_status_at = None
     else:
-        _validate_sha(coverage_subscription_id, "liquidation subscription")
-        coverage_qualified, reasons, start_status_at, end_status_at = (
+        _validate_sha(
+            coverage_subscription_id,
+            "liquidation subscription",
+        )
+        qualified, reasons, start_status_at, end_status_at = (
             assess_single_subscription_coverage(
                 window_start=coverage_start,
                 signal_available_at=signal,
@@ -396,16 +428,17 @@ def build_prospective_liquidation_context(
         )
     for event in events:
         event.validate()
-        if _utc(event.event_time) >= signal:
-            raise ValueError("liquidation context cannot consume event at/after signal availability")
-        if _utc(event.event_time) < coverage_start:
-            raise ValueError("liquidation context event precedes the 60-minute lookback")
+        event_time = _utc(event.event_time)
+        if event_time >= signal:
+            raise ValueError("liquidation context cannot use event at/after signal")
+        if event_time < coverage_start:
+            raise ValueError("liquidation event precedes context lookback")
     windows = tuple(
         _build_window(
             window_minutes=minutes,
             signal_available_at=signal,
             events=events,
-            coverage_qualified=coverage_qualified,
+            coverage_qualified=qualified,
         )
         for minutes in _WINDOWS
     )
@@ -417,7 +450,7 @@ def build_prospective_liquidation_context(
         signal_available_at=signal,
         coverage_window_start_at=coverage_start,
         coverage_subscription_id=coverage_subscription_id,
-        coverage_qualified=coverage_qualified,
+        coverage_qualified=qualified,
         coverage_reason_codes=reasons,
         coverage_start_status_at=start_status_at,
         coverage_end_status_at=end_status_at,
@@ -438,22 +471,10 @@ def _build_window(
 ) -> ProspectiveLiquidationWindow:
     start = signal_available_at - timedelta(minutes=window_minutes)
     if not coverage_qualified:
-        return ProspectiveLiquidationWindow(
+        return _empty_window(
             window_minutes=window_minutes,
             window_start_at=start,
             window_end_at=signal_available_at,
-            event_count=None,
-            long_liquidation_count=None,
-            short_liquidation_count=None,
-            long_estimated_notional_usdt=None,
-            short_estimated_notional_usdt=None,
-            total_estimated_notional_usdt=None,
-            long_minus_short_estimated_notional_usdt=None,
-            normalized_long_minus_short_imbalance=None,
-            largest_event_estimated_notional_usdt=None,
-            first_event_at=None,
-            last_event_at=None,
-            known_zero=False,
         )
     rows = tuple(
         item
@@ -461,25 +482,17 @@ def _build_window(
         if start <= _utc(item.event_time) < signal_available_at
     )
     if not rows:
-        return ProspectiveLiquidationWindow(
+        return _known_zero_window(
             window_minutes=window_minutes,
             window_start_at=start,
             window_end_at=signal_available_at,
-            event_count=0,
-            long_liquidation_count=0,
-            short_liquidation_count=0,
-            long_estimated_notional_usdt=Decimal("0"),
-            short_estimated_notional_usdt=Decimal("0"),
-            total_estimated_notional_usdt=Decimal("0"),
-            long_minus_short_estimated_notional_usdt=Decimal("0"),
-            normalized_long_minus_short_imbalance=Decimal("0"),
-            largest_event_estimated_notional_usdt=Decimal("0"),
-            first_event_at=None,
-            last_event_at=None,
-            known_zero=True,
         )
-    long_rows = [item for item in rows if item.liquidated_position_side == "LONG"]
-    short_rows = [item for item in rows if item.liquidated_position_side == "SHORT"]
+    long_rows = [
+        item for item in rows if item.liquidated_position_side == "LONG"
+    ]
+    short_rows = [
+        item for item in rows if item.liquidated_position_side == "SHORT"
+    ]
     long_notional = sum(
         (item.estimated_notional_usdt for item in long_rows),
         Decimal("0"),
@@ -512,6 +525,57 @@ def _build_window(
     )
 
 
+def _empty_window(
+    *,
+    window_minutes: int,
+    window_start_at: datetime,
+    window_end_at: datetime,
+) -> ProspectiveLiquidationWindow:
+    return ProspectiveLiquidationWindow(
+        window_minutes=window_minutes,
+        window_start_at=window_start_at,
+        window_end_at=window_end_at,
+        event_count=None,
+        long_liquidation_count=None,
+        short_liquidation_count=None,
+        long_estimated_notional_usdt=None,
+        short_estimated_notional_usdt=None,
+        total_estimated_notional_usdt=None,
+        long_minus_short_estimated_notional_usdt=None,
+        normalized_long_minus_short_imbalance=None,
+        largest_event_estimated_notional_usdt=None,
+        first_event_at=None,
+        last_event_at=None,
+        known_zero=False,
+    )
+
+
+def _known_zero_window(
+    *,
+    window_minutes: int,
+    window_start_at: datetime,
+    window_end_at: datetime,
+) -> ProspectiveLiquidationWindow:
+    zero = Decimal("0")
+    return ProspectiveLiquidationWindow(
+        window_minutes=window_minutes,
+        window_start_at=window_start_at,
+        window_end_at=window_end_at,
+        event_count=0,
+        long_liquidation_count=0,
+        short_liquidation_count=0,
+        long_estimated_notional_usdt=zero,
+        short_estimated_notional_usdt=zero,
+        total_estimated_notional_usdt=zero,
+        long_minus_short_estimated_notional_usdt=zero,
+        normalized_long_minus_short_imbalance=zero,
+        largest_event_estimated_notional_usdt=zero,
+        first_event_at=None,
+        last_event_at=None,
+        known_zero=True,
+    )
+
+
 def _required_int(value: int | None) -> int:
     if value is None:
         raise ValueError("required liquidation integer is missing")
@@ -533,13 +597,17 @@ def _time_text(value: datetime | None) -> str | None:
 
 
 def _utc(value: datetime) -> datetime:
-    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+    if not isinstance(value, datetime) or value.tzinfo is None:
         raise ValueError("liquidation context timestamp must be timezone-aware")
+    if value.utcoffset() is None:
+        raise ValueError("liquidation context timestamp must have UTC offset")
     return value.astimezone(UTC)
 
 
 def _validate_sha(value: str, name: str) -> None:
-    if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+    if len(value) != 64 or any(
+        char not in "0123456789abcdef" for char in value
+    ):
         raise ValueError(f"{name} must be lowercase sha256 hex")
 
 
