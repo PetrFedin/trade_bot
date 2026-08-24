@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from typing import Any
 
@@ -16,6 +17,10 @@ _TRADING_KEY = "demo-trading-key"
 _TRADING_SECRET = "demo-trading-secret"
 _DEMO_READONLY_KEY = "demo-readonly-key"
 _MAINNET_READONLY_KEY = "mainnet-readonly-key"
+
+
+def _sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 class _FakeTransport:
@@ -73,7 +78,9 @@ def _api_result(
     }
 
 
-def _client(result: Mapping[str, Any]) -> tuple[BybitDemoTradingCredentialReadOnlyInspector, _FakeTransport]:
+def _client(
+    result: Mapping[str, Any],
+) -> tuple[BybitDemoTradingCredentialReadOnlyInspector, _FakeTransport]:
     transport = _FakeTransport(result)
     client = BybitDemoTradingCredentialReadOnlyInspector(
         api_key=_TRADING_KEY,
@@ -88,8 +95,8 @@ def _run(result: Mapping[str, Any]):
     client, transport = _client(result)
     preflight = run_bybit_demo_trading_credential_preflight(
         client,
-        demo_readonly_api_key=_DEMO_READONLY_KEY,
-        mainnet_readonly_api_key=_MAINNET_READONLY_KEY,
+        demo_readonly_api_key_sha256=_sha256(_DEMO_READONLY_KEY),
+        mainnet_readonly_api_key_sha256=_sha256(_MAINNET_READONLY_KEY),
     )
     return preflight, client, transport
 
@@ -132,6 +139,8 @@ def test_minimal_personal_ip_bound_uta_contract_key_is_ready() -> None:
     assert _TRADING_KEY not in serialized
     assert _TRADING_SECRET not in serialized
     assert "203.0.113.10" not in serialized
+    assert _sha256(_DEMO_READONLY_KEY) not in serialized
+    assert _sha256(_MAINNET_READONLY_KEY) not in serialized
     assert "Withdraw" not in serialized
 
 
@@ -173,12 +182,12 @@ def test_unsafe_credential_shapes_are_blocked(
     assert len(transport.calls) == 1
 
 
-def test_demo_readonly_key_reuse_is_blocked() -> None:
+def test_demo_readonly_key_reuse_is_blocked_by_fingerprint() -> None:
     client, transport = _client(_api_result())
     result = run_bybit_demo_trading_credential_preflight(
         client,
-        demo_readonly_api_key=_TRADING_KEY,
-        mainnet_readonly_api_key=_MAINNET_READONLY_KEY,
+        demo_readonly_api_key_sha256=_sha256(_TRADING_KEY),
+        mainnet_readonly_api_key_sha256=_sha256(_MAINNET_READONLY_KEY),
     )
 
     assert result.status is BybitDemoTradingCredentialPreflightStatus.BLOCKED
@@ -186,17 +195,30 @@ def test_demo_readonly_key_reuse_is_blocked() -> None:
     assert len(transport.calls) == 1
 
 
-def test_mainnet_readonly_key_reuse_is_blocked() -> None:
+def test_mainnet_readonly_key_reuse_is_blocked_by_fingerprint() -> None:
     client, transport = _client(_api_result())
     result = run_bybit_demo_trading_credential_preflight(
         client,
-        demo_readonly_api_key=_DEMO_READONLY_KEY,
-        mainnet_readonly_api_key=_TRADING_KEY,
+        demo_readonly_api_key_sha256=_sha256(_DEMO_READONLY_KEY),
+        mainnet_readonly_api_key_sha256=_sha256(_TRADING_KEY),
     )
 
     assert result.status is BybitDemoTradingCredentialPreflightStatus.BLOCKED
     assert "DEMO_TRADING_KEY_REUSES_MAINNET_READONLY_KEY" in result.reasons
     assert len(transport.calls) == 1
+
+
+def test_invalid_reference_fingerprint_fails_before_network() -> None:
+    client, transport = _client(_api_result())
+
+    with pytest.raises(ValueError, match="SHA-256"):
+        run_bybit_demo_trading_credential_preflight(
+            client,
+            demo_readonly_api_key_sha256="invalid",
+            mainnet_readonly_api_key_sha256=_sha256(_MAINNET_READONLY_KEY),
+        )
+
+    assert transport.calls == []
 
 
 def test_api_key_identity_mismatch_is_protocol_error() -> None:
@@ -205,8 +227,8 @@ def test_api_key_identity_mismatch_is_protocol_error() -> None:
     with pytest.raises(BybitRestProtocolError, match="identity"):
         run_bybit_demo_trading_credential_preflight(
             client,
-            demo_readonly_api_key=_DEMO_READONLY_KEY,
-            mainnet_readonly_api_key=_MAINNET_READONLY_KEY,
+            demo_readonly_api_key_sha256=_sha256(_DEMO_READONLY_KEY),
+            mainnet_readonly_api_key_sha256=_sha256(_MAINNET_READONLY_KEY),
         )
 
 
@@ -216,8 +238,8 @@ def test_nonempty_secret_marker_is_protocol_error() -> None:
     with pytest.raises(BybitRestProtocolError, match="secret material"):
         run_bybit_demo_trading_credential_preflight(
             client,
-            demo_readonly_api_key=_DEMO_READONLY_KEY,
-            mainnet_readonly_api_key=_MAINNET_READONLY_KEY,
+            demo_readonly_api_key_sha256=_sha256(_DEMO_READONLY_KEY),
+            mainnet_readonly_api_key_sha256=_sha256(_MAINNET_READONLY_KEY),
         )
 
 
@@ -231,14 +253,16 @@ def test_invalid_ip_bindings_are_protocol_errors(ips: list[str]) -> None:
     with pytest.raises(BybitRestProtocolError, match="IP binding"):
         run_bybit_demo_trading_credential_preflight(
             client,
-            demo_readonly_api_key=_DEMO_READONLY_KEY,
-            mainnet_readonly_api_key=_MAINNET_READONLY_KEY,
+            demo_readonly_api_key_sha256=_sha256(_DEMO_READONLY_KEY),
+            mainnet_readonly_api_key_sha256=_sha256(_MAINNET_READONLY_KEY),
         )
 
 
 def test_unknown_nonempty_permission_category_is_blocked_fail_closed() -> None:
     raw = _api_result()
-    raw["permissions"]["FuturePrivilege"] = ["FutureWrite"]
+    permissions = raw["permissions"]
+    assert isinstance(permissions, dict)
+    permissions["FuturePrivilege"] = ["FutureWrite"]
     result, _client_value, _transport = _run(raw)
 
     assert result.status is BybitDemoTradingCredentialPreflightStatus.BLOCKED
@@ -253,6 +277,6 @@ def test_duplicate_contract_permissions_are_protocol_error() -> None:
     with pytest.raises(BybitRestProtocolError, match="duplicates"):
         run_bybit_demo_trading_credential_preflight(
             client,
-            demo_readonly_api_key=_DEMO_READONLY_KEY,
-            mainnet_readonly_api_key=_MAINNET_READONLY_KEY,
+            demo_readonly_api_key_sha256=_sha256(_DEMO_READONLY_KEY),
+            mainnet_readonly_api_key_sha256=_sha256(_MAINNET_READONLY_KEY),
         )
