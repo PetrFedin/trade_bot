@@ -102,6 +102,42 @@ The report exposes:
 The liquidation-augmented matrix does not hide rows where liquidation context is unavailable; those
 rows remain counted in the parent dataset and are simply ineligible for that additional cut.
 
+## Deterministic source lineage
+
+Every materialized report carries a `source_lineage` block. It records:
+
+- exact source observation count;
+- SHA-256 of the complete source seed set;
+- earliest and latest `signal_available_at` watermarks;
+- exact-cell complete/unavailable counts;
+- count with coverage-qualified liquidation context;
+- materialization timestamp and the 600-second target cadence.
+
+The seed-set digest is computed from lowercase SHA-256 seed ids sorted lexicographically and joined
+with a single newline before UTF-8 hashing. The digest is therefore independent of database return
+order and allows two materializations to prove whether they used the same prospective observation
+set without storing a second copy of every seed id in the report table.
+
+`materialization_freshness_claim=RUN_TIMESTAMP_ONLY` is intentional. A fresh materialization run is
+not proof that new trading signals existed. Absence of a new final v112 outcome must not be
+misreported as a stale runtime merely because the fixed strategy produced no new qualified signal.
+
+## Durable v118 materialization
+
+`astra_bybit_prospective_exact_cell_report_v118` stores every persisted report append-only with its
+lineage digest and signal watermarks. UPDATE and DELETE are rejected by a database trigger. Safety
+flags are constrained so this analytical table cannot become an order-routing surface.
+
+The GitHub operational workflow materializes the report every ten minutes at minute 5/15/25/35/45/55.
+The five-minute offset is deliberate: the existing prospective shadow evaluator runs on the
+0/10/20/30/40/50 cadence, so the report is less likely to race an outcome evaluation that has just
+started. GitHub scheduling remains best-effort; the 600-second value is a target cadence, not an
+exact execution-time guarantee.
+
+A successful scheduled run writes both the JSON artifact and the v118 PostgreSQL row. Missing DSN
+or an unapplied v118 migration produces an explicit non-trading status artifact instead of inventing
+data.
+
 ## Sample gate
 
 The default exact-cell sample-sufficiency gate is 30 prospective observations. A cell below the gate
@@ -114,11 +150,14 @@ No fitted thresholds, automatic regime pruning or post-hoc LONG/SHORT disabling 
 ```bash
 export BYBIT_OPPORTUNITY_DATABASE_DSN='postgresql://...'
 python -m tools.report_bybit_prospective_exact_cell_matrix \
-  --output artifacts/bybit_prospective_exact_cell_matrix.json
+  --output artifacts/bybit_prospective_exact_cell_matrix.json \
+  --persist-postgres
 ```
 
 Use `--rolling-days N` for a bounded recent view. The default uses all retained final prospective
-observations available in PostgreSQL.
+observations available in PostgreSQL. `--migrate-postgres` is available only together with
+`--persist-postgres`; normal production deployment should apply migrations through the controlled
+migration path rather than silently changing schema during every scheduled report.
 
 ## Safety boundary
 
