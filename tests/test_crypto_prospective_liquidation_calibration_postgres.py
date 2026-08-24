@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -210,8 +211,11 @@ def _seed(signal: datetime) -> None:
             ),
         )
         for minutes, signed, total in ((5, 50, 50), (15, 150, 250), (60, 150, 350)):
-            long_notional = (total + signed) / 2
-            short_notional = total - long_notional
+            signed_decimal = Decimal(signed)
+            total_decimal = Decimal(total)
+            long_notional = (total_decimal + signed_decimal) / Decimal("2")
+            short_notional = total_decimal - long_notional
+            normalized_imbalance = signed_decimal / total_decimal
             connection.execute(
                 """INSERT INTO astra_bybit_shadow_liquidation_window_v117
                 (context_id, window_minutes, window_start_at, window_end_at,
@@ -223,7 +227,7 @@ def _seed(signal: datetime) -> None:
                  largest_event_estimated_notional_usdt,
                  first_event_at, last_event_at, known_zero)
                 VALUES (%s, %s, %s, %s, 2, 1, 1, %s, %s, %s, %s,
-                        (%s::numeric / %s::numeric), %s, %s, %s, false)""",
+                        %s, %s, %s, %s, false)""",
                 (
                     _CONTEXT,
                     minutes,
@@ -231,10 +235,9 @@ def _seed(signal: datetime) -> None:
                     signal,
                     long_notional,
                     short_notional,
-                    total,
-                    signed,
-                    signed,
-                    total,
+                    total_decimal,
+                    signed_decimal,
+                    normalized_imbalance,
                     max(long_notional, short_notional),
                     signal - timedelta(minutes=minutes - 1),
                     signal - timedelta(minutes=1),
