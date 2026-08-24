@@ -49,8 +49,30 @@ class BybitDemoReadOnlyOpenPosition:
             raise ValueError("Bybit Demo preflight average price must be positive")
 
 
+@dataclass(frozen=True)
+class BybitDemoReadOnlyApiKeyInfo:
+    read_only: bool
+    ip_binding_present: bool
+
+
 class BybitDemoPreflightAccountClient(BybitDemoAccountingClient):
     """Demo-only authenticated GET surface used before any order-capable client exists."""
+
+    def get_api_key_info(self) -> BybitDemoReadOnlyApiKeyInfo:
+        result = self._private_get_result(  # noqa: SLF001 - bounded read-only subclass extension.
+            path="/v5/user/query-api",
+            query={},
+        )
+        raw_read_only = result.get("readOnly")
+        if isinstance(raw_read_only, bool) or raw_read_only not in {0, 1}:
+            raise ValueError("Bybit Demo preflight API key readOnly flag is invalid")
+        raw_ips = result.get("ips")
+        if not isinstance(raw_ips, list) or any(not isinstance(ip, str) for ip in raw_ips):
+            raise ValueError("Bybit Demo preflight API key IP binding list is invalid")
+        return BybitDemoReadOnlyApiKeyInfo(
+            read_only=raw_read_only == 1,
+            ip_binding_present=any(ip not in {"", "*"} for ip in raw_ips),
+        )
 
     def get_open_positions(self) -> tuple[BybitDemoReadOnlyOpenPosition, ...]:
         page = self._private_get_page(  # noqa: SLF001 - bounded read-only subclass extension.
@@ -282,6 +304,8 @@ class BybitDemoConnectedPreflightResult:
     approval_record_count: int
     provenance_record_count: int
     terminal_record_count: int
+    read_only_api_key_verified: bool
+    api_key_ip_binding_present: bool
     demo_host_verified: bool = True
     credentials_verified_by_authenticated_reads: bool = True
     preflight_only: bool = True
@@ -307,6 +331,10 @@ class BybitDemoConnectedPreflightResult:
                 "usdt_wallet_visible": self.usdt_wallet_visible,
                 "open_position_count": self.open_position_count,
                 "open_position_symbols": list(self.open_position_symbols),
+            },
+            "credential": {
+                "read_only_api_key_verified": self.read_only_api_key_verified,
+                "ip_binding_present": self.api_key_ip_binding_present,
             },
             "durable_state": {
                 "active_checkpoint_present": self.active_checkpoint_present,
@@ -334,12 +362,15 @@ def run_bybit_demo_connected_preflight(
     database_reader: PostgresBybitDemoOperationalStateReader,
 ) -> BybitDemoConnectedPreflightResult:
     _validate_read_only_dependencies(account_client, database_reader)
+    key_info = account_client.get_api_key_info()
     wallet = account_client.get_wallet_balance()
     account = account_client.get_account_info()
     positions = account_client.get_open_positions()
     database = database_reader.read_state()
 
     reasons: list[str] = []
+    if not key_info.read_only:
+        reasons.append("DEMO_API_KEY_IS_NOT_READ_ONLY")
     if not database.required_relations_present:
         reasons.append("DEMO_POSTGRES_V119_V120_SCHEMA_NOT_READY")
     if not database.append_only_triggers_present:
@@ -402,6 +433,8 @@ def run_bybit_demo_connected_preflight(
         approval_record_count=database.approval_record_count,
         provenance_record_count=database.provenance_record_count,
         terminal_record_count=database.terminal_record_count,
+        read_only_api_key_verified=key_info.read_only,
+        api_key_ip_binding_present=key_info.ip_binding_present,
     )
 
 
@@ -457,6 +490,7 @@ __all__ = [
     "BybitDemoConnectedPreflightStatus",
     "BybitDemoOperationalDatabaseState",
     "BybitDemoPreflightAccountClient",
+    "BybitDemoReadOnlyApiKeyInfo",
     "BybitDemoReadOnlyOpenPosition",
     "PostgresBybitDemoOperationalStateReader",
     "run_bybit_demo_connected_preflight",
