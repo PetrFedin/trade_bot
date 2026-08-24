@@ -54,6 +54,36 @@ class BybitDemoOperatorApprovedTradingRuntimeResult:
     live_mainnet_order_routing_allowed: bool = False
 
 
+class _ApprovedProtectionStateClientView:
+    """Expose verified protection-read capability without bypassing the approval guard."""
+
+    environment = "BYBIT_DEMO"
+    live_mainnet_order_routing_allowed = False
+    protection_state_read_supported = True
+
+    def __init__(self, guarded_client: Any) -> None:
+        if getattr(guarded_client, "live_mainnet_order_routing_allowed", True) is not False:
+            raise ValueError("approved protection view rejected mainnet-capable client")
+        if not callable(getattr(guarded_client, "get_positions", None)):
+            raise ValueError("approved protection view requires guarded position reads")
+        self._guarded_client = guarded_client
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._guarded_client, name)
+
+
+def _execute_approved_protection_reconciled_cycle(*args: Any, **kwargs: Any):
+    client = kwargs.get("client")
+    if client is None:
+        raise ValueError("approved protection orchestrator requires client")
+    protected_kwargs = dict(kwargs)
+    protected_kwargs["client"] = _ApprovedProtectionStateClientView(client)
+    return execute_protection_reconciled_guarded_bybit_demo_cycle(
+        *args,
+        **protected_kwargs,
+    )
+
+
 def run_operator_approved_bybit_demo_trading_runtime(
     approval: BybitDemoOperatorApproval,
     latest_review_row: Mapping[str, Any],
@@ -89,8 +119,9 @@ def run_operator_approved_bybit_demo_trading_runtime(
     For a new entry, source identity and the canonical selector are first revalidated without a
     mutation. The approved runtime owns the write-time protection orchestrator exactly like the
     canonical resilient path: Demo writes require exchange protection-state reads and force the
-    protection-reconciled orchestrator. A durable lineage client is placed underneath the existing
-    single-use ``OperatorApprovedBybitDemoClient``. Account, fee, session-risk and fresh-quote
+    protection-reconciled orchestrator. That orchestrator receives a capability view which still
+    delegates every actual read/write method through the exact-identity approval guard. A durable
+    lineage client sits underneath the approval guard. Account, fee, session-risk and fresh-quote
     checks remain free to reject the candidate without burning the approval. Only when the guarded
     stack is about to send the exact non-reduce-only Demo entry does the lower client atomically
     persist the outcome-free authorization. Existing durable authorization is recovery-only state
@@ -123,7 +154,7 @@ def run_operator_approved_bybit_demo_trading_runtime(
             raise ValueError(
                 "operator-approved Demo writes require protection-state read capability"
             )
-        inner["orchestrator"] = execute_protection_reconciled_guarded_bybit_demo_cycle
+        inner["orchestrator"] = _execute_approved_protection_reconciled_cycle
 
         authorization = build_bybit_demo_approved_entry_authorization(
             approval,
