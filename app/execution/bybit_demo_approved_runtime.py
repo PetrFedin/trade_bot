@@ -15,6 +15,9 @@ from app.execution.bybit_demo_approval_lineage_store import (
 from app.execution.bybit_demo_approved_bridge import (
     execute_operator_approved_account_sized_bybit_demo_cycle,
 )
+from app.execution.bybit_demo_durable_approval_client import (
+    DurableApprovalLineageBybitDemoClient,
+)
 from app.execution.bybit_demo_excursion_runtime import (
     BybitDemoExcursionRuntimeResult,
     initialize_bybit_demo_excursion_from_strategy_cycle,
@@ -80,12 +83,13 @@ def run_operator_approved_bybit_demo_trading_runtime(
     proceeds without requiring a still-valid approval. Only a genuinely new entry reaches the
     closure below.
 
-    Before any Demo order write, the exact approval/review/selector identity is revalidated and an
-    immutable outcome-free authorization record is persisted. Failure to persist that lineage
-    prevents the approved bridge from being called. The first durable authorization burns the
-    approval/order identity for new submissions: seeing the same record again is a recovery state,
-    never permission to resubmit. The existing bridge then keeps its own repeated validation plus
-    single-use network guard. No ranked fallback to a different symbol is allowed.
+    For a new entry, source identity and the canonical selector are first revalidated without a
+    mutation. A durable lineage client is then placed underneath the existing single-use
+    ``OperatorApprovedBybitDemoClient``. Account, fee, session-risk and fresh-quote checks therefore
+    remain free to reject the candidate without burning the approval. Only when the guarded stack
+    is about to send the exact non-reduce-only Demo entry does the lower client atomically persist
+    the outcome-free authorization. Existing durable authorization is recovery-only state and
+    blocks resubmission. No ranked fallback to a different symbol is allowed.
     """
 
     _validate_authorization_store(approval_authorization_store)
@@ -122,19 +126,14 @@ def run_operator_approved_bybit_demo_trading_runtime(
             session_state=inner_session_state,
             now=inner_now,
         )
-        receipt = approval_authorization_store.persist(authorization)
-        _reject_live(receipt, name="approved entry authorization receipt")
-        if receipt.entry_order_link_id != approval.expected_entry_order_link_id:
-            raise ValueError("approved entry authorization receipt orderLinkId mismatch")
-        if receipt.approval_id != approval.approval_id:
-            raise ValueError("approved entry authorization receipt approval id mismatch")
-        _validate_sha256(receipt.record_sha256, name="authorization receipt checksum")
         authorization_holder.append(authorization)
-        receipt_holder.append(receipt)
-        if receipt.idempotent_existing_record:
-            raise ValueError(
-                "approved entry authorization already exists; reconcile before any resubmit"
-            )
+        durable_client = DurableApprovalLineageBybitDemoClient(
+            inner_client,
+            approval,
+            authorization,
+            store=approval_authorization_store,
+            on_persisted=receipt_holder.append,
+        )
 
         account_result = execute_operator_approved_account_sized_bybit_demo_cycle(
             approval,
@@ -144,7 +143,7 @@ def run_operator_approved_bybit_demo_trading_runtime(
             strategy_config=inner_strategy_config,
             session_state=inner_session_state,
             now=inner_now,
-            client=inner_client,
+            client=durable_client,
             accounting_client=inner_accounting_client,
             **inner,
         )
@@ -245,11 +244,6 @@ def _validate_authorization_store(store: Any) -> None:
         raise ValueError("operator-approved runtime authorization store must be outcome-free")
     if getattr(store, "realized_pnl_storage_allowed", True) is not False:
         raise ValueError("operator-approved runtime authorization store cannot store realized PnL")
-
-
-def _validate_sha256(value: str, *, name: str) -> None:
-    if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
-        raise ValueError(f"operator-approved runtime invalid {name}")
 
 
 def _reject_live(value: Any, *, name: str) -> None:
