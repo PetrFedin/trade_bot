@@ -84,6 +84,7 @@ class PostgresBybitDemoTerminalEvidenceStore:
                     if cursor.rowcount == 1:
                         return BybitDemoTerminalEvidenceReceipt(
                             entry_order_link_id=entry_order_link_id,
+                            checkpoint_revision=checkpoint_revision,
                             record_sha256=record_sha,
                             idempotent_existing_record=False,
                         )
@@ -101,6 +102,7 @@ class PostgresBybitDemoTerminalEvidenceStore:
                         raise ValueError("terminal evidence record checksum mismatch")
                     return BybitDemoTerminalEvidenceReceipt(
                         entry_order_link_id=entry_order_link_id,
+                        checkpoint_revision=checkpoint_revision,
                         record_sha256=record_sha,
                         idempotent_existing_record=True,
                     )
