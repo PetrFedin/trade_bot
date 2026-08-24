@@ -5,9 +5,14 @@ on:
     paths:
       - 'app/strategy/crypto_prospective_exact_cell_matrix.py'
       - 'app/strategy/crypto_prospective_exact_cell_matrix_postgres.py'
+      - 'app/strategy/crypto_prospective_evidence_materialization.py'
+      - 'app/strategy/crypto_prospective_evidence_postgres.py'
       - 'tools/report_bybit_prospective_exact_cell_matrix.py'
+      - 'migrations/v118/001_bybit_prospective_evidence_materialization.sql'
       - 'tests/test_crypto_prospective_exact_cell_matrix.py'
       - 'tests/test_crypto_prospective_exact_cell_matrix_postgres.py'
+      - 'tests/test_crypto_prospective_evidence_materialization.py'
+      - 'tests/test_crypto_prospective_evidence_materialization_postgres.py'
       - 'docs/BYBIT_PROSPECTIVE_EXACT_CELL_MATRIX.md'
       - '.github/workflows/bybit-prospective-exact-cell-matrix.yml'
   push:
@@ -15,12 +20,19 @@ on:
     paths:
       - 'app/strategy/crypto_prospective_exact_cell_matrix.py'
       - 'app/strategy/crypto_prospective_exact_cell_matrix_postgres.py'
+      - 'app/strategy/crypto_prospective_evidence_materialization.py'
+      - 'app/strategy/crypto_prospective_evidence_postgres.py'
       - 'tools/report_bybit_prospective_exact_cell_matrix.py'
+      - 'migrations/v118/001_bybit_prospective_evidence_materialization.sql'
       - 'tests/test_crypto_prospective_exact_cell_matrix.py'
       - 'tests/test_crypto_prospective_exact_cell_matrix_postgres.py'
+      - 'tests/test_crypto_prospective_evidence_materialization.py'
+      - 'tests/test_crypto_prospective_evidence_materialization_postgres.py'
       - 'docs/BYBIT_PROSPECTIVE_EXACT_CELL_MATRIX.md'
       - '.github/workflows/bybit-prospective-exact-cell-matrix.yml'
   workflow_dispatch:
+  schedule:
+    - cron: '5-59/10 * * * *'
 
 permissions:
   contents: read
@@ -31,6 +43,7 @@ concurrency:
 
 jobs:
   qualify:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -59,30 +72,104 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[dev]'
           python -m pip check
-      - name: Prospective exact-cell matrix tests
+      - name: Prospective exact-cell materialization tests
         run: |
           pytest -q \
             tests/test_crypto_prospective_exact_cell_matrix.py \
             tests/test_crypto_prospective_exact_cell_matrix_postgres.py \
+            tests/test_crypto_prospective_evidence_materialization.py \
+            tests/test_crypto_prospective_evidence_materialization_postgres.py \
             tests/test_crypto_prospective_liquidation_calibration.py \
             tests/test_crypto_prospective_ranking_calibration.py
-      - name: Ruff prospective exact-cell matrix
+      - name: Ruff prospective exact-cell materialization
         run: |
           ruff check \
             app/strategy/crypto_prospective_exact_cell_matrix.py \
             app/strategy/crypto_prospective_exact_cell_matrix_postgres.py \
+            app/strategy/crypto_prospective_evidence_materialization.py \
+            app/strategy/crypto_prospective_evidence_postgres.py \
             tools/report_bybit_prospective_exact_cell_matrix.py \
             tests/test_crypto_prospective_exact_cell_matrix.py \
-            tests/test_crypto_prospective_exact_cell_matrix_postgres.py
-      - name: Bandit prospective exact-cell matrix
+            tests/test_crypto_prospective_exact_cell_matrix_postgres.py \
+            tests/test_crypto_prospective_evidence_materialization.py \
+            tests/test_crypto_prospective_evidence_materialization_postgres.py
+      - name: Bandit prospective exact-cell materialization
         run: |
           bandit -q \
             app/strategy/crypto_prospective_exact_cell_matrix.py \
             app/strategy/crypto_prospective_exact_cell_matrix_postgres.py \
+            app/strategy/crypto_prospective_evidence_materialization.py \
+            app/strategy/crypto_prospective_evidence_postgres.py \
             tools/report_bybit_prospective_exact_cell_matrix.py
-      - name: Compile prospective exact-cell matrix
+      - name: Compile prospective exact-cell materialization
         run: |
           python -m compileall -q \
             app/strategy/crypto_prospective_exact_cell_matrix.py \
             app/strategy/crypto_prospective_exact_cell_matrix_postgres.py \
+            app/strategy/crypto_prospective_evidence_materialization.py \
+            app/strategy/crypto_prospective_evidence_postgres.py \
             tools/report_bybit_prospective_exact_cell_matrix.py
+
+  scheduled-materialization:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BYBIT_OPPORTUNITY_DATABASE_DSN: ${{ secrets.BYBIT_OPPORTUNITY_DATABASE_DSN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install materialization dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev,postgresql]'
+          python -m pip check
+      - name: Materialize current prospective exact-cell evidence
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          STATUS_FILE='artifacts/bybit-prospective-exact-cell-status.json'
+          LOG_FILE='artifacts/bybit-prospective-exact-cell.log'
+          REPORT_FILE='artifacts/bybit-prospective-exact-cell-matrix.json'
+          if [ -z "${BYBIT_OPPORTUNITY_DATABASE_DSN:-}" ]; then
+            printf '%s\n' '{"status":"POSTGRES_DSN_UNAVAILABLE","materialized":false,"trade_actionable":false,"bybit_live_order_routing_allowed":false}' > "$STATUS_FILE"
+            cat "$STATUS_FILE"
+            exit 0
+          fi
+          set +e
+          python -m tools.report_bybit_prospective_exact_cell_matrix \
+            --output "$REPORT_FILE" \
+            --persist-postgres \
+            > "$LOG_FILE" 2>&1
+          COMMAND_STATUS=$?
+          set -e
+          if [ "$COMMAND_STATUS" -eq 0 ]; then
+            printf '%s\n' '{"status":"MATERIALIZED","materialized":true,"trade_actionable":false,"bybit_live_order_routing_allowed":false}' > "$STATUS_FILE"
+            cat "$STATUS_FILE"
+            exit 0
+          fi
+          if grep -Eq 'astra_bybit_prospective_exact_cell_report_v118|UndefinedTable' "$LOG_FILE"; then
+            STATUS='MATERIALIZATION_SCHEMA_NOT_MIGRATED'
+          else
+            STATUS='MATERIALIZATION_FAILED'
+          fi
+          printf '{"status":"%s","materialized":false,"trade_actionable":false,"bybit_live_order_routing_allowed":false}\n' \
+            "$STATUS" > "$STATUS_FILE"
+          cat "$STATUS_FILE"
+          if [ "$STATUS" = 'MATERIALIZATION_FAILED' ]; then
+            cat "$LOG_FILE"
+            exit "$COMMAND_STATUS"
+          fi
+      - name: Upload materialized matrix and explicit status
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-prospective-exact-cell-${{ github.run_id }}
+          path: |
+            artifacts/bybit-prospective-exact-cell-matrix.json
+            artifacts/bybit-prospective-exact-cell-status.json
+            artifacts/bybit-prospective-exact-cell.log
+          if-no-files-found: warn
+          retention-days: 30
