@@ -173,7 +173,10 @@ class PostgresBybitDemoOperationalStateReader:
         if checkpoint is not None:
             checkpoint_link = checkpoint["entry_order_link_id"]
             state = checkpoint["state_json"]
-            if not isinstance(checkpoint_link, str) or not checkpoint_link.startswith("ASTRA-DEMO-"):
+            if (
+                not isinstance(checkpoint_link, str)
+                or not checkpoint_link.startswith("ASTRA-DEMO-")
+            ):
                 raise ValueError("Bybit Demo preflight checkpoint orderLinkId is invalid")
             if not isinstance(state, dict):
                 raise ValueError("Bybit Demo preflight checkpoint state is invalid")
