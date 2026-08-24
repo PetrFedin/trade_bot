@@ -7,6 +7,7 @@ on:
       - 'app/execution/bybit_demo_approved_bridge.py'
       - 'app/execution/bybit_demo_approval_lineage.py'
       - 'app/execution/bybit_demo_approval_lineage_store.py'
+      - 'app/execution/bybit_demo_durable_approval_client.py'
       - 'app/execution/bybit_demo_approved_runtime.py'
       - 'app/execution/bybit_demo_approved_trade_attribution.py'
       - 'tools/prepare_bybit_demo_operator_approval.py'
@@ -25,6 +26,7 @@ on:
       - 'app/execution/bybit_demo_approved_bridge.py'
       - 'app/execution/bybit_demo_approval_lineage.py'
       - 'app/execution/bybit_demo_approval_lineage_store.py'
+      - 'app/execution/bybit_demo_durable_approval_client.py'
       - 'app/execution/bybit_demo_approved_runtime.py'
       - 'app/execution/bybit_demo_approved_trade_attribution.py'
       - 'tools/prepare_bybit_demo_operator_approval.py'
@@ -82,6 +84,7 @@ jobs:
             app/execution/bybit_demo_approved_bridge.py \
             app/execution/bybit_demo_approval_lineage.py \
             app/execution/bybit_demo_approval_lineage_store.py \
+            app/execution/bybit_demo_durable_approval_client.py \
             app/execution/bybit_demo_approved_runtime.py \
             app/execution/bybit_demo_approved_trade_attribution.py \
             tools/prepare_bybit_demo_operator_approval.py \
@@ -98,6 +101,7 @@ jobs:
             app/execution/bybit_demo_approved_bridge.py \
             app/execution/bybit_demo_approval_lineage.py \
             app/execution/bybit_demo_approval_lineage_store.py \
+            app/execution/bybit_demo_durable_approval_client.py \
             app/execution/bybit_demo_approved_runtime.py \
             app/execution/bybit_demo_approved_trade_attribution.py \
             tools/prepare_bybit_demo_operator_approval.py
@@ -108,6 +112,7 @@ jobs:
             app/execution/bybit_demo_approved_bridge.py \
             app/execution/bybit_demo_approval_lineage.py \
             app/execution/bybit_demo_approval_lineage_store.py \
+            app/execution/bybit_demo_durable_approval_client.py \
             app/execution/bybit_demo_approved_runtime.py \
             app/execution/bybit_demo_approved_trade_attribution.py \
             tools/prepare_bybit_demo_operator_approval.py
