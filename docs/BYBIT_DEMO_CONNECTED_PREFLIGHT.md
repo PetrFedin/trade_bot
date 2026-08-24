@@ -1,39 +1,37 @@
 # Connected Bybit Demo preflight
 
-This gate is the first connected step between the repository and a real Bybit Demo account. It is deliberately **read-only** and cannot submit, amend, cancel, protect, or close an order.
+This gate is the connected read-only boundary between the repository and a real Bybit Demo account. It cannot submit, amend, cancel, protect, or close an order.
+
+Operationally it now runs only inside the protected fixed-egress `bybit-demo` zone described in `docs/BYBIT_DEMO_OPERATIONAL_ZONE.md`.
 
 ## Why this gate exists
 
-The qualified execution stack now has durable PostgreSQL runtime state (v119) and immutable approval/provenance/terminal evidence (v120). Before any write-enabled Demo credential is introduced, the system must prove that the real Demo account and durable state agree.
+Before any write-enabled Demo worker may exist, the system must prove that the authenticated Demo account, durable PostgreSQL state, network binding and exchange state agree.
 
 The preflight verifies:
 
-- authenticated access to `api-demo.bybit.com` through a GET-only account client;
+- authenticated access to exact host `api-demo.bybit.com` through a GET-only client;
 - the actual credential reports `readOnly=1` through authenticated `GET /v5/user/query-api`;
-- whether an IP binding exists, without publishing any bound IP values;
-- positive usable Demo account equity and account metadata without publishing exact balances;
-- positive available balance before a new-entry state can be considered ready;
-- current open linear USDT positions;
-- current open linear USDT orders through authenticated `GET /v5/order/realtime`;
-- presence of all required v119/v120 PostgreSQL relations;
-- presence of all three v120 append-only audit triggers;
-- absence of an already-held canonical runtime lease;
-- one-position maximum for the current canonical runtime;
+- the read-only key has at least one concrete IP binding;
+- every returned IP binding is a valid IPv4/IPv6 address and duplicate bindings are rejected;
+- no bound IP value is published in artifacts;
+- positive Demo account equity and positive available balance without publishing exact amounts;
+- current open linear USDT positions and orders;
+- required v119/v120 PostgreSQL relations and append-only audit triggers;
+- absence of an already-held canonical runtime lease for a clean new-entry state;
+- one-position maximum for the canonical runtime;
 - no pending open order when there is no exchange position;
-- exact agreement between an open exchange position and the durable active checkpoint symbol/side;
-- exact current quantity and average entry agreement with the durable checkpoint;
-- existence of an exchange execution carrying the checkpoint's exact deterministic `ASTRA-DEMO-*` entry `orderLinkId`, symbol, and side;
-- any open order accompanying an existing canonical position must be reduce-only, on the same symbol, and on the opposite side so it cannot increase exposure.
+- exact agreement between an open exchange position and the durable active checkpoint symbol/side/quantity/average entry;
+- existence of an exchange execution carrying the checkpoint's exact deterministic `ASTRA-DEMO-*` entry `orderLinkId`;
+- any open order accompanying an existing canonical position must be reduce-only, on the same symbol and opposite side.
 
-These checks prevent a stale pending entry, a manual or unrelated Demo position, or an unsafe same-side/non-reduce-only order from being mistaken for canonical managed state.
+These checks prevent a stale pending entry, a manual/unrelated Demo position, an unsafe same-side order, or an unbound credential from being mistaken for canonical ready state.
 
-It never imports or instantiates `BybitDemoOrderClient` and the account client exposes no `place_order` or `cancel_order` method. Credential capability, account state, pending orders, position state, and entry identity are verified through authenticated GET endpoints only.
+## Credential isolation and fixed egress
 
-## Credential isolation
+Use a **separate Bybit Demo read-only API key**. Do not reuse the future write-enabled Demo trading key.
 
-Create a **separate Bybit Demo read-only API key** for this gate. Do not reuse the future write-enabled Demo trading key. The preflight does not trust the secret name: it asks Bybit for the current key metadata and blocks unless the exchange returns `readOnly=1`.
-
-GitHub Secrets required by the manual workflow:
+Operational GitHub secrets:
 
 ```text
 BYBIT_DEMO_READONLY_API_KEY
@@ -41,67 +39,82 @@ BYBIT_DEMO_READONLY_API_SECRET
 BYBIT_DEMO_DATABASE_DSN
 ```
 
-`BYBIT_DEMO_DATABASE_DSN` must point to the PostgreSQL database where migrations v119 and v120 are already applied. The preflight performs only read transactions and does not migrate schemas.
+The operational workflow runs with:
 
-An IP binding is reported as a boolean operational signal but is not a hard gate for the GitHub-hosted runner because its outbound address is not assumed to be static. If a stable egress runner is introduced later, IP binding should become mandatory there.
+```text
+runs-on: [self-hosted, bybit-demo]
+environment: bybit-demo
+```
 
-A future write-enabled operator-approved worker must use a different credential namespace and a protected GitHub Environment. That later worker is not introduced by this gate.
+The runner must have stable outbound egress and the read-only key must be bound to an allowed concrete IP for that operational zone. A missing/wildcard-only binding produces `BLOCKED`; malformed or duplicate IP metadata is treated as a protocol/configuration failure.
+
+Pull-request qualification remains on GitHub-hosted runners and never receives operational secrets.
 
 ## Manual operation
 
-Run the GitHub Actions workflow:
+Run:
 
 ```text
 bybit-demo-connected-preflight
 ```
 
-It has `workflow_dispatch` only for connected operation. There is no schedule and no autonomous execution path.
+There is no schedule and no autonomous execution path.
 
-The operational step writes one sanitized artifact:
+The operational step writes:
 
 ```text
 artifacts/bybit-demo-connected-preflight.json
 ```
 
-The artifact intentionally excludes API keys, secrets, DSN, exact equity, exact available balance, wallet amounts, position quantities, entry prices, execution identifiers, open-order identities and quantities, and bound IP values. It retains only the minimum operational status, counts and symbols needed to diagnose readiness.
+The artifact excludes API keys, secrets, DSN, exact balances, position quantities, entry prices, execution/order identifiers and bound IP values. It retains only bounded status, counts, symbols and safety booleans.
 
 ## Status meanings
 
 ### `READY_FOR_MANUAL_OPERATOR_APPROVAL`
 
-The supplied credential is verified read-only, available balance is positive, the account has no open position and no pending open order, the durable active checkpoint is empty, the canonical runtime lease is free, and v119/v120 guards are present. This status means only that infrastructure is consistent enough to proceed to a separate manual operator-approval step. It does **not** make any market opportunity actionable.
+The credential is verified read-only **and IP-bound**, available balance is positive, there is no open position/order, the durable checkpoint is empty, the runtime lease is free, and required durable guards are present. This status means infrastructure is consistent enough to proceed through the later operator gates; it does not make a market opportunity actionable.
 
 ### `EXISTING_TRADE_MANAGEMENT_REQUIRED`
 
-The supplied credential is verified read-only. Exactly one open Demo position exists and its symbol, side, current quantity and average entry agree with the durable active checkpoint, and the checkpoint's deterministic entry `orderLinkId` is present in exchange execution history for the same trade identity. Any currently open order is constrained to reduce-only protection on the same symbol and opposite side. A future connected runtime may manage/reconcile that existing trade, but a new entry must not be started.
+Exactly one canonical Demo position exists and its exchange state matches the durable checkpoint and entry execution identity. Any open order is constrained to reduce-only protection. The trade may be managed/reconciled, but a new entry must not start.
+
+The operational fixed-egress wrapper still requires the read-only credential itself to be concretely IP-bound.
 
 ### `BLOCKED`
 
-At least one fail-closed condition exists, including:
+Fail-closed conditions include:
 
-- supplied Demo credential is not actually read-only;
-- v119/v120 schema missing;
-- append-only v120 triggers missing;
-- canonical runtime lease already present;
-- more than one open position;
-- no positive available balance for a clean new-entry state;
-- pending open order while no position exists;
-- exchange position without durable checkpoint;
-- durable checkpoint without exchange position;
-- checkpoint symbol mismatch;
-- checkpoint side mismatch;
-- checkpoint current quantity mismatch;
-- checkpoint average entry mismatch;
-- exact checkpoint entry execution not found on the exchange;
-- open order on a symbol outside the active canonical position;
-- non-reduce-only open order while a position exists;
-- open order on the same side as the position, which could increase exposure.
+- Demo credential is not actually read-only;
+- Demo read-only key has no concrete IP binding;
+- required PostgreSQL schema/triggers are missing;
+- canonical runtime lease is already present;
+- multiple positions exist;
+- available balance is not positive for a clean new-entry state;
+- open order exists without a position;
+- position/checkpoint state is missing or mismatched;
+- exact checkpoint entry execution is absent;
+- an open order can increase exposure or belongs to another symbol.
 
-A blocked preflight must be reconciled before any write-enabled Demo worker is introduced.
+A blocked preflight must be reconciled before ARM or a future write-enabled Demo worker may proceed.
+
+## ARM relationship
+
+The v121 operational control path invokes this same fixed-egress preflight in the ARM invocation. It then performs a second defense-in-depth check requiring:
+
+```text
+READY_FOR_MANUAL_OPERATOR_APPROVAL
+read_only_api_key_verified=true
+api_key_ip_binding_present=true
+reasons=[]
+order_writes_supported=false
+live_mainnet_order_routing_allowed=false
+```
+
+The operational `FixedEgressPostgresBybitDemoControlPlane` enforces that contract before durable ARM persistence.
 
 ## Safety boundary
 
-Every preflight output remains:
+Every preflight remains:
 
 ```text
 preflight_only=true
@@ -110,4 +123,4 @@ order_writes_supported=false
 live_mainnet_order_routing_allowed=false
 ```
 
-Mainnet connectivity is unaffected and remains in the separately qualified read-only boundary.
+Mainnet remains in its separate read-only boundary.
