@@ -98,9 +98,16 @@ class _AuthorizationStore:
     outcome_storage_allowed = False
     realized_pnl_storage_allowed = False
 
-    def __init__(self, events: list[str], *, fail: bool = False) -> None:
+    def __init__(
+        self,
+        events: list[str],
+        *,
+        fail: bool = False,
+        existing: bool = False,
+    ) -> None:
         self.events = events
         self.fail = fail
+        self.existing = existing
         self.persist_calls = 0
 
     def persist(self, authorization):
@@ -112,7 +119,7 @@ class _AuthorizationStore:
             entry_order_link_id=authorization.expected_entry_order_link_id,
             approval_id=authorization.approval_id,
             record_sha256="f" * 64,
-            idempotent_existing_record=False,
+            idempotent_existing_record=self.existing,
         )
 
 
@@ -243,6 +250,42 @@ def test_authorization_persistence_failure_prevents_bridge_call(monkeypatch) -> 
     assert bridge_calls == 0
     assert result.authorization_persisted is False
     assert result.authorization is None
+
+
+def test_existing_authorization_is_recovery_state_not_resubmit_permission(monkeypatch) -> None:
+    events: list[str] = []
+    store = _AuthorizationStore(events, existing=True)
+    bridge_calls = 0
+
+    def bridge(*args: Any, **kwargs: Any):
+        nonlocal bridge_calls
+        bridge_calls += 1
+        raise AssertionError("bridge must not be reached")
+
+    def canonical(*args: Any, **kwargs: Any):
+        try:
+            _invoke_entry(kwargs)
+        except ValueError as exc:
+            assert "reconcile before any resubmit" in str(exc)
+        return SimpleNamespace(live_mainnet_order_routing_allowed=False)
+
+    monkeypatch.setattr(
+        approved_runtime,
+        "execute_operator_approved_account_sized_bybit_demo_cycle",
+        bridge,
+    )
+    result = _call(
+        monkeypatch,
+        store=store,
+        canonical_runtime=canonical,
+    )
+
+    assert events == ["persist_authorization"]
+    assert bridge_calls == 0
+    assert result.authorization_persisted is True
+    assert result.authorization is not None
+    assert result.authorization_receipt is not None
+    assert result.authorization_receipt.idempotent_existing_record is True
 
 
 def test_active_trade_management_does_not_require_fresh_entry_approval(monkeypatch) -> None:
