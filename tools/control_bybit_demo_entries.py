@@ -9,11 +9,14 @@ from typing import Any
 
 from app.execution.bybit_demo_connected_preflight import (
     BybitDemoConnectedPreflightStatus,
-    BybitDemoPreflightAccountClient,
     PostgresBybitDemoOperationalStateReader,
-    run_bybit_demo_connected_preflight,
 )
 from app.execution.bybit_demo_control_plane import PostgresBybitDemoControlPlane
+from app.execution.bybit_demo_fixed_egress import (
+    BybitDemoFixedEgressPreflightAccountClient,
+    require_fixed_egress_ready_for_arm,
+    run_bybit_demo_fixed_egress_connected_preflight,
+)
 
 _ARM_CONFIRMATION = "ARM_BYBIT_DEMO_NEW_ENTRIES"
 _HALT_CONFIRMATION = "HALT_BYBIT_DEMO_NEW_ENTRIES"
@@ -50,6 +53,7 @@ def _base(*, mode: str, status: str, passed: bool) -> dict[str, Any]:
         "mode": mode,
         "status": status,
         "passed": passed,
+        "fixed_egress_required": True,
         "order_writes_supported": False,
         "live_mainnet_order_routing_allowed": False,
     }
@@ -101,8 +105,8 @@ def main() -> int:
             api_secret = os.environ.get("BYBIT_DEMO_READONLY_API_SECRET", "")
             if not api_key or not api_secret:
                 raise RuntimeError("Demo read-only credential configuration is unavailable")
-            preflight = run_bybit_demo_connected_preflight(
-                BybitDemoPreflightAccountClient(
+            preflight = run_bybit_demo_fixed_egress_connected_preflight(
+                BybitDemoFixedEgressPreflightAccountClient(
                     api_key=api_key,
                     api_secret=api_secret,
                 ),
@@ -124,6 +128,7 @@ def main() -> int:
                 }
                 exit_code = 2
             else:
+                require_fixed_egress_ready_for_arm(preflight)
                 receipt = plane.arm_new_entries(
                     preflight,
                     operator_id=args.operator_id,
