@@ -26,12 +26,14 @@ There is no schedule.
 The workflow performs, in order:
 
 ```text
-1. PostgreSQL v119-v121 verify only
+1. PostgreSQL v119-v122 verify only
 2. fixed-egress connected read-only Demo preflight
 3. GET-only dedicated Demo trading credential preflight
 4. v121 control status read
 5. fail-closed manifest assembly
 ```
+
+The PostgreSQL artifact remains `BYBIT_DEMO_POSTGRES_BOOTSTRAP_V2` for backward-compatible parsing, but `VERIFIED_READY` now requires the complete v119-v122 contract, including both v122 session-risk relations and all four anti-reset/append-only triggers.
 
 The first four steps each write their existing sanitized evidence artifact. The final assembler reads those files, validates their schemas and safety flags, hashes the exact bytes with SHA-256, binds the manifest to the checked-out Git commit, and emits one readiness artifact.
 
@@ -65,6 +67,8 @@ mode = verify
 status = VERIFIED_READY
 passed = true
 schema_mutation_performed = false
+v119-v122 relations = ready
+v119-v122 durability/append-only triggers = ready
 ```
 
 ### Connected preflight
@@ -115,16 +119,9 @@ The final artifact is:
 artifacts/bybit-demo-activation-readiness.json
 ```
 
-It contains:
+It contains exact Git commit SHA, SHA-256 of each source evidence file, bounded source statuses, final reasons/verdict, a SHA-256 over the canonical readiness manifest, and booleans proving ARM/order/mainnet actions were not performed or enabled.
 
-- exact Git commit SHA;
-- SHA-256 of each source evidence file;
-- bounded source statuses;
-- final reasons/verdict;
-- a SHA-256 over the canonical readiness manifest;
-- booleans proving ARM/order/mainnet actions were not performed or enabled.
-
-It does not embed the source evidence contents, API keys, secrets, IP addresses, DSN, exact balances, quantities, prices, order IDs or execution IDs.
+It does not embed source evidence contents, API keys, secrets, IP addresses, DSN, exact balances, quantities, prices, order IDs or execution IDs.
 
 A ready manifest remains explicitly:
 
@@ -137,25 +134,23 @@ order_writes_supported = false
 live_mainnet_order_routing_allowed = false
 ```
 
-## Why HALTED is required
-
-A pre-activation checkpoint should prove that all dependencies are healthy **before** opening the short-lived permission window. Treating an already-ARMED control plane as infrastructure readiness would make stale or accidentally persistent activation harder to distinguish from intentional activation.
-
-The intended sequence is:
+## Intended activation sequence
 
 ```text
-activation readiness PASS while HALTED
+v119-v122 activation readiness PASS while HALTED
+-> explicit v122 session-risk initialization if no durable ledger exists
+-> thereafter always load/resume v122 ledger on restart
 -> operator selects/revalidates exact candidate
 -> exact short-lived trade approval
 -> explicit short-lived ARM (which reruns connected preflight)
 -> future protected Demo execution worker
 ```
 
-The order of the last two explicit gates may be coordinated tightly because both are short-lived, but neither can be produced by the readiness workflow itself.
+The future session initialization gate must be flat/HALTED and read current opening equity from authenticated Demo account state. It must never silently recreate a missing ledger during normal worker startup.
 
 ## Qualification versus real readiness
 
-Pull-request qualification proves only the manifest logic with synthetic sanitized evidence.
+Pull-request qualification proves only code, PostgreSQL lifecycle, and manifest logic using isolated/synthetic evidence.
 
 A real `READY_FOR_EXPLICIT_ACTIVATION_GATES` requires a manual run on the protected self-hosted Demo runner with configured operational database, network and credentials.
 
