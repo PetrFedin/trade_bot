@@ -4,6 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
@@ -47,6 +48,10 @@ _REQUIRED_V122_TRIGGERS = (
     "astra_bybit_demo_session_risk_no_truncate_v122",
     "astra_bybit_demo_session_outcome_append_only_v122",
     "astra_bybit_demo_session_outcome_no_truncate_v122",
+)
+_REQUIRED_V123_TRIGGERS = (
+    "astra_bybit_demo_session_start_append_only_v123",
+    "astra_bybit_demo_session_start_no_truncate_v123",
 )
 
 
@@ -105,13 +110,25 @@ class BybitDemoSessionStartResult:
         }
 
 
-class PostgresBybitDemoSessionStartCoordinator:
-    """One-time fixed-egress initializer for the durable v122 Demo risk session.
+@dataclass(frozen=True)
+class _SessionMetadata:
+    opening_equity_usdt: Decimal
+    ledger_revision_sha256: str
+    outcome_count: int
+    created_at: datetime
 
-    Normal worker startup must only read/resume v122. This coordinator is the only operational
-    boundary that may create the singleton session row, and it does so while the exchange is flat,
-    v121 is HALTED, and v119 runtime/checkpoint tables are locked against concurrent activation.
-    """
+
+@dataclass(frozen=True)
+class _SessionStartAudit:
+    session_start_id: str
+    git_sha: str
+    preflight_record_sha256: str
+    initial_ledger_revision_sha256: str
+    started_at: datetime
+
+
+class PostgresBybitDemoSessionStartCoordinator:
+    """One-time fixed-egress initializer for durable v122 risk + v123 provenance."""
 
     fixed_egress_required = True
     live_mainnet_order_routing_allowed = False
@@ -139,12 +156,36 @@ class PostgresBybitDemoSessionStartCoordinator:
                 outcome_count=0,
                 opening_equity_positive=False,
             )
-        opening_equity, revision, outcome_count = metadata
         checkpoint = PostgresBybitDemoSessionRiskLedgerStore(self._dsn).load(
-            expected_opening_equity_usdt=opening_equity
+            expected_opening_equity_usdt=metadata.opening_equity_usdt
         )
-        if checkpoint.revision != revision or len(checkpoint.ledger.outcomes) != outcome_count:
-            return _blocked("DEMO_SESSION_LEDGER_VERIFICATION_FAILED")
+        if (
+            checkpoint.revision != metadata.ledger_revision_sha256
+            or len(checkpoint.ledger.outcomes) != metadata.outcome_count
+        ):
+            return _blocked_existing(
+                "DEMO_SESSION_LEDGER_VERIFICATION_FAILED",
+                metadata=metadata,
+            )
+        audit = self._read_start_audit()
+        if audit is None:
+            return _blocked_existing(
+                "DEMO_SESSION_START_AUDIT_MISSING",
+                metadata=metadata,
+            )
+        if audit.started_at != metadata.created_at:
+            return _blocked_existing(
+                "DEMO_SESSION_START_AUDIT_TIME_MISMATCH",
+                metadata=metadata,
+            )
+        if (
+            metadata.outcome_count == 0
+            and audit.initial_ledger_revision_sha256 != checkpoint.revision
+        ):
+            return _blocked_existing(
+                "DEMO_SESSION_START_AUDIT_REVISION_MISMATCH",
+                metadata=metadata,
+            )
         return BybitDemoSessionStartResult(
             status=BybitDemoSessionStartStatus.INITIALIZED,
             reasons=(),
@@ -153,6 +194,9 @@ class PostgresBybitDemoSessionStartCoordinator:
             ledger_revision_sha256=checkpoint.revision,
             outcome_count=len(checkpoint.ledger.outcomes),
             opening_equity_positive=True,
+            preflight_record_sha256=audit.preflight_record_sha256,
+            git_sha=audit.git_sha,
+            session_start_id=audit.session_start_id,
         )
 
     def initialize(
@@ -167,7 +211,7 @@ class PostgresBybitDemoSessionStartCoordinator:
     ) -> BybitDemoSessionStartResult:
         if confirmation_phrase != _CONFIRMATION_PHRASE:
             raise ValueError("Bybit Demo session-start confirmation phrase is invalid")
-        _validate_operator_text(operator_id, reason)
+        normalized_operator, normalized_reason = _validate_operator_text(operator_id, reason)
         validated_git_sha = _validate_git_sha(git_sha)
         observed_at = _aware_utc(datetime.now(UTC) if now is None else now)
         _validate_account_client(account_client)
@@ -200,8 +244,8 @@ class PostgresBybitDemoSessionStartCoordinator:
                             git_sha=validated_git_sha,
                         )
                     _lock_activation_tables(cursor)
-                    _require_v122_triggers(cursor)
-                    if _count(cursor, "astra_bybit_demo_runtime_lease_v119"):
+                    _require_session_start_triggers(cursor)
+                    if _count_runtime_leases(cursor):
                         return _blocked(
                             "DEMO_SESSION_RUNTIME_LEASE_PRESENT",
                             git_sha=validated_git_sha,
@@ -211,7 +255,7 @@ class PostgresBybitDemoSessionStartCoordinator:
                             "DEMO_SESSION_ACTIVE_CHECKPOINT_PRESENT",
                             git_sha=validated_git_sha,
                         )
-                    if _count(cursor, "astra_bybit_demo_session_risk_v122"):
+                    if _session_count(cursor):
                         current = self.read_status()
                         return _existing_session_block(
                             current,
@@ -260,7 +304,19 @@ class PostgresBybitDemoSessionStartCoordinator:
                     ledger = start_bybit_demo_session_risk_ledger(
                         opening_equity_usdt=wallet.total_equity_usd
                     )
-                    canonical, revision = _encode_checkpoint(ledger)
+                    canonical_checkpoint, revision = _encode_checkpoint(ledger)
+                    preflight_sha = _sha256_json(preflight.to_payload())
+                    audit_canonical = _session_start_canonical_record(
+                        operator_id=normalized_operator,
+                        reason=normalized_reason,
+                        git_sha=validated_git_sha,
+                        preflight_record_sha256=preflight_sha,
+                        initial_ledger_revision_sha256=revision,
+                        started_at=observed_at,
+                    )
+                    session_start_id = hashlib.sha256(
+                        audit_canonical.encode("utf-8")
+                    ).hexdigest()
                     cursor.execute(
                         """INSERT INTO astra_bybit_demo_session_risk_v122(
                                session_name,
@@ -283,42 +339,54 @@ class PostgresBybitDemoSessionStartCoordinator:
                             ledger.opening_equity_usdt,
                             ledger.effective_peak_equity_usdt,
                             revision,
-                            canonical,
+                            canonical_checkpoint,
+                            observed_at,
+                            observed_at,
+                        ),
+                    )
+                    cursor.execute(
+                        """INSERT INTO astra_bybit_demo_session_start_event_v123(
+                               session_start_id,
+                               session_name,
+                               operator_id,
+                               reason,
+                               git_sha,
+                               preflight_record_sha256,
+                               initial_ledger_revision_sha256,
+                               canonical_record,
+                               immutable_record,
+                               fixed_egress_required,
+                               order_write_performed,
+                               order_writes_supported,
+                               live_mainnet_order_routing_allowed,
+                               started_at,
+                               created_at
+                           ) VALUES (
+                               %s, %s, %s, %s, %s, %s, %s, %s,
+                               true, true, false, false, false, %s, %s
+                           )""",
+                        (
+                            session_start_id,
+                            _SESSION_NAME,
+                            normalized_operator,
+                            normalized_reason,
+                            validated_git_sha,
+                            preflight_sha,
+                            revision,
+                            audit_canonical,
                             observed_at,
                             observed_at,
                         ),
                     )
 
-        checkpoint = PostgresBybitDemoSessionRiskLedgerStore(self._dsn).load(
-            expected_opening_equity_usdt=wallet.total_equity_usd
-        )
-        if checkpoint.revision != revision or checkpoint.ledger.outcomes:
+        verified = self.read_status()
+        if verified.status is not BybitDemoSessionStartStatus.INITIALIZED:
             raise RuntimeError("Bybit Demo session-start persistence verification failed")
-        preflight_sha = _sha256_json(preflight.to_payload())
-        session_start_id = _sha256_json(
-            {
-                "git_sha": validated_git_sha,
-                "ledger_revision_sha256": revision,
-                "operator_id": operator_id.strip(),
-                "preflight_record_sha256": preflight_sha,
-                "reason": reason.strip(),
-                "started_at": observed_at.isoformat(),
-            }
-        )
-        return BybitDemoSessionStartResult(
-            status=BybitDemoSessionStartStatus.INITIALIZED_NOW,
-            reasons=(),
-            session_initialized=True,
-            worker_session_ready=True,
-            ledger_revision_sha256=revision,
-            outcome_count=0,
-            opening_equity_positive=True,
-            preflight_record_sha256=preflight_sha,
-            git_sha=validated_git_sha,
-            session_start_id=session_start_id,
-        )
+        if verified.session_start_id != session_start_id:
+            raise RuntimeError("Bybit Demo session-start audit identity mismatch")
+        return replace(verified, status=BybitDemoSessionStartStatus.INITIALIZED_NOW)
 
-    def _read_metadata(self) -> tuple[Any, str, int] | None:
+    def _read_metadata(self) -> _SessionMetadata | None:
         if psycopg is None or dict_row is None:
             raise RuntimeError("PostgreSQL dependency is unavailable")
         with psycopg.connect(
@@ -330,7 +398,10 @@ class PostgresBybitDemoSessionStartCoordinator:
                 with connection.cursor() as cursor:
                     cursor.execute("SET TRANSACTION READ ONLY")
                     cursor.execute(
-                        """SELECT opening_equity_usdt, ledger_revision, outcome_count
+                        """SELECT opening_equity_usdt,
+                                  ledger_revision,
+                                  outcome_count,
+                                  created_at
                            FROM astra_bybit_demo_session_risk_v122
                            WHERE session_name=%s""",
                         (_SESSION_NAME,),
@@ -340,9 +411,60 @@ class PostgresBybitDemoSessionStartCoordinator:
             return None
         revision = row["ledger_revision"]
         outcome_count = int(row["outcome_count"])
+        created_at = _aware_utc(row["created_at"])
         if not _is_sha256(revision) or outcome_count < 0:
             raise ValueError("Bybit Demo session-start metadata is invalid")
-        return row["opening_equity_usdt"], revision, outcome_count
+        opening_equity = row["opening_equity_usdt"]
+        if not isinstance(opening_equity, Decimal) or opening_equity <= 0:
+            raise ValueError("Bybit Demo session-start opening equity metadata is invalid")
+        return _SessionMetadata(
+            opening_equity_usdt=opening_equity,
+            ledger_revision_sha256=revision,
+            outcome_count=outcome_count,
+            created_at=created_at,
+        )
+
+    def _read_start_audit(self) -> _SessionStartAudit | None:
+        if psycopg is None or dict_row is None:
+            raise RuntimeError("PostgreSQL dependency is unavailable")
+        with psycopg.connect(
+            self._dsn,
+            row_factory=dict_row,
+            autocommit=False,
+        ) as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute("SET TRANSACTION READ ONLY")
+                    cursor.execute(
+                        """SELECT session_start_id,
+                                  session_name,
+                                  operator_id,
+                                  reason,
+                                  git_sha,
+                                  preflight_record_sha256,
+                                  initial_ledger_revision_sha256,
+                                  canonical_record,
+                                  immutable_record,
+                                  fixed_egress_required,
+                                  order_write_performed,
+                                  order_writes_supported,
+                                  live_mainnet_order_routing_allowed,
+                                  started_at
+                           FROM astra_bybit_demo_session_start_event_v123
+                           WHERE session_name=%s""",
+                        (_SESSION_NAME,),
+                    )
+                    row = cursor.fetchone()
+        if row is None:
+            return None
+        _validate_audit_row(row)
+        return _SessionStartAudit(
+            session_start_id=row["session_start_id"],
+            git_sha=row["git_sha"],
+            preflight_record_sha256=row["preflight_record_sha256"],
+            initial_ledger_revision_sha256=row["initial_ledger_revision_sha256"],
+            started_at=_aware_utc(row["started_at"]),
+        )
 
 
 def _lock_activation_tables(cursor: Any) -> None:
@@ -352,27 +474,32 @@ def _lock_activation_tables(cursor: Any) -> None:
     cursor.execute(
         "LOCK TABLE astra_bybit_demo_session_risk_v122 IN SHARE ROW EXCLUSIVE MODE"
     )
+    cursor.execute(
+        "LOCK TABLE astra_bybit_demo_session_start_event_v123 IN SHARE ROW EXCLUSIVE MODE"
+    )
 
 
-def _require_v122_triggers(cursor: Any) -> None:
+def _require_session_start_triggers(cursor: Any) -> None:
+    required = _REQUIRED_V122_TRIGGERS + _REQUIRED_V123_TRIGGERS
     cursor.execute(
         """SELECT count(*) AS count
            FROM pg_trigger
            WHERE NOT tgisinternal AND tgname = ANY(%s)""",
-        (list(_REQUIRED_V122_TRIGGERS),),
+        (list(required),),
     )
     row = cursor.fetchone()
-    if row is None or int(row["count"]) != len(_REQUIRED_V122_TRIGGERS):
-        raise RuntimeError("Bybit Demo session-start v122 trigger contract is not ready")
+    if row is None or int(row["count"]) != len(required):
+        raise RuntimeError("Bybit Demo session-start trigger contract is not ready")
 
 
-def _count(cursor: Any, relation: str) -> int:
-    if relation == "astra_bybit_demo_runtime_lease_v119":
-        cursor.execute("SELECT count(*) AS count FROM astra_bybit_demo_runtime_lease_v119")
-    elif relation == "astra_bybit_demo_session_risk_v122":
-        cursor.execute("SELECT count(*) AS count FROM astra_bybit_demo_session_risk_v122")
-    else:  # pragma: no cover - internal programming guard
-        raise ValueError("unsupported Demo session-start relation")
+def _count_runtime_leases(cursor: Any) -> int:
+    cursor.execute("SELECT count(*) AS count FROM astra_bybit_demo_runtime_lease_v119")
+    row = cursor.fetchone()
+    return 0 if row is None else int(row["count"])
+
+
+def _session_count(cursor: Any) -> int:
+    cursor.execute("SELECT count(*) AS count FROM astra_bybit_demo_session_risk_v122")
     row = cursor.fetchone()
     return 0 if row is None else int(row["count"])
 
@@ -387,6 +514,71 @@ def _active_checkpoint_count(cursor: Any) -> int:
     return 0 if row is None else int(row["count"])
 
 
+def _validate_audit_row(row: Any) -> None:
+    for field in (
+        "session_start_id",
+        "preflight_record_sha256",
+        "initial_ledger_revision_sha256",
+    ):
+        if not _is_sha256(row[field]):
+            raise ValueError("Bybit Demo session-start audit checksum metadata is invalid")
+    _validate_git_sha(row["git_sha"])
+    operator_id, reason = _validate_operator_text(row["operator_id"], row["reason"])
+    if row["session_name"] != _SESSION_NAME:
+        raise ValueError("Bybit Demo session-start audit session identity is invalid")
+    if row["immutable_record"] is not True or row["fixed_egress_required"] is not True:
+        raise ValueError("Bybit Demo session-start audit safety markers are invalid")
+    if row["order_write_performed"] is not False or row["order_writes_supported"] is not False:
+        raise ValueError("Bybit Demo session-start audit cannot contain order writes")
+    if row["live_mainnet_order_routing_allowed"] is not False:
+        raise ValueError("Bybit Demo session-start audit cannot permit mainnet routing")
+    started_at = _aware_utc(row["started_at"])
+    canonical = _session_start_canonical_record(
+        operator_id=operator_id,
+        reason=reason,
+        git_sha=row["git_sha"],
+        preflight_record_sha256=row["preflight_record_sha256"],
+        initial_ledger_revision_sha256=row["initial_ledger_revision_sha256"],
+        started_at=started_at,
+    )
+    if row["canonical_record"] != canonical:
+        raise ValueError("Bybit Demo session-start audit canonical record mismatch")
+    calculated = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    if calculated != row["session_start_id"]:
+        raise ValueError("Bybit Demo session-start audit SHA-256 mismatch")
+
+
+def _session_start_canonical_record(
+    *,
+    operator_id: str,
+    reason: str,
+    git_sha: str,
+    preflight_record_sha256: str,
+    initial_ledger_revision_sha256: str,
+    started_at: datetime,
+) -> str:
+    payload = {
+        "schema": "BYBIT_DEMO_SESSION_START_AUDIT_V1",
+        "session_name": _SESSION_NAME,
+        "operator_id": operator_id,
+        "reason": reason,
+        "git_sha": git_sha,
+        "preflight_record_sha256": preflight_record_sha256,
+        "initial_ledger_revision_sha256": initial_ledger_revision_sha256,
+        "fixed_egress_required": True,
+        "order_write_performed": False,
+        "order_writes_supported": False,
+        "live_mainnet_order_routing_allowed": False,
+        "started_at": _aware_utc(started_at).isoformat(),
+    }
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+
+
 def _existing_session_block(
     current: BybitDemoSessionStartResult,
     *,
@@ -399,6 +591,22 @@ def _existing_session_block(
         status=BybitDemoSessionStartStatus.BLOCKED,
         reasons=("DEMO_SESSION_ALREADY_INITIALIZED",),
         git_sha=git_sha,
+    )
+
+
+def _blocked_existing(
+    reason: str,
+    *,
+    metadata: _SessionMetadata,
+) -> BybitDemoSessionStartResult:
+    return BybitDemoSessionStartResult(
+        status=BybitDemoSessionStartStatus.BLOCKED,
+        reasons=(reason,),
+        session_initialized=True,
+        worker_session_ready=False,
+        ledger_revision_sha256=metadata.ledger_revision_sha256,
+        outcome_count=metadata.outcome_count,
+        opening_equity_positive=True,
     )
 
 
@@ -429,11 +637,14 @@ def _validate_account_client(client: Any) -> None:
             raise ValueError("Bybit Demo session-start account client exposes mutation method")
 
 
-def _validate_operator_text(operator_id: str, reason: str) -> None:
-    if not operator_id.strip() or len(operator_id.strip()) > 128:
+def _validate_operator_text(operator_id: str, reason: str) -> tuple[str, str]:
+    normalized_operator = operator_id.strip()
+    normalized_reason = reason.strip()
+    if not normalized_operator or len(normalized_operator) > 128:
         raise ValueError("Bybit Demo session-start operator_id is invalid")
-    if not reason.strip() or len(reason.strip()) > 1000:
+    if not normalized_reason or len(normalized_reason) > 1000:
         raise ValueError("Bybit Demo session-start reason is invalid")
+    return normalized_operator, normalized_reason
 
 
 def _validate_git_sha(value: str) -> str:
