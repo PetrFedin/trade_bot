@@ -36,7 +36,7 @@ def _write(path: str, payload: dict[str, Any]) -> None:
 
 def _failure(error_type: str, *, mode: str) -> dict[str, Any]:
     return {
-        "schema": "BYBIT_DEMO_POSTGRES_BOOTSTRAP_V3",
+        "schema": "BYBIT_DEMO_POSTGRES_BOOTSTRAP_V2",
         "status": "BOOTSTRAP_FAILED",
         "passed": False,
         "mode": mode,
