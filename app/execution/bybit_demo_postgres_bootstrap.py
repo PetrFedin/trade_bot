@@ -71,7 +71,7 @@ class BybitDemoPostgresBootstrapResult:
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "schema": "BYBIT_DEMO_POSTGRES_BOOTSTRAP_V3",
+            "schema": "BYBIT_DEMO_POSTGRES_BOOTSTRAP_V2",
             "status": self.status.value,
             "passed": self.passed,
             "schema_mutation_performed": self.schema_mutation_performed,
@@ -99,16 +99,8 @@ def verify_bybit_demo_postgres_schema(dsn: str) -> BybitDemoPostgresBootstrapRes
     state = PostgresBybitDemoOperationalStateReader(dsn).read_state()
     control_relation, control_trigger = _verify_control_schema(dsn)
     risk_relations, risk_triggers = _verify_session_risk_schema(dsn)
-    relations_ready = (
-        state.required_relations_present
-        and control_relation
-        and risk_relations
-    )
-    triggers_ready = (
-        state.append_only_triggers_present
-        and control_trigger
-        and risk_triggers
-    )
+    relations_ready = state.required_relations_present and control_relation and risk_relations
+    triggers_ready = state.append_only_triggers_present and control_trigger and risk_triggers
     ready = relations_ready and triggers_ready
     return BybitDemoPostgresBootstrapResult(
         status=(
@@ -218,9 +210,8 @@ def _verify_session_risk_schema(dsn: str) -> tuple[bool, bool]:
                     (list(_SESSION_RISK_TRIGGERS),),
                 )
                 trigger = cursor.fetchone()
-                trigger_ready = (
-                    trigger is not None
-                    and int(trigger[0]) == len(_SESSION_RISK_TRIGGERS)
+                trigger_ready = trigger is not None and int(trigger[0]) == len(
+                    _SESSION_RISK_TRIGGERS
                 )
                 return True, trigger_ready
 
