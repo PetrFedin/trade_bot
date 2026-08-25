@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
 
 import pytest
 
@@ -248,7 +248,8 @@ def test_session_start_is_one_time_flat_halted_and_restart_safe() -> None:
     assert initialized.order_write_performed is False
     assert clean.calls.count("wallet") >= 2
     assert clean.calls[-2:] == ["positions", "orders"]
-    assert "1234.56" not in json_like(initialized.to_payload())
+    serialized = json.dumps(initialized.to_payload(), sort_keys=True)
+    assert "1234.56" not in serialized
 
     restarted = PostgresBybitDemoSessionStartCoordinator(_DSN)
     resumed = restarted.read_status()
@@ -267,17 +268,16 @@ def test_session_start_is_one_time_flat_halted_and_restart_safe() -> None:
     )
     assert second.status is BybitDemoSessionStartStatus.BLOCKED
     assert second.reasons == ("DEMO_SESSION_ALREADY_INITIALIZED",)
+    assert second.session_initialized is True
+    assert second.worker_session_ready is True
+    assert second.ledger_revision_sha256 == initialized.ledger_revision_sha256
 
-    with psycopg.connect(_DSN, row_factory=psycopg.rows.dict_row) as connection:
+    with psycopg.connect(_DSN) as connection:
         row = connection.execute(
             """SELECT opening_equity_usdt, outcome_count
                FROM astra_bybit_demo_session_risk_v122
                WHERE session_name='ACTIVE'"""
         ).fetchone()
     assert row is not None
-    assert row["opening_equity_usdt"] == Decimal("1234.56")
-    assert int(row["outcome_count"]) == 0
-
-
-def json_like(value: Any) -> str:
-    return str(value)
+    assert row[0] == Decimal("1234.56")
+    assert int(row[1]) == 0
