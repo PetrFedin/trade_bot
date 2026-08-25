@@ -135,7 +135,7 @@ def test_postgres_session_risk_survives_restart_and_rejects_history_reset() -> N
         "ASTRA-DEMO-E-LOSS-001",
         created=100,
         updated=150,
-        pnl="1000",
+        pnl="-4",
     )
     mutated_history = BybitDemoSessionRiskLedger(
         opening_equity_usdt=Decimal("1000"),
