@@ -24,12 +24,13 @@ def test_bootstrap_verify_apply_idempotency_and_locking() -> None:
     assert before.status is BybitDemoPostgresBootstrapStatus.SCHEMA_NOT_READY
     assert before.passed is False
     assert before.schema_mutation_performed is False
-    assert len(before.migration_fingerprints) == 4
+    assert len(before.migration_fingerprints) == 5
     assert [item.version for item in before.migration_fingerprints] == [
         "v119",
         "v120",
         "v121",
         "v122",
+        "v123",
     ]
     assert all(len(item.sha256) == 64 for item in before.migration_fingerprints)
 
@@ -41,7 +42,7 @@ def test_bootstrap_verify_apply_idempotency_and_locking() -> None:
 
     applied = apply_bybit_demo_postgres_bootstrap(
         _DSN,
-        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V122",
+        confirmation_phrase="APPLY_BYBIT_DEMO_DURABLE_SCHEMA",
     )
     assert applied.status is BybitDemoPostgresBootstrapStatus.APPLIED_AND_VERIFIED
     assert applied.passed is True
@@ -60,7 +61,7 @@ def test_bootstrap_verify_apply_idempotency_and_locking() -> None:
 
     second = apply_bybit_demo_postgres_bootstrap(
         _DSN,
-        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V122",
+        confirmation_phrase="APPLY_BYBIT_DEMO_DURABLE_SCHEMA",
     )
     assert second.status is BybitDemoPostgresBootstrapStatus.APPLIED_AND_VERIFIED
     assert second.migration_fingerprints == applied.migration_fingerprints
@@ -68,16 +69,16 @@ def test_bootstrap_verify_apply_idempotency_and_locking() -> None:
     with psycopg.connect(_DSN, autocommit=True) as lock_connection:
         locked = lock_connection.execute(
             "SELECT pg_try_advisory_lock(%s)",
-            (119122,),
+            (119999,),
         ).fetchone()
         assert locked is not None and locked[0] is True
         with pytest.raises(RuntimeError, match="advisory lock is busy"):
             apply_bybit_demo_postgres_bootstrap(
                 _DSN,
-                confirmation_phrase="APPLY_BYBIT_DEMO_V119_V122",
+                confirmation_phrase="APPLY_BYBIT_DEMO_DURABLE_SCHEMA",
             )
         released = lock_connection.execute(
             "SELECT pg_advisory_unlock(%s)",
-            (119122,),
+            (119999,),
         ).fetchone()
         assert released is not None and released[0] is True
