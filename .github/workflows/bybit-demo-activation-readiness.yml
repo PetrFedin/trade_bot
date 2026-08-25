@@ -4,17 +4,27 @@ on:
   pull_request:
     paths:
       - 'app/execution/bybit_demo_activation_readiness.py'
+      - 'app/execution/bybit_demo_postgres_bootstrap.py'
+      - 'app/execution/bybit_demo_postgres_session_risk_store.py'
+      - 'migrations/v122/**'
       - 'tools/assemble_bybit_demo_activation_readiness.py'
       - 'tests/test_bybit_demo_activation_readiness.py'
+      - 'tests/test_bybit_demo_postgres_session_risk_store.py'
       - 'docs/BYBIT_DEMO_ACTIVATION_READINESS.md'
+      - 'docs/BYBIT_DEMO_POSTGRES_SESSION_RISK.md'
       - '.github/workflows/bybit-demo-activation-readiness.yml'
   push:
     branches: [main]
     paths:
       - 'app/execution/bybit_demo_activation_readiness.py'
+      - 'app/execution/bybit_demo_postgres_bootstrap.py'
+      - 'app/execution/bybit_demo_postgres_session_risk_store.py'
+      - 'migrations/v122/**'
       - 'tools/assemble_bybit_demo_activation_readiness.py'
       - 'tests/test_bybit_demo_activation_readiness.py'
+      - 'tests/test_bybit_demo_postgres_session_risk_store.py'
       - 'docs/BYBIT_DEMO_ACTIVATION_READINESS.md'
+      - 'docs/BYBIT_DEMO_POSTGRES_SESSION_RISK.md'
       - '.github/workflows/bybit-demo-activation-readiness.yml'
   workflow_dispatch:
 
@@ -77,7 +87,7 @@ jobs:
           python -m pip check
           mkdir -p artifacts
 
-      - name: Verify PostgreSQL v119-v121 without DDL
+      - name: Verify PostgreSQL v119-v122 without DDL
         continue-on-error: true
         env:
           BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
