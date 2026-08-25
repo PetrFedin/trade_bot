@@ -56,7 +56,7 @@ def _clean_preflight() -> BybitDemoConnectedPreflightResult:
 def test_control_plane_default_arm_halt_expiry_and_append_only() -> None:
     applied = apply_bybit_demo_postgres_bootstrap(
         _DSN,
-        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V121",
+        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V122",
     )
     assert applied.passed is True
 
@@ -125,7 +125,7 @@ def test_control_plane_default_arm_halt_expiry_and_append_only() -> None:
 def test_arm_fails_when_runtime_lease_exists() -> None:
     apply_bybit_demo_postgres_bootstrap(
         _DSN,
-        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V121",
+        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V122",
     )
     plane = PostgresBybitDemoControlPlane(_DSN)
     with psycopg.connect(_DSN, autocommit=True) as connection:
