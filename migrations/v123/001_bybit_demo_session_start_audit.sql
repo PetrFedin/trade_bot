@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS astra_bybit_demo_session_start_event_v123 (
     created_at timestamptz NOT NULL DEFAULT now(),
     CHECK (created_at >= started_at),
     CHECK (
-        canonical_record::jsonb ->> 'session_name' = session_name
+        canonical_record::jsonb ->> 'schema' = 'BYBIT_DEMO_SESSION_START_AUDIT_V1'
+        AND canonical_record::jsonb ->> 'session_name' = session_name
         AND canonical_record::jsonb ->> 'operator_id' = operator_id
         AND canonical_record::jsonb ->> 'reason' = reason
         AND canonical_record::jsonb ->> 'git_sha' = git_sha
