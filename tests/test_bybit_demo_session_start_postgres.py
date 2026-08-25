@@ -136,10 +136,10 @@ def _position() -> BybitDemoReadOnlyOpenPosition:
     )
 
 
-def test_session_start_is_one_time_flat_halted_and_restart_safe() -> None:
+def test_session_start_is_one_time_flat_halted_restart_safe_and_audited() -> None:
     applied = apply_bybit_demo_postgres_bootstrap(
         _DSN,
-        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V122",
+        confirmation_phrase="APPLY_BYBIT_DEMO_DURABLE_SCHEMA",
     )
     assert applied.passed is True
 
@@ -250,12 +250,17 @@ def test_session_start_is_one_time_flat_halted_and_restart_safe() -> None:
     assert clean.calls[-2:] == ["positions", "orders"]
     serialized = json.dumps(initialized.to_payload(), sort_keys=True)
     assert "1234.56" not in serialized
+    assert "operator-a" not in serialized
+    assert "start durable Demo risk session" not in serialized
 
     restarted = PostgresBybitDemoSessionStartCoordinator(_DSN)
     resumed = restarted.read_status()
     assert resumed.status is BybitDemoSessionStartStatus.INITIALIZED
     assert resumed.worker_session_ready is True
     assert resumed.ledger_revision_sha256 == initialized.ledger_revision_sha256
+    assert resumed.session_start_id == initialized.session_start_id
+    assert resumed.preflight_record_sha256 == initialized.preflight_record_sha256
+    assert resumed.git_sha == _GIT_SHA
     assert resumed.outcome_count == 0
 
     second = restarted.initialize(
@@ -271,13 +276,56 @@ def test_session_start_is_one_time_flat_halted_and_restart_safe() -> None:
     assert second.session_initialized is True
     assert second.worker_session_ready is True
     assert second.ledger_revision_sha256 == initialized.ledger_revision_sha256
+    assert second.session_start_id == initialized.session_start_id
+    assert second.preflight_record_sha256 == initialized.preflight_record_sha256
+    assert second.git_sha == _GIT_SHA
 
     with psycopg.connect(_DSN) as connection:
-        row = connection.execute(
-            """SELECT opening_equity_usdt, outcome_count
+        ledger_row = connection.execute(
+            """SELECT opening_equity_usdt, outcome_count, created_at
                FROM astra_bybit_demo_session_risk_v122
                WHERE session_name='ACTIVE'"""
         ).fetchone()
-    assert row is not None
-    assert row[0] == Decimal("1234.56")
-    assert int(row[1]) == 0
+        audit_row = connection.execute(
+            """SELECT session_start_id,
+                      operator_id,
+                      reason,
+                      git_sha,
+                      preflight_record_sha256,
+                      initial_ledger_revision_sha256,
+                      started_at
+               FROM astra_bybit_demo_session_start_event_v123
+               WHERE session_name='ACTIVE'"""
+        ).fetchone()
+    assert ledger_row is not None
+    assert audit_row is not None
+    assert ledger_row[0] == Decimal("1234.56")
+    assert int(ledger_row[1]) == 0
+    assert audit_row[0] == initialized.session_start_id
+    assert audit_row[1] == "operator-a"
+    assert audit_row[2] == "start durable Demo risk session"
+    assert audit_row[3] == _GIT_SHA
+    assert audit_row[4] == initialized.preflight_record_sha256
+    assert audit_row[5] == initialized.ledger_revision_sha256
+    assert audit_row[6] == ledger_row[2]
+
+    with psycopg.connect(_DSN, autocommit=True) as connection:
+        with pytest.raises(psycopg.Error):
+            connection.execute(
+                """UPDATE astra_bybit_demo_session_start_event_v123
+                   SET reason='tampered'
+                   WHERE session_name='ACTIVE'"""
+            )
+        with pytest.raises(psycopg.Error):
+            connection.execute(
+                "DELETE FROM astra_bybit_demo_session_start_event_v123"
+            )
+        with pytest.raises(psycopg.Error):
+            connection.execute(
+                "TRUNCATE astra_bybit_demo_session_start_event_v123"
+            )
+
+    final = restarted.read_status()
+    assert final.status is BybitDemoSessionStartStatus.INITIALIZED
+    assert final.worker_session_ready is True
+    assert final.session_start_id == initialized.session_start_id
