@@ -4,30 +4,38 @@ on:
   pull_request:
     paths:
       - 'app/execution/bybit_demo_postgres_bootstrap.py'
+      - 'app/execution/bybit_demo_postgres_session_risk_store.py'
       - 'tools/bootstrap_bybit_demo_postgres.py'
       - 'migrations/v119/**'
       - 'migrations/v120/**'
       - 'migrations/v121/**'
+      - 'migrations/v122/**'
       - 'tests/test_bybit_demo_postgres_bootstrap.py'
+      - 'tests/test_bybit_demo_postgres_session_risk_store.py'
       - 'docs/BYBIT_DEMO_POSTGRES_BOOTSTRAP.md'
+      - 'docs/BYBIT_DEMO_POSTGRES_SESSION_RISK.md'
       - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE.md'
       - '.github/workflows/bybit-demo-postgres-bootstrap.yml'
   push:
     branches: [main]
     paths:
       - 'app/execution/bybit_demo_postgres_bootstrap.py'
+      - 'app/execution/bybit_demo_postgres_session_risk_store.py'
       - 'tools/bootstrap_bybit_demo_postgres.py'
       - 'migrations/v119/**'
       - 'migrations/v120/**'
       - 'migrations/v121/**'
+      - 'migrations/v122/**'
       - 'tests/test_bybit_demo_postgres_bootstrap.py'
+      - 'tests/test_bybit_demo_postgres_session_risk_store.py'
       - 'docs/BYBIT_DEMO_POSTGRES_BOOTSTRAP.md'
+      - 'docs/BYBIT_DEMO_POSTGRES_SESSION_RISK.md'
       - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE.md'
       - '.github/workflows/bybit-demo-postgres-bootstrap.yml'
   workflow_dispatch:
     inputs:
       mode:
-        description: 'verify performs no DDL; apply runs exactly v119 then v120 then v121'
+        description: 'verify performs no DDL; apply runs exactly v119 through v122'
         required: true
         default: verify
         type: choice
@@ -35,7 +43,7 @@ on:
           - verify
           - apply
       confirmation:
-        description: 'Required for apply: APPLY_BYBIT_DEMO_V119_V121'
+        description: 'Required for apply: APPLY_BYBIT_DEMO_V119_V122'
         required: false
         default: ''
         type: string
@@ -68,6 +76,7 @@ jobs:
           --health-retries 10
     env:
       ASTRA_DEMO_BOOTSTRAP_TEST_DSN: postgresql://astra:astra@localhost:5432/astra_demo_bootstrap
+      ASTRA_DEMO_SESSION_RISK_TEST_DSN: postgresql://astra:astra@localhost:5432/astra_demo_bootstrap
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -78,24 +87,30 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[dev,postgresql]'
           python -m pip check
-      - name: Demo PostgreSQL v119-v121 lifecycle on isolated PostgreSQL 16
+      - name: Demo PostgreSQL v119-v122 lifecycle and session-risk durability
         run: |
-          pytest -q tests/test_bybit_demo_postgres_bootstrap.py
-      - name: Ruff Demo PostgreSQL bootstrap
+          pytest -q \
+            tests/test_bybit_demo_postgres_bootstrap.py \
+            tests/test_bybit_demo_postgres_session_risk_store.py
+      - name: Ruff Demo PostgreSQL bootstrap and session risk
         run: |
           ruff check \
             app/execution/bybit_demo_postgres_bootstrap.py \
+            app/execution/bybit_demo_postgres_session_risk_store.py \
             tools/bootstrap_bybit_demo_postgres.py \
-            tests/test_bybit_demo_postgres_bootstrap.py
-      - name: Bandit Demo PostgreSQL bootstrap
+            tests/test_bybit_demo_postgres_bootstrap.py \
+            tests/test_bybit_demo_postgres_session_risk_store.py
+      - name: Bandit Demo PostgreSQL bootstrap and session risk
         run: |
           bandit -q \
             app/execution/bybit_demo_postgres_bootstrap.py \
+            app/execution/bybit_demo_postgres_session_risk_store.py \
             tools/bootstrap_bybit_demo_postgres.py
-      - name: Compile Demo PostgreSQL bootstrap
+      - name: Compile Demo PostgreSQL bootstrap and session risk
         run: |
           python -m compileall -q \
             app/execution/bybit_demo_postgres_bootstrap.py \
+            app/execution/bybit_demo_postgres_session_risk_store.py \
             tools/bootstrap_bybit_demo_postgres.py
 
   operational:
@@ -117,7 +132,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[postgresql]'
           python -m pip check
-      - name: Verify or explicitly bootstrap v119-v121
+      - name: Verify or explicitly bootstrap v119-v122
         shell: bash
         run: |
           mkdir -p artifacts
