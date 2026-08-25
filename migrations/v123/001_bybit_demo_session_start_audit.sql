@@ -28,7 +28,22 @@ CREATE TABLE IF NOT EXISTS astra_bybit_demo_session_start_event_v123 (
     created_at timestamptz NOT NULL DEFAULT now(),
     CHECK (created_at >= started_at),
     CHECK (
-        canonical_record::jsonb ->> 'schema' = 'BYBIT_DEMO_SESSION_START_AUDIT_V1'
+        canonical_record::jsonb ?& ARRAY[
+            'schema',
+            'session_name',
+            'operator_id',
+            'reason',
+            'git_sha',
+            'preflight_record_sha256',
+            'initial_ledger_revision_sha256',
+            'fixed_egress_required',
+            'order_write_performed',
+            'order_writes_supported',
+            'live_mainnet_order_routing_allowed',
+            'started_at'
+        ]
+        AND canonical_record::jsonb ->> 'schema'
+            = 'BYBIT_DEMO_SESSION_START_AUDIT_V1'
         AND canonical_record::jsonb ->> 'session_name' = session_name
         AND canonical_record::jsonb ->> 'operator_id' = operator_id
         AND canonical_record::jsonb ->> 'reason' = reason
@@ -36,12 +51,24 @@ CREATE TABLE IF NOT EXISTS astra_bybit_demo_session_start_event_v123 (
         AND canonical_record::jsonb ->> 'preflight_record_sha256' = preflight_record_sha256
         AND canonical_record::jsonb ->> 'initial_ledger_revision_sha256'
             = initial_ledger_revision_sha256
-        AND (canonical_record::jsonb ->> 'fixed_egress_required')::boolean = true
-        AND (canonical_record::jsonb ->> 'order_write_performed')::boolean = false
-        AND (canonical_record::jsonb ->> 'order_writes_supported')::boolean = false
         AND (
-            canonical_record::jsonb ->> 'live_mainnet_order_routing_allowed'
-        )::boolean = false
+            (canonical_record::jsonb ->> 'fixed_egress_required')::boolean
+            IS TRUE
+        )
+        AND (
+            (canonical_record::jsonb ->> 'order_write_performed')::boolean
+            IS FALSE
+        )
+        AND (
+            (canonical_record::jsonb ->> 'order_writes_supported')::boolean
+            IS FALSE
+        )
+        AND (
+            (
+                canonical_record::jsonb ->> 'live_mainnet_order_routing_allowed'
+            )::boolean
+            IS FALSE
+        )
         AND (canonical_record::jsonb ->> 'started_at')::timestamptz = started_at
     )
 );
