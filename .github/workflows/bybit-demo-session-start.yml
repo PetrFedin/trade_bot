@@ -1,0 +1,180 @@
+name: bybit-demo-session-start
+
+on:
+  pull_request:
+    paths:
+      - 'app/execution/bybit_demo_session_start.py'
+      - 'app/execution/bybit_demo_postgres_session_risk_store.py'
+      - 'tools/manage_bybit_demo_session_risk.py'
+      - 'tests/test_bybit_demo_session_start_postgres.py'
+      - 'migrations/v122/**'
+      - 'docs/BYBIT_DEMO_SESSION_START.md'
+      - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE.md'
+      - '.github/workflows/bybit-demo-session-start.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/execution/bybit_demo_session_start.py'
+      - 'app/execution/bybit_demo_postgres_session_risk_store.py'
+      - 'tools/manage_bybit_demo_session_risk.py'
+      - 'tests/test_bybit_demo_session_start_postgres.py'
+      - 'migrations/v122/**'
+      - 'docs/BYBIT_DEMO_SESSION_START.md'
+      - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE.md'
+      - '.github/workflows/bybit-demo-session-start.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'status is read-only; initialize creates the v122 singleton once'
+        required: true
+        default: status
+        type: choice
+        options:
+          - status
+          - initialize
+      confirmation:
+        description: 'Required for initialize: INITIALIZE_BYBIT_DEMO_SESSION_RISK'
+        required: false
+        default: ''
+        type: string
+      operator_id:
+        description: 'Operator identity required for initialize'
+        required: false
+        default: ''
+        type: string
+      reason:
+        description: 'Bounded initialization reason required for initialize'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-demo-session-start-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra
+          POSTGRES_DB: astra_demo_session_start
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra_demo_session_start"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ASTRA_DEMO_SESSION_START_TEST_DSN: postgresql://astra:astra@localhost:5432/astra_demo_session_start
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev,postgresql]'
+          python -m pip check
+      - name: One-time session-start PostgreSQL lifecycle
+        run: pytest -q tests/test_bybit_demo_session_start_postgres.py
+      - name: Ruff session-start gate
+        run: |
+          ruff check \
+            app/execution/bybit_demo_session_start.py \
+            tools/manage_bybit_demo_session_risk.py \
+            tests/test_bybit_demo_session_start_postgres.py
+      - name: Bandit session-start gate
+        run: |
+          bandit -q \
+            app/execution/bybit_demo_session_start.py \
+            tools/manage_bybit_demo_session_risk.py
+      - name: Compile session-start gate
+        run: |
+          python -m compileall -q \
+            app/execution/bybit_demo_session_start.py \
+            tools/manage_bybit_demo_session_risk.py
+
+  operational-status:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'status'
+    runs-on: [self-hosted, bybit-demo]
+    environment: bybit-demo
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install status dependency
+        run: |
+          python -m pip install --disable-pip-version-check '.[postgresql]'
+          python -m pip check
+      - name: Read durable Demo session status
+        env:
+          BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
+        run: |
+          mkdir -p artifacts
+          python -m tools.manage_bybit_demo_session_risk \
+            --mode status \
+            --git-sha "$GITHUB_SHA" \
+            --output artifacts/bybit-demo-session-risk.json
+      - name: Upload sanitized status evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-demo-session-status-${{ github.run_id }}
+          path: artifacts/bybit-demo-session-risk.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  operational-initialize:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'initialize'
+    runs-on: [self-hosted, bybit-demo]
+    environment: bybit-demo
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install fixed-egress initialization dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[postgresql]'
+          python -m pip check
+      - name: Explicitly initialize durable Demo session once
+        env:
+          BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
+          BYBIT_DEMO_READONLY_API_KEY: ${{ secrets.BYBIT_DEMO_READONLY_API_KEY }}
+          BYBIT_DEMO_READONLY_API_SECRET: ${{ secrets.BYBIT_DEMO_READONLY_API_SECRET }}
+          SESSION_CONFIRMATION: ${{ inputs.confirmation }}
+          SESSION_OPERATOR_ID: ${{ inputs.operator_id }}
+          SESSION_REASON: ${{ inputs.reason }}
+        run: |
+          mkdir -p artifacts
+          python -m tools.manage_bybit_demo_session_risk \
+            --mode initialize \
+            --confirmation "$SESSION_CONFIRMATION" \
+            --operator-id "$SESSION_OPERATOR_ID" \
+            --reason "$SESSION_REASON" \
+            --git-sha "$GITHUB_SHA" \
+            --output artifacts/bybit-demo-session-risk.json
+      - name: Upload sanitized initialization evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-demo-session-initialize-${{ github.run_id }}
+          path: artifacts/bybit-demo-session-risk.json
+          if-no-files-found: warn
+          retention-days: 30
