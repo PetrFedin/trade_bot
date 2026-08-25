@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
@@ -175,8 +175,11 @@ class PostgresBybitDemoSessionStartCoordinator:
         bootstrap = verify_bybit_demo_postgres_schema(self._dsn)
         if bootstrap.status is not BybitDemoPostgresBootstrapStatus.VERIFIED_READY:
             return _blocked("DEMO_SESSION_SCHEMA_NOT_READY", git_sha=validated_git_sha)
-        if self._read_metadata() is not None:
-            return _blocked("DEMO_SESSION_ALREADY_INITIALIZED", git_sha=validated_git_sha)
+        existing = self.read_status()
+        if existing.status is BybitDemoSessionStartStatus.INITIALIZED:
+            return _existing_session_block(existing, git_sha=validated_git_sha)
+        if existing.status is BybitDemoSessionStartStatus.BLOCKED:
+            return existing
         if psycopg is None or dict_row is None:
             raise RuntimeError("PostgreSQL dependency is unavailable")
 
@@ -209,8 +212,9 @@ class PostgresBybitDemoSessionStartCoordinator:
                             git_sha=validated_git_sha,
                         )
                     if _count(cursor, "astra_bybit_demo_session_risk_v122"):
-                        return _blocked(
-                            "DEMO_SESSION_ALREADY_INITIALIZED",
+                        current = self.read_status()
+                        return _existing_session_block(
+                            current,
                             git_sha=validated_git_sha,
                         )
 
@@ -381,6 +385,21 @@ def _active_checkpoint_count(cursor: Any) -> int:
     )
     row = cursor.fetchone()
     return 0 if row is None else int(row["count"])
+
+
+def _existing_session_block(
+    current: BybitDemoSessionStartResult,
+    *,
+    git_sha: str,
+) -> BybitDemoSessionStartResult:
+    if current.status is not BybitDemoSessionStartStatus.INITIALIZED:
+        raise RuntimeError("Bybit Demo existing session could not be verified")
+    return replace(
+        current,
+        status=BybitDemoSessionStartStatus.BLOCKED,
+        reasons=("DEMO_SESSION_ALREADY_INITIALIZED",),
+        git_sha=git_sha,
+    )
 
 
 def _blocked(reason: str, *, git_sha: str | None = None) -> BybitDemoSessionStartResult:
