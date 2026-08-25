@@ -221,7 +221,7 @@ class PostgresBybitDemoSessionStartCoordinator:
             return _blocked("DEMO_SESSION_SCHEMA_NOT_READY", git_sha=validated_git_sha)
         existing = self.read_status()
         if existing.status is BybitDemoSessionStartStatus.INITIALIZED:
-            return _existing_session_block(existing, git_sha=validated_git_sha)
+            return _existing_session_block(existing)
         if existing.status is BybitDemoSessionStartStatus.BLOCKED:
             return existing
         if psycopg is None or dict_row is None:
@@ -257,10 +257,7 @@ class PostgresBybitDemoSessionStartCoordinator:
                         )
                     if _session_count(cursor):
                         current = self.read_status()
-                        return _existing_session_block(
-                            current,
-                            git_sha=validated_git_sha,
-                        )
+                        return _existing_session_block(current)
 
                     control = PostgresBybitDemoControlPlane(self._dsn).read_decision(
                         now=observed_at
@@ -522,7 +519,7 @@ def _validate_audit_row(row: Any) -> None:
     ):
         if not _is_sha256(row[field]):
             raise ValueError("Bybit Demo session-start audit checksum metadata is invalid")
-    _validate_git_sha(row["git_sha"])
+    git_sha = _validate_git_sha(row["git_sha"])
     operator_id, reason = _validate_operator_text(row["operator_id"], row["reason"])
     if row["session_name"] != _SESSION_NAME:
         raise ValueError("Bybit Demo session-start audit session identity is invalid")
@@ -536,7 +533,7 @@ def _validate_audit_row(row: Any) -> None:
     canonical = _session_start_canonical_record(
         operator_id=operator_id,
         reason=reason,
-        git_sha=row["git_sha"],
+        git_sha=git_sha,
         preflight_record_sha256=row["preflight_record_sha256"],
         initial_ledger_revision_sha256=row["initial_ledger_revision_sha256"],
         started_at=started_at,
@@ -581,8 +578,6 @@ def _session_start_canonical_record(
 
 def _existing_session_block(
     current: BybitDemoSessionStartResult,
-    *,
-    git_sha: str,
 ) -> BybitDemoSessionStartResult:
     if current.status is not BybitDemoSessionStartStatus.INITIALIZED:
         raise RuntimeError("Bybit Demo existing session could not be verified")
@@ -590,7 +585,6 @@ def _existing_session_block(
         current,
         status=BybitDemoSessionStartStatus.BLOCKED,
         reasons=("DEMO_SESSION_ALREADY_INITIALIZED",),
-        git_sha=git_sha,
     )
 
 
