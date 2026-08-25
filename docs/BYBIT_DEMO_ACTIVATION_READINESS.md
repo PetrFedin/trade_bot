@@ -26,14 +26,14 @@ There is no schedule.
 The workflow performs, in order:
 
 ```text
-1. PostgreSQL v119-v122 verify only
+1. complete PostgreSQL durable-schema verify only (currently v119-v123)
 2. fixed-egress connected read-only Demo preflight
 3. GET-only dedicated Demo trading credential preflight
 4. v121 control status read
 5. fail-closed manifest assembly
 ```
 
-The PostgreSQL artifact remains `BYBIT_DEMO_POSTGRES_BOOTSTRAP_V2` for backward-compatible parsing, but `VERIFIED_READY` now requires the complete v119-v122 contract, including both v122 session-risk relations and all four anti-reset/append-only triggers.
+The PostgreSQL artifact remains `BYBIT_DEMO_POSTGRES_BOOTSTRAP_V2` for backward-compatible parsing. `VERIFIED_READY` now requires v119-v123: runtime/audit/control, v122 anti-reset risk durability and the v123 immutable session-start provenance schema.
 
 The first four steps each write their existing sanitized evidence artifact. The final assembler reads those files, validates their schemas and safety flags, hashes the exact bytes with SHA-256, binds the manifest to the checked-out Git commit, and emits one readiness artifact.
 
@@ -47,7 +47,7 @@ Credentials are not placed in a job-level environment.
 - Control status receives only the DSN.
 - Manifest assembly receives no credential secret.
 
-This preserves the existing separation between database, read-only account inspection and future trading-credential inspection while still producing a single operator-facing verdict.
+This preserves the separation between database, read-only account inspection and future trading-credential inspection while still producing a single operator-facing verdict.
 
 ## Ready verdict
 
@@ -67,8 +67,8 @@ mode = verify
 status = VERIFIED_READY
 passed = true
 schema_mutation_performed = false
-v119-v122 relations = ready
-v119-v122 durability/append-only triggers = ready
+complete durable relations = ready
+complete durability/append-only triggers = ready
 ```
 
 ### Connected preflight
@@ -137,23 +137,24 @@ live_mainnet_order_routing_allowed = false
 ## Intended activation sequence
 
 ```text
-v119-v122 activation readiness PASS while HALTED
--> explicit v122 session-risk initialization if no durable ledger exists
--> thereafter always load/resume v122 ledger on restart
+v119-v123 activation readiness PASS while HALTED
+-> bybit-demo-session-start status
+-> if absent: atomic v122 risk + v123 provenance initialization
+-> thereafter verify v123 and load/resume v122 on every restart
 -> operator selects/revalidates exact candidate
 -> exact short-lived trade approval
 -> explicit short-lived ARM (which reruns connected preflight)
 -> future protected Demo execution worker
 ```
 
-The future session initialization gate must be flat/HALTED and read current opening equity from authenticated Demo account state. It must never silently recreate a missing ledger during normal worker startup.
+Session initialization must be flat/HALTED and use current authenticated Demo account state. It must never silently recreate a missing ledger during normal worker startup, and it must never create v122 without v123 provenance.
 
 ## Qualification versus real readiness
 
-Pull-request qualification proves only code, PostgreSQL lifecycle, and manifest logic using isolated/synthetic evidence.
+Pull-request qualification proves only code, PostgreSQL lifecycle and manifest logic using isolated/synthetic evidence.
 
 A real `READY_FOR_EXPLICIT_ACTIVATION_GATES` requires a manual run on the protected self-hosted Demo runner with configured operational database, network and credentials.
 
-Until that real operational evidence exists, the write-enabled Demo worker remains intentionally unwired.
+Until real activation-readiness **and** real session-start status evidence exist, the write-enabled Demo worker remains intentionally unwired.
 
 Mainnet remains read-only.
