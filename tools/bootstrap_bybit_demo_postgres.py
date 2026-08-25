@@ -14,7 +14,7 @@ from app.execution.bybit_demo_postgres_bootstrap import (
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Verify or explicitly bootstrap Bybit Demo PostgreSQL v119 through v122."
+        description="Verify or explicitly apply the complete durable Bybit Demo PostgreSQL schema."
     )
     parser.add_argument("--mode", choices=("verify", "apply"), default="verify")
     parser.add_argument("--confirmation", default="")
