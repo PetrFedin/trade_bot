@@ -15,14 +15,25 @@ try:
 except ImportError:  # pragma: no cover - optional dependency boundary
     psycopg = None
 
-_CONFIRMATION_PHRASE = "APPLY_BYBIT_DEMO_V119_V121"
-_ADVISORY_LOCK_KEY = 119121
+_CONFIRMATION_PHRASE = "APPLY_BYBIT_DEMO_V119_V122"
+_ADVISORY_LOCK_KEY = 119122
 _CONTROL_RELATION = "astra_bybit_demo_control_event_v121"
 _CONTROL_TRIGGER = "astra_bybit_demo_control_append_only_v121"
+_SESSION_RISK_RELATIONS = (
+    "astra_bybit_demo_session_risk_v122",
+    "astra_bybit_demo_session_trade_outcome_v122",
+)
+_SESSION_RISK_TRIGGERS = (
+    "astra_bybit_demo_session_risk_guard_v122",
+    "astra_bybit_demo_session_risk_no_truncate_v122",
+    "astra_bybit_demo_session_outcome_append_only_v122",
+    "astra_bybit_demo_session_outcome_no_truncate_v122",
+)
 _MIGRATIONS = (
     ("v119", Path("migrations/v119/001_bybit_demo_durable_runtime.sql")),
     ("v120", Path("migrations/v120/001_bybit_demo_durable_audit_lifecycle.sql")),
     ("v121", Path("migrations/v121/001_bybit_demo_control_plane.sql")),
+    ("v122", Path("migrations/v122/001_bybit_demo_postgres_session_risk.sql")),
 )
 
 
@@ -82,13 +93,14 @@ class BybitDemoPostgresBootstrapResult:
 
 
 def verify_bybit_demo_postgres_schema(dsn: str) -> BybitDemoPostgresBootstrapResult:
-    """Verify the durable Demo runtime/audit/control schema without modifying PostgreSQL."""
+    """Verify the durable Demo runtime/audit/control/risk schema without modifying PostgreSQL."""
 
     fingerprints = _migration_fingerprints()
     state = PostgresBybitDemoOperationalStateReader(dsn).read_state()
     control_relation, control_trigger = _verify_control_schema(dsn)
-    relations_ready = state.required_relations_present and control_relation
-    triggers_ready = state.append_only_triggers_present and control_trigger
+    risk_relations, risk_triggers = _verify_session_risk_schema(dsn)
+    relations_ready = state.required_relations_present and control_relation and risk_relations
+    triggers_ready = state.append_only_triggers_present and control_trigger and risk_triggers
     ready = relations_ready and triggers_ready
     return BybitDemoPostgresBootstrapResult(
         status=(
@@ -108,7 +120,7 @@ def apply_bybit_demo_postgres_bootstrap(
     *,
     confirmation_phrase: str,
 ) -> BybitDemoPostgresBootstrapResult:
-    """Apply exactly v119, v120 and v121 under a session advisory lock and verify."""
+    """Apply exactly v119 through v122 under a session advisory lock and verify."""
 
     if confirmation_phrase != _CONFIRMATION_PHRASE:
         raise ValueError("Bybit Demo PostgreSQL bootstrap confirmation phrase is invalid")
@@ -138,11 +150,10 @@ def apply_bybit_demo_postgres_bootstrap(
                 (_ADVISORY_LOCK_KEY,),
             )
 
-    state = PostgresBybitDemoOperationalStateReader(dsn).read_state()
-    control_relation, control_trigger = _verify_control_schema(dsn)
-    if not state.required_relations_present or not control_relation:
+    verified = verify_bybit_demo_postgres_schema(dsn)
+    if not verified.required_relations_present:
         raise RuntimeError("Bybit Demo PostgreSQL bootstrap relations verification failed")
-    if not state.append_only_triggers_present or not control_trigger:
+    if not verified.append_only_triggers_present:
         raise RuntimeError("Bybit Demo PostgreSQL bootstrap append-only verification failed")
     return BybitDemoPostgresBootstrapResult(
         status=BybitDemoPostgresBootstrapStatus.APPLIED_AND_VERIFIED,
@@ -173,6 +184,35 @@ def _verify_control_schema(dsn: str) -> tuple[bool, bool]:
                 )
                 trigger = cursor.fetchone()
                 trigger_ready = trigger is not None and int(trigger[0]) == 1
+                return True, trigger_ready
+
+
+def _verify_session_risk_schema(dsn: str) -> tuple[bool, bool]:
+    if psycopg is None:
+        raise RuntimeError("PostgreSQL dependency is unavailable")
+    with psycopg.connect(dsn, autocommit=False) as connection:
+        with connection.transaction():
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION READ ONLY")
+                relation_ready = True
+                for relation_name in _SESSION_RISK_RELATIONS:
+                    cursor.execute("SELECT to_regclass(%s)", (relation_name,))
+                    relation = cursor.fetchone()
+                    relation_ready = relation_ready and (
+                        relation is not None and relation[0] is not None
+                    )
+                if not relation_ready:
+                    return False, False
+                cursor.execute(
+                    """SELECT count(*)
+                       FROM pg_trigger
+                       WHERE NOT tgisinternal AND tgname = ANY(%s)""",
+                    (list(_SESSION_RISK_TRIGGERS),),
+                )
+                trigger = cursor.fetchone()
+                trigger_ready = trigger is not None and int(trigger[0]) == len(
+                    _SESSION_RISK_TRIGGERS
+                )
                 return True, trigger_ready
 
 

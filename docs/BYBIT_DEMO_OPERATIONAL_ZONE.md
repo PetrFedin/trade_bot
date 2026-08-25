@@ -24,17 +24,24 @@ BYBIT_DEMO_READONLY_API_KEY
 BYBIT_DEMO_TRADING_API_KEY
 ```
 
-Wildcard/unbound access is not accepted by the production-readiness gates.
-
-The read-only connected-preflight client validates every returned binding as a real IPv4/IPv6 address, rejects malformed and duplicate bindings, and converts an absent/wildcard-only binding into a blocking preflight result.
-
-The separate trading-credential preflight independently requires a concrete IP binding and exact least privilege.
+Wildcard/unbound access is not accepted by the production-readiness gates. The read-only connected-preflight client validates returned bindings; the separate trading-credential preflight independently requires concrete IP binding and exact least privilege.
 
 The future Demo worker must run in this same zone or in an equivalently controlled zone with an IP already present in the key bindings. Moving execution to an unrelated egress invalidates the credential/readiness evidence.
 
 ## Database contract
 
-`BYBIT_DEMO_DATABASE_DSN` belongs to the protected Demo environment. Operational PostgreSQL bootstrap/verify, connected state reconciliation and v121 control operations run from the same zone.
+`BYBIT_DEMO_DATABASE_DSN` belongs to the protected Demo environment. Operational PostgreSQL bootstrap/verify, connected state reconciliation, v121 control operations and v122 session-risk persistence run from the same zone.
+
+The durable schema contract is now:
+
+```text
+v119 runtime lease + active excursion checkpoint
+v120 immutable approval/provenance/terminal evidence
+v121 append-only HALT/ARM control plane
+v122 restart-safe session-risk checkpoint + append-only terminal outcome journal
+```
+
+`VERIFIED_READY` requires all four layers. v122 prevents process restart from silently resetting opening equity, high-water, terminal all-in PnL, execution cost or consecutive-loss history.
 
 The intended network posture is private/restricted database access from the Demo execution zone. The repository does not encode a public database endpoint and sanitized artifacts do not expose database identity.
 
@@ -47,14 +54,16 @@ bybit-demo-postgres-bootstrap
 bybit-demo-connected-preflight
 bybit-demo-control-plane
 bybit-demo-trading-credential-preflight
+bybit-demo-activation-readiness
 ```
 
 They have different authority:
 
-- PostgreSQL bootstrap may mutate only the explicit v119-v121 schema after its exact confirmation phrase.
+- PostgreSQL bootstrap may mutate only the explicit v119-v122 schema after its exact confirmation phrase.
 - Connected preflight performs authenticated Bybit GETs and PostgreSQL reads only.
 - Control plane can append v121 ARM/HALT audit events but has no trading credential.
 - Trading credential preflight authenticates the future trading credential through GET `/v5/user/query-api` only and has no order mutation method.
+- Activation readiness combines the sanitized evidence while the control plane is still HALTED; it does not ARM or trade.
 
 No workflow above is scheduled. None autonomously creates a trade.
 
@@ -70,9 +79,26 @@ no preflight reasons
 no mainnet/order-write capability
 ```
 
-The operational `FixedEgressPostgresBybitDemoControlPlane` rechecks this contract before delegating to the durable v121 ARM transaction. This is defense in depth on top of the connected-preflight wrapper.
+The operational `FixedEgressPostgresBybitDemoControlPlane` rechecks this contract before delegating to the durable v121 ARM transaction. HALT remains available without a Bybit trading credential. Existing-trade protection/reduce-only recovery remains separate from permission to create new exposure.
 
-HALT remains available without a Bybit trading credential. Existing-trade protection/reduce-only recovery remains separate from permission to create new exposure.
+## Session-risk anti-reset boundary
+
+v122 is intentionally not auto-created by worker startup. A missing session-risk ledger means **new exposure is blocked**.
+
+The future explicit session-start operation must require all of the following in one bounded invocation:
+
+```text
+v119-v122 VERIFIED_READY
+exchange flat
+no pending orders
+no runtime lease
+no active excursion checkpoint
+v121 HALTED
+fresh fixed-egress read-only account evidence
+explicit operator action
+```
+
+Opening equity must come from the authenticated Demo wallet observation in that operation. Once created, process/container/runner restarts must load the existing v122 ledger and advance it only by CAS. There is no normal reset/clear/truncate path.
 
 ## Secret separation
 
@@ -88,25 +114,13 @@ BYBIT_DEMO_READONLY_API_KEY_SHA256
 BYBIT_MAINNET_READONLY_API_KEY_SHA256
 ```
 
-The trading-credential workflow receives only the Demo trading key/secret plus fingerprints of the read-only namespaces. It does not receive a raw mainnet key or secret.
-
-The connected-preflight/control workflows receive the Demo read-only credential and never receive the Demo trading credential.
-
-The PostgreSQL bootstrap workflow receives the database DSN and no Bybit credential.
+The trading-credential workflow receives only the Demo trading key/secret plus fingerprints of the read-only namespaces. It does not receive a raw mainnet key or secret. Connected-preflight/control workflows receive the Demo read-only credential and never receive the Demo trading credential. PostgreSQL bootstrap receives the DSN and no Bybit credential.
 
 The future write-enabled Demo worker must receive the Demo trading credential only at the final protected execution boundary. It must not receive or construct a mainnet order-routing client.
 
 ## Qualification versus operational evidence
 
-A green pull request proves code behavior against isolated/fake dependencies. It does not prove:
-
-- a self-hosted `bybit-demo` runner exists;
-- its egress IP is stable or allow-listed;
-- the protected GitHub environment exists;
-- secrets/variables are configured;
-- the production PostgreSQL schema is ready;
-- either Bybit Demo credential authenticates from that zone;
-- a real Demo order lifecycle has completed.
+A green pull request proves code behavior against isolated/fake dependencies. It does not prove a self-hosted runner, stable/allow-listed egress, protected GitHub environment, configured secrets, production PostgreSQL readiness, real credential authentication, initialized v122 risk session, or a completed real Demo order lifecycle.
 
 Those facts require actual manual operational workflow evidence.
 
@@ -114,17 +128,18 @@ Those facts require actual manual operational workflow evidence.
 
 ```text
 1. Provision hardened self-hosted runner labelled self-hosted + bybit-demo.
-2. Give it stable outbound IP and restricted access to the Demo PostgreSQL service.
+2. Give it stable outbound IP and restricted access to Demo PostgreSQL.
 3. Create/protect GitHub environment bybit-demo and configure separated secrets/variables.
-4. Bind the Demo read-only and Demo trading keys to the zone egress IP.
-5. Run PostgreSQL bootstrap verify/apply/verify -> VERIFIED_READY.
-6. Run connected fixed-egress read-only preflight -> READY_FOR_MANUAL_OPERATOR_APPROVAL.
-7. Run GET-only trading credential preflight -> READY_FOR_OPERATOR_GATED_DEMO_WORKER_CREDENTIAL.
-8. Observe v121 status (default HALTED).
-9. ARM only for a short explicit operator window; ARM reruns fixed-egress connected preflight.
-10. Only after the preceding operational evidence exists may a separate operator-approved Demo execution worker be wired to the trading credential.
-11. Qualify a real bounded Demo order lifecycle: submit -> fill reconciliation -> protection -> restart/recovery -> terminal close -> fees/funding/PnL evidence.
-12. Mainnet stays read-only until an independent future governance decision; no Demo milestone implicitly enables mainnet writes.
+4. Bind Demo read-only and Demo trading keys to the zone egress IP.
+5. Run PostgreSQL bootstrap verify/apply/verify -> v119-v122 VERIFIED_READY.
+6. Run activation readiness while HALTED and require real connected evidence PASS.
+7. If no v122 ledger exists, explicitly initialize it while flat/HALTED from real wallet equity.
+8. On every later restart, load/resume v122; never silently initialize a replacement.
+9. Select/revalidate the exact candidate and create the exact short-lived approval.
+10. ARM only for a short explicit operator window; ARM reruns fixed-egress connected preflight.
+11. Only after the preceding evidence exists may a protected Demo execution worker receive the trading credential.
+12. Qualify a real bounded Demo lifecycle: submit -> fill reconciliation -> protection -> restart/recovery -> terminal close -> fees/funding/PnL -> v122 outcome persistence.
+13. Mainnet stays read-only until an independent future governance decision; no Demo milestone implicitly enables mainnet writes.
 ```
 
 This sequence is the current path from demo/MVP infrastructure to an actual controlled product rather than a collection of passing tests.
