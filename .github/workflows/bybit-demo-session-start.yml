@@ -4,10 +4,12 @@ on:
   pull_request:
     paths:
       - 'app/execution/bybit_demo_session_start.py'
+      - 'app/execution/bybit_demo_postgres_bootstrap.py'
       - 'app/execution/bybit_demo_postgres_session_risk_store.py'
       - 'tools/manage_bybit_demo_session_risk.py'
       - 'tests/test_bybit_demo_session_start_postgres.py'
       - 'migrations/v122/**'
+      - 'migrations/v123/**'
       - 'docs/BYBIT_DEMO_SESSION_START.md'
       - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE.md'
       - '.github/workflows/bybit-demo-session-start.yml'
@@ -15,17 +17,19 @@ on:
     branches: [main]
     paths:
       - 'app/execution/bybit_demo_session_start.py'
+      - 'app/execution/bybit_demo_postgres_bootstrap.py'
       - 'app/execution/bybit_demo_postgres_session_risk_store.py'
       - 'tools/manage_bybit_demo_session_risk.py'
       - 'tests/test_bybit_demo_session_start_postgres.py'
       - 'migrations/v122/**'
+      - 'migrations/v123/**'
       - 'docs/BYBIT_DEMO_SESSION_START.md'
       - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE.md'
       - '.github/workflows/bybit-demo-session-start.yml'
   workflow_dispatch:
     inputs:
       mode:
-        description: 'status is read-only; initialize creates the v122 singleton once'
+        description: 'status is read-only; initialize atomically creates v122 + v123 once'
         required: true
         default: status
         type: choice
@@ -86,7 +90,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[dev,postgresql]'
           python -m pip check
-      - name: One-time session-start PostgreSQL lifecycle
+      - name: One-time session-start and immutable provenance lifecycle
         run: pytest -q tests/test_bybit_demo_session_start_postgres.py
       - name: Ruff session-start gate
         run: |
@@ -120,7 +124,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[postgresql]'
           python -m pip check
-      - name: Read durable Demo session status
+      - name: Read durable Demo session and provenance status
         env:
           BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
         run: |
@@ -153,7 +157,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[postgresql]'
           python -m pip check
-      - name: Explicitly initialize durable Demo session once
+      - name: Explicitly initialize durable Demo session and provenance once
         env:
           BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
           BYBIT_DEMO_READONLY_API_KEY: ${{ secrets.BYBIT_DEMO_READONLY_API_KEY }}
