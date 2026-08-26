@@ -1,0 +1,159 @@
+name: bybit-demo-persistent-supervisor
+
+on:
+  pull_request:
+    paths:
+      - 'app/execution/bybit_demo_approved_runtime.py'
+      - 'app/execution/bybit_demo_managed_trade_poll.py'
+      - 'app/execution/bybit_demo_persistent_supervisor.py'
+      - 'app/execution/bybit_demo_session_risk_flatten.py'
+      - 'app/execution/bybit_demo_session_risk_runtime.py'
+      - 'app/marketdata/bybit_demo_instruments.py'
+      - 'tools/run_bybit_demo_persistent_supervisor.py'
+      - 'tests/test_bybit_demo_instruments.py'
+      - 'tests/test_bybit_demo_managed_trade_session_risk.py'
+      - 'tests/test_bybit_demo_persistent_supervisor.py'
+      - 'tests/test_bybit_demo_session_risk_flatten.py'
+      - 'tests/test_bybit_demo_session_risk_runtime_postgres.py'
+      - 'docs/BYBIT_DEMO_PERSISTENT_SUPERVISOR.md'
+      - '.github/workflows/bybit-demo-persistent-supervisor.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/execution/bybit_demo_approved_runtime.py'
+      - 'app/execution/bybit_demo_managed_trade_poll.py'
+      - 'app/execution/bybit_demo_persistent_supervisor.py'
+      - 'app/execution/bybit_demo_session_risk_flatten.py'
+      - 'app/execution/bybit_demo_session_risk_runtime.py'
+      - 'app/marketdata/bybit_demo_instruments.py'
+      - 'tools/run_bybit_demo_persistent_supervisor.py'
+      - 'tests/test_bybit_demo_instruments.py'
+      - 'tests/test_bybit_demo_managed_trade_session_risk.py'
+      - 'tests/test_bybit_demo_persistent_supervisor.py'
+      - 'tests/test_bybit_demo_session_risk_flatten.py'
+      - 'tests/test_bybit_demo_session_risk_runtime_postgres.py'
+      - 'docs/BYBIT_DEMO_PERSISTENT_SUPERVISOR.md'
+      - '.github/workflows/bybit-demo-persistent-supervisor.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-demo-persistent-supervisor-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra
+          POSTGRES_DB: astra_demo_persistent_supervisor
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra_demo_persistent_supervisor"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ASTRA_DEMO_RUNTIME_SESSION_RISK_TEST_DSN: postgresql://astra:astra@localhost:5432/astra_demo_persistent_supervisor
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev,postgresql]'
+          python -m pip check
+      - name: Persistent supervisor and session-risk proof
+        run: |
+          pytest -q \
+            tests/test_bybit_demo_instruments.py \
+            tests/test_bybit_demo_managed_trade_session_risk.py \
+            tests/test_bybit_demo_persistent_supervisor.py \
+            tests/test_bybit_demo_session_risk_flatten.py \
+            tests/test_bybit_demo_session_risk_runtime_postgres.py \
+            tests/test_bybit_demo_approved_runtime.py \
+            tests/test_bybit_demo_trading_runtime.py \
+            tests/test_bybit_demo_terminal_handoff.py
+      - name: Ruff persistent supervisor gate
+        run: |
+          ruff check \
+            app/execution/bybit_demo_approved_runtime.py \
+            app/execution/bybit_demo_managed_trade_poll.py \
+            app/execution/bybit_demo_persistent_supervisor.py \
+            app/execution/bybit_demo_session_risk_flatten.py \
+            app/execution/bybit_demo_session_risk_runtime.py \
+            app/marketdata/bybit_demo_instruments.py \
+            tools/run_bybit_demo_persistent_supervisor.py \
+            tests/test_bybit_demo_instruments.py \
+            tests/test_bybit_demo_managed_trade_session_risk.py \
+            tests/test_bybit_demo_persistent_supervisor.py \
+            tests/test_bybit_demo_session_risk_flatten.py \
+            tests/test_bybit_demo_session_risk_runtime_postgres.py
+      - name: Bandit persistent supervisor gate
+        run: |
+          bandit -q \
+            app/execution/bybit_demo_approved_runtime.py \
+            app/execution/bybit_demo_managed_trade_poll.py \
+            app/execution/bybit_demo_persistent_supervisor.py \
+            app/execution/bybit_demo_session_risk_flatten.py \
+            app/execution/bybit_demo_session_risk_runtime.py \
+            app/marketdata/bybit_demo_instruments.py \
+            tools/run_bybit_demo_persistent_supervisor.py
+      - name: Compile persistent supervisor gate
+        run: |
+          python -m compileall -q \
+            app/execution/bybit_demo_approved_runtime.py \
+            app/execution/bybit_demo_managed_trade_poll.py \
+            app/execution/bybit_demo_persistent_supervisor.py \
+            app/execution/bybit_demo_session_risk_flatten.py \
+            app/execution/bybit_demo_session_risk_runtime.py \
+            app/marketdata/bybit_demo_instruments.py \
+            tools/run_bybit_demo_persistent_supervisor.py
+
+  operational-one-cycle:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, bybit-demo]
+    environment: bybit-demo
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install operational dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[postgresql]'
+          python -m pip check
+      - name: Run one protected persistent-management cycle
+        env:
+          BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
+          BYBIT_DEMO_TRADING_API_KEY: ${{ secrets.BYBIT_DEMO_TRADING_API_KEY }}
+          BYBIT_DEMO_TRADING_API_SECRET: ${{ secrets.BYBIT_DEMO_TRADING_API_SECRET }}
+          BYBIT_DEMO_READONLY_API_KEY: ${{ secrets.BYBIT_DEMO_READONLY_API_KEY }}
+          BYBIT_DEMO_READONLY_API_SECRET: ${{ secrets.BYBIT_DEMO_READONLY_API_SECRET }}
+          BYBIT_MAINNET_READONLY_API_KEY_SHA256: ${{ secrets.BYBIT_MAINNET_READONLY_API_KEY_SHA256 }}
+        run: |
+          mkdir -p artifacts
+          python -m tools.run_bybit_demo_persistent_supervisor \
+            --mode once \
+            --output artifacts/bybit-demo-persistent-supervisor.json
+      - name: Upload sanitized supervisor evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-demo-persistent-supervisor-${{ github.run_id }}
+          path: artifacts/bybit-demo-persistent-supervisor.json
+          if-no-files-found: warn
+          retention-days: 30
