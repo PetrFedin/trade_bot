@@ -47,7 +47,8 @@ class BybitDemoInstrumentClient:
         for symbol in normalized:
             if not symbol.endswith("USDT"):
                 raise ValueError("Bybit Demo instrument must be a USDT symbol")
-            url = f"{BYBIT_DEMO_INSTRUMENT_URL}?{urlencode({'category': 'linear', 'symbol': symbol})}"
+            query = urlencode({"category": "linear", "symbol": symbol})
+            url = f"{BYBIT_DEMO_INSTRUMENT_URL}?{query}"
             response = self._transport(url, {"Accept": "application/json"})
             if response.status_code != 200:
                 raise ValueError(
