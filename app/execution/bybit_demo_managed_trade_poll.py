@@ -37,7 +37,10 @@ from app.execution.bybit_demo_trade_management_runtime import (
 )
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig
-from app.strategy.crypto_session_risk import CryptoSessionRiskState, evaluate_crypto_session_risk
+from app.strategy.crypto_session_risk import (
+    CryptoSessionRiskState,
+    evaluate_crypto_session_risk,
+)
 
 
 class BybitDemoManagedTradePollPhase(StrEnum):
@@ -75,11 +78,11 @@ class BybitDemoManagedTradePollResult:
     excursion: BybitDemoExcursionRuntimeResult
     management: BybitDemoTradeManagementRuntimeResult | None
     max_hold_close: BybitDemoMaxHoldCloseResult | None
-    session_risk_flatten: BybitDemoSessionRiskFlattenResult | None
     accounting: BybitDemoPostTradeAccountingResult | None
     profit_evidence: BybitDemoProfitPreservationEvidence | None
     terminal_evidence_ack_required: bool
     fully_reconciled_all_in: bool
+    session_risk_flatten: BybitDemoSessionRiskFlattenResult | None = None
     next_entry_allowed: bool = False
     demo_only: bool = True
     automatic_strategy_activation_allowed: bool = False
@@ -344,10 +347,10 @@ def _result(
         excursion=excursion,
         management=management,
         max_hold_close=max_hold_close,
-        session_risk_flatten=session_risk_flatten,
         accounting=accounting,
         profit_evidence=profit_evidence,
         terminal_evidence_ack_required=terminal_ack_required,
         fully_reconciled_all_in=fully_reconciled,
+        session_risk_flatten=session_risk_flatten,
         next_entry_allowed=False,
     )
