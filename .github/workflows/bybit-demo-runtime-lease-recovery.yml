@@ -103,9 +103,15 @@ jobs:
           python -m pip install --disable-pip-version-check '.[dev,postgresql]'
           python -m pip check
       - name: Create isolated bootstrap database
-        env:
-          PGPASSWORD: astra
-        run: createdb -h localhost -U astra astra_demo_bootstrap_v123
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect(
+              "postgresql://astra:astra@localhost:5432/postgres",
+              autocommit=True,
+          ) as connection:
+              connection.execute("CREATE DATABASE astra_demo_bootstrap_v123")
+          PY
       - name: Controlled lease-recovery PostgreSQL lifecycle
         env:
           ASTRA_DEMO_LEASE_RECOVERY_TEST_DSN: postgresql://astra:astra@localhost:5432/astra_demo_lease_recovery
