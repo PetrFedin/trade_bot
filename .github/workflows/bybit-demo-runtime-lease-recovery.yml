@@ -1,0 +1,185 @@
+name: bybit-demo-runtime-lease-recovery
+
+on:
+  pull_request:
+    paths:
+      - 'app/execution/bybit_demo_runtime_lease_recovery.py'
+      - 'app/execution/bybit_demo_postgres_bootstrap.py'
+      - 'tools/recover_bybit_demo_runtime_lease.py'
+      - 'tools/bootstrap_bybit_demo_postgres.py'
+      - 'migrations/v123/**'
+      - 'tests/test_bybit_demo_runtime_lease_recovery_postgres.py'
+      - 'tests/test_bybit_demo_postgres_bootstrap.py'
+      - 'docs/BYBIT_DEMO_RUNTIME_LEASE_RECOVERY.md'
+      - 'docs/BYBIT_DEMO_POSTGRES_BOOTSTRAP.md'
+      - '.github/workflows/bybit-demo-runtime-lease-recovery.yml'
+      - '.github/workflows/bybit-demo-postgres-bootstrap.yml'
+  push:
+    branches:
+      - main
+      - agent/bybit-demo-controlled-lease-recovery
+    paths:
+      - 'app/execution/bybit_demo_runtime_lease_recovery.py'
+      - 'app/execution/bybit_demo_postgres_bootstrap.py'
+      - 'tools/recover_bybit_demo_runtime_lease.py'
+      - 'tools/bootstrap_bybit_demo_postgres.py'
+      - 'migrations/v123/**'
+      - 'tests/test_bybit_demo_runtime_lease_recovery_postgres.py'
+      - 'tests/test_bybit_demo_postgres_bootstrap.py'
+      - 'docs/BYBIT_DEMO_RUNTIME_LEASE_RECOVERY.md'
+      - 'docs/BYBIT_DEMO_POSTGRES_BOOTSTRAP.md'
+      - '.github/workflows/bybit-demo-runtime-lease-recovery.yml'
+      - '.github/workflows/bybit-demo-postgres-bootstrap.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'inspect is read-only; recover requires explicit HALT and exact fingerprint'
+        required: true
+        default: inspect
+        type: choice
+        options:
+          - inspect
+          - recover
+      expected_owner_sha256:
+        description: 'Exact lease-owner SHA-256 from inspect; required for recover'
+        required: false
+        default: ''
+        type: string
+      operator_id:
+        description: 'Operator identity; required for recover'
+        required: false
+        default: ''
+        type: string
+      reason:
+        description: 'Bounded recovery reason; required for recover'
+        required: false
+        default: ''
+        type: string
+      process_stop_evidence:
+        description: 'Non-secret reference proving prior process is stopped; required for recover'
+        required: false
+        default: ''
+        type: string
+      confirmation:
+        description: 'Required for recover: RECOVER_BYBIT_DEMO_RUNTIME_LEASE'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-demo-runtime-lease-recovery-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra
+          POSTGRES_DB: astra_demo_lease_recovery
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra_demo_lease_recovery"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev,postgresql]'
+          python -m pip check
+      - name: Create isolated bootstrap database
+        env:
+          PGPASSWORD: astra
+        run: createdb -h localhost -U astra astra_demo_bootstrap_v123
+      - name: Controlled lease-recovery PostgreSQL lifecycle
+        env:
+          ASTRA_DEMO_LEASE_RECOVERY_TEST_DSN: postgresql://astra:astra@localhost:5432/astra_demo_lease_recovery
+          ASTRA_DEMO_BOOTSTRAP_TEST_DSN: postgresql://astra:astra@localhost:5432/astra_demo_bootstrap_v123
+        run: |
+          pytest -q \
+            tests/test_bybit_demo_runtime_lease_recovery_postgres.py \
+            tests/test_bybit_demo_postgres_bootstrap.py
+      - name: Full regression without PostgreSQL singleton test variables
+        run: pytest -q
+      - name: Ruff recovery and bootstrap boundary
+        run: |
+          ruff check \
+            app/execution/bybit_demo_runtime_lease_recovery.py \
+            app/execution/bybit_demo_postgres_bootstrap.py \
+            tools/recover_bybit_demo_runtime_lease.py \
+            tools/bootstrap_bybit_demo_postgres.py \
+            tests/test_bybit_demo_runtime_lease_recovery_postgres.py \
+            tests/test_bybit_demo_postgres_bootstrap.py
+      - name: Bandit recovery and bootstrap boundary
+        run: |
+          bandit -q \
+            app/execution/bybit_demo_runtime_lease_recovery.py \
+            app/execution/bybit_demo_postgres_bootstrap.py \
+            tools/recover_bybit_demo_runtime_lease.py \
+            tools/bootstrap_bybit_demo_postgres.py
+      - name: Compile recovery and bootstrap boundary
+        run: |
+          python -m compileall -q \
+            app/execution/bybit_demo_runtime_lease_recovery.py \
+            app/execution/bybit_demo_postgres_bootstrap.py \
+            tools/recover_bybit_demo_runtime_lease.py \
+            tools/bootstrap_bybit_demo_postgres.py
+
+  operational:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, bybit-demo]
+    environment: bybit-demo
+    timeout-minutes: 15
+    env:
+      BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
+      RECOVERY_MODE: ${{ inputs.mode }}
+      RECOVERY_EXPECTED_OWNER_SHA256: ${{ inputs.expected_owner_sha256 }}
+      RECOVERY_OPERATOR_ID: ${{ inputs.operator_id }}
+      RECOVERY_REASON: ${{ inputs.reason }}
+      RECOVERY_PROCESS_STOP_EVIDENCE: ${{ inputs.process_stop_evidence }}
+      RECOVERY_CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install PostgreSQL recovery dependency
+        run: |
+          python -m pip install --disable-pip-version-check '.[postgresql]'
+          python -m pip check
+      - name: Inspect or explicitly recover exact runtime lease
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          python -m tools.recover_bybit_demo_runtime_lease \
+            --mode "$RECOVERY_MODE" \
+            --expected-owner-sha256 "$RECOVERY_EXPECTED_OWNER_SHA256" \
+            --operator-id "$RECOVERY_OPERATOR_ID" \
+            --reason "$RECOVERY_REASON" \
+            --process-stop-evidence "$RECOVERY_PROCESS_STOP_EVIDENCE" \
+            --confirmation "$RECOVERY_CONFIRMATION" \
+            --output artifacts/bybit-demo-runtime-lease-recovery.json
+      - name: Upload sanitized recovery artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-demo-runtime-lease-recovery-${{ github.run_id }}
+          path: artifacts/bybit-demo-runtime-lease-recovery.json
+          if-no-files-found: warn
+          retention-days: 30
