@@ -19,7 +19,9 @@ on:
       - 'docs/BYBIT_DEMO_PERSISTENT_SUPERVISOR.md'
       - '.github/workflows/bybit-demo-persistent-supervisor.yml'
   push:
-    branches: [main]
+    branches:
+      - main
+      - agent/bybit-demo-persistent-worker
     paths:
       - 'app/execution/bybit_demo_approved_runtime.py'
       - 'app/execution/bybit_demo_managed_trade_poll.py'
@@ -49,7 +51,7 @@ jobs:
   qualify:
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16
@@ -64,8 +66,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-    env:
-      ASTRA_DEMO_RUNTIME_SESSION_RISK_TEST_DSN: postgresql://astra:astra@localhost:5432/astra_demo_persistent_supervisor
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -77,6 +77,8 @@ jobs:
           python -m pip install --disable-pip-version-check '.[dev,postgresql]'
           python -m pip check
       - name: Persistent supervisor and session-risk proof
+        env:
+          ASTRA_DEMO_RUNTIME_SESSION_RISK_TEST_DSN: postgresql://astra:astra@localhost:5432/astra_demo_persistent_supervisor
         run: |
           pytest -q \
             tests/test_bybit_demo_instruments.py \
@@ -88,15 +90,11 @@ jobs:
             tests/test_bybit_demo_approved_runtime.py \
             tests/test_bybit_demo_trading_runtime.py \
             tests/test_bybit_demo_terminal_handoff.py
-      - name: Ruff persistent supervisor gate
+      - name: Full regression without shared PostgreSQL singleton env
+        run: pytest -q
+      - name: Ruff persistent supervisor and execution boundary
         run: |
-          ruff check \
-            app/execution/bybit_demo_approved_runtime.py \
-            app/execution/bybit_demo_managed_trade_poll.py \
-            app/execution/bybit_demo_persistent_supervisor.py \
-            app/execution/bybit_demo_session_risk_flatten.py \
-            app/execution/bybit_demo_session_risk_runtime.py \
-            app/marketdata/bybit_demo_instruments.py \
+          ruff check app/execution app/marketdata \
             tools/run_bybit_demo_persistent_supervisor.py \
             tests/test_bybit_demo_instruments.py \
             tests/test_bybit_demo_managed_trade_session_risk.py \
@@ -104,25 +102,11 @@ jobs:
             tests/test_bybit_demo_persistent_supervisor_cli.py \
             tests/test_bybit_demo_session_risk_flatten.py \
             tests/test_bybit_demo_session_risk_runtime_postgres.py
-      - name: Bandit persistent supervisor gate
+      - name: Bandit persistent supervisor and execution boundary
+        run: bandit -q -r app/execution app/marketdata tools/run_bybit_demo_persistent_supervisor.py
+      - name: Compile persistent supervisor and execution boundary
         run: |
-          bandit -q \
-            app/execution/bybit_demo_approved_runtime.py \
-            app/execution/bybit_demo_managed_trade_poll.py \
-            app/execution/bybit_demo_persistent_supervisor.py \
-            app/execution/bybit_demo_session_risk_flatten.py \
-            app/execution/bybit_demo_session_risk_runtime.py \
-            app/marketdata/bybit_demo_instruments.py \
-            tools/run_bybit_demo_persistent_supervisor.py
-      - name: Compile persistent supervisor gate
-        run: |
-          python -m compileall -q \
-            app/execution/bybit_demo_approved_runtime.py \
-            app/execution/bybit_demo_managed_trade_poll.py \
-            app/execution/bybit_demo_persistent_supervisor.py \
-            app/execution/bybit_demo_session_risk_flatten.py \
-            app/execution/bybit_demo_session_risk_runtime.py \
-            app/marketdata/bybit_demo_instruments.py \
+          python -m compileall -q app/execution app/marketdata \
             tools/run_bybit_demo_persistent_supervisor.py
 
   operational-one-cycle:
