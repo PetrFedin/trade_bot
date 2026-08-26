@@ -6,7 +6,6 @@ import json
 import os
 import signal
 import sys
-import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -137,7 +136,7 @@ def _build_dependencies_from_environment() -> _SupervisorDependencies:
 
     schema = verify_bybit_demo_postgres_schema(dsn)
     if not schema.passed:
-        raise RuntimeError("Bybit Demo PostgreSQL v119-v122 schema is not verified")
+        raise RuntimeError("Bybit Demo PostgreSQL v119-v123 schema is not verified")
 
     read_preflight_client = BybitDemoPreflightAccountClient(
         api_key=readonly_key,
