@@ -16,7 +16,7 @@ from app.execution.bybit_order_lookup import lookup_bybit_order_by_link_id
 from app.oms.bybit_entry import bybit_entry_intent_id
 from app.oms.store import OrderState
 
-_NO_NETWORK_ENTRY_STATES = frozenset(
+_LOCAL_ZERO_FILL_STATES = frozenset(
     {
         OrderState.CREATED,
         OrderState.RISK_APPROVED,
@@ -53,12 +53,18 @@ def reconcile_protected_bybit_demo_entry_attempt(
         broker_client=broker_client,
     )
 
+    canonical_authorization_sha = _canonical_runtime_authorization_sha(
+        approval,
+        runtime_result,
+    )
     if _canonical_runtime_proved_protected_entry(approval, runtime_result):
         return _result(
             BybitDemoOperationalProtectionStatus.CANONICAL_RUNTIME_RECONCILED,
             completed=True,
             entry_execution_confirmed=True,
             safety_mutation_performed=False,
+            authorization_persisted=True,
+            authorization_record_sha256=canonical_authorization_sha,
         )
 
     entry_order_link_id = approval.expected_entry_order_link_id
@@ -74,6 +80,7 @@ def reconcile_protected_bybit_demo_entry_attempt(
             safety_mutation_performed=False,
         )
     _validate_authorization_record(approval, authorization_record)
+    authorization_sha = _record_sha256(authorization_record)
 
     intent_id = bybit_entry_intent_id(entry_order_link_id)
     oms_record = entry_oms.get(intent_id)
@@ -83,19 +90,32 @@ def reconcile_protected_bybit_demo_entry_attempt(
             completed=True,
             entry_execution_confirmed=False,
             safety_mutation_performed=False,
+            authorization_persisted=True,
+            authorization_record_sha256=authorization_sha,
         )
     if oms_record.client_order_id != entry_order_link_id:
-        return _unresolved()
+        return _unresolved(
+            authorization_persisted=True,
+            authorization_record_sha256=authorization_sha,
+        )
     if oms_record.symbol != approval.symbol:
-        return _unresolved()
-    if oms_record.state in _NO_NETWORK_ENTRY_STATES:
+        return _unresolved(
+            authorization_persisted=True,
+            authorization_record_sha256=authorization_sha,
+        )
+    if oms_record.state in _LOCAL_ZERO_FILL_STATES:
         if oms_record.filled_quantity != 0:
-            return _unresolved()
+            return _unresolved(
+                authorization_persisted=True,
+                authorization_record_sha256=authorization_sha,
+            )
         return _result(
             BybitDemoOperationalProtectionStatus.NO_EXECUTION_CONFIRMED,
             completed=True,
             entry_execution_confirmed=False,
             safety_mutation_performed=False,
+            authorization_persisted=True,
+            authorization_record_sha256=authorization_sha,
         )
 
     try:
@@ -110,21 +130,35 @@ def reconcile_protected_bybit_demo_entry_attempt(
             expected_quantity=envelope.approved_order_quantity,
         )
     except Exception:  # noqa: BLE001 - uncertainty remains explicit and blocks resubmit.
-        return _unresolved()
+        return _unresolved(
+            authorization_persisted=True,
+            authorization_record_sha256=authorization_sha,
+        )
 
     if truth is None:
-        return _unresolved()
+        return _unresolved(
+            authorization_persisted=True,
+            authorization_record_sha256=authorization_sha,
+        )
     if truth.cumulative_executed_quantity == 0:
         if truth.status not in {"Rejected", "Cancelled"}:
-            return _unresolved()
+            return _unresolved(
+                authorization_persisted=True,
+                authorization_record_sha256=authorization_sha,
+            )
         return _result(
             BybitDemoOperationalProtectionStatus.NO_EXECUTION_CONFIRMED,
             completed=True,
             entry_execution_confirmed=False,
             safety_mutation_performed=False,
+            authorization_persisted=True,
+            authorization_record_sha256=authorization_sha,
         )
     if truth.status not in {"Filled", "Cancelled"}:
-        return _unresolved()
+        return _unresolved(
+            authorization_persisted=True,
+            authorization_record_sha256=authorization_sha,
+        )
 
     try:
         positions = broker_client.get_positions(settle_coin="USDT")
@@ -138,7 +172,11 @@ def reconcile_protected_bybit_demo_entry_attempt(
             client=broker_client,
         )
     except Exception:  # noqa: BLE001 - protection state cannot be guessed.
-        return _unresolved()
+        return _unresolved(
+            entry_execution_confirmed=True,
+            authorization_persisted=True,
+            authorization_record_sha256=authorization_sha,
+        )
 
     if recovered.status is BybitExecutedEntryRecoveryStatus.PROTECTED:
         return _result(
@@ -146,6 +184,8 @@ def reconcile_protected_bybit_demo_entry_attempt(
             completed=True,
             entry_execution_confirmed=True,
             safety_mutation_performed=True,
+            authorization_persisted=True,
+            authorization_record_sha256=authorization_sha,
         )
     if recovered.status is BybitExecutedEntryRecoveryStatus.FLATTENED:
         return _result(
@@ -153,8 +193,35 @@ def reconcile_protected_bybit_demo_entry_attempt(
             completed=True,
             entry_execution_confirmed=True,
             safety_mutation_performed=True,
+            authorization_persisted=True,
+            authorization_record_sha256=authorization_sha,
         )
-    return _unresolved(entry_execution_confirmed=True)
+    return _unresolved(
+        entry_execution_confirmed=True,
+        authorization_persisted=True,
+        authorization_record_sha256=authorization_sha,
+    )
+
+
+def _canonical_runtime_authorization_sha(
+    approval: BybitDemoOperatorApproval,
+    runtime_result: Any | None,
+) -> str | None:
+    if runtime_result is None:
+        return None
+    if getattr(runtime_result, "authorization_persisted", False) is not True:
+        return None
+    receipt = getattr(runtime_result, "authorization_receipt", None)
+    if receipt is None:
+        raise ValueError("operational reconciliation authorization receipt is missing")
+    if getattr(receipt, "approval_id", None) != approval.approval_id:
+        raise ValueError("operational reconciliation authorization receipt approval id mismatch")
+    if (
+        getattr(receipt, "entry_order_link_id", None)
+        != approval.expected_entry_order_link_id
+    ):
+        raise ValueError("operational reconciliation authorization receipt orderLinkId mismatch")
+    return _sha256(getattr(receipt, "record_sha256", None), "authorization receipt")
 
 
 def _canonical_runtime_proved_protected_entry(
@@ -243,6 +310,7 @@ def _validate_authorization_record(
         raise ValueError("operational reconciliation authorization evidence rank mismatch")
     if authorization.source_market_rank != approval.source_market_rank:
         raise ValueError("operational reconciliation authorization market rank mismatch")
+    _record_sha256(record)
 
 
 def _validate_recovery_record(approval: BybitDemoOperatorApproval, record: Any) -> None:
@@ -263,18 +331,34 @@ def _validate_recovery_record(approval: BybitDemoOperatorApproval, record: Any) 
         raise ValueError("operational reconciliation recovery quantity exceeds approval")
 
 
+def _record_sha256(record: Any) -> str:
+    return _sha256(getattr(record, "record_sha256", None), "authorization record")
+
+
+def _sha256(value: Any, name: str) -> str:
+    if not isinstance(value, str) or len(value) != 64:
+        raise ValueError(f"operational reconciliation {name} checksum is invalid")
+    if any(character not in "0123456789abcdef" for character in value):
+        raise ValueError(f"operational reconciliation {name} checksum is invalid")
+    return value
+
+
 def _result(
     status: BybitDemoOperationalProtectionStatus,
     *,
     completed: bool,
     entry_execution_confirmed: bool | None,
     safety_mutation_performed: bool,
+    authorization_persisted: bool = False,
+    authorization_record_sha256: str | None = None,
 ) -> BybitDemoOperationalProtectionReconciliation:
     result = BybitDemoOperationalProtectionReconciliation(
         status=status,
         completed=completed,
         entry_execution_confirmed=entry_execution_confirmed,
         safety_mutation_performed=safety_mutation_performed,
+        authorization_persisted=authorization_persisted,
+        authorization_record_sha256=authorization_record_sha256,
     )
     result.validate()
     return result
@@ -283,12 +367,16 @@ def _result(
 def _unresolved(
     *,
     entry_execution_confirmed: bool | None = None,
+    authorization_persisted: bool = False,
+    authorization_record_sha256: str | None = None,
 ) -> BybitDemoOperationalProtectionReconciliation:
     return _result(
         BybitDemoOperationalProtectionStatus.UNRESOLVED,
         completed=False,
         entry_execution_confirmed=entry_execution_confirmed,
         safety_mutation_performed=False,
+        authorization_persisted=authorization_persisted,
+        authorization_record_sha256=authorization_record_sha256,
     )
 
 
