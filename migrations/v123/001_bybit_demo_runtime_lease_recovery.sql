@@ -58,6 +58,14 @@ CREATE TRIGGER astra_bybit_demo_runtime_lease_recovery_no_truncate_v123
 BEFORE TRUNCATE ON astra_bybit_demo_runtime_lease_recovery_v123
 FOR EACH STATEMENT EXECUTE FUNCTION astra_reject_bybit_demo_runtime_lease_recovery_mutation_v123();
 
+-- v121 originally rejected UPDATE/DELETE but a statement-level TRUNCATE could bypass that
+-- row trigger. v123 closes the control-journal history gap without rewriting the old migration.
+DROP TRIGGER IF EXISTS astra_bybit_demo_control_no_truncate_v123
+    ON astra_bybit_demo_control_event_v121;
+CREATE TRIGGER astra_bybit_demo_control_no_truncate_v123
+BEFORE TRUNCATE ON astra_bybit_demo_control_event_v121
+FOR EACH STATEMENT EXECUTE FUNCTION astra_reject_bybit_demo_control_mutation_v121();
+
 REVOKE ALL ON astra_bybit_demo_runtime_lease_recovery_v123 FROM PUBLIC;
 REVOKE ALL ON SEQUENCE astra_bybit_demo_runtime_lease_recovery_v123_recovery_seq_seq FROM PUBLIC;
 REVOKE ALL ON FUNCTION astra_reject_bybit_demo_runtime_lease_recovery_mutation_v123() FROM PUBLIC;
