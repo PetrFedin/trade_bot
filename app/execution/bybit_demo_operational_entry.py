@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from app.execution.bybit_demo import BybitDemoOrderClient
 from app.execution.bybit_demo_approved_runtime import (
     BybitDemoOperatorApprovedTradingRuntimeResult,
     run_operator_approved_bybit_demo_trading_runtime,
@@ -44,9 +45,15 @@ class BybitDemoOperationalProtectionReconciliation:
             raise ValueError("operational reconciliation cannot submit a second entry")
         if self.live_mainnet_order_routing_allowed:
             raise ValueError("operational reconciliation cannot route mainnet orders")
-        if self.completed and self.status is BybitDemoOperationalProtectionStatus.UNRESOLVED:
+        if (
+            self.completed
+            and self.status is BybitDemoOperationalProtectionStatus.UNRESOLVED
+        ):
             raise ValueError("unresolved operational reconciliation cannot be complete")
-        if not self.completed and self.status is not BybitDemoOperationalProtectionStatus.UNRESOLVED:
+        if (
+            not self.completed
+            and self.status is not BybitDemoOperationalProtectionStatus.UNRESOLVED
+        ):
             raise ValueError("incomplete operational reconciliation must remain unresolved")
 
 
@@ -94,21 +101,31 @@ class BybitDemoOperationalEntryEvidence:
             "side": self.side,
             "entry_order_link_id": self.entry_order_link_id,
             "pinned_control_event_id": self.pinned_control_event_id,
-            "pinned_control_armed_until": self.pinned_control_armed_until.astimezone(UTC).isoformat(),
+            "pinned_control_armed_until": (
+                self.pinned_control_armed_until.astimezone(UTC).isoformat()
+            ),
             "runtime_status": self.runtime_status,
             "runtime_error_type": self.runtime_error_type,
             "authorization_persisted": self.authorization_persisted,
             "authorization_record_sha256": self.authorization_record_sha256,
             "entry_provenance_persisted": self.entry_provenance_persisted,
             "entry_provenance_record_sha256": self.entry_provenance_record_sha256,
-            "protection_reconciliation_status": self.protection_reconciliation_status.value,
-            "protection_reconciliation_completed": self.protection_reconciliation_completed,
-            "same_invocation_additional_entry_allowed": self.same_invocation_additional_entry_allowed,
+            "protection_reconciliation_status": (
+                self.protection_reconciliation_status.value
+            ),
+            "protection_reconciliation_completed": (
+                self.protection_reconciliation_completed
+            ),
+            "same_invocation_additional_entry_allowed": (
+                self.same_invocation_additional_entry_allowed
+            ),
             "fixed_egress_verified": self.fixed_egress_verified,
             "protected_dispatch_required": self.protected_dispatch_required,
             "automatic_arm_allowed": self.automatic_arm_allowed,
             "ranked_fallback_allowed": self.ranked_fallback_allowed,
-            "live_mainnet_order_routing_allowed": self.live_mainnet_order_routing_allowed,
+            "live_mainnet_order_routing_allowed": (
+                self.live_mainnet_order_routing_allowed
+            ),
         }
 
 
@@ -158,7 +175,10 @@ class PinnedBybitDemoControlPlane:
             raise RuntimeError("BYBIT_DEMO_PINNED_ARM_EVENT_CHANGED")
         if decision.latest_event_kind != self._event_kind:
             raise RuntimeError("BYBIT_DEMO_PINNED_ARM_EVENT_KIND_CHANGED")
-        if decision.armed_until is None or decision.armed_until.astimezone(UTC) != self._armed_until:
+        if (
+            decision.armed_until is None
+            or decision.armed_until.astimezone(UTC) != self._armed_until
+        ):
             raise RuntimeError("BYBIT_DEMO_PINNED_ARM_EXPIRY_CHANGED")
         return decision
 
@@ -170,18 +190,18 @@ def run_protected_bybit_demo_operational_entry(
     *,
     fixed_egress_preflight: BybitDemoConnectedPreflightResult,
     new_entry_control_plane: Any,
-    post_attempt_reconciler: PostAttemptReconciler,
     now: datetime,
+    post_attempt_reconciler: PostAttemptReconciler | None = None,
     control_now_provider: Callable[[], datetime] | None = None,
     runtime_runner: RuntimeRunner = run_operator_approved_bybit_demo_trading_runtime,
     **runtime_kwargs: Any,
 ) -> BybitDemoOperationalEntryEvidence:
-    """Delegate one protected Demo entry invocation to the already-qualified approved runtime.
+    """Delegate one protected Demo entry invocation to the qualified approved runtime.
 
     This layer never arms v121, never selects a replacement opportunity and never owns order
     construction. It proves fixed egress, pins one already-existing ARM event, rejects a previously
     burned deterministic entry identity, delegates the canonical runtime exactly once and then
-    requires a post-attempt protection reconciliation result before emitting allowlisted evidence.
+    requires post-attempt protection reconciliation before emitting allowlisted evidence.
     """
 
     moment = _utc(now, "operational entry time")
@@ -193,13 +213,22 @@ def run_protected_bybit_demo_operational_entry(
     _validate_control_plane(new_entry_control_plane)
     initial_decision = new_entry_control_plane.read_decision(now=moment)
     _validate_armed_decision(initial_decision, now=moment)
-    pinned_control = PinnedBybitDemoControlPlane(new_entry_control_plane, initial_decision)
+    pinned_control = PinnedBybitDemoControlPlane(
+        new_entry_control_plane,
+        initial_decision,
+    )
 
     active_now_provider = (
         (lambda: datetime.now(UTC))
         if control_now_provider is None
         else control_now_provider
     )
+    reconciler = (
+        _default_post_attempt_reconciler(runtime_kwargs)
+        if post_attempt_reconciler is None
+        else post_attempt_reconciler
+    )
+
     runtime_result: BybitDemoOperatorApprovedTradingRuntimeResult | None = None
     runtime_error_type: str | None = None
     try:
@@ -216,11 +245,10 @@ def run_protected_bybit_demo_operational_entry(
     except Exception as exc:  # noqa: BLE001 - evidence exposes only the exception class.
         runtime_error_type = type(exc).__name__
 
-    reconciliation: BybitDemoOperationalProtectionReconciliation
     try:
-        reconciliation = post_attempt_reconciler(approval, runtime_result)
+        reconciliation = reconciler(approval, runtime_result)
         reconciliation.validate()
-    except Exception:  # noqa: BLE001 - safety uncertainty must remain fail-closed and sanitized.
+    except Exception:  # noqa: BLE001 - safety uncertainty remains fail-closed and sanitized.
         reconciliation = BybitDemoOperationalProtectionReconciliation(
             status=BybitDemoOperationalProtectionStatus.UNRESOLVED,
             completed=False,
@@ -238,31 +266,82 @@ def run_protected_bybit_demo_operational_entry(
     )
 
 
+def _default_post_attempt_reconciler(
+    runtime_kwargs: Mapping[str, Any],
+) -> PostAttemptReconciler:
+    from app.execution.bybit_demo_operational_reconciliation import (
+        reconcile_protected_bybit_demo_entry_attempt,
+    )
+
+    client = runtime_kwargs["client"]
+    authorization_store = runtime_kwargs["approval_authorization_store"]
+    recovery_store = client.entry_recovery_store
+    entry_oms = client.entry_oms
+
+    def reconcile(
+        approval: BybitDemoOperatorApproval,
+        runtime_result: BybitDemoOperatorApprovedTradingRuntimeResult | None,
+    ) -> BybitDemoOperationalProtectionReconciliation:
+        return reconcile_protected_bybit_demo_entry_attempt(
+            approval,
+            runtime_result,
+            authorization_store=authorization_store,
+            entry_oms=entry_oms,
+            recovery_store=recovery_store,
+            broker_client=client,
+        )
+
+    return reconcile
+
+
 def _validate_runtime_dependencies(
     approval: BybitDemoOperatorApproval,
     runtime_kwargs: Mapping[str, Any],
 ) -> None:
     client = runtime_kwargs.get("client")
+    if not isinstance(client, BybitDemoOrderClient):
+        raise ValueError("operational entry requires the concrete Demo-only order client family")
     if getattr(client, "environment", None) != "BYBIT_DEMO":
         raise ValueError("operational entry requires BYBIT_DEMO order client")
     if getattr(client, "live_mainnet_order_routing_allowed", True) is not False:
         raise ValueError("operational entry rejected mainnet-capable order client")
     if getattr(client, "entry_recovery_required", False) is not True:
         raise ValueError("operational entry requires durable at-most-once entry recovery client")
+
     entry_oms = getattr(client, "entry_oms", None)
     if entry_oms is None:
         raise ValueError("operational entry requires canonical entry OMS")
     if getattr(entry_oms, "live_mainnet_order_routing_allowed", True) is not False:
         raise ValueError("operational entry rejected mainnet-capable entry OMS")
-    if getattr(entry_oms, "automatic_resubmit_after_submit_started_allowed", True) is not False:
+    if (
+        getattr(entry_oms, "automatic_resubmit_after_submit_started_allowed", True)
+        is not False
+    ):
         raise ValueError("operational entry forbids automatic entry resubmit")
 
+    recovery_store = getattr(client, "entry_recovery_store", None)
+    if recovery_store is None:
+        raise ValueError("operational entry requires immutable recovery envelope store")
+    if getattr(recovery_store, "live_mainnet_order_routing_allowed", True) is not False:
+        raise ValueError("operational entry rejected mainnet-capable recovery store")
+    if getattr(recovery_store, "order_writes_supported", True) is not False:
+        raise ValueError("operational entry recovery store cannot write broker orders")
+    if getattr(recovery_store, "immutable_records", False) is not True:
+        raise ValueError("operational entry recovery store must be immutable")
+    if not callable(getattr(recovery_store, "load", None)):
+        raise ValueError("operational entry recovery store requires load")
+
     authorization_store = runtime_kwargs.get("approval_authorization_store")
-    if authorization_store is None or not callable(getattr(authorization_store, "load", None)):
+    if authorization_store is None or not callable(
+        getattr(authorization_store, "load", None)
+    ):
         raise ValueError("operational entry requires durable authorization store")
     if getattr(authorization_store, "immutable_records", False) is not True:
         raise ValueError("operational entry authorization store must be immutable")
-    if getattr(authorization_store, "live_mainnet_order_routing_allowed", True) is not False:
+    if (
+        getattr(authorization_store, "live_mainnet_order_routing_allowed", True)
+        is not False
+    ):
         raise ValueError("operational entry rejected mainnet-capable authorization store")
 
     provenance_store = runtime_kwargs.get("entry_provenance_store")
@@ -291,7 +370,9 @@ def _reject_existing_lineage(
         except FileNotFoundError:
             continue
         if getattr(record, "live_mainnet_order_routing_allowed", False) is True:
-            raise ValueError(f"BYBIT_DEMO_EXISTING_{role}_REJECTED_MAINNET_CAPABILITY")
+            raise ValueError(
+                f"BYBIT_DEMO_EXISTING_{role}_REJECTED_MAINNET_CAPABILITY"
+            )
         raise RuntimeError(f"BYBIT_DEMO_ENTRY_{role}_ALREADY_EXISTS")
 
 
@@ -325,7 +406,10 @@ def _validate_armed_decision(
         raise RuntimeError("BYBIT_DEMO_EXISTING_V121_ARM_EVENT_KIND_INVALID")
     if decision.latest_event_id is None or len(decision.latest_event_id) != 64:
         raise RuntimeError("BYBIT_DEMO_EXISTING_V121_ARM_EVENT_ID_INVALID")
-    if any(character not in "0123456789abcdef" for character in decision.latest_event_id):
+    if any(
+        character not in "0123456789abcdef"
+        for character in decision.latest_event_id
+    ):
         raise RuntimeError("BYBIT_DEMO_EXISTING_V121_ARM_EVENT_ID_INVALID")
     if decision.armed_until is None:
         raise RuntimeError("BYBIT_DEMO_EXISTING_V121_ARM_EXPIRY_MISSING")
@@ -345,7 +429,10 @@ def _validate_runtime_result(
     if authorization is not None:
         if authorization.approval_id != approval.approval_id:
             raise ValueError("operational entry authorization approval id mismatch")
-        if authorization.expected_entry_order_link_id != approval.expected_entry_order_link_id:
+        if (
+            authorization.expected_entry_order_link_id
+            != approval.expected_entry_order_link_id
+        ):
             raise ValueError("operational entry authorization orderLinkId mismatch")
     if result.authorization_persisted != (receipt is not None):
         raise ValueError("operational entry authorization persistence evidence mismatch")
@@ -364,12 +451,17 @@ def _validate_runtime_result(
     provenance_receipt = runtime.entry_provenance_receipt
     if runtime.entry_provenance_persisted != (provenance_receipt is not None):
         raise ValueError("operational entry provenance persistence evidence mismatch")
-    if provenance is not None:
-        if provenance.entry_order_link_id != approval.expected_entry_order_link_id:
-            raise ValueError("operational entry provenance orderLinkId mismatch")
-    if provenance_receipt is not None:
-        if provenance_receipt.entry_order_link_id != approval.expected_entry_order_link_id:
-            raise ValueError("operational entry provenance receipt orderLinkId mismatch")
+    if (
+        provenance is not None
+        and provenance.entry_order_link_id != approval.expected_entry_order_link_id
+    ):
+        raise ValueError("operational entry provenance orderLinkId mismatch")
+    if (
+        provenance_receipt is not None
+        and provenance_receipt.entry_order_link_id
+        != approval.expected_entry_order_link_id
+    ):
+        raise ValueError("operational entry provenance receipt orderLinkId mismatch")
 
 
 def _build_evidence(
