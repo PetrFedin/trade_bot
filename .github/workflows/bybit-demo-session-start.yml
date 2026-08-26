@@ -4,10 +4,12 @@ on:
   pull_request:
     paths:
       - 'app/execution/bybit_demo_session_start.py'
+      - 'app/execution/bybit_demo_postgres_bootstrap.py'
       - 'app/execution/bybit_demo_postgres_session_risk_store.py'
       - 'tools/manage_bybit_demo_session_risk.py'
       - 'tests/test_bybit_demo_session_start_postgres.py'
       - 'migrations/v122/**'
+      - 'migrations/v123/**'
       - 'docs/BYBIT_DEMO_SESSION_START.md'
       - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE.md'
       - '.github/workflows/bybit-demo-session-start.yml'
@@ -15,10 +17,12 @@ on:
     branches: [main]
     paths:
       - 'app/execution/bybit_demo_session_start.py'
+      - 'app/execution/bybit_demo_postgres_bootstrap.py'
       - 'app/execution/bybit_demo_postgres_session_risk_store.py'
       - 'tools/manage_bybit_demo_session_risk.py'
       - 'tests/test_bybit_demo_session_start_postgres.py'
       - 'migrations/v122/**'
+      - 'migrations/v123/**'
       - 'docs/BYBIT_DEMO_SESSION_START.md'
       - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE.md'
       - '.github/workflows/bybit-demo-session-start.yml'
