@@ -13,6 +13,7 @@ on:
       - 'tests/test_bybit_demo_instruments.py'
       - 'tests/test_bybit_demo_managed_trade_session_risk.py'
       - 'tests/test_bybit_demo_persistent_supervisor.py'
+      - 'tests/test_bybit_demo_persistent_supervisor_cli.py'
       - 'tests/test_bybit_demo_session_risk_flatten.py'
       - 'tests/test_bybit_demo_session_risk_runtime_postgres.py'
       - 'docs/BYBIT_DEMO_PERSISTENT_SUPERVISOR.md'
@@ -30,6 +31,7 @@ on:
       - 'tests/test_bybit_demo_instruments.py'
       - 'tests/test_bybit_demo_managed_trade_session_risk.py'
       - 'tests/test_bybit_demo_persistent_supervisor.py'
+      - 'tests/test_bybit_demo_persistent_supervisor_cli.py'
       - 'tests/test_bybit_demo_session_risk_flatten.py'
       - 'tests/test_bybit_demo_session_risk_runtime_postgres.py'
       - 'docs/BYBIT_DEMO_PERSISTENT_SUPERVISOR.md'
@@ -80,6 +82,7 @@ jobs:
             tests/test_bybit_demo_instruments.py \
             tests/test_bybit_demo_managed_trade_session_risk.py \
             tests/test_bybit_demo_persistent_supervisor.py \
+            tests/test_bybit_demo_persistent_supervisor_cli.py \
             tests/test_bybit_demo_session_risk_flatten.py \
             tests/test_bybit_demo_session_risk_runtime_postgres.py \
             tests/test_bybit_demo_approved_runtime.py \
@@ -98,6 +101,7 @@ jobs:
             tests/test_bybit_demo_instruments.py \
             tests/test_bybit_demo_managed_trade_session_risk.py \
             tests/test_bybit_demo_persistent_supervisor.py \
+            tests/test_bybit_demo_persistent_supervisor_cli.py \
             tests/test_bybit_demo_session_risk_flatten.py \
             tests/test_bybit_demo_session_risk_runtime_postgres.py
       - name: Bandit persistent supervisor gate
