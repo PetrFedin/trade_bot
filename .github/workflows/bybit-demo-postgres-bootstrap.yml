@@ -10,6 +10,7 @@ on:
       - 'migrations/v120/**'
       - 'migrations/v121/**'
       - 'migrations/v122/**'
+      - 'migrations/v123/**'
       - 'tests/test_bybit_demo_postgres_bootstrap.py'
       - 'tests/test_bybit_demo_postgres_session_risk_store.py'
       - 'docs/BYBIT_DEMO_POSTGRES_BOOTSTRAP.md'
@@ -26,6 +27,7 @@ on:
       - 'migrations/v120/**'
       - 'migrations/v121/**'
       - 'migrations/v122/**'
+      - 'migrations/v123/**'
       - 'tests/test_bybit_demo_postgres_bootstrap.py'
       - 'tests/test_bybit_demo_postgres_session_risk_store.py'
       - 'docs/BYBIT_DEMO_POSTGRES_BOOTSTRAP.md'
@@ -35,7 +37,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'verify performs no DDL; apply runs exactly v119 through v122'
+        description: 'verify performs no DDL; apply runs exactly v119 through v123'
         required: true
         default: verify
         type: choice
@@ -43,7 +45,7 @@ on:
           - verify
           - apply
       confirmation:
-        description: 'Required for apply: APPLY_BYBIT_DEMO_V119_V122'
+        description: 'Required for apply: APPLY_BYBIT_DEMO_V119_V123'
         required: false
         default: ''
         type: string
@@ -87,7 +89,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[dev,postgresql]'
           python -m pip check
-      - name: Demo PostgreSQL v119-v122 lifecycle and session-risk durability
+      - name: Demo PostgreSQL v119-v123 lifecycle and session-risk durability
         run: |
           pytest -q \
             tests/test_bybit_demo_postgres_bootstrap.py \
@@ -132,7 +134,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[postgresql]'
           python -m pip check
-      - name: Verify or explicitly bootstrap v119-v122
+      - name: Verify or explicitly bootstrap v119-v123
         shell: bash
         run: |
           mkdir -p artifacts
