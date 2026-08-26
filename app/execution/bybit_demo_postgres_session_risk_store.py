@@ -57,17 +57,22 @@ class PostgresBybitDemoSessionRiskLedgerStore:
                 cursor.execute(sql)
             connection.commit()
 
+    def load_active(self) -> BybitDemoSessionRiskLedgerCheckpoint:
+        """Load the one initialized operational session without inventing opening equity."""
+
+        with self._connect() as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute("SET TRANSACTION READ ONLY")
+                    return _load_and_verify(cursor, lock=False)
+
     def load(
         self,
         *,
         expected_opening_equity_usdt: Decimal,
     ) -> BybitDemoSessionRiskLedgerCheckpoint:
         _validate_expected_opening_equity(expected_opening_equity_usdt)
-        with self._connect() as connection:
-            with connection.transaction():
-                with connection.cursor() as cursor:
-                    cursor.execute("SET TRANSACTION READ ONLY")
-                    checkpoint = _load_and_verify(cursor, lock=False)
+        checkpoint = self.load_active()
         if checkpoint.ledger.opening_equity_usdt != expected_opening_equity_usdt:
             raise ValueError("demo session ledger checkpoint opening equity mismatch")
         return checkpoint
