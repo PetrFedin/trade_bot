@@ -17,6 +17,9 @@ from app.execution.bybit_demo_managed_trade_poll import (
 from app.execution.bybit_demo_profit_preservation_evidence import (
     BybitDemoProfitPreservationEvidence,
 )
+from app.execution.bybit_demo_session_risk_runtime import (
+    BybitDemoSessionRiskCommitReceipt,
+)
 from app.execution.bybit_demo_terminal_evidence_store import (
     BybitDemoTerminalEvidenceReceipt,
 )
@@ -25,6 +28,8 @@ from app.execution.bybit_demo_terminal_evidence_store import (
 class BybitDemoTerminalHandoffStatus(StrEnum):
     NOT_READY = "NOT_READY"
     EVIDENCE_PERSIST_FAILED = "EVIDENCE_PERSIST_FAILED"
+    SESSION_RISK_PERSIST_FAILED = "SESSION_RISK_PERSIST_FAILED"
+    DURABLE_TERMINAL_STATE_ACK_FAILED = "DURABLE_TERMINAL_STATE_ACK_FAILED"
     EVIDENCE_PERSISTED_ACK_FAILED = "EVIDENCE_PERSISTED_ACK_FAILED"
     COMPLETE = "COMPLETE"
 
@@ -34,8 +39,10 @@ class BybitDemoTerminalHandoffResult:
     status: BybitDemoTerminalHandoffStatus
     reasons: tuple[str, ...]
     receipt: BybitDemoTerminalEvidenceReceipt | None
+    session_risk_receipt: BybitDemoSessionRiskCommitReceipt | None
     acknowledgement: BybitDemoExcursionRuntimeResult | None
     evidence_durable: bool
+    session_risk_durable: bool
     checkpoint_cleared: bool
     next_entry_allowed: bool
     demo_only: bool = True
@@ -57,22 +64,36 @@ class BybitDemoTerminalEvidenceStore(Protocol):
     ) -> BybitDemoTerminalEvidenceReceipt: ...
 
 
+class BybitDemoSessionRiskCommitter(Protocol):
+    live_mainnet_order_routing_allowed: bool
+    order_writes_supported: bool
+    automatic_reset_allowed: bool
+    initialized_session_required: bool
+
+    def commit(self, accounting: Any) -> BybitDemoSessionRiskCommitReceipt: ...
+
+
 def persist_and_acknowledge_bybit_demo_terminal_evidence(
     poll: BybitDemoManagedTradePollResult,
     *,
     evidence_store: BybitDemoTerminalEvidenceStore,
+    session_risk_committer: BybitDemoSessionRiskCommitter,
     excursion_store: BybitDemoExcursionStore,
     acknowledge: Any = acknowledge_bybit_demo_excursion_final,
 ) -> BybitDemoTerminalHandoffResult:
-    """Durably persist final MFE-to-all-in evidence before clearing the active checkpoint.
+    """Commit all durable terminal state before clearing the active checkpoint.
 
-    This is a two-phase crash-safe handoff. Repeating it after a crash between persistence and
-    checkpoint clear is safe because terminal evidence persistence is immutable and idempotent.
-    The original symbol is reusable only after fully reconciled accounting, durable evidence and
-    an acknowledgement that clears the exact terminal excursion revision.
+    Crash-safe ordering is strict: immutable terminal evidence -> durable v122 session-risk update
+    -> exact excursion acknowledgement. A failure in either durable phase leaves the active
+    checkpoint in place. Repeating the handoff is safe because both durable writes are immutable
+    and idempotent for the same terminal economics.
     """
 
-    _validate_dependencies(evidence_store=evidence_store, excursion_store=excursion_store)
+    _validate_dependencies(
+        evidence_store=evidence_store,
+        session_risk_committer=session_risk_committer,
+        excursion_store=excursion_store,
+    )
     if poll.live_mainnet_order_routing_allowed:
         raise ValueError("terminal handoff rejected mainnet-capable managed poll")
     if (
@@ -113,32 +134,57 @@ def persist_and_acknowledge_bybit_demo_terminal_evidence(
     _reject_live_result(receipt, name="terminal evidence receipt")
 
     try:
+        risk_receipt = session_risk_committer.commit(poll.accounting)
+    except Exception as exc:  # noqa: BLE001 - evidence is durable; checkpoint must remain for retry.
+        return _result(
+            BybitDemoTerminalHandoffStatus.SESSION_RISK_PERSIST_FAILED,
+            reasons=(f"SESSION_RISK_PERSIST_FAILED:{type(exc).__name__}",),
+            receipt=receipt,
+            evidence_durable=True,
+        )
+    _reject_live_result(risk_receipt, name="session-risk commit receipt")
+    if risk_receipt.entry_order_link_id != checkpoint.entry_order_link_id:
+        return _result(
+            BybitDemoTerminalHandoffStatus.SESSION_RISK_PERSIST_FAILED,
+            reasons=("SESSION_RISK_COMMIT_ENTRY_ID_MISMATCH",),
+            receipt=receipt,
+            session_risk_receipt=risk_receipt,
+            evidence_durable=True,
+        )
+
+    try:
         ack = acknowledge(
             store=excursion_store,
             expected_revision=checkpoint.revision,
         )
-    except Exception as exc:  # noqa: BLE001 - durable evidence makes later ACK retry safe.
+    except Exception as exc:  # noqa: BLE001 - both durable commits make later ACK retry safe.
         return _result(
-            BybitDemoTerminalHandoffStatus.EVIDENCE_PERSISTED_ACK_FAILED,
+            BybitDemoTerminalHandoffStatus.DURABLE_TERMINAL_STATE_ACK_FAILED,
             reasons=(f"TERMINAL_EXCURSION_ACK_FAILED:{type(exc).__name__}",),
             receipt=receipt,
+            session_risk_receipt=risk_receipt,
             evidence_durable=True,
+            session_risk_durable=True,
         )
     _reject_live_result(ack, name="terminal excursion acknowledgement")
     if ack.status is not BybitDemoExcursionRuntimeStatus.FINAL_ACKNOWLEDGED:
         return _result(
-            BybitDemoTerminalHandoffStatus.EVIDENCE_PERSISTED_ACK_FAILED,
+            BybitDemoTerminalHandoffStatus.DURABLE_TERMINAL_STATE_ACK_FAILED,
             reasons=ack.reasons or ("TERMINAL_EXCURSION_ACK_NOT_CONFIRMED",),
             receipt=receipt,
+            session_risk_receipt=risk_receipt,
             acknowledgement=ack,
             evidence_durable=True,
+            session_risk_durable=True,
         )
 
     return _result(
         BybitDemoTerminalHandoffStatus.COMPLETE,
         receipt=receipt,
+        session_risk_receipt=risk_receipt,
         acknowledgement=ack,
         evidence_durable=True,
+        session_risk_durable=True,
         checkpoint_cleared=True,
         next_entry_allowed=True,
     )
@@ -147,12 +193,21 @@ def persist_and_acknowledge_bybit_demo_terminal_evidence(
 def _validate_dependencies(
     *,
     evidence_store: BybitDemoTerminalEvidenceStore,
+    session_risk_committer: BybitDemoSessionRiskCommitter,
     excursion_store: BybitDemoExcursionStore,
 ) -> None:
     if evidence_store.live_mainnet_order_routing_allowed:
         raise ValueError("terminal handoff rejected mainnet-capable evidence store")
     if evidence_store.order_writes_supported or not evidence_store.immutable_records:
         raise ValueError("terminal handoff requires immutable diagnostics-only evidence store")
+    if session_risk_committer.live_mainnet_order_routing_allowed:
+        raise ValueError("terminal handoff rejected mainnet-capable session-risk committer")
+    if session_risk_committer.order_writes_supported:
+        raise ValueError("terminal handoff requires diagnostics-only session-risk committer")
+    if session_risk_committer.automatic_reset_allowed:
+        raise ValueError("terminal handoff forbids automatic session-risk reset")
+    if not session_risk_committer.initialized_session_required:
+        raise ValueError("terminal handoff requires an explicitly initialized risk session")
     if getattr(excursion_store, "live_mainnet_order_routing_allowed", True) is not False:
         raise ValueError("terminal handoff rejected mainnet-capable excursion store")
     if getattr(excursion_store, "order_writes_supported", True) is not False:
@@ -169,8 +224,10 @@ def _result(
     *,
     reasons: tuple[str, ...] = (),
     receipt: BybitDemoTerminalEvidenceReceipt | None = None,
+    session_risk_receipt: BybitDemoSessionRiskCommitReceipt | None = None,
     acknowledgement: BybitDemoExcursionRuntimeResult | None = None,
     evidence_durable: bool = False,
+    session_risk_durable: bool = False,
     checkpoint_cleared: bool = False,
     next_entry_allowed: bool = False,
 ) -> BybitDemoTerminalHandoffResult:
@@ -178,8 +235,10 @@ def _result(
         status=status,
         reasons=reasons,
         receipt=receipt,
+        session_risk_receipt=session_risk_receipt,
         acknowledgement=acknowledgement,
         evidence_durable=evidence_durable,
+        session_risk_durable=session_risk_durable,
         checkpoint_cleared=checkpoint_cleared,
         next_entry_allowed=next_entry_allowed,
     )
