@@ -69,6 +69,35 @@ def test_explicit_halt_exact_identity_atomic_audit_and_idempotent_recovery() -> 
     ).hexdigest()
 
     control_time = datetime(2026, 8, 26, 15, 0, tzinfo=UTC)
+    forged_time = control_time - timedelta(seconds=1)
+    with psycopg.connect(_DSN, autocommit=True) as connection:
+        connection.execute(
+            """INSERT INTO astra_bybit_demo_control_event_v121(
+                   event_id, event_kind, operator_id, reason,
+                   preflight_status, preflight_record_sha256,
+                   preflight_canonical_record, preflight_observed_at,
+                   armed_until, created_at, immutable_record,
+                   order_writes_supported, order_submission_supported,
+                   live_mainnet_order_routing_allowed
+               ) VALUES (
+                   %s, 'HALT_NEW_ENTRIES', %s, %s,
+                   NULL, NULL, NULL, NULL, NULL, %s,
+                   true, false, false, false
+               )""",
+            (
+                "c" * 64,
+                "forged-operator",
+                "syntactically valid but cryptographically forged HALT",
+                forged_time,
+            ),
+        )
+
+    forged = recovery.inspect()
+    assert forged.status is BybitDemoRuntimeLeaseRecoveryStatus.BLOCKED
+    assert forged.explicit_operator_halt_present is False
+    assert forged.latest_control_event_id is None
+    assert forged.lease_owner_sha256 == before_halt.lease_owner_sha256
+
     control = PostgresBybitDemoControlPlane(_DSN)
     halt_receipt = control.halt_new_entries(
         operator_id="ops-recovery-test",
@@ -170,6 +199,9 @@ def test_explicit_halt_exact_identity_atomic_audit_and_idempotent_recovery() -> 
     with pytest.raises(psycopg.Error, match="append-only"):
         with psycopg.connect(_DSN, autocommit=True) as connection:
             connection.execute("TRUNCATE astra_bybit_demo_runtime_lease_recovery_v123")
+    with pytest.raises(psycopg.Error, match="append-only"):
+        with psycopg.connect(_DSN, autocommit=True) as connection:
+            connection.execute("TRUNCATE astra_bybit_demo_control_event_v121")
 
     still_halted = control.read_decision(now=control_time + timedelta(seconds=6))
     assert still_halted.mode is BybitDemoControlMode.HALTED
