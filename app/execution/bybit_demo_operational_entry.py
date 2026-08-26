@@ -37,6 +37,8 @@ class BybitDemoOperationalProtectionReconciliation:
     completed: bool
     entry_execution_confirmed: bool | None
     safety_mutation_performed: bool
+    authorization_persisted: bool = False
+    authorization_record_sha256: str | None = None
     second_entry_submit_performed: bool = False
     live_mainnet_order_routing_allowed: bool = False
 
@@ -45,6 +47,12 @@ class BybitDemoOperationalProtectionReconciliation:
             raise ValueError("operational reconciliation cannot submit a second entry")
         if self.live_mainnet_order_routing_allowed:
             raise ValueError("operational reconciliation cannot route mainnet orders")
+        if self.authorization_persisted:
+            _sha256(self.authorization_record_sha256, "authorization reconciliation")
+        elif self.authorization_record_sha256 is not None:
+            raise ValueError(
+                "operational reconciliation authorization checksum requires persisted record"
+            )
         if (
             self.completed
             and self.status is BybitDemoOperationalProtectionStatus.UNRESOLVED
@@ -441,6 +449,7 @@ def _validate_runtime_result(
             raise ValueError("operational entry authorization receipt approval id mismatch")
         if receipt.entry_order_link_id != approval.expected_entry_order_link_id:
             raise ValueError("operational entry authorization receipt orderLinkId mismatch")
+        _sha256(receipt.record_sha256, "runtime authorization receipt")
 
     runtime = result.runtime_result
     if runtime.live_mainnet_order_routing_allowed or not runtime.demo_only:
@@ -456,12 +465,13 @@ def _validate_runtime_result(
         and provenance.entry_order_link_id != approval.expected_entry_order_link_id
     ):
         raise ValueError("operational entry provenance orderLinkId mismatch")
-    if (
-        provenance_receipt is not None
-        and provenance_receipt.entry_order_link_id
-        != approval.expected_entry_order_link_id
-    ):
-        raise ValueError("operational entry provenance receipt orderLinkId mismatch")
+    if provenance_receipt is not None:
+        if (
+            provenance_receipt.entry_order_link_id
+            != approval.expected_entry_order_link_id
+        ):
+            raise ValueError("operational entry provenance receipt orderLinkId mismatch")
+        _sha256(provenance_receipt.record_sha256, "runtime provenance receipt")
 
 
 def _build_evidence(
@@ -474,21 +484,31 @@ def _build_evidence(
     observed_at: datetime,
 ) -> BybitDemoOperationalEntryEvidence:
     runtime_status = None
-    authorization_persisted = False
-    authorization_sha = None
+    runtime_authorization_persisted = False
+    runtime_authorization_sha = None
     provenance_persisted = False
     provenance_sha = None
     additional_entry_allowed = False
     if runtime_result is not None:
         runtime = runtime_result.runtime_result
         runtime_status = runtime.status.value
-        authorization_persisted = runtime_result.authorization_persisted
+        runtime_authorization_persisted = runtime_result.authorization_persisted
         if runtime_result.authorization_receipt is not None:
-            authorization_sha = runtime_result.authorization_receipt.record_sha256
+            runtime_authorization_sha = runtime_result.authorization_receipt.record_sha256
         provenance_persisted = runtime.entry_provenance_persisted
         if runtime.entry_provenance_receipt is not None:
             provenance_sha = runtime.entry_provenance_receipt.record_sha256
         additional_entry_allowed = runtime.same_invocation_additional_entry_allowed
+
+    authorization_persisted = (
+        runtime_authorization_persisted or reconciliation.authorization_persisted
+    )
+    authorization_sha, authorization_evidence_mismatch = _merge_authorization_sha(
+        runtime_authorization_sha,
+        reconciliation.authorization_record_sha256,
+    )
+    if authorization_evidence_mismatch:
+        runtime_error_type = "OperationalAuthorizationEvidenceMismatch"
 
     complete = (
         runtime_error_type is None
@@ -497,7 +517,9 @@ def _build_evidence(
         and reconciliation.status
         is BybitDemoOperationalProtectionStatus.CANONICAL_RUNTIME_RECONCILED
         and authorization_persisted
+        and authorization_sha is not None
         and provenance_persisted
+        and provenance_sha is not None
         and not additional_entry_allowed
     )
     return BybitDemoOperationalEntryEvidence(
@@ -525,6 +547,31 @@ def _build_evidence(
         protection_reconciliation_completed=reconciliation.completed,
         same_invocation_additional_entry_allowed=additional_entry_allowed,
     )
+
+
+def _merge_authorization_sha(
+    runtime_sha: str | None,
+    reconciliation_sha: str | None,
+) -> tuple[str | None, bool]:
+    if runtime_sha is not None:
+        _sha256(runtime_sha, "runtime authorization evidence")
+    if reconciliation_sha is not None:
+        _sha256(reconciliation_sha, "reconciled authorization evidence")
+    if (
+        runtime_sha is not None
+        and reconciliation_sha is not None
+        and runtime_sha != reconciliation_sha
+    ):
+        return None, True
+    return runtime_sha or reconciliation_sha, False
+
+
+def _sha256(value: str | None, name: str) -> str:
+    if value is None or len(value) != 64:
+        raise ValueError(f"{name} checksum is invalid")
+    if any(character not in "0123456789abcdef" for character in value):
+        raise ValueError(f"{name} checksum is invalid")
+    return value
 
 
 def _utc(value: datetime, name: str) -> datetime:
