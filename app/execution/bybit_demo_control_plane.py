@@ -22,7 +22,10 @@ except ImportError:  # pragma: no cover - optional dependency boundary
     dict_row = None
 
 _CONTROL_RELATION = "astra_bybit_demo_control_event_v121"
-_CONTROL_TRIGGER = "astra_bybit_demo_control_append_only_v121"
+_CONTROL_TRIGGERS = (
+    "astra_bybit_demo_control_append_only_v121",
+    "astra_bybit_demo_control_no_truncate_v123",
+)
 _READY_STATUS = "READY_FOR_MANUAL_OPERATOR_APPROVAL"
 _MAX_ARM_TTL = timedelta(minutes=5)
 _MAX_PREFLIGHT_AGE = timedelta(seconds=30)
@@ -91,15 +94,7 @@ class BybitDemoControlEventReceipt:
 
 
 class PostgresBybitDemoControlPlane:
-    """Append-only operator control for new Demo exposure.
-
-    Missing schema, missing events, malformed state and expired ARM windows all resolve to HALT.
-    ARM is deliberately short-lived and can only be created from a fresh, clean, read-only
-    connected preflight. The sanitized canonical preflight is retained with its SHA-256 in the
-    append-only journal so the durable audit does not depend on short-lived CI artifacts.
-
-    The control plane itself cannot submit, amend, cancel, protect or close exchange orders.
-    """
+    """Append-only, cryptographically verified operator control for new Demo exposure."""
 
     live_mainnet_order_routing_allowed = False
     order_writes_supported = False
@@ -130,16 +125,17 @@ class PostgresBybitDemoControlPlane:
                     cursor.execute(
                         """SELECT count(*) AS count
                            FROM pg_trigger
-                           WHERE NOT tgisinternal AND tgname = %s""",
-                        (_CONTROL_TRIGGER,),
+                           WHERE NOT tgisinternal AND tgname = ANY(%s)""",
+                        (list(_CONTROL_TRIGGERS),),
                     )
-                    trigger = cursor.fetchone()
-                    if trigger is None or int(trigger["count"]) != 1:
+                    triggers = cursor.fetchone()
+                    if triggers is None or int(triggers["count"]) != len(_CONTROL_TRIGGERS):
                         return _halted("DEMO_CONTROL_APPEND_ONLY_TRIGGER_NOT_READY")
                     cursor.execute(
-                        """SELECT event_id, event_kind, preflight_status,
-                                  preflight_record_sha256, preflight_canonical_record,
-                                  preflight_observed_at, armed_until, created_at
+                        """SELECT event_id, event_kind, operator_id, reason,
+                                  preflight_status, preflight_record_sha256,
+                                  preflight_canonical_record, preflight_observed_at,
+                                  armed_until, created_at
                            FROM astra_bybit_demo_control_event_v121
                            ORDER BY event_seq DESC
                            LIMIT 1"""
@@ -261,6 +257,17 @@ class PostgresBybitDemoControlPlane:
                     relation = cursor.fetchone()
                     if relation is None or relation[0] is None:
                         raise RuntimeError("Bybit Demo control-plane v121 schema is not ready")
+                    cursor.execute(
+                        """SELECT count(*)
+                           FROM pg_trigger
+                           WHERE NOT tgisinternal AND tgname = ANY(%s)""",
+                        (list(_CONTROL_TRIGGERS),),
+                    )
+                    triggers = cursor.fetchone()
+                    if triggers is None or int(triggers[0]) != len(_CONTROL_TRIGGERS):
+                        raise RuntimeError(
+                            "Bybit Demo control-plane immutability guards are not ready"
+                        )
                     if require_idle_runtime:
                         cursor.execute(
                             "LOCK TABLE astra_bybit_demo_runtime_lease_v119 IN SHARE MODE"
@@ -281,16 +288,10 @@ class PostgresBybitDemoControlPlane:
                             )
                     cursor.execute(
                         """INSERT INTO astra_bybit_demo_control_event_v121(
-                               event_id,
-                               event_kind,
-                               operator_id,
-                               reason,
-                               preflight_status,
-                               preflight_record_sha256,
-                               preflight_canonical_record,
-                               preflight_observed_at,
-                               armed_until,
-                               created_at
+                               event_id, event_kind, operator_id, reason,
+                               preflight_status, preflight_record_sha256,
+                               preflight_canonical_record, preflight_observed_at,
+                               armed_until, created_at
                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                         (
                             event_id,
@@ -359,14 +360,32 @@ class ControlPlaneGuardedBybitDemoClient:
 def _decision_from_row(row: Any, *, now: datetime) -> BybitDemoControlDecision:
     event_id = row["event_id"]
     event_kind = row["event_kind"]
+    operator_id = row["operator_id"]
+    reason = row["reason"]
+    created_at = row["created_at"]
     if not _is_sha256(event_id):
         return _halted("DEMO_CONTROL_EVENT_INVALID")
+    if not _stored_operator_text_valid(operator_id, reason):
+        return _halted("DEMO_CONTROL_EVENT_INVALID")
+    if not isinstance(created_at, datetime):
+        return _halted("DEMO_CONTROL_EVENT_INVALID")
+    created_at = _require_aware_utc(created_at, "stored control event time")
+
     if event_kind == "HALT_NEW_ENTRIES":
+        event = {
+            "event_kind": "HALT_NEW_ENTRIES",
+            "operator_id": operator_id,
+            "reason": reason,
+            "created_at": created_at.isoformat(),
+        }
+        if _sha256_json(event) != event_id:
+            return _halted("DEMO_CONTROL_EVENT_HASH_MISMATCH")
         return _halted(
             "DEMO_CONTROL_OPERATOR_HALT",
             latest_event_id=event_id,
             latest_event_kind=event_kind,
         )
+
     if event_kind != "ARM_NEW_ENTRIES":
         return _halted("DEMO_CONTROL_EVENT_INVALID")
     if row["preflight_status"] != _READY_STATUS:
@@ -374,22 +393,30 @@ def _decision_from_row(row: Any, *, now: datetime) -> BybitDemoControlDecision:
     canonical = row["preflight_canonical_record"]
     if not isinstance(canonical, str) or not canonical:
         return _halted("DEMO_CONTROL_EVENT_INVALID")
-    if not _is_sha256(row["preflight_record_sha256"]):
+    preflight_sha = row["preflight_record_sha256"]
+    if not _is_sha256(preflight_sha):
         return _halted("DEMO_CONTROL_EVENT_INVALID")
-    if _sha256_text(canonical) != row["preflight_record_sha256"]:
+    if _sha256_text(canonical) != preflight_sha:
         return _halted("DEMO_CONTROL_PREFLIGHT_AUDIT_HASH_MISMATCH")
 
-    created_at = row["created_at"]
     observed_at = row["preflight_observed_at"]
     armed_until = row["armed_until"]
-    if not all(
-        isinstance(value, datetime)
-        for value in (created_at, observed_at, armed_until)
-    ):
+    if not all(isinstance(value, datetime) for value in (observed_at, armed_until)):
         return _halted("DEMO_CONTROL_EVENT_INVALID")
-    created_at = _require_aware_utc(created_at, "stored control event time")
     observed_at = _require_aware_utc(observed_at, "stored preflight observation time")
     armed_until = _require_aware_utc(armed_until, "stored control armed-until time")
+    event = {
+        "event_kind": "ARM_NEW_ENTRIES",
+        "operator_id": operator_id,
+        "reason": reason,
+        "preflight_status": _READY_STATUS,
+        "preflight_record_sha256": preflight_sha,
+        "preflight_observed_at": observed_at.isoformat(),
+        "armed_until": armed_until.isoformat(),
+        "created_at": created_at.isoformat(),
+    }
+    if _sha256_json(event) != event_id:
+        return _halted("DEMO_CONTROL_EVENT_HASH_MISMATCH")
     if created_at - observed_at > _MAX_PREFLIGHT_AGE:
         return _halted("DEMO_CONTROL_EVENT_INVALID")
     if observed_at > created_at or armed_until <= created_at:
@@ -480,6 +507,17 @@ def _validate_operator_text(operator_id: str, reason: str) -> None:
         raise ValueError("Bybit Demo control operator_id is invalid")
     if not reason.strip() or len(reason.strip()) > 1000:
         raise ValueError("Bybit Demo control reason is invalid")
+
+
+def _stored_operator_text_valid(operator_id: object, reason: object) -> bool:
+    return (
+        isinstance(operator_id, str)
+        and operator_id == operator_id.strip()
+        and 0 < len(operator_id) <= 128
+        and isinstance(reason, str)
+        and reason == reason.strip()
+        and 0 < len(reason) <= 1000
+    )
 
 
 def _require_aware_utc(value: datetime, label: str) -> datetime:
