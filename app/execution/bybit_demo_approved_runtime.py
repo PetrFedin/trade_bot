@@ -104,6 +104,7 @@ def run_operator_approved_bybit_demo_trading_runtime(
     quote_client: Any,
     runtime_lease: Any,
     approval_authorization_store: Any,
+    session_risk_committer: Any | None = None,
     new_entry_control_plane: Any | None = None,
     control_now_provider: Callable[[], datetime] | None = None,
     terminal_evidence_store: Any | None = None,
@@ -128,6 +129,10 @@ def run_operator_approved_bybit_demo_trading_runtime(
     immutable authorization is persisted first, then ARM is rechecked, then the network mutation is
     allowed. If ARM disappears after authorization persistence, the order is blocked and that
     authorization becomes recovery-only state instead of resubmit permission.
+
+    The v122 session-risk committer is passed to the canonical runtime. A real runtime invocation
+    without it fails closed; the optional default only preserves compatibility for isolated mock
+    runners that never execute the canonical terminal handoff.
 
     Reduce-only close and protection operations are deliberately not blocked by HALT, so a control
     stop cannot strand existing exposure. No ranked fallback to another symbol is allowed and
@@ -252,6 +257,7 @@ def run_operator_approved_bybit_demo_trading_runtime(
         runtime_lease=runtime_lease,
         terminal_evidence_store=terminal_evidence_store,
         entry_provenance_store=entry_provenance_store,
+        session_risk_committer=session_risk_committer,
         managed_policy=managed_policy,
         entry_executor=approved_entry_executor,
         **runtime_kwargs,
