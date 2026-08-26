@@ -26,11 +26,13 @@ from app.execution.bybit_demo_postgres_session_risk_store import (
 from app.execution.bybit_demo_session_risk_ledger import start_bybit_demo_session_risk_ledger
 from app.execution.bybit_demo_session_risk_runtime import (
     PostgresBybitDemoSessionRiskCommitter,
+    PostgresBybitDemoSessionRiskObserver,
 )
 from app.execution.bybit_demo_trade_monitor import (
     BybitDemoTradeMonitorResult,
     BybitDemoTradeMonitorStatus,
 )
+from app.strategy.crypto_session_risk import evaluate_crypto_session_risk
 
 _DSN = os.environ.get("ASTRA_DEMO_RUNTIME_SESSION_RISK_TEST_DSN", "")
 pytestmark = pytest.mark.skipif(
@@ -118,7 +120,7 @@ def _snapshot(*, order_link_id: str, pnl: str) -> BybitDemoPostTradeAccountingRe
     )
 
 
-def test_terminal_committer_survives_restart_is_idempotent_and_rejects_conflict() -> None:
+def test_runtime_risk_survives_restart_tracks_peak_and_reconciles_terminal_trade() -> None:
     applied = apply_bybit_demo_postgres_bootstrap(
         _DSN,
         confirmation_phrase="APPLY_BYBIT_DEMO_V119_V122",
@@ -131,30 +133,48 @@ def test_terminal_committer_survives_restart_is_idempotent_and_rejects_conflict(
     )
     assert initial.ledger.outcomes == ()
 
+    observed_peak = PostgresBybitDemoSessionRiskObserver(store).observe(
+        current_equity_usdt=Decimal("1100")
+    )
+    assert observed_peak.high_water_advanced is True
+    assert observed_peak.session_state.current_equity_usdt == Decimal("1100")
+    assert observed_peak.session_state.peak_equity_usdt == Decimal("1100")
+
+    restarted_store = PostgresBybitDemoSessionRiskLedgerStore(_DSN)
+    restarted_observer = PostgresBybitDemoSessionRiskObserver(restarted_store)
+    drawdown = restarted_observer.observe(current_equity_usdt=Decimal("1040"))
+    assert drawdown.high_water_advanced is False
+    assert drawdown.session_state.peak_equity_usdt == Decimal("1100")
+    assert drawdown.session_state.current_equity_usdt == Decimal("1040")
+    risk_decision = evaluate_crypto_session_risk(drawdown.session_state)
+    assert risk_decision.flatten_required is True
+    assert "SESSION_DRAWDOWN_LIMIT_BREACHED" in risk_decision.reasons
+
     snapshot = _snapshot(order_link_id="ASTRA-DEMO-E-RUNTIME-RISK", pnl="-5")
-    first = PostgresBybitDemoSessionRiskCommitter(store).commit(snapshot)
+    first = PostgresBybitDemoSessionRiskCommitter(restarted_store).commit(snapshot)
     assert first.idempotent_existing_outcome is False
     assert first.outcome_count == 1
     assert first.entry_order_link_id == "ASTRA-DEMO-E-RUNTIME-RISK"
 
-    restarted_store = PostgresBybitDemoSessionRiskLedgerStore(_DSN)
-    restarted = restarted_store.load_active()
-    assert restarted.revision == first.ledger_revision_sha256
-    assert restarted.ledger.cumulative_realized_all_in_pnl_usdt == Decimal("-5")
-    assert restarted.ledger.to_session_risk_state(
-        current_equity_usdt=Decimal("995")
-    ).consecutive_losses == 1
+    restarted_again = PostgresBybitDemoSessionRiskLedgerStore(_DSN)
+    durable = restarted_again.load_active()
+    assert durable.revision == first.ledger_revision_sha256
+    assert durable.ledger.cumulative_realized_all_in_pnl_usdt == Decimal("-5")
+    state = durable.ledger.to_session_risk_state(current_equity_usdt=Decimal("995"))
+    assert state.consecutive_losses == 1
+    assert state.peak_equity_usdt == Decimal("1100")
 
-    repeated = PostgresBybitDemoSessionRiskCommitter(restarted_store).commit(snapshot)
+    repeated = PostgresBybitDemoSessionRiskCommitter(restarted_again).commit(snapshot)
     assert repeated.idempotent_existing_outcome is True
     assert repeated.ledger_revision_sha256 == first.ledger_revision_sha256
     assert repeated.outcome_count == 1
 
     conflicting = _snapshot(order_link_id="ASTRA-DEMO-E-RUNTIME-RISK", pnl="7")
     with pytest.raises(ValueError, match="conflicting economics"):
-        PostgresBybitDemoSessionRiskCommitter(restarted_store).commit(conflicting)
+        PostgresBybitDemoSessionRiskCommitter(restarted_again).commit(conflicting)
 
-    final = restarted_store.load_active()
+    final = restarted_again.load_active()
     assert final.revision == first.ledger_revision_sha256
     assert final.ledger.cumulative_realized_all_in_pnl_usdt == Decimal("-5")
+    assert final.ledger.effective_peak_equity_usdt == Decimal("1100")
     assert len(final.ledger.outcomes) == 1
