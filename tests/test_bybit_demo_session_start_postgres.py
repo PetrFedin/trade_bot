@@ -20,6 +20,7 @@ from app.execution.bybit_demo_connected_preflight import (
 )
 from app.execution.bybit_demo_control_plane import PostgresBybitDemoControlPlane
 from app.execution.bybit_demo_postgres_bootstrap import apply_bybit_demo_postgres_bootstrap
+from app.execution.bybit_demo_postgres_runtime_lease import PostgresBybitDemoRuntimeLease
 from app.execution.bybit_demo_session_start import (
     BybitDemoSessionStartStatus,
     PostgresBybitDemoSessionStartCoordinator,
@@ -139,7 +140,7 @@ def _position() -> BybitDemoReadOnlyOpenPosition:
 def test_session_start_is_one_time_flat_halted_and_restart_safe() -> None:
     applied = apply_bybit_demo_postgres_bootstrap(
         _DSN,
-        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V122",
+        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V123",
     )
     assert applied.passed is True
 
@@ -189,13 +190,8 @@ def test_session_start_is_one_time_flat_halted_and_restart_safe() -> None:
         now=_NOW,
     )
 
-    with psycopg.connect(_DSN, autocommit=True) as connection:
-        connection.execute(
-            """INSERT INTO astra_bybit_demo_runtime_lease_v119(
-                   lease_name, owner_token, created_time_ms, process_id, created_at
-               ) VALUES ('CANONICAL_DEMO_TRADING_RUNTIME', %s, 1, 1, %s)""",
-            ("b" * 64, _NOW),
-        )
+    lease_store = PostgresBybitDemoRuntimeLease(_DSN, clock_ms=lambda: 1)
+    lease = lease_store.acquire()
     lease_attempt = coordinator.initialize(
         _Account(),
         confirmation_phrase="INITIALIZE_BYBIT_DEMO_SESSION_RISK",
@@ -206,11 +202,7 @@ def test_session_start_is_one_time_flat_halted_and_restart_safe() -> None:
     )
     assert lease_attempt.status is BybitDemoSessionStartStatus.BLOCKED
     assert lease_attempt.reasons == ("DEMO_SESSION_RUNTIME_LEASE_PRESENT",)
-    with psycopg.connect(_DSN, autocommit=True) as connection:
-        connection.execute(
-            "DELETE FROM astra_bybit_demo_runtime_lease_v119 WHERE owner_token=%s",
-            ("b" * 64,),
-        )
+    lease_store.release(owner_token=lease.owner_token)
 
     positioned = coordinator.initialize(
         _Account(positions=(_position(),)),

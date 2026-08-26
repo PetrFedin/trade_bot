@@ -14,7 +14,7 @@ from app.execution.bybit_demo_postgres_bootstrap import (
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Verify or explicitly bootstrap Bybit Demo PostgreSQL v119 through v122."
+        description="Verify or explicitly bootstrap Bybit Demo PostgreSQL v119 through v123."
     )
     parser.add_argument("--mode", choices=("verify", "apply"), default="verify")
     parser.add_argument("--confirmation", default="")
@@ -36,7 +36,7 @@ def _write(path: str, payload: dict[str, Any]) -> None:
 
 def _failure(error_type: str, *, mode: str) -> dict[str, Any]:
     return {
-        "schema": "BYBIT_DEMO_POSTGRES_BOOTSTRAP_V2",
+        "schema": "BYBIT_DEMO_POSTGRES_BOOTSTRAP_V3",
         "status": "BOOTSTRAP_FAILED",
         "passed": False,
         "mode": mode,

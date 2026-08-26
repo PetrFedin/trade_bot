@@ -123,7 +123,7 @@ def _snapshot(*, order_link_id: str, pnl: str) -> BybitDemoPostTradeAccountingRe
 def test_runtime_risk_survives_restart_tracks_peak_and_reconciles_terminal_trade() -> None:
     applied = apply_bybit_demo_postgres_bootstrap(
         _DSN,
-        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V122",
+        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V123",
     )
     assert applied.passed is True
 
