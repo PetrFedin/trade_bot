@@ -16,6 +16,7 @@ from app.execution.bybit_demo_control_plane import (
 from app.execution.bybit_demo_postgres_bootstrap import (
     apply_bybit_demo_postgres_bootstrap,
 )
+from app.execution.bybit_demo_postgres_runtime_lease import PostgresBybitDemoRuntimeLease
 
 psycopg = pytest.importorskip("psycopg")
 
@@ -56,7 +57,7 @@ def _clean_preflight() -> BybitDemoConnectedPreflightResult:
 def test_control_plane_default_arm_halt_expiry_and_append_only() -> None:
     applied = apply_bybit_demo_postgres_bootstrap(
         _DSN,
-        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V122",
+        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V123",
     )
     assert applied.passed is True
 
@@ -65,6 +66,30 @@ def test_control_plane_default_arm_halt_expiry_and_append_only() -> None:
     assert initial.mode is BybitDemoControlMode.HALTED
     assert initial.new_entry_allowed is False
     assert initial.reasons == ("DEMO_CONTROL_NO_EVENT_DEFAULT_HALT",)
+
+    with psycopg.connect(_DSN, autocommit=True) as connection:
+        connection.execute(
+            """INSERT INTO astra_bybit_demo_control_event_v121(
+                   event_id, event_kind, operator_id, reason,
+                   preflight_status, preflight_record_sha256,
+                   preflight_canonical_record, preflight_observed_at,
+                   armed_until, created_at
+               ) VALUES (
+                   %s, 'HALT_NEW_ENTRIES', %s, %s,
+                   NULL, NULL, NULL, NULL, NULL, %s
+               )""",
+            (
+                "c" * 64,
+                "forged-control-row",
+                "shape-valid but hash-invalid HALT",
+                _NOW,
+            ),
+        )
+    forged = plane.read_decision(now=_NOW)
+    assert forged.mode is BybitDemoControlMode.HALTED
+    assert forged.new_entry_allowed is False
+    assert forged.reasons == ("DEMO_CONTROL_EVENT_HASH_MISMATCH",)
+    assert forged.latest_event_id is None
 
     armed = plane.arm_new_entries(
         _clean_preflight(),
@@ -97,6 +122,8 @@ def test_control_plane_default_arm_halt_expiry_and_append_only() -> None:
                 "DELETE FROM astra_bybit_demo_control_event_v121 WHERE event_id=%s",
                 (armed.event_id,),
             )
+        with pytest.raises(psycopg.Error):
+            connection.execute("TRUNCATE astra_bybit_demo_control_event_v121")
 
     halted = plane.halt_new_entries(
         operator_id="integration-operator",
@@ -125,27 +152,19 @@ def test_control_plane_default_arm_halt_expiry_and_append_only() -> None:
 def test_arm_fails_when_runtime_lease_exists() -> None:
     apply_bybit_demo_postgres_bootstrap(
         _DSN,
-        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V122",
+        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V123",
     )
     plane = PostgresBybitDemoControlPlane(_DSN)
-    with psycopg.connect(_DSN, autocommit=True) as connection:
-        connection.execute(
-            """INSERT INTO astra_bybit_demo_runtime_lease_v119(
-                   lease_name, owner_token, created_time_ms, process_id, created_at
-               ) VALUES ('CANONICAL_DEMO_TRADING_RUNTIME', %s, 1, 1, %s)""",
-            ("b" * 64, _NOW),
-        )
-        try:
-            with pytest.raises(RuntimeError, match="requires idle canonical runtime"):
-                plane.arm_new_entries(
-                    _clean_preflight(),
-                    operator_id="integration-operator",
-                    reason="must not race an active runtime",
-                    now=_NOW + timedelta(seconds=10),
-                    preflight_observed_at=_NOW + timedelta(seconds=10),
-                )
-        finally:
-            connection.execute(
-                "DELETE FROM astra_bybit_demo_runtime_lease_v119 WHERE owner_token=%s",
-                ("b" * 64,),
+    lease_store = PostgresBybitDemoRuntimeLease(_DSN, clock_ms=lambda: 1)
+    lease = lease_store.acquire()
+    try:
+        with pytest.raises(RuntimeError, match="requires idle canonical runtime"):
+            plane.arm_new_entries(
+                _clean_preflight(),
+                operator_id="integration-operator",
+                reason="must not race an active runtime",
+                now=_NOW + timedelta(seconds=10),
+                preflight_observed_at=_NOW + timedelta(seconds=10),
             )
+    finally:
+        lease_store.release(owner_token=lease.owner_token)
