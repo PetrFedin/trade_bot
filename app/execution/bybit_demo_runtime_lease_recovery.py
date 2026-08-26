@@ -19,7 +19,10 @@ _CONFIRMATION_PHRASE = "RECOVER_BYBIT_DEMO_RUNTIME_LEASE"
 _LEASE_RELATION = "astra_bybit_demo_runtime_lease_v119"
 _CHECKPOINT_RELATION = "astra_bybit_demo_active_excursion_v119"
 _CONTROL_RELATION = "astra_bybit_demo_control_event_v121"
-_CONTROL_TRIGGER = "astra_bybit_demo_control_append_only_v121"
+_CONTROL_TRIGGERS = (
+    "astra_bybit_demo_control_append_only_v121",
+    "astra_bybit_demo_control_no_truncate_v123",
+)
 _RECOVERY_RELATION = "astra_bybit_demo_runtime_lease_recovery_v123"
 _RECOVERY_TRIGGERS = (
     "astra_bybit_demo_runtime_lease_recovery_append_only_v123",
@@ -148,7 +151,7 @@ class PostgresBybitDemoRuntimeLeaseRecovery:
             reasons: tuple[str, ...] = ()
         elif not explicit_halt:
             status = BybitDemoRuntimeLeaseRecoveryStatus.BLOCKED
-            reasons = ("DEMO_RUNTIME_LEASE_RECOVERY_REQUIRES_EXPLICIT_OPERATOR_HALT",)
+            reasons = ("DEMO_RUNTIME_LEASE_RECOVERY_REQUIRES_VERIFIED_OPERATOR_HALT",)
         else:
             status = BybitDemoRuntimeLeaseRecoveryStatus.RECOVERY_REQUIRED
             reasons = ("DEMO_RUNTIME_LEASE_REQUIRES_CONTROLLED_OPERATOR_RECOVERY",)
@@ -185,8 +188,7 @@ class PostgresBybitDemoRuntimeLeaseRecovery:
                     if not _schema_ready(cursor):
                         raise RuntimeError("Bybit Demo runtime lease recovery schema is not ready")
 
-                    # Match ARM lock ordering: lease first, then control. This avoids a cycle where
-                    # ARM owns a lease SHARE lock while recovery owns a control-table lock.
+                    # Match ARM lock ordering: lease first, then control.
                     cursor.execute(
                         "LOCK TABLE astra_bybit_demo_runtime_lease_v119 "
                         "IN ACCESS EXCLUSIVE MODE"
@@ -199,7 +201,7 @@ class PostgresBybitDemoRuntimeLeaseRecovery:
                     control = _latest_control_event(cursor)
                     if not _is_explicit_halt(control):
                         raise RuntimeError(
-                            "Bybit Demo runtime lease recovery requires latest explicit HALT"
+                            "Bybit Demo runtime lease recovery requires verified latest HALT"
                         )
 
                     lease = _lease_row(cursor, lock=True)
@@ -289,7 +291,7 @@ def _schema_ready(cursor: Any) -> bool:
         row = cursor.fetchone()
         if row is None or row["relation"] is None:
             return False
-    for trigger in (_CONTROL_TRIGGER, *_RECOVERY_TRIGGERS):
+    for trigger in (*_CONTROL_TRIGGERS, *_RECOVERY_TRIGGERS):
         cursor.execute(
             """SELECT count(*) AS count
                FROM pg_trigger
@@ -304,7 +306,7 @@ def _schema_ready(cursor: Any) -> bool:
 
 def _latest_control_event(cursor: Any) -> Any | None:
     cursor.execute(
-        """SELECT event_id, event_kind, created_at
+        """SELECT event_id, event_kind, operator_id, reason, created_at
            FROM astra_bybit_demo_control_event_v121
            ORDER BY event_seq DESC
            LIMIT 1"""
@@ -442,11 +444,8 @@ def _inspection_from_rows(
         _validate_lease_safety(lease)
     lease_owner_sha = None if lease is None else _sha256_text(lease["owner_token"])
     lease_created = None if lease is None else int(lease["created_time_ms"])
-    control_event_id = (
-        control["event_id"]
-        if control is not None and _is_sha256(control["event_id"])
-        else None
-    )
+    verified_halt = _is_explicit_halt(control)
+    control_event_id = control["event_id"] if verified_halt else None
     checkpoint_hash = (
         None
         if checkpoint is None
@@ -458,7 +457,7 @@ def _inspection_from_rows(
         lease_present=lease is not None,
         lease_owner_sha256=lease_owner_sha,
         lease_created_time_ms=lease_created,
-        explicit_operator_halt_present=_is_explicit_halt(control),
+        explicit_operator_halt_present=verified_halt,
         latest_control_event_id=control_event_id,
         active_checkpoint_present=checkpoint is not None,
         active_checkpoint_entry_order_link_id_sha256=checkpoint_hash,
@@ -487,11 +486,27 @@ def _empty_inspection(
 
 
 def _is_explicit_halt(row: Any | None) -> bool:
-    return (
-        row is not None
-        and row["event_kind"] == "HALT_NEW_ENTRIES"
-        and _is_sha256(row["event_id"])
-    )
+    if row is None or row["event_kind"] != "HALT_NEW_ENTRIES":
+        return False
+    event_id = row["event_id"]
+    operator_id = row["operator_id"]
+    reason = row["reason"]
+    created_at = row["created_at"]
+    if not _is_sha256(event_id):
+        return False
+    if not isinstance(operator_id, str) or not operator_id.strip() or len(operator_id) > 128:
+        return False
+    if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
+        return False
+    if not isinstance(created_at, datetime) or created_at.tzinfo is None:
+        return False
+    event = {
+        "event_kind": "HALT_NEW_ENTRIES",
+        "operator_id": operator_id,
+        "reason": reason,
+        "created_at": created_at.astimezone(UTC).isoformat(),
+    }
+    return _sha256_json(event) == event_id
 
 
 def _validate_lease_safety(row: Any) -> None:
