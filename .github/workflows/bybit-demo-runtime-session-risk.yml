@@ -1,0 +1,114 @@
+name: bybit-demo-runtime-session-risk
+
+on:
+  pull_request:
+    paths:
+      - 'app/execution/bybit_demo_postgres_session_risk_store.py'
+      - 'app/execution/bybit_demo_session_risk_runtime.py'
+      - 'app/execution/bybit_demo_terminal_handoff.py'
+      - 'app/execution/bybit_demo_trading_runtime.py'
+      - 'app/execution/bybit_demo_attributed_runtime.py'
+      - 'app/execution/bybit_product_terminal_handoff.py'
+      - 'tests/test_bybit_demo_terminal_handoff.py'
+      - 'tests/test_bybit_demo_trading_runtime.py'
+      - 'tests/test_bybit_demo_trading_runtime_provenance.py'
+      - 'tests/test_bybit_demo_attributed_runtime.py'
+      - 'tests/test_bybit_product_terminal_handoff.py'
+      - 'tests/test_bybit_demo_session_risk_runtime_postgres.py'
+      - '.github/workflows/bybit-demo-runtime-session-risk.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/execution/bybit_demo_postgres_session_risk_store.py'
+      - 'app/execution/bybit_demo_session_risk_runtime.py'
+      - 'app/execution/bybit_demo_terminal_handoff.py'
+      - 'app/execution/bybit_demo_trading_runtime.py'
+      - 'app/execution/bybit_demo_attributed_runtime.py'
+      - 'app/execution/bybit_product_terminal_handoff.py'
+      - 'tests/test_bybit_demo_terminal_handoff.py'
+      - 'tests/test_bybit_demo_trading_runtime.py'
+      - 'tests/test_bybit_demo_trading_runtime_provenance.py'
+      - 'tests/test_bybit_demo_attributed_runtime.py'
+      - 'tests/test_bybit_product_terminal_handoff.py'
+      - 'tests/test_bybit_demo_session_risk_runtime_postgres.py'
+      - '.github/workflows/bybit-demo-runtime-session-risk.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-demo-runtime-session-risk-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra
+          POSTGRES_DB: astra_demo_runtime_risk
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra_demo_runtime_risk"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ASTRA_DEMO_RUNTIME_SESSION_RISK_TEST_DSN: postgresql://astra:astra@localhost:5432/astra_demo_runtime_risk
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev,postgresql]'
+          python -m pip check
+      - name: Runtime terminal durability and PostgreSQL restart proof
+        run: |
+          pytest -q \
+            tests/test_bybit_demo_terminal_handoff.py \
+            tests/test_bybit_demo_trading_runtime.py \
+            tests/test_bybit_demo_trading_runtime_provenance.py \
+            tests/test_bybit_demo_attributed_runtime.py \
+            tests/test_bybit_product_terminal_handoff.py \
+            tests/test_bybit_demo_session_risk_runtime_postgres.py
+      - name: Ruff runtime session risk
+        run: |
+          ruff check \
+            app/execution/bybit_demo_postgres_session_risk_store.py \
+            app/execution/bybit_demo_session_risk_runtime.py \
+            app/execution/bybit_demo_terminal_handoff.py \
+            app/execution/bybit_demo_trading_runtime.py \
+            app/execution/bybit_demo_attributed_runtime.py \
+            app/execution/bybit_product_terminal_handoff.py \
+            tests/test_bybit_demo_terminal_handoff.py \
+            tests/test_bybit_demo_trading_runtime.py \
+            tests/test_bybit_demo_trading_runtime_provenance.py \
+            tests/test_bybit_demo_attributed_runtime.py \
+            tests/test_bybit_product_terminal_handoff.py \
+            tests/test_bybit_demo_session_risk_runtime_postgres.py
+      - name: Bandit runtime session risk
+        run: |
+          bandit -q \
+            app/execution/bybit_demo_postgres_session_risk_store.py \
+            app/execution/bybit_demo_session_risk_runtime.py \
+            app/execution/bybit_demo_terminal_handoff.py \
+            app/execution/bybit_demo_trading_runtime.py \
+            app/execution/bybit_demo_attributed_runtime.py \
+            app/execution/bybit_product_terminal_handoff.py
+      - name: Compile runtime session risk
+        run: |
+          python -m compileall -q \
+            app/execution/bybit_demo_postgres_session_risk_store.py \
+            app/execution/bybit_demo_session_risk_runtime.py \
+            app/execution/bybit_demo_terminal_handoff.py \
+            app/execution/bybit_demo_trading_runtime.py \
+            app/execution/bybit_demo_attributed_runtime.py \
+            app/execution/bybit_product_terminal_handoff.py

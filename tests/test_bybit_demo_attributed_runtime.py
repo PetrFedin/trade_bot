@@ -10,9 +10,8 @@ from app.execution.bybit_demo_attributed_runtime import (
 )
 from app.execution.bybit_demo_entry_provenance_store import BybitDemoEntryProvenanceRecord
 from app.execution.bybit_demo_managed_trade_poll import BybitDemoManagedTradePollPhase
-from app.execution.bybit_demo_terminal_evidence_store import (
-    BybitDemoTerminalEvidenceReceipt,
-)
+from app.execution.bybit_demo_session_risk_runtime import BybitDemoSessionRiskCommitReceipt
+from app.execution.bybit_demo_terminal_evidence_store import BybitDemoTerminalEvidenceReceipt
 from app.execution.bybit_demo_terminal_handoff import (
     BybitDemoTerminalHandoffResult,
     BybitDemoTerminalHandoffStatus,
@@ -87,18 +86,33 @@ def _receipt() -> BybitDemoTerminalEvidenceReceipt:
     )
 
 
+def _risk_receipt(*, entry_order_link_id: str = _ENTRY) -> BybitDemoSessionRiskCommitReceipt:
+    return BybitDemoSessionRiskCommitReceipt(
+        ledger_revision_sha256="d" * 64,
+        outcome_count=1,
+        entry_order_link_id=entry_order_link_id,
+        idempotent_existing_outcome=False,
+    )
+
+
 def _handoff(
     *,
     evidence_durable: bool = True,
+    session_risk_durable: bool = True,
+    session_risk_receipt: BybitDemoSessionRiskCommitReceipt | None = None,
     checkpoint_cleared: bool = True,
     next_entry_allowed: bool = True,
 ) -> BybitDemoTerminalHandoffResult:
+    if session_risk_receipt is None and session_risk_durable:
+        session_risk_receipt = _risk_receipt()
     return BybitDemoTerminalHandoffResult(
         status=BybitDemoTerminalHandoffStatus.COMPLETE,
         reasons=(),
         receipt=_receipt(),
+        session_risk_receipt=session_risk_receipt,
         acknowledgement=None,
         evidence_durable=evidence_durable,
+        session_risk_durable=session_risk_durable,
         checkpoint_cleared=checkpoint_cleared,
         next_entry_allowed=next_entry_allowed,
     )
@@ -106,9 +120,7 @@ def _handoff(
 
 def _base(
     *,
-    status: BybitDemoTradingRuntimeStatus = (
-        BybitDemoTradingRuntimeStatus.TERMINAL_HANDOFF_COMPLETE
-    ),
+    status: BybitDemoTradingRuntimeStatus = BybitDemoTradingRuntimeStatus.TERMINAL_HANDOFF_COMPLETE,
     handoff: BybitDemoTerminalHandoffResult | None = None,
     managed: _Managed | None = None,
     next_entry_allowed: bool = True,
@@ -146,9 +158,7 @@ def _run(
         seen_kwargs.update(kwargs)
         return base
 
-    active_builder = (
-        (lambda *_args, **_kwargs: _Attribution()) if builder is None else builder
-    )
+    active_builder = (lambda *_args, **_kwargs: _Attribution()) if builder is None else builder
     result = run_attributed_bybit_demo_trading_runtime(
         {},
         entry_provenance_store=active_store,
@@ -166,9 +176,7 @@ def test_nonterminal_runtime_passes_through_without_loading_provenance() -> None
         managed=None,
         next_entry_allowed=False,
     )
-
     result, store, seen_kwargs = _run(base)
-
     assert result.status is BybitDemoAttributedRuntimeStatus.RUNTIME_PASSTHROUGH
     assert result.runtime is base
     assert result.trade_attribution is None
@@ -191,7 +199,6 @@ def test_terminal_handoff_loads_exact_entry_and_builds_attribution() -> None:
 
     base = _base()
     result, _, _ = _run(base, store=store, builder=_builder)
-
     assert result.status is BybitDemoAttributedRuntimeStatus.TERMINAL_ATTRIBUTION_READY
     assert result.trade_attribution_built is True
     assert isinstance(result.trade_attribution, _Attribution)
@@ -215,7 +222,6 @@ def test_missing_provenance_is_retryable_analytics_gap_after_completed_lifecycle
         return _Attribution()
 
     result, _, _ = _run(_base(), store=store, builder=_builder)
-
     assert result.status is BybitDemoAttributedRuntimeStatus.TERMINAL_ATTRIBUTION_GAP
     assert result.reasons == ("TERMINAL_PROVENANCE_LOAD_FAILED:FileNotFoundError",)
     assert result.trade_attribution is None
@@ -228,27 +234,53 @@ def test_attribution_build_failure_is_retryable_gap_with_immutable_inputs() -> N
         raise RuntimeError("analytics unavailable")
 
     result, _, _ = _run(_base(), builder=_fail)
-
     assert result.status is BybitDemoAttributedRuntimeStatus.TERMINAL_ATTRIBUTION_GAP
     assert result.reasons == ("TERMINAL_TRADE_ATTRIBUTION_BUILD_FAILED:RuntimeError",)
     assert result.next_entry_allowed is True
     assert result.trade_attribution_built is False
 
 
-def test_invalid_terminal_handoff_proof_fails_closed_for_reentry() -> None:
-    base = _base(handoff=_handoff(evidence_durable=False))
-
-    result, store, _ = _run(base)
-
+def test_invalid_terminal_evidence_proof_fails_closed_for_reentry() -> None:
+    result, store, _ = _run(_base(handoff=_handoff(evidence_durable=False)))
     assert result.status is BybitDemoAttributedRuntimeStatus.TERMINAL_HANDOFF_PROOF_INVALID
     assert result.reasons == ("TERMINAL_EVIDENCE_NOT_DURABLE",)
     assert result.next_entry_allowed is False
     assert store.loaded_ids == []
 
 
+def test_invalid_terminal_session_risk_proof_fails_closed_for_reentry() -> None:
+    result, store, _ = _run(
+        _base(
+            handoff=_handoff(
+                session_risk_durable=False,
+                session_risk_receipt=None,
+            )
+        )
+    )
+    assert result.status is BybitDemoAttributedRuntimeStatus.TERMINAL_HANDOFF_PROOF_INVALID
+    assert result.reasons == ("TERMINAL_SESSION_RISK_NOT_DURABLE",)
+    assert result.next_entry_allowed is False
+    assert store.loaded_ids == []
+
+
+def test_mismatched_terminal_session_risk_identity_fails_closed() -> None:
+    result, store, _ = _run(
+        _base(
+            handoff=_handoff(
+                session_risk_receipt=_risk_receipt(
+                    entry_order_link_id="ASTRA-DEMO-E-OTHER"
+                )
+            )
+        )
+    )
+    assert result.status is BybitDemoAttributedRuntimeStatus.TERMINAL_HANDOFF_PROOF_INVALID
+    assert result.reasons == ("TERMINAL_SESSION_RISK_ENTRY_ID_MISMATCH",)
+    assert result.next_entry_allowed is False
+    assert store.loaded_ids == []
+
+
 def test_unsafe_loaded_provenance_record_is_hard_rejected() -> None:
     store = _ProvenanceStore(unsafe_record=True)
-
     with pytest.raises(ValueError, match="mainnet-capable entry provenance record"):
         _run(_base(), store=store)
 
@@ -265,7 +297,6 @@ def test_unsafe_attribution_result_is_hard_rejected() -> None:
 
 def test_same_invocation_replacement_permission_is_rejected() -> None:
     base = replace(_base(), same_invocation_additional_entry_allowed=True)
-
     with pytest.raises(ValueError, match="same-invocation replacement entry"):
         _run(base)
 
@@ -273,6 +304,5 @@ def test_same_invocation_replacement_permission_is_rejected() -> None:
 def test_unsafe_provenance_store_is_rejected_before_base_runtime() -> None:
     store = _ProvenanceStore()
     store.realized_pnl_storage_allowed = True
-
     with pytest.raises(ValueError, match="forbids realized PnL"):
         _run(_base(), store=store)

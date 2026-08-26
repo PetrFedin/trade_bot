@@ -24,6 +24,7 @@ from app.execution.bybit_demo_ranked_fallback import (
 )
 from app.execution.bybit_demo_runtime_lease import BybitDemoRuntimeLease
 from app.execution.bybit_demo_terminal_handoff import (
+    BybitDemoSessionRiskCommitter,
     BybitDemoTerminalHandoffResult,
     BybitDemoTerminalHandoffStatus,
     persist_and_acknowledge_bybit_demo_terminal_evidence,
@@ -110,6 +111,7 @@ def run_bybit_demo_trading_runtime(
     completed_bar_client: Any,
     quote_client: Any,
     runtime_lease: BybitDemoRuntimeLeaseStore,
+    session_risk_committer: BybitDemoSessionRiskCommitter,
     terminal_evidence_store: Any | None = None,
     entry_provenance_store: BybitDemoEntryProvenanceStore | None = None,
     managed_policy: BybitDemoManagedTradePollPolicy | None = None,
@@ -125,18 +127,17 @@ def run_bybit_demo_trading_runtime(
     ),
     **entry_kwargs: Any,
 ) -> BybitDemoTradingRuntimeResult:
-    """Route one canonical demo invocation to entry *or* active-trade management.
+    """Route one canonical Demo invocation to entry or active-trade management.
 
     An exclusive runtime lease closes the race where two processes both observe no excursion
     checkpoint and submit separate entries. Under that lease, a valid active checkpoint always
-    wins over new signal selection. Only a missing checkpoint can reach the existing resilient
-    entry path. Corrupt checkpoint state blocks trading instead of being treated as no position.
+    wins over new signal selection. Only a missing checkpoint can reach the resilient entry path.
+    Corrupt checkpoint state blocks trading instead of being treated as no position.
 
-    If an immutable entry-provenance store is supplied, a newly protected entry is joined to its
-    outcome-free selection/execution facts after the entry cycle completes. Provenance persistence
-    is diagnostic and cannot retroactively alter a protected position. Fully reconciled terminal
-    evidence can be persisted and acknowledged in the same invocation, but even a successful
-    handoff never starts a replacement trade before the lease is released.
+    A v122 session-risk committer is mandatory for every canonical invocation. Fully reconciled
+    terminal state is committed in strict order: immutable evidence, durable session risk, then
+    exact checkpoint acknowledgement. Even a successful handoff never starts a replacement trade
+    before the lease is released.
     """
 
     strategy_config.validate()
@@ -148,6 +149,7 @@ def run_bybit_demo_trading_runtime(
         client=client,
         quote_client=quote_client,
         completed_bar_client=completed_bar_client,
+        session_risk_committer=session_risk_committer,
         terminal_evidence_store=terminal_evidence_store,
         entry_provenance_store=entry_provenance_store,
     )
@@ -185,6 +187,7 @@ def run_bybit_demo_trading_runtime(
             excursion_store=excursion_store,
             completed_bar_client=completed_bar_client,
             quote_client=quote_client,
+            session_risk_committer=session_risk_committer,
             terminal_evidence_store=terminal_evidence_store,
             entry_provenance_store=entry_provenance_store,
             managed_policy=managed_policy,
@@ -258,6 +261,7 @@ def _run_under_lease(
     excursion_store: BybitDemoExcursionStore,
     completed_bar_client: Any,
     quote_client: Any,
+    session_risk_committer: BybitDemoSessionRiskCommitter,
     terminal_evidence_store: Any | None,
     entry_provenance_store: BybitDemoEntryProvenanceStore | None,
     managed_policy: BybitDemoManagedTradePollPolicy | None,
@@ -354,6 +358,7 @@ def _run_under_lease(
         handoff = terminal_handoff(
             managed,
             evidence_store=terminal_evidence_store,
+            session_risk_committer=session_risk_committer,
             excursion_store=excursion_store,
         )
         _reject_live_result(handoff, name="terminal handoff")
@@ -391,6 +396,7 @@ def _validate_dependencies(
     client: Any,
     quote_client: Any,
     completed_bar_client: Any,
+    session_risk_committer: BybitDemoSessionRiskCommitter,
     terminal_evidence_store: Any | None,
     entry_provenance_store: BybitDemoEntryProvenanceStore | None,
 ) -> None:
@@ -408,6 +414,14 @@ def _validate_dependencies(
         raise ValueError("demo trading runtime rejected mainnet-capable quote client")
     if getattr(completed_bar_client, "live_mainnet_order_routing_allowed", True) is not False:
         raise ValueError("demo trading runtime rejected mainnet-capable completed-bar client")
+    if session_risk_committer.live_mainnet_order_routing_allowed:
+        raise ValueError("demo trading runtime rejected mainnet-capable session-risk committer")
+    if session_risk_committer.order_writes_supported:
+        raise ValueError("demo trading runtime requires diagnostics-only session-risk committer")
+    if session_risk_committer.automatic_reset_allowed:
+        raise ValueError("demo trading runtime forbids automatic session-risk reset")
+    if not session_risk_committer.initialized_session_required:
+        raise ValueError("demo trading runtime requires explicitly initialized session risk")
     if terminal_evidence_store is not None:
         if (
             getattr(

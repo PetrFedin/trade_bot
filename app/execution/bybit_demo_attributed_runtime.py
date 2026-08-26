@@ -64,13 +64,12 @@ def run_attributed_bybit_demo_trading_runtime(
     attribution_builder: AttributionBuilder = build_bybit_demo_trade_attribution,
     **runtime_kwargs: Any,
 ) -> BybitDemoAttributedRuntimeResult:
-    """Run the single-writer demo runtime and reconstruct terminal trade attribution.
+    """Run the single-writer Demo runtime and reconstruct terminal trade attribution.
 
     The underlying trading runtime remains authoritative for entries, position management,
-    accounting and terminal handoff. This wrapper adds a restart-safe post-trade join: after a
-    proven terminal handoff, it reloads the immutable outcome-free entry decision by orderLinkId
-    and joins it to the fully reconciled terminal evidence. Analytics failures do not rewrite an
-    already completed trading lifecycle, but malformed terminal proof fails closed for re-entry.
+    accounting, v122 session risk and terminal handoff. This wrapper adds a restart-safe post-trade
+    join only after both terminal evidence and the exact-entry session-risk outcome are proven
+    durable. Analytics failures cannot rewrite an already completed trading lifecycle.
     """
 
     _validate_provenance_store(entry_provenance_store)
@@ -121,8 +120,6 @@ def run_attributed_bybit_demo_trading_runtime(
             next_entry_allowed=base.next_entry_allowed,
         )
 
-    # Safety/capability violations are not retryable analytics gaps. They must remain hard
-    # failures so an unsafe object can never be downgraded into a benign diagnostics condition.
     _reject_live_result(loaded, name="entry provenance record")
 
     try:
@@ -159,12 +156,18 @@ def _terminal_proof_invalid_reason(base: BybitDemoTradingRuntimeResult) -> str |
         return "TERMINAL_HANDOFF_STATUS_NOT_COMPLETE"
     if not handoff.evidence_durable:
         return "TERMINAL_EVIDENCE_NOT_DURABLE"
+    if handoff.receipt is None:
+        return "TERMINAL_EVIDENCE_RECEIPT_MISSING"
+    if not handoff.session_risk_durable:
+        return "TERMINAL_SESSION_RISK_NOT_DURABLE"
+    if handoff.session_risk_receipt is None:
+        return "TERMINAL_SESSION_RISK_RECEIPT_MISSING"
+    if handoff.session_risk_receipt.entry_order_link_id != handoff.receipt.entry_order_link_id:
+        return "TERMINAL_SESSION_RISK_ENTRY_ID_MISMATCH"
     if not handoff.checkpoint_cleared:
         return "TERMINAL_EXCURSION_CHECKPOINT_NOT_CLEARED"
     if not handoff.next_entry_allowed:
         return "TERMINAL_HANDOFF_DID_NOT_ALLOW_REENTRY"
-    if handoff.receipt is None:
-        return "TERMINAL_EVIDENCE_RECEIPT_MISSING"
     if managed is None:
         return "TERMINAL_MANAGED_POLL_MISSING"
     if not managed.fully_reconciled_all_in:

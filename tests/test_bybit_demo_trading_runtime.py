@@ -57,6 +57,13 @@ class _EvidenceStore:
     order_writes_supported = False
 
 
+class _RiskCommitter:
+    live_mainnet_order_routing_allowed = False
+    order_writes_supported = False
+    automatic_reset_allowed = False
+    initialized_session_required = True
+
+
 class _ExcursionStore:
     live_mainnet_order_routing_allowed = False
     order_writes_supported = False
@@ -147,6 +154,7 @@ def _runtime(**overrides: object):
         "completed_bar_client": _SafeDependency(),
         "quote_client": _SafeDependency(),
         "runtime_lease": _Lease(),
+        "session_risk_committer": _RiskCommitter(),
     }
     arguments.update(overrides)
     return run_bybit_demo_trading_runtime(**arguments)
@@ -308,6 +316,31 @@ def test_terminal_evidence_ready_without_store_never_clears_or_reenters() -> Non
     assert result.next_entry_allowed is False
 
 
+def test_terminal_handoff_receives_required_session_risk_committer() -> None:
+    handoff_calls = 0
+    risk = _RiskCommitter()
+
+    def _handoff(*_args: object, **kwargs: object) -> _Handoff:
+        nonlocal handoff_calls
+        handoff_calls += 1
+        assert kwargs["session_risk_committer"] is risk
+        return _Handoff(BybitDemoTerminalHandoffStatus.COMPLETE)
+
+    result = _runtime(
+        excursion_store=_ExcursionStore(_Checkpoint()),
+        terminal_evidence_store=_EvidenceStore(),
+        session_risk_committer=risk,
+        managed_poller=lambda **_kwargs: _ManagedPoll(
+            BybitDemoManagedTradePollPhase.TERMINAL_EVIDENCE_READY
+        ),
+        terminal_handoff=_handoff,
+    )
+
+    assert result.status is BybitDemoTradingRuntimeStatus.TERMINAL_HANDOFF_COMPLETE
+    assert handoff_calls == 1
+    assert result.next_entry_allowed is True
+
+
 def test_terminal_handoff_complete_allows_only_next_invocation_not_same_call_entry() -> None:
     entry_calls = 0
     handoff_calls = 0
@@ -370,3 +403,11 @@ def test_unsafe_entry_result_is_hard_rejected_after_lease_release() -> None:
         )
 
     assert lease.release_calls == 1
+
+
+def test_runtime_rejects_automatic_reset_capable_session_risk_committer() -> None:
+    risk = _RiskCommitter()
+    risk.automatic_reset_allowed = True
+
+    with pytest.raises(ValueError, match="automatic session-risk reset"):
+        _runtime(session_risk_committer=risk)
