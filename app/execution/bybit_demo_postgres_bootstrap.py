@@ -18,7 +18,10 @@ except ImportError:  # pragma: no cover - optional dependency boundary
 _CONFIRMATION_PHRASE = "APPLY_BYBIT_DEMO_V119_V123"
 _ADVISORY_LOCK_KEY = 119123
 _CONTROL_RELATION = "astra_bybit_demo_control_event_v121"
-_CONTROL_TRIGGER = "astra_bybit_demo_control_append_only_v121"
+_CONTROL_TRIGGERS = (
+    "astra_bybit_demo_control_append_only_v121",
+    "astra_bybit_demo_control_no_truncate_v123",
+)
 _SESSION_RISK_RELATIONS = (
     "astra_bybit_demo_session_risk_v122",
     "astra_bybit_demo_session_trade_outcome_v122",
@@ -103,7 +106,7 @@ def verify_bybit_demo_postgres_schema(dsn: str) -> BybitDemoPostgresBootstrapRes
 
     fingerprints = _migration_fingerprints()
     state = PostgresBybitDemoOperationalStateReader(dsn).read_state()
-    control_relation, control_trigger = _verify_control_schema(dsn)
+    control_relation, control_triggers = _verify_control_schema(dsn)
     risk_relations, risk_triggers = _verify_session_risk_schema(dsn)
     recovery_relation, recovery_triggers = _verify_recovery_schema(dsn)
     relations_ready = (
@@ -114,7 +117,7 @@ def verify_bybit_demo_postgres_schema(dsn: str) -> BybitDemoPostgresBootstrapRes
     )
     triggers_ready = (
         state.append_only_triggers_present
-        and control_trigger
+        and control_triggers
         and risk_triggers
         and recovery_triggers
     )
@@ -196,11 +199,13 @@ def _verify_control_schema(dsn: str) -> tuple[bool, bool]:
                 cursor.execute(
                     """SELECT count(*)
                        FROM pg_trigger
-                       WHERE NOT tgisinternal AND tgname = %s""",
-                    (_CONTROL_TRIGGER,),
+                       WHERE NOT tgisinternal AND tgname = ANY(%s)""",
+                    (list(_CONTROL_TRIGGERS),),
                 )
                 trigger = cursor.fetchone()
-                trigger_ready = trigger is not None and int(trigger[0]) == 1
+                trigger_ready = trigger is not None and int(trigger[0]) == len(
+                    _CONTROL_TRIGGERS
+                )
                 return True, trigger_ready
 
 
