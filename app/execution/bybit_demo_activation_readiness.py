@@ -130,7 +130,7 @@ def load_json_evidence(path: str | Path) -> tuple[dict[str, Any], str]:
 
 
 def _validate_postgres(payload: Mapping[str, Any], reasons: list[str]) -> None:
-    if payload.get("schema") != "BYBIT_DEMO_POSTGRES_BOOTSTRAP_V2":
+    if payload.get("schema") != "BYBIT_DEMO_POSTGRES_BOOTSTRAP_V3":
         reasons.append("POSTGRES_EVIDENCE_SCHEMA_INVALID")
         return
     if payload.get("mode") != "verify":
