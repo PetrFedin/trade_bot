@@ -7,8 +7,13 @@ on:
       - 'app/execution/bybit_demo_session_risk_runtime.py'
       - 'app/execution/bybit_demo_terminal_handoff.py'
       - 'app/execution/bybit_demo_trading_runtime.py'
+      - 'app/execution/bybit_demo_attributed_runtime.py'
+      - 'app/execution/bybit_product_terminal_handoff.py'
       - 'tests/test_bybit_demo_terminal_handoff.py'
       - 'tests/test_bybit_demo_trading_runtime.py'
+      - 'tests/test_bybit_demo_trading_runtime_provenance.py'
+      - 'tests/test_bybit_demo_attributed_runtime.py'
+      - 'tests/test_bybit_product_terminal_handoff.py'
       - 'tests/test_bybit_demo_session_risk_runtime_postgres.py'
       - '.github/workflows/bybit-demo-runtime-session-risk.yml'
   push:
@@ -18,8 +23,13 @@ on:
       - 'app/execution/bybit_demo_session_risk_runtime.py'
       - 'app/execution/bybit_demo_terminal_handoff.py'
       - 'app/execution/bybit_demo_trading_runtime.py'
+      - 'app/execution/bybit_demo_attributed_runtime.py'
+      - 'app/execution/bybit_product_terminal_handoff.py'
       - 'tests/test_bybit_demo_terminal_handoff.py'
       - 'tests/test_bybit_demo_trading_runtime.py'
+      - 'tests/test_bybit_demo_trading_runtime_provenance.py'
+      - 'tests/test_bybit_demo_attributed_runtime.py'
+      - 'tests/test_bybit_product_terminal_handoff.py'
       - 'tests/test_bybit_demo_session_risk_runtime_postgres.py'
       - '.github/workflows/bybit-demo-runtime-session-risk.yml'
 
@@ -65,6 +75,9 @@ jobs:
           pytest -q \
             tests/test_bybit_demo_terminal_handoff.py \
             tests/test_bybit_demo_trading_runtime.py \
+            tests/test_bybit_demo_trading_runtime_provenance.py \
+            tests/test_bybit_demo_attributed_runtime.py \
+            tests/test_bybit_product_terminal_handoff.py \
             tests/test_bybit_demo_session_risk_runtime_postgres.py
       - name: Ruff runtime session risk
         run: |
@@ -73,8 +86,13 @@ jobs:
             app/execution/bybit_demo_session_risk_runtime.py \
             app/execution/bybit_demo_terminal_handoff.py \
             app/execution/bybit_demo_trading_runtime.py \
+            app/execution/bybit_demo_attributed_runtime.py \
+            app/execution/bybit_product_terminal_handoff.py \
             tests/test_bybit_demo_terminal_handoff.py \
             tests/test_bybit_demo_trading_runtime.py \
+            tests/test_bybit_demo_trading_runtime_provenance.py \
+            tests/test_bybit_demo_attributed_runtime.py \
+            tests/test_bybit_product_terminal_handoff.py \
             tests/test_bybit_demo_session_risk_runtime_postgres.py
       - name: Bandit runtime session risk
         run: |
@@ -82,11 +100,15 @@ jobs:
             app/execution/bybit_demo_postgres_session_risk_store.py \
             app/execution/bybit_demo_session_risk_runtime.py \
             app/execution/bybit_demo_terminal_handoff.py \
-            app/execution/bybit_demo_trading_runtime.py
+            app/execution/bybit_demo_trading_runtime.py \
+            app/execution/bybit_demo_attributed_runtime.py \
+            app/execution/bybit_product_terminal_handoff.py
       - name: Compile runtime session risk
         run: |
           python -m compileall -q \
             app/execution/bybit_demo_postgres_session_risk_store.py \
             app/execution/bybit_demo_session_risk_runtime.py \
             app/execution/bybit_demo_terminal_handoff.py \
-            app/execution/bybit_demo_trading_runtime.py
+            app/execution/bybit_demo_trading_runtime.py \
+            app/execution/bybit_demo_attributed_runtime.py \
+            app/execution/bybit_product_terminal_handoff.py
