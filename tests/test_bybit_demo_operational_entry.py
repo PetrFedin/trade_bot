@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.execution.bybit_demo import BybitDemoOrderClient
+from app.execution.bybit_demo_connected_preflight import BybitDemoConnectedPreflightStatus
 from app.execution.bybit_demo_control_plane import (
     BybitDemoControlDecision,
     BybitDemoControlMode,
@@ -41,18 +43,26 @@ class _ExistingStore(_MissingStore):
         )
 
 
+class _RecoveryStore(_MissingStore):
+    order_writes_supported = False
+
+
 class _EntryOms:
     live_mainnet_order_routing_allowed = False
     automatic_resubmit_after_submit_started_allowed = False
 
 
-class _Client:
-    environment = "BYBIT_DEMO"
-    live_mainnet_order_routing_allowed = False
+class _Client(BybitDemoOrderClient):
     entry_recovery_required = True
 
-    def __init__(self) -> None:
+    def __init__(self, *, mainnet: bool = False) -> None:
         self.entry_oms = _EntryOms()
+        self.entry_recovery_store = _RecoveryStore()
+        self._test_mainnet = mainnet
+
+    @property
+    def live_mainnet_order_routing_allowed(self) -> bool:
+        return self._test_mainnet
 
 
 class _ControlPlane:
@@ -93,36 +103,26 @@ def _approval(*, expires_at: datetime | None = None) -> BybitDemoOperatorApprova
     )
 
 
-def _fixed_egress_preflight(*, ready: bool = True):
+def _ready_preflight():
     return SimpleNamespace(
-        status=(
-            SimpleNamespace(name="READY_FOR_MANUAL_OPERATOR_APPROVAL")
-            if False
-            else None
-        ),
+        status=BybitDemoConnectedPreflightStatus.READY_FOR_MANUAL_OPERATOR_APPROVAL,
         reasons=(),
-        read_only_api_key_verified=ready,
-        api_key_ip_binding_present=ready,
+        read_only_api_key_verified=True,
+        api_key_ip_binding_present=True,
         order_writes_supported=False,
         live_mainnet_order_routing_allowed=False,
     )
 
 
-def _ready_preflight():
-    from app.execution.bybit_demo_connected_preflight import BybitDemoConnectedPreflightStatus
-
-    result = _fixed_egress_preflight()
-    result.status = BybitDemoConnectedPreflightStatus.READY_FOR_MANUAL_OPERATOR_APPROVAL
-    return result
-
-
 def _blocked_preflight():
-    from app.execution.bybit_demo_connected_preflight import BybitDemoConnectedPreflightStatus
-
-    result = _fixed_egress_preflight(ready=False)
-    result.status = BybitDemoConnectedPreflightStatus.BLOCKED
-    result.reasons = ("FIXED_EGRESS_NOT_VERIFIED",)
-    return result
+    return SimpleNamespace(
+        status=BybitDemoConnectedPreflightStatus.BLOCKED,
+        reasons=("FIXED_EGRESS_NOT_VERIFIED",),
+        read_only_api_key_verified=False,
+        api_key_ip_binding_present=False,
+        order_writes_supported=False,
+        live_mainnet_order_routing_allowed=False,
+    )
 
 
 def _armed_decision(
@@ -328,8 +328,6 @@ def test_existing_provenance_blocks_repeat_entry_before_runtime() -> None:
 
 
 def test_mainnet_capable_dependency_blocks_before_runtime() -> None:
-    client = _Client()
-    client.live_mainnet_order_routing_allowed = True
     with pytest.raises(ValueError, match="mainnet-capable order client"):
         run_protected_bybit_demo_operational_entry(
             _approval(),
@@ -340,7 +338,29 @@ def test_mainnet_capable_dependency_blocks_before_runtime() -> None:
             post_attempt_reconciler=_canonical_reconciliation,
             now=_NOW,
             runtime_runner=lambda *args, **kwargs: pytest.fail("runtime must not run"),
-            **_runtime_kwargs(client=client),
+            **_runtime_kwargs(client=_Client(mainnet=True)),
+        )
+
+
+def test_non_demo_client_family_blocks_before_runtime() -> None:
+    unsafe = SimpleNamespace(
+        environment="BYBIT_DEMO",
+        live_mainnet_order_routing_allowed=False,
+        entry_recovery_required=True,
+        entry_oms=_EntryOms(),
+        entry_recovery_store=_RecoveryStore(),
+    )
+    with pytest.raises(ValueError, match="concrete Demo-only order client family"):
+        run_protected_bybit_demo_operational_entry(
+            _approval(),
+            {},
+            {},
+            fixed_egress_preflight=_ready_preflight(),
+            new_entry_control_plane=_ControlPlane(),
+            post_attempt_reconciler=_canonical_reconciliation,
+            now=_NOW,
+            runtime_runner=lambda *args, **kwargs: pytest.fail("runtime must not run"),
+            **_runtime_kwargs(client=unsafe),
         )
 
 
