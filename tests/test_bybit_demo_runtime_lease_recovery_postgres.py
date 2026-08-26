@@ -77,12 +77,12 @@ def test_explicit_halt_exact_identity_atomic_audit_and_idempotent_recovery() -> 
                    preflight_status, preflight_record_sha256,
                    preflight_canonical_record, preflight_observed_at,
                    armed_until, created_at, immutable_record,
-                   order_writes_supported, order_submission_supported,
+                   order_submission_supported,
                    live_mainnet_order_routing_allowed
                ) VALUES (
                    %s, 'HALT_NEW_ENTRIES', %s, %s,
                    NULL, NULL, NULL, NULL, NULL, %s,
-                   true, false, false, false
+                   true, false, false
                )""",
             (
                 "c" * 64,
