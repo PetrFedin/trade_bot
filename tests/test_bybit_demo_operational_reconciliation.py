@@ -14,6 +14,7 @@ from app.oms.store import OrderState
 
 
 _NOW = datetime(2026, 8, 26, 20, 6, tzinfo=UTC)
+_AUTH_SHA = "c" * 64
 
 
 class _AuthorizationStore:
@@ -109,6 +110,7 @@ def _authorization_record(approval: BybitDemoOperatorApproval):
     )
     return SimpleNamespace(
         authorization=authorization,
+        record_sha256=_AUTH_SHA,
         live_mainnet_order_routing_allowed=False,
     )
 
@@ -158,6 +160,8 @@ def test_no_authorization_proves_no_entry_attempt_reached_network_boundary() -> 
     assert result.status is BybitDemoOperationalProtectionStatus.NO_ENTRY_AUTHORIZATION
     assert result.completed
     assert result.entry_execution_confirmed is False
+    assert not result.authorization_persisted
+    assert result.authorization_record_sha256 is None
     assert not result.safety_mutation_performed
     assert authorization_store.load_count == 1
     assert entry_oms.get_count == 0
@@ -181,6 +185,8 @@ def test_burned_authorization_without_oms_claim_proves_no_execution() -> None:
     assert result.status is BybitDemoOperationalProtectionStatus.NO_EXECUTION_CONFIRMED
     assert result.completed
     assert result.entry_execution_confirmed is False
+    assert result.authorization_persisted
+    assert result.authorization_record_sha256 == _AUTH_SHA
     assert entry_oms.get_count == 1
 
 
@@ -197,6 +203,8 @@ def test_pre_submit_oms_state_does_not_issue_broker_read_or_retry() -> None:
     )
     assert result.status is BybitDemoOperationalProtectionStatus.NO_EXECUTION_CONFIRMED
     assert result.entry_execution_confirmed is False
+    assert result.authorization_persisted
+    assert result.authorization_record_sha256 == _AUTH_SHA
     assert broker.get_calls == 0
 
 
@@ -218,6 +226,8 @@ def test_submit_started_without_broker_truth_remains_unresolved(monkeypatch) -> 
     assert result.status is BybitDemoOperationalProtectionStatus.UNRESOLVED
     assert not result.completed
     assert result.entry_execution_confirmed is None
+    assert result.authorization_persisted
+    assert result.authorization_record_sha256 == _AUTH_SHA
     assert not result.second_entry_submit_performed
 
 
@@ -273,6 +283,8 @@ def test_confirmed_execution_uses_existing_safety_recovery_only(monkeypatch) -> 
     assert result.status is BybitDemoOperationalProtectionStatus.RECOVERED_PROTECTED
     assert result.completed
     assert result.entry_execution_confirmed is True
+    assert result.authorization_persisted
+    assert result.authorization_record_sha256 == _AUTH_SHA
     assert result.safety_mutation_performed
     assert not result.second_entry_submit_performed
 
@@ -290,6 +302,11 @@ def test_canonical_persisted_provenance_is_already_reconciled() -> None:
     )
     runtime_result = SimpleNamespace(
         authorization_persisted=True,
+        authorization_receipt=SimpleNamespace(
+            approval_id=approval.approval_id,
+            entry_order_link_id=approval.expected_entry_order_link_id,
+            record_sha256=_AUTH_SHA,
+        ),
         runtime_result=runtime,
     )
 
@@ -304,6 +321,8 @@ def test_canonical_persisted_provenance_is_already_reconciled() -> None:
 
     assert result.status is BybitDemoOperationalProtectionStatus.CANONICAL_RUNTIME_RECONCILED
     assert result.completed
+    assert result.authorization_persisted
+    assert result.authorization_record_sha256 == _AUTH_SHA
     assert authorization_store.load_count == 0
 
 
