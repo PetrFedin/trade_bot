@@ -24,6 +24,11 @@ from app.execution.bybit_demo_profit_preservation_evidence import (
     BybitDemoProfitPreservationEvidence,
     build_bybit_demo_profit_preservation_evidence,
 )
+from app.execution.bybit_demo_session_risk_flatten import (
+    BybitDemoSessionRiskFlattenPolicy,
+    BybitDemoSessionRiskFlattenResult,
+    execute_bybit_demo_session_risk_flatten,
+)
 from app.execution.bybit_demo_trade_management_runtime import (
     BybitDemoTradeManagementRuntimePolicy,
     BybitDemoTradeManagementRuntimeResult,
@@ -32,12 +37,14 @@ from app.execution.bybit_demo_trade_management_runtime import (
 )
 from app.marketdata.bybit_instruments import BybitInstrumentSpec
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig
+from app.strategy.crypto_session_risk import CryptoSessionRiskState, evaluate_crypto_session_risk
 
 
 class BybitDemoManagedTradePollPhase(StrEnum):
     TRACKING_BLOCKED = "TRACKING_BLOCKED"
     OPEN_MANAGED = "OPEN_MANAGED"
     CLOSE_RECONCILIATION_REQUIRED = "CLOSE_RECONCILIATION_REQUIRED"
+    SESSION_RISK_ACTION = "SESSION_RISK_ACTION"
     MAX_HOLD_ACTION = "MAX_HOLD_ACTION"
     TERMINAL_ACCOUNTING_PENDING = "TERMINAL_ACCOUNTING_PENDING"
     TERMINAL_EVIDENCE_READY = "TERMINAL_EVIDENCE_READY"
@@ -51,10 +58,14 @@ class BybitDemoManagedTradePollPolicy:
     max_hold_close: BybitDemoMaxHoldClosePolicy = field(
         default_factory=BybitDemoMaxHoldClosePolicy
     )
+    session_risk_flatten: BybitDemoSessionRiskFlattenPolicy = field(
+        default_factory=BybitDemoSessionRiskFlattenPolicy
+    )
 
     def validate(self) -> None:
         self.trade_management.validate()
         self.max_hold_close.validate()
+        self.session_risk_flatten.validate()
 
 
 @dataclass(frozen=True)
@@ -64,6 +75,7 @@ class BybitDemoManagedTradePollResult:
     excursion: BybitDemoExcursionRuntimeResult
     management: BybitDemoTradeManagementRuntimeResult | None
     max_hold_close: BybitDemoMaxHoldCloseResult | None
+    session_risk_flatten: BybitDemoSessionRiskFlattenResult | None
     accounting: BybitDemoPostTradeAccountingResult | None
     profit_evidence: BybitDemoProfitPreservationEvidence | None
     terminal_evidence_ack_required: bool
@@ -78,6 +90,7 @@ class BybitDemoManagedTradePollResult:
 AdvanceExcursion = Callable[..., BybitDemoExcursionRuntimeResult]
 RunManagement = Callable[..., BybitDemoTradeManagementRuntimeResult]
 RunMaxHoldClose = Callable[..., BybitDemoMaxHoldCloseResult]
+RunSessionRiskFlatten = Callable[..., BybitDemoSessionRiskFlattenResult]
 RunAccounting = Callable[..., BybitDemoPostTradeAccountingResult]
 BuildProfitEvidence = Callable[..., BybitDemoProfitPreservationEvidence]
 
@@ -93,22 +106,26 @@ def poll_bybit_demo_managed_trade(
     now_ms: int,
     accounting_client: Any | None = None,
     funding_ledger: Any | None = None,
+    session_state: CryptoSessionRiskState | None = None,
     policy: BybitDemoManagedTradePollPolicy | None = None,
     advance_excursion: AdvanceExcursion = advance_bybit_demo_excursion_tracking,
     run_management: RunManagement = run_bybit_demo_trade_management_cycle,
     run_max_hold_close: RunMaxHoldClose = execute_bybit_demo_max_hold_close,
+    run_session_risk_flatten: RunSessionRiskFlatten = execute_bybit_demo_session_risk_flatten,
     run_accounting: RunAccounting = reconcile_bybit_demo_post_trade_accounting,
     build_profit_evidence: BuildProfitEvidence = build_bybit_demo_profit_preservation_evidence,
 ) -> BybitDemoManagedTradePollResult:
-    """Advance one already-open demo trade through management or terminal accounting.
+    """Advance one already-open Demo trade through risk, management or terminal accounting.
 
     Execution/fill reconciliation is authoritative. A terminal trade never receives another stop
-    update. An open trade can use the frozen baseline stop ratchet and, when due, the separate
-    max-hold reduce-only executor. Stop and max-hold writes remain independently disabled by
-    default. Terminal excursion state is deliberately not acknowledged or cleared here: callers
-    must first persist the final evidence, then use the explicit excursion final-ack API. Until
-    that durable handoff happens, this poll never permits symbol reuse even when all-in accounting
-    is fully reconciled.
+    update. For an open trade, a durable session-risk flatten requirement has first priority and
+    suppresses normal ratchet/max-hold management until the risk-reduction action is resolved. The
+    session-risk close is reduce-only and independently reconciled. Stop, max-hold and session-risk
+    writes remain disabled by default and must be enabled explicitly by the operational product.
+
+    Terminal excursion state is deliberately not acknowledged or cleared here: callers must first
+    persist final evidence and v122 session risk, then use the explicit final-ack API. Until that
+    durable handoff happens, this poll never permits symbol reuse.
     """
 
     active = BybitDemoManagedTradePollPolicy() if policy is None else policy
@@ -148,6 +165,26 @@ def poll_bybit_demo_managed_trade(
             excursion=excursion,
             reasons=(f"MANAGED_POLL_UNEXPECTED_EXCURSION_STATUS:{excursion.status.value}",),
         )
+
+    if session_state is not None:
+        risk = evaluate_crypto_session_risk(session_state)
+        if risk.flatten_required:
+            flatten = run_session_risk_flatten(
+                session_state=session_state,
+                excursion_store=excursion_store,
+                client=trade_client,
+                quote_client=quote_client,
+                instrument=instrument,
+                policy=active.session_risk_flatten,
+            )
+            _reject_live_result(flatten, name="session-risk flatten")
+            reasons = tuple(dict.fromkeys((*risk.reasons, *flatten.reasons)))
+            return _result(
+                BybitDemoManagedTradePollPhase.SESSION_RISK_ACTION,
+                excursion=excursion,
+                session_risk_flatten=flatten,
+                reasons=reasons,
+            )
 
     management = run_management(
         excursion_store=excursion_store,
@@ -295,6 +332,7 @@ def _result(
     reasons: tuple[str, ...] = (),
     management: BybitDemoTradeManagementRuntimeResult | None = None,
     max_hold_close: BybitDemoMaxHoldCloseResult | None = None,
+    session_risk_flatten: BybitDemoSessionRiskFlattenResult | None = None,
     accounting: BybitDemoPostTradeAccountingResult | None = None,
     profit_evidence: BybitDemoProfitPreservationEvidence | None = None,
     terminal_ack_required: bool = False,
@@ -306,6 +344,7 @@ def _result(
         excursion=excursion,
         management=management,
         max_hold_close=max_hold_close,
+        session_risk_flatten=session_risk_flatten,
         accounting=accounting,
         profit_evidence=profit_evidence,
         terminal_evidence_ack_required=terminal_ack_required,
