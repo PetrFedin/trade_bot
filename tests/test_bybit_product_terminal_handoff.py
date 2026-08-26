@@ -7,7 +7,10 @@ import pytest
 import app.execution.bybit_product_terminal_handoff as product_handoff
 from app.execution.bybit_demo_excursion_runtime import BybitDemoExcursionRuntimeStatus
 from app.execution.bybit_demo_managed_trade_poll import BybitDemoManagedTradePollPhase
+from app.execution.bybit_demo_session_risk_runtime import BybitDemoSessionRiskCommitReceipt
 from app.execution.bybit_demo_terminal_handoff import BybitDemoTerminalHandoffStatus
+
+_ENTRY = "ASTRA-DEMO-PRODUCT-HANDOFF"
 
 
 class _EvidenceStore:
@@ -35,31 +38,38 @@ class _ExcursionStore:
         self.events.append("clear")
 
 
-class _SessionStore:
+class _RiskCommitter:
     live_mainnet_order_routing_allowed = False
     order_writes_supported = False
+    automatic_reset_allowed = False
+    initialized_session_required = True
 
-    def __init__(self, events: list[str], *, fail_save: bool = False) -> None:
+    def __init__(
+        self,
+        events: list[str],
+        *,
+        fail: bool = False,
+        idempotent: bool = False,
+    ) -> None:
         self.events = events
-        self.fail_save = fail_save
-        self.ledger = object()
+        self.fail = fail
+        self.idempotent = idempotent
 
-    def load_current(self):
-        self.events.append("session-load")
-        return SimpleNamespace(ledger=self.ledger, revision="b" * 64)
-
-    def save(self, ledger, *, expected_revision: str):
-        assert ledger is not self.ledger
-        assert expected_revision == "b" * 64
-        self.events.append("session-save")
-        if self.fail_save:
+    def commit(self, _accounting: object) -> BybitDemoSessionRiskCommitReceipt:
+        self.events.append("risk")
+        if self.fail:
             raise RuntimeError("database unavailable")
-        return SimpleNamespace(ledger=ledger, revision="c" * 64)
+        return BybitDemoSessionRiskCommitReceipt(
+            ledger_revision_sha256="c" * 64,
+            outcome_count=1,
+            entry_order_link_id=_ENTRY,
+            idempotent_existing_outcome=self.idempotent,
+        )
 
 
 def _poll():
     checkpoint = SimpleNamespace(
-        entry_order_link_id="ASTRA-DEMO-PRODUCT-HANDOFF",
+        entry_order_link_id=_ENTRY,
         revision="a" * 64,
     )
     return SimpleNamespace(
@@ -75,115 +85,75 @@ def _poll():
     )
 
 
-def test_product_handoff_orders_evidence_then_session_risk_then_clear(
+def _ack(*, store, expected_revision):
+    assert expected_revision == "a" * 64
+    store.clear(expected_revision=expected_revision)
+    return SimpleNamespace(
+        status=BybitDemoExcursionRuntimeStatus.FINAL_ACKNOWLEDGED,
+        reasons=(),
+        live_mainnet_order_routing_allowed=False,
+    )
+
+
+def test_product_handoff_orders_evidence_then_v122_risk_then_clear(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     events: list[str] = []
-    new_ledger = object()
-
-    def _apply(ledger, accounting):
-        del ledger, accounting
-        events.append("session-apply")
-        return new_ledger
-
-    def _ack(*, store, expected_revision):
-        assert expected_revision == "a" * 64
-        store.clear(expected_revision=expected_revision)
-        return SimpleNamespace(
-            status=BybitDemoExcursionRuntimeStatus.FINAL_ACKNOWLEDGED,
-            reasons=(),
-            live_mainnet_order_routing_allowed=False,
-        )
-
-    monkeypatch.setattr(
-        product_handoff,
-        "apply_fully_reconciled_trade_to_session_ledger",
-        _apply,
-    )
-    monkeypatch.setattr(
-        product_handoff,
-        "acknowledge_bybit_demo_excursion_final",
-        _ack,
-    )
+    monkeypatch.setattr(product_handoff, "acknowledge_bybit_demo_excursion_final", _ack)
 
     result = product_handoff.persist_product_terminal_state(
         _poll(),
         evidence_store=_EvidenceStore(events),
         excursion_store=_ExcursionStore(events),
-        session_risk_store=_SessionStore(events),
+        session_risk_committer=_RiskCommitter(events),
     )
 
     assert result.status is BybitDemoTerminalHandoffStatus.COMPLETE
+    assert result.evidence_durable is True
+    assert result.session_risk_durable is True
+    assert result.session_risk_receipt is not None
     assert result.next_entry_allowed is True
     assert result.checkpoint_cleared is True
-    assert events == [
-        "evidence",
-        "session-load",
-        "session-apply",
-        "session-save",
-        "clear",
-    ]
+    assert events == ["evidence", "risk", "clear"]
 
 
 def test_session_risk_failure_keeps_checkpoint_active_for_exact_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     events: list[str] = []
-
-    monkeypatch.setattr(
-        product_handoff,
-        "apply_fully_reconciled_trade_to_session_ledger",
-        lambda _ledger, _accounting: object(),
-    )
+    monkeypatch.setattr(product_handoff, "acknowledge_bybit_demo_excursion_final", _ack)
 
     result = product_handoff.persist_product_terminal_state(
         _poll(),
         evidence_store=_EvidenceStore(events),
         excursion_store=_ExcursionStore(events),
-        session_risk_store=_SessionStore(events, fail_save=True),
+        session_risk_committer=_RiskCommitter(events, fail=True),
     )
 
-    assert result.status is BybitDemoTerminalHandoffStatus.EVIDENCE_PERSISTED_ACK_FAILED
+    assert result.status is BybitDemoTerminalHandoffStatus.SESSION_RISK_PERSIST_FAILED
     assert result.reasons == ("SESSION_RISK_PERSIST_FAILED:RuntimeError",)
     assert result.evidence_durable is True
+    assert result.session_risk_durable is False
     assert result.checkpoint_cleared is False
     assert result.next_entry_allowed is False
-    assert "clear" not in events
+    assert events == ["evidence", "risk"]
 
 
-def test_already_applied_session_outcome_skips_rewrite_but_can_clear(
+def test_idempotent_session_outcome_can_finish_exact_checkpoint_ack(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     events: list[str] = []
-    session = _SessionStore(events)
-
-    monkeypatch.setattr(
-        product_handoff,
-        "apply_fully_reconciled_trade_to_session_ledger",
-        lambda ledger, _accounting: ledger,
-    )
-
-    def _ack(*, store, expected_revision):
-        store.clear(expected_revision=expected_revision)
-        return SimpleNamespace(
-            status=BybitDemoExcursionRuntimeStatus.FINAL_ACKNOWLEDGED,
-            reasons=(),
-            live_mainnet_order_routing_allowed=False,
-        )
-
-    monkeypatch.setattr(
-        product_handoff,
-        "acknowledge_bybit_demo_excursion_final",
-        _ack,
-    )
+    monkeypatch.setattr(product_handoff, "acknowledge_bybit_demo_excursion_final", _ack)
 
     result = product_handoff.persist_product_terminal_state(
         _poll(),
         evidence_store=_EvidenceStore(events),
         excursion_store=_ExcursionStore(events),
-        session_risk_store=session,
+        session_risk_committer=_RiskCommitter(events, idempotent=True),
     )
 
     assert result.status is BybitDemoTerminalHandoffStatus.COMPLETE
-    assert "session-save" not in events
-    assert events[-1] == "clear"
+    assert result.session_risk_receipt is not None
+    assert result.session_risk_receipt.idempotent_existing_outcome is True
+    assert result.session_risk_durable is True
+    assert events == ["evidence", "risk", "clear"]
