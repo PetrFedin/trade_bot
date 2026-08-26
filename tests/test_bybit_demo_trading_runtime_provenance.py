@@ -26,6 +26,13 @@ class _SafeDependency:
     live_mainnet_order_routing_allowed = False
 
 
+class _RiskCommitter:
+    live_mainnet_order_routing_allowed = False
+    order_writes_supported = False
+    automatic_reset_allowed = False
+    initialized_session_required = True
+
+
 class _ExcursionStore:
     live_mainnet_order_routing_allowed = False
     order_writes_supported = False
@@ -116,6 +123,7 @@ def _run(*, provenance_store: object | None, builder):
         completed_bar_client=_SafeDependency(),
         quote_client=_SafeDependency(),
         runtime_lease=lease,
+        session_risk_committer=_RiskCommitter(),
         entry_provenance_store=provenance_store,
         entry_executor=lambda *_args, **_kwargs: _SafeEntryResult(),
         build_entry_provenance=builder,
@@ -126,12 +134,10 @@ def _run(*, provenance_store: object | None, builder):
 def test_entry_provenance_is_persisted_after_entry_cycle_without_changing_trade_status() -> None:
     provenance = object()
     store = _ProvenanceStore()
-
     result, lease = _run(
         provenance_store=store,
         builder=lambda _entry: provenance,
     )
-
     assert result.status is BybitDemoTradingRuntimeStatus.ENTRY_CYCLE_EXECUTED
     assert result.reasons == ()
     assert result.entry_result is not None
@@ -150,7 +156,6 @@ def test_provenance_build_failure_is_diagnostic_and_does_not_rewrite_entry_resul
         raise RuntimeError("cannot build provenance")
 
     result, lease = _run(provenance_store=store, builder=_fail)
-
     assert result.status is BybitDemoTradingRuntimeStatus.ENTRY_CYCLE_EXECUTED
     assert result.reasons == ("ENTRY_PROVENANCE_BUILD_FAILED:RuntimeError",)
     assert result.entry_result is not None
@@ -163,12 +168,10 @@ def test_provenance_build_failure_is_diagnostic_and_does_not_rewrite_entry_resul
 def test_provenance_persist_failure_preserves_built_record_for_observability() -> None:
     provenance = object()
     store = _ProvenanceStore(fail=True)
-
     result, lease = _run(
         provenance_store=store,
         builder=lambda _entry: provenance,
     )
-
     assert result.status is BybitDemoTradingRuntimeStatus.ENTRY_CYCLE_EXECUTED
     assert result.reasons == ("ENTRY_PROVENANCE_PERSIST_FAILED:RuntimeError",)
     assert result.entry_provenance is provenance
@@ -186,7 +189,6 @@ def test_no_provenance_store_skips_builder_entirely() -> None:
         return object()
 
     result, _lease = _run(provenance_store=None, builder=_builder)
-
     assert result.status is BybitDemoTradingRuntimeStatus.ENTRY_CYCLE_EXECUTED
     assert called is False
     assert result.entry_provenance is None
@@ -196,6 +198,5 @@ def test_no_provenance_store_skips_builder_entirely() -> None:
 def test_unsafe_provenance_store_is_rejected_before_runtime_lease() -> None:
     store = _ProvenanceStore()
     store.realized_pnl_storage_allowed = True
-
     with pytest.raises(ValueError, match="forbids realized PnL"):
         _run(provenance_store=store, builder=lambda _entry: object())
