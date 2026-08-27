@@ -79,7 +79,7 @@ class BybitDemoOperatorApproval:
             raise ValueError("demo approval expiry exceeds the two-minute execution window")
         if now is not None:
             current = _utc(now)
-            if current < approved or current > expires:
+            if current < approved or current >= expires:
                 raise ValueError("demo approval is not valid at the execution time")
         for name, value in (
             ("signal_quality_score", self.signal_quality_score),

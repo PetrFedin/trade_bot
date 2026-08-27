@@ -75,6 +75,52 @@ class _ApprovedProtectionStateClientView:
         return getattr(self._guarded_client, name)
 
 
+class _FreshApprovalGuardedBybitDemoClient:
+    """Recheck approval expiry at a live non-reduce-only mutation boundary.
+
+    Exact symbol/side/orderLinkId/quantity and single-use checks remain owned by the outer operator
+    approval guard. This wrapper only closes clock gaps. Reduce-only/protection operations remain
+    available after approval expiry so elapsed entry TTL can never strand existing exposure.
+    """
+
+    environment = "BYBIT_DEMO"
+    live_mainnet_order_routing_allowed = False
+
+    def __init__(
+        self,
+        client: Any,
+        approval: BybitDemoOperatorApproval,
+        *,
+        now_provider: Callable[[], datetime],
+    ) -> None:
+        if getattr(client, "environment", None) != "BYBIT_DEMO":
+            raise ValueError("fresh approval guard requires a BYBIT_DEMO client")
+        if getattr(client, "live_mainnet_order_routing_allowed", True) is not False:
+            raise ValueError("fresh approval guard rejected mainnet-capable client")
+        if not callable(now_provider):
+            raise ValueError("fresh approval guard requires a clock provider")
+        self._client = client
+        self._approval = approval
+        self._now_provider = now_provider
+
+    @property
+    def protection_state_read_supported(self) -> bool:
+        return getattr(self._client, "protection_state_read_supported", False) is True
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+    def place_market_order(self, request: Any):
+        if getattr(request, "reduce_only", None) is not True:
+            try:
+                self._approval.validate(now=self._now_provider())
+            except ValueError as exc:
+                raise ValueError(
+                    "demo approval expired or is otherwise invalid at the execution time"
+                ) from exc
+        return self._client.place_market_order(request)
+
+
 def _execute_approved_protection_reconciled_cycle(*args: Any, **kwargs: Any):
     client = kwargs.get("client")
     if client is None:
@@ -122,21 +168,30 @@ def run_operator_approved_bybit_demo_trading_runtime(
     proceeds without requiring a still-valid approval or an ARMED new-entry state. Only a genuinely
     new entry reaches the closure below.
 
-    New exposure is fail-closed unless a Demo control plane is supplied. The first ARM check happens
-    inside the canonical runtime lease before the approved selector/account path starts. The raw
-    client is additionally wrapped so ARM is checked again immediately before the non-reduce-only
-    market-order mutation. The durable authorization wrapper remains outside that final guard: the
-    immutable authorization is persisted first, then ARM is rechecked, then the network mutation is
-    allowed. If ARM disappears after authorization persistence, the order is blocked and that
-    authorization becomes recovery-only state instead of resubmit permission.
+    New exposure is fail-closed unless a Demo control plane is supplied. The first ARM check
+    happens inside the canonical runtime lease before the approved selector/account path starts.
+    Live approval expiry is then checked twice around the final durable/control boundary: once
+    before immutable authorization can be burned and again after the final ARM read immediately
+    before the raw Demo entry mutation. This minimizes both stale-approval authorization burns and
+    the irreducible final time-of-check/time-of-use interval before the external HTTPS call.
+
+    Ordering for a new non-reduce-only order is therefore:
+
+    exact identity/single-use guard -> live approval check -> durable authorization
+    -> live ARM check -> live approval check -> raw Demo OMS/network client.
+
+    If approval is already expired before authorization, authorization is not persisted. If it
+    expires while durable/control checks are running, the burned authorization remains recovery-only
+    evidence and the broker mutation is still blocked. If ARM disappears after authorization
+    persistence, the order is likewise blocked and that authorization remains recovery-only state.
 
     The v122 session-risk committer is passed to the canonical runtime. A real runtime invocation
     without it fails closed; the optional default only preserves compatibility for isolated mock
     runners that never execute the canonical terminal handoff.
 
-    Reduce-only close and protection operations are deliberately not blocked by HALT, so a control
-    stop cannot strand existing exposure. No ranked fallback to another symbol is allowed and
-    mainnet routing remains physically rejected by every layer.
+    Reduce-only close and protection operations are deliberately not blocked by approval expiry or
+    HALT, so a control stop or elapsed entry TTL cannot strand existing exposure. No ranked fallback
+    to another symbol is allowed and mainnet routing remains physically rejected by every layer.
     """
 
     _validate_authorization_store(approval_authorization_store)
@@ -200,8 +255,14 @@ def run_operator_approved_bybit_demo_trading_runtime(
             now=inner_now,
         )
         authorization_holder.append(authorization)
-        controlled_client = ControlPlaneGuardedBybitDemoClient(
+
+        final_approval_client = _FreshApprovalGuardedBybitDemoClient(
             inner_client,
+            approval,
+            now_provider=active_control_now,
+        )
+        controlled_client = ControlPlaneGuardedBybitDemoClient(
+            final_approval_client,
             new_entry_control_plane,
             now_provider=active_control_now,
         )
@@ -214,6 +275,13 @@ def run_operator_approved_bybit_demo_trading_runtime(
         )
         if not durable_client.protection_state_read_supported:
             raise ValueError("durable approved client lost protection-state read capability")
+        preauthorization_approval_client = _FreshApprovalGuardedBybitDemoClient(
+            durable_client,
+            approval,
+            now_provider=active_control_now,
+        )
+        if not preauthorization_approval_client.protection_state_read_supported:
+            raise ValueError("fresh approval guard lost protection-state read capability")
 
         account_result = execute_operator_approved_account_sized_bybit_demo_cycle(
             approval,
@@ -223,7 +291,7 @@ def run_operator_approved_bybit_demo_trading_runtime(
             strategy_config=inner_strategy_config,
             session_state=inner_session_state,
             now=inner_now,
-            client=durable_client,
+            client=preauthorization_approval_client,
             accounting_client=inner_accounting_client,
             **inner,
         )

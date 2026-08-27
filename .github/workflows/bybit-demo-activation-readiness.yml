@@ -7,6 +7,7 @@ on:
       - 'app/execution/bybit_demo_postgres_bootstrap.py'
       - 'app/execution/bybit_demo_postgres_session_risk_store.py'
       - 'migrations/v122/**'
+      - 'migrations/v123/**'
       - 'tools/assemble_bybit_demo_activation_readiness.py'
       - 'tests/test_bybit_demo_activation_readiness.py'
       - 'tests/test_bybit_demo_postgres_session_risk_store.py'
@@ -20,6 +21,7 @@ on:
       - 'app/execution/bybit_demo_postgres_bootstrap.py'
       - 'app/execution/bybit_demo_postgres_session_risk_store.py'
       - 'migrations/v122/**'
+      - 'migrations/v123/**'
       - 'tools/assemble_bybit_demo_activation_readiness.py'
       - 'tests/test_bybit_demo_activation_readiness.py'
       - 'tests/test_bybit_demo_postgres_session_risk_store.py'
@@ -87,7 +89,7 @@ jobs:
           python -m pip check
           mkdir -p artifacts
 
-      - name: Verify PostgreSQL v119-v122 without DDL
+      - name: Verify PostgreSQL v119-v123 without DDL
         continue-on-error: true
         env:
           BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}

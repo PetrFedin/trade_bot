@@ -1,56 +1,112 @@
 # Operator-approved Bybit Demo execution
 
-This layer connects the evidence-ranked review queue to the canonical Bybit Demo execution stack without enabling autonomous real-money trading.
+This layer connects one explicitly approved evidence-ranked review decision to the canonical Bybit Demo execution stack without enabling autonomous trading or any mainnet write path.
 
 ## Boundary
 
-Mainnet remains read-only. There is no mainnet order client, no mainnet order mutation, and no path that turns evidence rows directly into autonomous orders.
+Mainnet remains read-only. There is no mainnet order client, no mainnet order mutation, and no path that turns ranked evidence into an autonomous order.
 
-A new Demo entry now requires separate evidence for three independent capabilities:
+A new Demo entry requires independent evidence for all of the following:
 
-1. a short-lived exact operator approval for one evidence-ranked decision;
-2. a short-lived v121 `ARM_NEW_ENTRIES` control state created from a fresh connected read-only preflight; and
-3. a separately provisioned Demo trading credential that has passed the GET-only least-privilege credential preflight.
+1. protected fixed-egress execution on the existing `[self-hosted, bybit-demo]` runner and `bybit-demo` GitHub Environment;
+2. an already-existing short-lived v121 `ARM_NEW_ENTRIES` control state;
+3. a dedicated Demo trading credential that passes the GET-only least-privilege credential preflight;
+4. one exact operator selection of evidence rank and expected symbol plus the exact confirmation phrase;
+5. a newly created approval with the existing maximum TTL of 120 seconds;
+6. immutable pre-submit authorization lineage and protected-entry provenance;
+7. the existing OMS/recovery path that forbids a second ENTRY after submit start.
 
-Approval binds the exact trade identity/economics. v121 ARM is the operational kill-switch boundary. Credential preflight proves only that the future execution credential is a distinct IP-bound personal UTA Demo key with exactly the required ContractTrade permissions. None of these gates can substitute for either of the others.
+These capabilities are independent. Approval is not ARM. ARM is not credential authorization. Fixed egress is not an approval. None can substitute for another.
 
-## Canonical flow
+## Protected operational flow
+
+The implemented one-shot flow is:
 
 ```text
-latest positive-evidence review queue
--> operator chooses exact evidence rank / symbol
--> reproduce the fixed signal and source economics
--> exact approval confirmation
--> <= 2 minute BYBIT_DEMO trade approval
--> PostgreSQL v119-v121 VERIFIED_READY
--> connected read-only Demo preflight
--> Demo trading credential preflight READY
--> explicit short-lived v121 ARM
--> canonical single-writer runtime lease
--> durable active-trade checkpoint check
--> if active checkpoint: manage/reconcile existing trade; no new-entry ARM required
--> if no checkpoint: Gate 1 rechecks v121 ARM under the lease
--> latest review-row identity recheck
--> current canonical selector independently chooses the same signal
--> demo wallet / margin / session ledger / previous-trade reconciliation
--> fresh quote + execution-risk resize
--> exact-identity single-use approval guard
--> exact non-reduce-only entry reaches pre-network boundary
--> immutable authorization lineage is persisted and burned
--> Gate 2 rechecks v121 ARM immediately before network submit
--> raw api-demo.bybit.com order/create mutation
--> guarded protection / recovery / accounting
--> immutable protected-entry provenance on the same orderLinkId
--> restart-safe active-trade management
--> terminal evidence + fees + funding + realized PnL
--> approved-trade attribution on the same orderLinkId
+manual workflow_dispatch
+-> protected [self-hosted, bybit-demo] runner / bybit-demo Environment
+-> Demo PostgreSQL schema verification
+-> GET-only Demo trading credential preflight
+-> authoritative latest positive-evidence row + exact fixed history
+-> exact Demo instrument resolution
+-> connected fixed-egress authenticated preflight
+-> read existing v121 ARM; never create ARM here
+-> pin exact ARM event_id / kind / armed_until
+-> read Demo wallet + existing v122 session-risk ledger
+-> create exact <=120 second operator approval
+-> canonical approval identity recheck
+-> reject already-burned authorization/provenance
+-> canonical operator-approved runtime, exactly once
+-> Gate 1 / Gate 2 pinned ARM rechecks
+-> immutable authorization before any entry network mutation
+-> at most one Demo ENTRY submit through OMS-aware api-demo.bybit.com client
+-> no automatic resubmit after SUBMIT_STARTED
+-> built-in protection reconciliation on canonical success
+-> exact GET-only OMS/recovery reconciliation after attempted runtime/entry failure
+-> protection restore or deterministic reduce-only flatten when recovery proves execution
+-> allowlisted sanitized evidence artifact
 ```
 
-If any identity/economic check changes the symbol, side, decision, source snapshot, ranks or approved caps, the entry is rejected rather than rerouted. Ranked fallback is not permitted after approval.
+If any identity/economic check changes the symbol, side, decision, source snapshot, evidence/market rank or approved caps, the entry is rejected rather than rerouted. Ranked fallback is not permitted after approval or after any failed entry attempt.
 
-## Approval creation
+The operational layer does not select a different instrument, create a new signal, alter strategy logic, alter risk rules, automatically arm v121, or retry an entry.
 
-Preparation itself never sends an order:
+## Manual dispatch contract
+
+`.github/workflows/bybit-operator-approved-demo-execution.yml` exposes only three execution inputs:
+
+```text
+evidence_rank
+symbol
+confirmation_phrase
+```
+
+There are deliberately no workflow inputs for side, quantity, risk, notional, fallback, approval TTL, broker host or `writes_enabled`.
+
+The execution job:
+
+```text
+if: workflow_dispatch only
+runs-on: [self-hosted, bybit-demo]
+environment: bybit-demo
+concurrency group: bybit-demo-protected-operational-entry
+cancel-in-progress: false
+```
+
+`cancel-in-progress: false` is a safety requirement. A GitHub cancellation must not replace a running invocation after ENTRY may have reached `SUBMIT_STARTED` and before reconciliation/protection completes.
+
+Pull-request and push events run qualification only on GitHub-hosted runners. They do not enter the protected execution job.
+
+No schedule exists and there is no autonomous dispatch.
+
+## One-shot runner
+
+`tools/run_bybit_demo_operator_approved_entry.py` composes existing production primitives; it does not implement a second trading engine.
+
+Its order-capable dependency is `OmsAwareBybitDemoStopRatchetClient`. The client remains Demo-only, uses the existing `PostgresBybitEntryOms` plus immutable recovery envelope store, records `SUBMIT_STARTED` before broker POST, and forbids automatic resubmission once submission has started.
+
+The runner loads secrets only from the protected process environment. Command-line or workflow inputs cannot supply credentials, DSNs, broker hosts, sizing or risk parameters.
+
+Mainnet trading credentials are not loaded. Only the pre-existing SHA-256 fingerprint of the mainnet read-only key namespace is used by the GET-only credential-isolation preflight.
+
+Startup and runtime evidence is written atomically to the requested artifact path. Failure evidence is allowlisted and intentionally omits exception messages, DSNs, API keys, secrets and raw broker payloads.
+
+## Exact approval source
+
+`tools.prepare_bybit_demo_operator_approval` and the operational runner share `resolve_bybit_demo_operator_approval_source(...)`.
+
+That read-only helper requires:
+
+- exactly one latest positive-evidence row at the approved rank;
+- exact expected symbol match;
+- timezone-aware decision identity;
+- the same fixed 5-minute historical acquisition window;
+- the existing minimum-history validation;
+- no bars from another symbol.
+
+This removes two independent ways of reconstructing approval input without changing the signal or strategy.
+
+The standalone preparation command remains non-mutating:
 
 ```bash
 python -m tools.prepare_bybit_demo_operator_approval \
@@ -61,59 +117,54 @@ python -m tools.prepare_bybit_demo_operator_approval \
   --output artifacts/bybit-demo-approval.json
 ```
 
-The approval remains outcome-free and short-lived. It is refused when historical evidence is not sufficiently positive, the source decision cannot be reproduced, source economics drift, activation flags become unsafe, the confirmation phrase is wrong, the signal is stale, or the TTL exceeds its existing bound.
+The protected execution workflow creates its short-lived approval only after fixed-egress readiness and the existing v121 ARM have been observed, so a queued environment approval cannot consume most of the 120-second TTL before the protected job starts.
 
-Approval is **not** ARM. A valid trade approval cannot bypass a HALTED v121 control plane.
+## v121 ARM is existing state, not an action of the runner
 
-## v121 new-entry control
+See `docs/BYBIT_DEMO_CONTROL_PLANE.md` for the full v121 contract.
 
-See `docs/BYBIT_DEMO_CONTROL_PLANE.md` for the full contract.
-
-Important properties:
+Important properties remain:
 
 - no control event means HALT;
-- missing/invalid/expired v121 state means HALT;
+- missing, invalid or expired v121 state means HALT;
 - ARM max TTL is 300 seconds, default 120 seconds;
-- ARM can only be persisted from exact `READY_FOR_MANUAL_OPERATOR_APPROVAL` connected preflight;
+- ARM can only be persisted by the existing control-plane path from exact `READY_FOR_MANUAL_OPERATOR_APPROVAL` connected preflight;
 - `EXISTING_TRADE_MANAGEMENT_REQUIRED` can never ARM a new entry;
-- ARM persists sanitized canonical preflight evidence plus SHA-256 in append-only PostgreSQL;
-- the ARM transaction refuses active v119 runtime lease/checkpoint state;
-- HALT blocks new non-reduce-only exposure, not protection/reduce-only recovery of an existing trade.
+- HALT blocks new non-reduce-only exposure but not protection/reduce-only recovery of an existing trade.
+
+The one-shot entry runner has no ARM writer. It reads the already-existing decision and immediately freezes exact `event_id`, event kind and `armed_until` in `PinnedBybitDemoControlPlane` before creating the trade approval.
+
+Every later new-entry control read must resolve to that same ARM. ARM replacement, drift or expiry blocks the entry rather than silently rebinding the approval to a different control event.
 
 ## Demo trading credential gate
 
 See `docs/BYBIT_DEMO_TRADING_CREDENTIAL_PREFLIGHT.md`.
 
-The future order-capable worker must use a dedicated Demo key. Before that key may be wired into an execution process, the GET-only credential preflight requires:
+The order-capable worker uses a dedicated Demo key. Before it is composed into the OMS-aware Demo client, the GET-only credential preflight requires the existing least-privilege contract, including concrete IP binding and the required ContractTrade permission set.
 
-```text
-readOnly=0
-concrete IP binding
-type=1 personal key
-uta=1
-ContractTrade permissions exactly {Order, Position}
-all other permission categories empty
-```
-
-Namespace isolation is checked against SHA-256 fingerprints of the existing Demo read-only and mainnet read-only API keys. The raw reference keys and their secrets are not loaded into the credential-preflight workflow.
-
-Passing this credential gate does not authorize an order and does not prove `order/create`; the gate itself has no order mutation method.
+Passing this credential gate does not authorize an order. It proves only the credential boundary. Exact operator approval and an already-active pinned v121 ARM are still required.
 
 ## Canonical single-writer runtime
 
-`run_operator_approved_bybit_demo_trading_runtime` continues to use `run_bybit_demo_trading_runtime`; there is still only one lifecycle engine.
+`run_protected_bybit_demo_operational_entry` delegates exactly once to `run_operator_approved_bybit_demo_trading_runtime`, which continues to use `run_bybit_demo_trading_runtime`. There is still only one lifecycle engine.
 
-The canonical runtime remains authoritative for lease acquisition, durable checkpoint inspection, entry-versus-management routing, protected-entry provenance, restart-safe polling, terminal evidence handoff and the prohibition on a replacement entry in the same invocation.
+The canonical runtime remains authoritative for:
 
-The v121 control plane is intentionally consulted only inside the **new-entry closure**. If a valid active checkpoint exists, the closure is never invoked, so an operator HALT cannot prevent risk reduction or terminal reconciliation of an already-open Demo position.
+- lease acquisition;
+- durable checkpoint inspection;
+- entry-versus-management routing;
+- current Demo account sizing under existing risk rules;
+- exact single-use approval validation;
+- immutable authorization/provenance;
+- protection and managed-trade lifecycle;
+- restart-safe terminal evidence and session-risk commit;
+- prohibition on a replacement entry in the same invocation.
 
-If no control-plane object is supplied, that closure fails closed before authorization persistence.
+The operational runner passes the existing strategy configuration and existing v122 session ledger. It does not expose risk/sizing switches to the operator.
 
-## Durable pre-submit authorization lineage
+## Durable pre-submit authorization and at-most-once ENTRY
 
-The immutable authorization remains written as late as possible while still preceding the exchange entry mutation.
-
-The relevant client ordering is now:
+The immutable authorization remains written as late as possible while still preceding the exchange entry mutation:
 
 ```text
 canonical trading runtime
@@ -122,79 +173,42 @@ canonical trading runtime
 -> DurableApprovalLineageBybitDemoClient
    (persist and burn immutable pre-submit authorization)
 -> ControlPlaneGuardedBybitDemoClient
-   (Gate 2: fresh ARM check for non-reduce-only entry)
--> raw BybitDemoOrderClient
-   (api-demo.bybit.com HTTP mutation)
+   (fresh pinned-ARM check for non-reduce-only entry)
+-> OmsAwareBybitDemoStopRatchetClient
+   (SUBMIT_STARTED persisted before Demo order/create)
+-> api-demo.bybit.com
 ```
 
-This order is deliberate. Account, fee, session-risk, fresh-quote, quantity and other pre-order checks may reject the candidate without burning authorization. When the exact non-reduce-only request reaches the durable layer, authorization is persisted before any network call.
+If authorization persistence fails, the broker mutation is never called. If authorization already exists, the deterministic entry identity is burned and cannot be reused for a new submit.
 
-If persistence fails, the network is never called. If the same authorization already exists, it is recovery/reconciliation state and cannot be reused for resubmission.
+If submission starts and broker outcome is ambiguous, the OMS path performs exact GET-only reconciliation by deterministic `orderLinkId`. There is no same-invocation blind retry and no fallback instrument.
 
-If authorization persistence succeeds but v121 becomes HALTED before Gate 2, the raw network client is still not called. The newly persisted authorization remains burned as recovery-only evidence. This removes a dangerous interpretation where a pre-submit receipt could later be treated as permission to retry blindly.
+## Mandatory protection reconciliation
 
-Because PostgreSQL and an external HTTPS exchange call cannot participate in one atomic distributed transaction, there is an irreducible final TOCTOU interval after the last control read. Gate 1 plus Gate 2 minimize that interval and fail closed on every control loss that can be observed before network submission.
+Canonical successful protected entry already performs protection reconciliation and persists protected-entry provenance.
 
-## Existing-trade protection remains available under HALT
+If the runtime invocation fails after authorization may have been burned, the operational composer still invokes the dedicated post-attempt reconciliation path. It uses immutable authorization, OMS state, recovery envelope and exact broker truth for the same `orderLinkId`.
 
-The v121 guard is intentionally specific to `reduce_only=False` entry requests.
+That recovery path can only conclude one of the following:
 
-It does not disable:
+- no execution confirmed;
+- canonical protection already reconciled;
+- protection restored;
+- deterministic reduce-only flatten completed;
+- unresolved, fail closed.
 
-- exchange position/execution reads;
-- protection-state reads;
-- stop / take-profit / trailing protection updates;
-- required order cancellation/reconciliation;
-- reduce-only close for the same trade identity;
-- active checkpoint polling;
-- fees/funding/account PnL reconciliation;
-- terminal evidence handoff.
+It has no ENTRY method and cannot create a replacement position.
 
-A kill switch that disabled those operations could strand exposure and would therefore be unsafe.
+## Sanitized evidence
 
-## End-to-end attribution
+Operational evidence is allowlisted. It may report status, exact immutable record hashes/identities and reconciliation outcome required for audit, but it must not include secrets, DSNs, exception messages or raw broker payloads.
 
-The durable identity chain remains:
+The workflow uploads `artifacts/bybit-demo-operational-entry.json` with `if: always()` so a fail-closed startup/runtime result remains reviewable even when the one-shot command exits non-zero.
 
-```text
-source snapshot + evidence/market rank
--> approval_id
--> deterministic entry orderLinkId
--> v120 immutable authorization
--> protected-entry provenance
--> terminal record
--> execution fees
--> funding
--> all-in net PnL / R multiple
-```
+## Activation status
 
-v121 adds a separate operational audit chain for the short-lived permission window:
+The protected one-shot operational composition is implemented in code and covered by PR qualification tests.
 
-```text
-operator + reason
--> sanitized connected-preflight canonical record
--> preflight SHA-256
--> ARM event_id
--> armed_until
-```
+That does **not** mean trading has been activated. A real `workflow_dispatch` must remain an explicit operator action in the protected GitHub Environment after all prerequisites are independently verified.
 
-Realized outcomes remain forbidden from automatically retuning exits, online selection thresholds or strategy promotion.
-
-## Deployment / activation boundary
-
-Code qualification alone is not connected-account evidence.
-
-The minimum operational sequence before any future write-enabled Demo worker may be introduced is:
-
-```text
-1. bybit-demo-postgres-bootstrap -> VERIFIED_READY for v119-v121
-2. bybit-demo-connected-preflight -> real authenticated read-only PASS
-3. bybit-demo-trading-credential-preflight -> real authenticated GET-only credential PASS
-4. bybit-demo-control-plane status -> observe effective state
-5. explicit ARM -> same invocation reruns connected read-only preflight
-6. future operator-approved Demo worker -> consumes approval + ARM through canonical runtime
-```
-
-The v121 control workflow contains no trading API credential and cannot submit an order. The credential-preflight workflow sees the future Demo trading credential but contains no mutation transport. The future worker must use that **separate Demo trading credential**, never the read-only preflight key and never a mainnet key.
-
-No schedule or autonomous ARM is allowed. Mainnet order creation/amendment/cancellation remains prohibited.
+As part of PR #89 implementation/qualification, no protected execution dispatch is required, no Demo order is required, and no mainnet write is permitted.

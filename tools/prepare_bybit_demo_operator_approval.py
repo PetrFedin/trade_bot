@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -11,7 +12,11 @@ from typing import Any, Protocol
 from app.execution.bybit_demo_operator_approval import (
     create_bybit_demo_operator_approval,
 )
-from app.marketdata.bybit_v5 import BybitKlineRequest, BybitPublicKlineClient
+from app.marketdata.bybit_v5 import (
+    BybitKlineBar,
+    BybitKlineRequest,
+    BybitPublicKlineClient,
+)
 from app.strategy.crypto_live_opportunity_reader import PostgresCryptoLiveOpportunityReader
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig, minimum_history_bars
 
@@ -46,22 +51,23 @@ class _KlineClient(Protocol):
     def fetch(self, request: BybitKlineRequest): ...
 
 
-def prepare_bybit_demo_operator_approval(
+@dataclass(frozen=True)
+class BybitDemoOperatorApprovalSourceContext:
+    review_row: Mapping[str, Any]
+    bars: tuple[BybitKlineBar, ...]
+
+
+def resolve_bybit_demo_operator_approval_source(
     reader: _ReviewReader,
     kline_client: _KlineClient,
     *,
     evidence_rank: int,
-    approved_at: datetime,
-    confirmation_phrase: str,
     expected_symbol: str | None = None,
-    ttl_seconds: int = 120,
-) -> dict[str, Any]:
-    """Prepare one ephemeral demo approval without performing any order mutation."""
+) -> BybitDemoOperatorApprovalSourceContext:
+    """Resolve the exact latest review row and fixed decision history without mutation."""
 
     if isinstance(evidence_rank, bool) or not 1 <= evidence_rank <= 50:
         raise ValueError("demo approval evidence rank must be within [1, 50]")
-    if approved_at.tzinfo is None or approved_at.utcoffset() is None:
-        raise ValueError("demo approval preparation time must be timezone-aware")
     rows = reader.latest_review_queue(limit=50, include_mixed=False)
     matches = [row for row in rows if row.get("evidence_rank") == evidence_rank]
     if len(matches) != 1:
@@ -96,9 +102,38 @@ def prepare_bybit_demo_operator_approval(
         requested_symbols=(symbol,),
         minimum_bars=minimum_history_bars(CryptoPerpStrategyConfig()),
     )
+    bars = tuple(acquisition.bars)
+    if any(bar.symbol != symbol for bar in bars):
+        raise ValueError("demo approval source acquisition returned another symbol")
+    return BybitDemoOperatorApprovalSourceContext(
+        review_row=dict(row),
+        bars=bars,
+    )
+
+
+def prepare_bybit_demo_operator_approval(
+    reader: _ReviewReader,
+    kline_client: _KlineClient,
+    *,
+    evidence_rank: int,
+    approved_at: datetime,
+    confirmation_phrase: str,
+    expected_symbol: str | None = None,
+    ttl_seconds: int = 120,
+) -> dict[str, Any]:
+    """Prepare one ephemeral demo approval without performing any order mutation."""
+
+    if approved_at.tzinfo is None or approved_at.utcoffset() is None:
+        raise ValueError("demo approval preparation time must be timezone-aware")
+    source = resolve_bybit_demo_operator_approval_source(
+        reader,
+        kline_client,
+        evidence_rank=evidence_rank,
+        expected_symbol=expected_symbol,
+    )
     approval = create_bybit_demo_operator_approval(
-        row,
-        acquisition.bars,
+        source.review_row,
+        source.bars,
         approved_at=approved_at.astimezone(UTC),
         confirmation_phrase=confirmation_phrase,
         ttl_seconds=ttl_seconds,
@@ -107,7 +142,7 @@ def prepare_bybit_demo_operator_approval(
         "report": "BYBIT_OPERATOR_APPROVED_DEMO_PREPARATION",
         "prepared_at": approved_at.astimezone(UTC).isoformat(),
         "source_evidence_rank": evidence_rank,
-        "source_symbol": symbol,
+        "source_symbol": str(source.review_row["symbol"]),
         "approval": approval.to_payload(),
         "order_write_performed": False,
         "prepared_only": True,

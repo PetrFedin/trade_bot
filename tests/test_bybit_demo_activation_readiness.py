@@ -20,7 +20,7 @@ _EVIDENCE_SHA = {
 
 def _postgres() -> dict[str, object]:
     return {
-        "schema": "BYBIT_DEMO_POSTGRES_BOOTSTRAP_V2",
+        "schema": "BYBIT_DEMO_POSTGRES_BOOTSTRAP_V3",
         "status": "VERIFIED_READY",
         "passed": True,
         "mode": "verify",
@@ -129,6 +129,18 @@ def test_all_safe_evidence_is_ready_but_never_actionable() -> None:
     assert first["manifest_sha256"] == second["manifest_sha256"]
     assert len(first["manifest_sha256"]) == 64
     assert first["evidence"]["postgres_sha256"] == _EVIDENCE_SHA["postgres"]
+
+
+def test_v122_bootstrap_evidence_is_rejected_after_v123_upgrade() -> None:
+    postgres = _postgres()
+    postgres["schema"] = "BYBIT_DEMO_POSTGRES_BOOTSTRAP_V2"
+
+    result = _assemble(postgres=postgres)
+
+    assert result.status is BybitDemoActivationReadinessStatus.BLOCKED
+    assert result.reasons == ("POSTGRES_EVIDENCE_SCHEMA_INVALID",)
+    assert result.ready_for_explicit_arm is False
+    assert result.ready_for_exact_trade_approval is False
 
 
 def test_postgres_must_be_read_only_verified_ready() -> None:
