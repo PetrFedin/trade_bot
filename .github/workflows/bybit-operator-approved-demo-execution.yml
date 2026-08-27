@@ -190,7 +190,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, bybit-demo]
     environment: bybit-demo
-    timeout-minutes: 15
+    # No explicit job timeout: after submit-started, platform cancellation could interrupt
+    # mandatory protection reconciliation. The one-shot CLI keeps its own network operations bounded.
     concurrency:
       group: bybit-demo-protected-operational-entry
       cancel-in-progress: false
@@ -230,5 +231,5 @@ jobs:
         with:
           name: bybit-demo-operational-entry-${{ github.run_id }}
           path: artifacts/bybit-demo-operational-entry.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
