@@ -35,6 +35,8 @@ def test_release_evidence_workflow_requires_exact_manual_successful_sources() ->
         "bybit-demo-runtime-lease-recovery",
     ):
         assert workflow_name in text
+    assert '"arm_control", os.environ["ARM_RUN_ID"]' in text
+    assert '"halt_control", os.environ["HALT_RUN_ID"]' in text
     assert 'run.get("event") != "workflow_dispatch"' in text
     assert 'run.get("status") != "completed"' in text
     assert 'run.get("conclusion") != "success"' in text
@@ -52,9 +54,11 @@ def test_release_evidence_workflow_downloads_exact_artifacts_and_fails_on_missin
     assert '"bybit-demo-persistent-supervisor-$SUPERVISOR_RUN_ID"' in text
     assert '"bybit-demo-control-plane-$ARM_RUN_ID"' in text
     assert '"bybit-demo-operational-entry-$ENTRY_RUN_ID"' in text
+    assert '"bybit-demo-control-plane-$HALT_RUN_ID"' in text
     assert '"bybit-demo-runtime-lease-recovery-$RECOVERY_RUN_ID"' in text
     assert "bybit-demo-session-(status|initialize)-$SESSION_RUN_ID" in text
     assert "--arm-control evidence/arm/bybit-demo-control-plane.json" in text
+    assert "--halt-control evidence/halt/bybit-demo-control-plane.json" in text
     assert "python -m tools.assemble_bybit_demo_operational_release_evidence" in text
     assert "if-no-files-found: error" in text
     assert "retention-days: 30" in text
