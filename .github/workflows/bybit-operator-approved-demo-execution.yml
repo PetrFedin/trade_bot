@@ -22,6 +22,7 @@ on:
       - 'tests/test_bybit_demo_approved_bridge.py'
       - 'tests/test_bybit_demo_approval_lineage_store.py'
       - 'tests/test_bybit_demo_approved_runtime.py'
+      - 'tests/test_bybit_demo_approved_runtime_entry_expiry.py'
       - 'tests/test_bybit_demo_approved_trade_attribution.py'
       - 'tests/test_bybit_demo_operational_entry.py'
       - 'tests/test_bybit_demo_operational_reconciliation.py'
@@ -52,6 +53,7 @@ on:
       - 'tests/test_bybit_demo_approved_bridge.py'
       - 'tests/test_bybit_demo_approval_lineage_store.py'
       - 'tests/test_bybit_demo_approved_runtime.py'
+      - 'tests/test_bybit_demo_approved_runtime_entry_expiry.py'
       - 'tests/test_bybit_demo_approved_trade_attribution.py'
       - 'tests/test_bybit_demo_operational_entry.py'
       - 'tests/test_bybit_demo_operational_reconciliation.py'
@@ -104,6 +106,7 @@ jobs:
             tests/test_bybit_demo_approved_bridge.py \
             tests/test_bybit_demo_approval_lineage_store.py \
             tests/test_bybit_demo_approved_runtime.py \
+            tests/test_bybit_demo_approved_runtime_entry_expiry.py \
             tests/test_bybit_demo_approved_trade_attribution.py \
             tests/test_bybit_demo_operational_entry.py \
             tests/test_bybit_demo_operational_reconciliation.py \
@@ -141,6 +144,7 @@ jobs:
             tests/test_bybit_demo_approved_bridge.py \
             tests/test_bybit_demo_approval_lineage_store.py \
             tests/test_bybit_demo_approved_runtime.py \
+            tests/test_bybit_demo_approved_runtime_entry_expiry.py \
             tests/test_bybit_demo_approved_trade_attribution.py \
             tests/test_bybit_demo_operational_entry_cli.py \
             tests/test_bybit_operator_approved_demo_execution_workflow.py \
