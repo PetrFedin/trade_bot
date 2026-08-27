@@ -63,6 +63,37 @@ class BybitDemoOperationalProtectionReconciliation:
             and self.status is not BybitDemoOperationalProtectionStatus.UNRESOLVED
         ):
             raise ValueError("incomplete operational reconciliation must remain unresolved")
+        if not any(
+            self.entry_execution_confirmed is value
+            for value in (True, False, None)
+        ):
+            raise ValueError("operational reconciliation execution confirmation is invalid")
+        if self.status is BybitDemoOperationalProtectionStatus.CANONICAL_RUNTIME_RECONCILED:
+            if self.entry_execution_confirmed is not True:
+                raise ValueError("canonical reconciliation requires confirmed entry execution")
+            if self.safety_mutation_performed:
+                raise ValueError("canonical reconciliation cannot claim a recovery mutation")
+        elif self.status in {
+            BybitDemoOperationalProtectionStatus.NO_ENTRY_AUTHORIZATION,
+            BybitDemoOperationalProtectionStatus.NO_EXECUTION_CONFIRMED,
+        }:
+            if self.entry_execution_confirmed is not False:
+                raise ValueError("no-execution reconciliation requires confirmed zero execution")
+            if self.safety_mutation_performed:
+                raise ValueError("no-execution reconciliation cannot claim a safety mutation")
+        elif self.status in {
+            BybitDemoOperationalProtectionStatus.RECOVERED_PROTECTED,
+            BybitDemoOperationalProtectionStatus.RECOVERED_FLATTENED,
+        }:
+            if self.entry_execution_confirmed is not True:
+                raise ValueError("recovered reconciliation requires confirmed entry execution")
+            if not self.safety_mutation_performed:
+                raise ValueError("recovered reconciliation requires a safety mutation")
+        elif (
+            self.status is BybitDemoOperationalProtectionStatus.UNRESOLVED
+            and self.safety_mutation_performed
+        ):
+            raise ValueError("unresolved reconciliation cannot claim a completed safety mutation")
 
 
 class BybitDemoOperationalEntryStatus(StrEnum):
