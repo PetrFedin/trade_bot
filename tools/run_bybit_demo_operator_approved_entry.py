@@ -124,23 +124,23 @@ def main(argv: list[str] | None = None) -> int:
             "This command never arms v121 and has no mainnet route."
         )
     )
-    parser.add_argument("--evidence-rank", type=int, required=True)
+    parser.add_argument("--evidence-rank", required=True)
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--confirm", required=True)
     parser.add_argument(
         "--site",
-        default=os.environ.get("BYBIT_RESEARCH_SITE", "global"),
+        default=(os.environ.get("BYBIT_RESEARCH_SITE") or "global"),
     )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
 
-    inputs = _OperationalInputs(
-        evidence_rank=args.evidence_rank,
-        symbol=_normalized_symbol(args.symbol),
-        confirmation_phrase=args.confirm,
-        research_site=args.site,
-    )
     try:
+        inputs = _OperationalInputs(
+            evidence_rank=_evidence_rank(args.evidence_rank),
+            symbol=_normalized_symbol(args.symbol),
+            confirmation_phrase=args.confirm,
+            research_site=args.site,
+        )
         environment = _environment_from_process()
         dependencies = _build_dependencies(environment)
         evidence = _run_once(inputs, environment, dependencies)
@@ -241,11 +241,6 @@ def _run_once(
     if symbol != inputs.symbol:
         raise RuntimeError("operator-approved source symbol changed")
 
-    wallet = dependencies.accounting_client.get_wallet_balance()
-    checkpoint = dependencies.session_store.load_active()
-    session_state = checkpoint.ledger.to_session_risk_state(
-        current_equity_usdt=wallet.total_equity_usd,
-    )
     instruments = dependencies.instrument_client.fetch_symbols((symbol,))
     if tuple(instruments) != (symbol,):
         raise RuntimeError("Bybit Demo exact instrument resolution failed")
@@ -259,6 +254,12 @@ def _run_once(
     arm_observed_at = datetime.now(UTC)
     arm_decision = dependencies.control_plane.read_decision(now=arm_observed_at)
     pinned_arm = PinnedBybitDemoControlPlane(dependencies.control_plane, arm_decision)
+
+    wallet = dependencies.accounting_client.get_wallet_balance()
+    checkpoint = dependencies.session_store.load_active()
+    session_state = checkpoint.ledger.to_session_risk_state(
+        current_equity_usdt=wallet.total_equity_usd,
+    )
 
     approved_at = datetime.now(UTC)
     approval = create_bybit_demo_operator_approval(
@@ -330,6 +331,18 @@ def _required_env(name: str) -> str:
     if not value:
         raise RuntimeError(f"required environment variable is missing:{name}")
     return value
+
+
+def _evidence_rank(value: str) -> int:
+    if not value or value.strip() != value:
+        raise ValueError("operator evidence rank must be an integer within [1, 50]")
+    try:
+        rank = int(value)
+    except ValueError as exc:
+        raise ValueError("operator evidence rank must be an integer within [1, 50]") from exc
+    if not 1 <= rank <= 50:
+        raise ValueError("operator evidence rank must be an integer within [1, 50]")
+    return rank
 
 
 def _normalized_symbol(value: str) -> str:
