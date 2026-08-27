@@ -15,6 +15,8 @@ The release-evidence workflow therefore accepts GitHub Actions run IDs, independ
 - supplied in contiguous operational order;
 - chronologically later than the preceding stage.
 
+Run chronology alone is not sufficient for the final recovery stage. The recovery artifact itself must prove a newly created post-entry recovery: its status must be exactly `RECOVERED`, `idempotent_existing_recovery` must be false, and its `created_at` must be strictly later than the operator-approved entry `observed_at`. A later workflow run that merely replays an older `ALREADY_RECOVERED` receipt cannot satisfy the release gate.
+
 The sanitized source-run metadata is hashed and included in the final manifest together with SHA-256 of every source evidence file.
 
 ## Stages
@@ -25,7 +27,7 @@ The manifest reports the highest stage that is actually proven:
 2. `SESSION_READY` — the durable v122 session exists and is worker-ready.
 3. `SUPERVISOR_READY` — one exact-head persistent-supervisor cycle proves the pre-entry state is `IDLE_NO_ACTIVE_TRADE`, with no autonomous, bypass or replacement entry path.
 4. `DEMO_ENTRY_PROVEN` — one explicit operator-approved Demo entry completed with immutable authorization/provenance and completed protection reconciliation.
-5. `RECOVERY_DRILL_PROVEN` — a later controlled v123 lease-recovery receipt is present with immutable audit and no automatic takeover.
+5. `RECOVERY_DRILL_PROVEN` — a newly created controlled v123 `RECOVERED` receipt is present with immutable audit, no automatic takeover and `created_at` strictly later than the proven Demo entry `observed_at`.
 
 Missing later-stage evidence is not treated as a fabricated failure. The manifest remains valid at the highest proven stage and states `next_required_evidence`. Supplying a later artifact while an earlier stage is absent is different: that is a non-contiguous chain and fails closed to `BLOCKED`.
 
@@ -44,6 +46,8 @@ The gate consumes the sanitized artifacts produced by:
 Every producer artifact is bound to `GITHUB_SHA`. The release gate rejects a source artifact whose embedded Git SHA differs from the exact release-evidence head even if the GitHub run metadata itself appears valid.
 
 The activation-readiness artifact additionally carries its own canonical `manifest_sha256`, which is recomputed before it can advance the chain.
+
+The recovery stage has a second temporal binding at the artifact level. This prevents a successful later recovery workflow run from reusing an immutable receipt that belongs to an earlier operational episode.
 
 ## Safety semantics
 
@@ -64,6 +68,6 @@ The final release-evidence workflow itself always reports:
 
 Run the protected source workflows in strict order on the same deployable Git SHA. Then dispatch `bybit-demo-operational-release-evidence` on that same SHA and provide the corresponding run IDs from the first stage through the last stage currently available.
 
-Do not skip a stage. Do not substitute a pull-request qualification run for an operational source run. Do not substitute a lease-recovery inspection artifact for a real `RECOVERED` / `ALREADY_RECOVERED` recovery receipt.
+Do not skip a stage. Do not substitute a pull-request qualification run for an operational source run. Do not substitute a lease-recovery inspection artifact or an `ALREADY_RECOVERED` replay for the exact newly created `RECOVERED` receipt from the post-entry recovery drill.
 
 No operational workflow dispatch is performed automatically by this gate or by pull-request CI.
