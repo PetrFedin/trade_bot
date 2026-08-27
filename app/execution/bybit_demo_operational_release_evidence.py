@@ -202,6 +202,11 @@ def assemble_bybit_demo_operational_release_evidence(
             next_required="recovery_receipt",
         )
     _validate_recovery_receipt(recovery_receipt, git_sha, reasons)
+    _validate_post_entry_recovery_temporal_link(
+        operational_entry,
+        recovery_receipt,
+        reasons,
+    )
     if reasons:
         return _blocked(
             git_sha,
@@ -524,9 +529,8 @@ def _validate_recovery_receipt(
         label="RECOVERY_RECEIPT",
         reasons=reasons,
     )
-    status = payload.get("status")
-    if status not in {"RECOVERED", "ALREADY_RECOVERED"}:
-        reasons.append("RECOVERY_DRILL_NOT_PROVEN")
+    if payload.get("status") != "RECOVERED":
+        reasons.append("RECOVERY_DRILL_NOT_NEWLY_PROVEN")
     _validate_optional_payload_sha(
         payload.get("recovery_id"),
         "RECOVERY_RECEIPT_ID_INVALID",
@@ -545,11 +549,27 @@ def _validate_recovery_receipt(
         reasons.append("RECOVERY_RECEIPT_STALE_TAKEOVER_ALLOWED")
     if payload.get("order_writes_supported") is not False:
         reasons.append("RECOVERY_RECEIPT_UNSAFE_ORDER_CAPABILITY")
-    idempotent = payload.get("idempotent_existing_recovery")
-    if status == "RECOVERED" and idempotent is not False:
-        reasons.append("RECOVERY_RECEIPT_NEW_RECOVERY_IDEMPOTENCY_INVALID")
-    if status == "ALREADY_RECOVERED" and idempotent is not True:
-        reasons.append("RECOVERY_RECEIPT_EXISTING_RECOVERY_IDEMPOTENCY_INVALID")
+    if payload.get("idempotent_existing_recovery") is not False:
+        reasons.append("RECOVERY_RECEIPT_IDEMPOTENCY_INVALID")
+
+
+def _validate_post_entry_recovery_temporal_link(
+    operational_entry: Mapping[str, Any],
+    recovery_receipt: Mapping[str, Any],
+    reasons: list[str],
+) -> None:
+    try:
+        entry_observed_at = _utc_datetime(operational_entry.get("observed_at"))
+    except ValueError:
+        reasons.append("OPERATIONAL_ENTRY_OBSERVED_AT_INVALID")
+        return
+    try:
+        recovery_created_at = _utc_datetime(recovery_receipt.get("created_at"))
+    except ValueError:
+        reasons.append("RECOVERY_RECEIPT_CREATED_AT_INVALID")
+        return
+    if recovery_created_at <= entry_observed_at:
+        reasons.append("RECOVERY_RECEIPT_NOT_AFTER_OPERATIONAL_ENTRY")
 
 
 def _validate_source_identity(
