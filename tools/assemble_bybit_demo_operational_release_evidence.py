@@ -20,7 +20,8 @@ def _parser() -> argparse.ArgumentParser:
             "control-plane or order mutations."
         )
     )
-    parser.add_argument("--git-sha", default=os.environ.get("GITHUB_SHA", ""), required=False)
+    parser.add_argument("--git-sha", default=os.environ.get("GITHUB_SHA", ""))
+    parser.add_argument("--run-metadata", type=Path, required=True)
     parser.add_argument("--activation-readiness", type=Path, required=True)
     parser.add_argument("--session-start", type=Path)
     parser.add_argument("--supervisor", type=Path)
@@ -37,6 +38,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        run_metadata, run_metadata_sha = load_json_evidence(args.run_metadata)
         activation, activation_sha = load_json_evidence(args.activation_readiness)
         payloads: dict[str, dict[str, Any] | None] = {
             "activation_readiness": activation,
@@ -68,6 +70,8 @@ def main(argv: list[str] | None = None) -> int:
             operational_entry=payloads["operational_entry"],
             recovery_receipt=payloads["recovery_receipt"],
             evidence_sha256=evidence_sha256,
+            source_run_metadata=run_metadata,
+            source_run_metadata_sha256=run_metadata_sha,
         )
         output = result.to_payload()
         exit_code = 0 if result.stage is not BybitDemoOperationalReleaseStage.BLOCKED else 2
@@ -87,6 +91,8 @@ def _failure_payload(error_type: str, *, git_sha: str) -> dict[str, Any]:
         "reasons": [f"ASSEMBLY_FAILED:{error_type}"],
         "git_sha": git_sha if _looks_like_git_sha(git_sha) else None,
         "evidence_sha256": {},
+        "source_runs": {},
+        "source_run_metadata_sha256": None,
         "next_required_evidence": None,
         "release_gate_complete": False,
         "operator_action_required": True,
