@@ -142,7 +142,7 @@ def prepare_bybit_demo_operator_approval(
         "report": "BYBIT_OPERATOR_APPROVED_DEMO_PREPARATION",
         "prepared_at": approved_at.astimezone(UTC).isoformat(),
         "source_evidence_rank": evidence_rank,
-        "source_symbol": approval.symbol,
+        "source_symbol": str(source.review_row["symbol"]),
         "approval": approval.to_payload(),
         "order_write_performed": False,
         "prepared_only": True,
