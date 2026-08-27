@@ -117,6 +117,14 @@ class _PassthroughDurableClient:
         return self._client.place_market_order(request)
 
 
+def test_approval_is_invalid_at_exact_expiry_boundary() -> None:
+    approval = _approval()
+    expires_at = datetime.fromisoformat(approval.expires_at)
+
+    with pytest.raises(ValueError, match="not valid"):
+        approval.validate(now=expires_at)
+
+
 def test_runtime_rechecks_expiry_immediately_before_durable_entry_boundary(
     monkeypatch,
 ) -> None:
