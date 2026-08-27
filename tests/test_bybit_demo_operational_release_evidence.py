@@ -347,7 +347,39 @@ def test_recovery_inspection_cannot_substitute_for_recovery_receipt() -> None:
 
     assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
     assert "RECOVERY_RECEIPT_SCHEMA_INVALID" in result.reasons
-    assert "RECOVERY_DRILL_NOT_PROVEN" in result.reasons
+    assert "RECOVERY_DRILL_NOT_NEWLY_PROVEN" in result.reasons
+
+
+def test_idempotent_old_recovery_cannot_substitute_for_new_drill() -> None:
+    recovery = _recovery()
+    recovery["status"] = "ALREADY_RECOVERED"
+    recovery["idempotent_existing_recovery"] = True
+
+    result = _assemble(5, recovery_receipt=recovery)
+
+    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
+    assert "RECOVERY_DRILL_NOT_NEWLY_PROVEN" in result.reasons
+    assert "RECOVERY_RECEIPT_IDEMPOTENCY_INVALID" in result.reasons
+
+
+def test_recovery_receipt_must_be_created_after_operational_entry() -> None:
+    recovery = _recovery()
+    recovery["created_at"] = "2026-08-28T00:04:00+00:00"
+
+    result = _assemble(5, recovery_receipt=recovery)
+
+    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
+    assert "RECOVERY_RECEIPT_NOT_AFTER_OPERATIONAL_ENTRY" in result.reasons
+
+
+def test_invalid_entry_timestamp_blocks_recovery_linkage() -> None:
+    entry = _entry()
+    entry["observed_at"] = "not-a-timestamp"
+
+    result = _assemble(5, operational_entry=entry)
+
+    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
+    assert "OPERATIONAL_ENTRY_OBSERVED_AT_INVALID" in result.reasons
 
 
 def test_evidence_hash_without_source_is_rejected() -> None:
