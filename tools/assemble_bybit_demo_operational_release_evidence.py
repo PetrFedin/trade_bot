@@ -27,6 +27,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--supervisor", type=Path)
     parser.add_argument("--arm-control", type=Path)
     parser.add_argument("--operational-entry", type=Path)
+    parser.add_argument("--halt-control", type=Path)
     parser.add_argument("--recovery-receipt", type=Path)
     parser.add_argument(
         "--output",
@@ -47,6 +48,7 @@ def main(argv: list[str] | None = None) -> int:
             "supervisor": None,
             "arm_control": None,
             "operational_entry": None,
+            "halt_control": None,
             "recovery_receipt": None,
         }
         evidence_sha256: dict[str, str] = {
@@ -57,6 +59,7 @@ def main(argv: list[str] | None = None) -> int:
             ("supervisor", args.supervisor),
             ("arm_control", args.arm_control),
             ("operational_entry", args.operational_entry),
+            ("halt_control", args.halt_control),
             ("recovery_receipt", args.recovery_receipt),
         ):
             if path is None:
@@ -72,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
             supervisor=payloads["supervisor"],
             arm_control=payloads["arm_control"],
             operational_entry=payloads["operational_entry"],
+            halt_control=payloads["halt_control"],
             recovery_receipt=payloads["recovery_receipt"],
             evidence_sha256=evidence_sha256,
             source_run_metadata=run_metadata,
