@@ -1,0 +1,322 @@
+name: bybit-demo-operational-release-evidence
+
+on:
+  pull_request:
+    paths:
+      - 'app/execution/bybit_demo_operational_release_evidence.py'
+      - 'tools/assemble_bybit_demo_operational_release_evidence.py'
+      - 'tools/manage_bybit_demo_session_risk.py'
+      - 'tools/run_bybit_demo_persistent_supervisor.py'
+      - 'tools/run_bybit_demo_operator_approved_entry.py'
+      - 'tools/recover_bybit_demo_runtime_lease.py'
+      - 'tests/test_bybit_demo_operational_release_evidence.py'
+      - 'tests/test_bybit_demo_operational_release_evidence_workflow.py'
+      - 'docs/BYBIT_DEMO_OPERATIONAL_RELEASE_EVIDENCE.md'
+      - '.github/workflows/bybit-demo-operational-release-evidence.yml'
+      - '.github/workflows/bybit-demo-activation-readiness.yml'
+      - '.github/workflows/bybit-demo-session-start.yml'
+      - '.github/workflows/bybit-demo-persistent-supervisor.yml'
+      - '.github/workflows/bybit-operator-approved-demo-execution.yml'
+      - '.github/workflows/bybit-demo-runtime-lease-recovery.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/execution/bybit_demo_operational_release_evidence.py'
+      - 'tools/assemble_bybit_demo_operational_release_evidence.py'
+      - 'tools/manage_bybit_demo_session_risk.py'
+      - 'tools/run_bybit_demo_persistent_supervisor.py'
+      - 'tools/run_bybit_demo_operator_approved_entry.py'
+      - 'tools/recover_bybit_demo_runtime_lease.py'
+      - 'tests/test_bybit_demo_operational_release_evidence.py'
+      - 'tests/test_bybit_demo_operational_release_evidence_workflow.py'
+      - 'docs/BYBIT_DEMO_OPERATIONAL_RELEASE_EVIDENCE.md'
+      - '.github/workflows/bybit-demo-operational-release-evidence.yml'
+      - '.github/workflows/bybit-demo-activation-readiness.yml'
+      - '.github/workflows/bybit-demo-session-start.yml'
+      - '.github/workflows/bybit-demo-persistent-supervisor.yml'
+      - '.github/workflows/bybit-operator-approved-demo-execution.yml'
+      - '.github/workflows/bybit-demo-runtime-lease-recovery.yml'
+  workflow_dispatch:
+    inputs:
+      activation_readiness_run_id:
+        description: 'Successful manual bybit-demo-activation-readiness run on this exact Git SHA'
+        required: true
+        type: string
+      session_start_run_id:
+        description: 'Optional successful manual bybit-demo-session-start run on this exact Git SHA'
+        required: false
+        default: ''
+        type: string
+      supervisor_run_id:
+        description: 'Optional successful manual bybit-demo-persistent-supervisor run on this exact Git SHA'
+        required: false
+        default: ''
+        type: string
+      operational_entry_run_id:
+        description: 'Optional successful manual operator-approved Demo entry run on this exact Git SHA'
+        required: false
+        default: ''
+        type: string
+      recovery_run_id:
+        description: 'Optional successful manual runtime-lease recovery run on this exact Git SHA'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: bybit-demo-operational-release-evidence-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+      - name: Operational release evidence proof
+        run: |
+          pytest -q \
+            tests/test_bybit_demo_operational_release_evidence.py \
+            tests/test_bybit_demo_operational_release_evidence_workflow.py \
+            tests/test_bybit_demo_persistent_supervisor_cli.py \
+            tests/test_bybit_demo_operational_entry_cli.py \
+            tests/test_bybit_demo_runtime_lease_recovery_cli.py
+      - name: Full deterministic regression
+        run: pytest -q
+      - name: Ruff operational release evidence boundary
+        run: |
+          ruff check \
+            app/execution/bybit_demo_operational_release_evidence.py \
+            tools/assemble_bybit_demo_operational_release_evidence.py \
+            tools/manage_bybit_demo_session_risk.py \
+            tools/run_bybit_demo_persistent_supervisor.py \
+            tools/run_bybit_demo_operator_approved_entry.py \
+            tools/recover_bybit_demo_runtime_lease.py \
+            tests/test_bybit_demo_operational_release_evidence.py \
+            tests/test_bybit_demo_operational_release_evidence_workflow.py
+      - name: Bandit operational release evidence boundary
+        run: |
+          bandit -q \
+            app/execution/bybit_demo_operational_release_evidence.py \
+            tools/assemble_bybit_demo_operational_release_evidence.py \
+            tools/manage_bybit_demo_session_risk.py \
+            tools/run_bybit_demo_persistent_supervisor.py \
+            tools/run_bybit_demo_operator_approved_entry.py \
+            tools/recover_bybit_demo_runtime_lease.py
+      - name: Compile operational release evidence boundary
+        run: |
+          python -m compileall -q \
+            app/execution/bybit_demo_operational_release_evidence.py \
+            tools/assemble_bybit_demo_operational_release_evidence.py \
+            tools/manage_bybit_demo_session_risk.py \
+            tools/run_bybit_demo_persistent_supervisor.py \
+            tools/run_bybit_demo_operator_approved_entry.py \
+            tools/recover_bybit_demo_runtime_lease.py
+
+  assemble:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      READINESS_RUN_ID: ${{ inputs.activation_readiness_run_id }}
+      SESSION_RUN_ID: ${{ inputs.session_start_run_id }}
+      SUPERVISOR_RUN_ID: ${{ inputs.supervisor_run_id }}
+      ENTRY_RUN_ID: ${{ inputs.operational_entry_run_id }}
+      RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install read-only evidence assembler
+        run: |
+          python -m pip install --disable-pip-version-check .
+          python -m pip check
+          mkdir -p evidence artifacts
+
+      - name: Validate exact manual source runs and materialize sanitized lineage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          repository = os.environ["GITHUB_REPOSITORY"]
+          exact_sha = os.environ["GITHUB_SHA"]
+          sources = (
+              (
+                  "activation_readiness",
+                  os.environ["READINESS_RUN_ID"],
+                  "bybit-demo-activation-readiness",
+              ),
+              ("session_start", os.environ["SESSION_RUN_ID"], "bybit-demo-session-start"),
+              (
+                  "supervisor",
+                  os.environ["SUPERVISOR_RUN_ID"],
+                  "bybit-demo-persistent-supervisor",
+              ),
+              (
+                  "operational_entry",
+                  os.environ["ENTRY_RUN_ID"],
+                  "bybit-operator-approved-demo-execution",
+              ),
+              (
+                  "recovery_receipt",
+                  os.environ["RECOVERY_RUN_ID"],
+                  "bybit-demo-runtime-lease-recovery",
+              ),
+          )
+          metadata = {}
+          missing_seen = False
+          for name, raw_run_id, expected_workflow in sources:
+              run_id_text = raw_run_id.strip()
+              if not run_id_text:
+                  missing_seen = True
+                  continue
+              if missing_seen:
+                  raise SystemExit(f"non-contiguous operational evidence input:{name}")
+              if not run_id_text.isdigit() or int(run_id_text) <= 0:
+                  raise SystemExit(f"invalid GitHub Actions run id:{name}")
+              run_id = int(run_id_text)
+              response = subprocess.run(
+                  [
+                      "gh",
+                      "api",
+                      f"repos/{repository}/actions/runs/{run_id}",
+                  ],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+              run = json.loads(response.stdout)
+              if run.get("name") != expected_workflow:
+                  raise SystemExit(f"workflow mismatch:{name}")
+              if run.get("event") != "workflow_dispatch":
+                  raise SystemExit(f"source run is not workflow_dispatch:{name}")
+              if run.get("status") != "completed" or run.get("conclusion") != "success":
+                  raise SystemExit(f"source run is not successful:{name}")
+              if run.get("head_sha") != exact_sha:
+                  raise SystemExit(f"source run Git SHA mismatch:{name}")
+              started_at = run.get("run_started_at") or run.get("created_at")
+              if not isinstance(started_at, str) or not started_at:
+                  raise SystemExit(f"source run timestamp unavailable:{name}")
+              metadata[name] = {
+                  "run_id": run_id,
+                  "workflow_name": run.get("name"),
+                  "event": run.get("event"),
+                  "conclusion": run.get("conclusion"),
+                  "head_sha": run.get("head_sha"),
+                  "run_started_at": started_at,
+              }
+          Path("evidence/source-runs.json").write_text(
+              json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Download exact sanitized source artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          download_exact() {
+            local run_id="$1"
+            local artifact_name="$2"
+            local destination="$3"
+            if [ -z "$run_id" ]; then
+              return 0
+            fi
+            mkdir -p "$destination"
+            gh run download "$run_id" \
+              --repo "$GITHUB_REPOSITORY" \
+              --name "$artifact_name" \
+              --dir "$destination"
+          }
+
+          download_exact \
+            "$READINESS_RUN_ID" \
+            "bybit-demo-activation-readiness-$READINESS_RUN_ID" \
+            evidence/readiness
+
+          if [ -n "$SESSION_RUN_ID" ]; then
+            session_artifacts="$(gh api \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$SESSION_RUN_ID/artifacts" \
+              --jq '.artifacts[] | select(.expired == false) | .name')"
+            session_name="$(printf '%s\n' "$session_artifacts" | grep -E \
+              "^bybit-demo-session-(status|initialize)-$SESSION_RUN_ID$" || true)"
+            if [ -z "$session_name" ] || [ "$(printf '%s\n' "$session_name" | wc -l)" -ne 1 ]; then
+              echo "Expected exactly one non-expired session artifact" >&2
+              exit 2
+            fi
+            download_exact "$SESSION_RUN_ID" "$session_name" evidence/session
+          fi
+
+          download_exact \
+            "$SUPERVISOR_RUN_ID" \
+            "bybit-demo-persistent-supervisor-$SUPERVISOR_RUN_ID" \
+            evidence/supervisor
+          download_exact \
+            "$ENTRY_RUN_ID" \
+            "bybit-demo-operational-entry-$ENTRY_RUN_ID" \
+            evidence/entry
+          download_exact \
+            "$RECOVERY_RUN_ID" \
+            "bybit-demo-runtime-lease-recovery-$RECOVERY_RUN_ID" \
+            evidence/recovery
+
+      - name: Assemble exact-head operational release manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --git-sha "$GITHUB_SHA"
+            --run-metadata evidence/source-runs.json
+            --activation-readiness evidence/readiness/bybit-demo-activation-readiness.json
+          )
+          if [ -n "$SESSION_RUN_ID" ]; then
+            args+=(--session-start evidence/session/bybit-demo-session-risk.json)
+          fi
+          if [ -n "$SUPERVISOR_RUN_ID" ]; then
+            args+=(--supervisor evidence/supervisor/bybit-demo-persistent-supervisor.json)
+          fi
+          if [ -n "$ENTRY_RUN_ID" ]; then
+            args+=(--operational-entry evidence/entry/bybit-demo-operational-entry.json)
+          fi
+          if [ -n "$RECOVERY_RUN_ID" ]; then
+            args+=(
+              --recovery-receipt \
+              evidence/recovery/bybit-demo-runtime-lease-recovery.json
+            )
+          fi
+          python -m tools.assemble_bybit_demo_operational_release_evidence \
+            "${args[@]}" \
+            --output artifacts/bybit-demo-operational-release-evidence.json
+
+      - name: Upload sanitized exact-head release evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
+        with:
+          name: bybit-demo-operational-release-evidence-${{ github.run_id }}
+          path: |
+            evidence/source-runs.json
+            artifacts/bybit-demo-operational-release-evidence.json
+          if-no-files-found: error
+          retention-days: 30
