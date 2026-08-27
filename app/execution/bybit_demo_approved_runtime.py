@@ -112,7 +112,12 @@ class _FreshApprovalGuardedBybitDemoClient:
 
     def place_market_order(self, request: Any):
         if getattr(request, "reduce_only", None) is not True:
-            self._approval.validate(now=self._now_provider())
+            try:
+                self._approval.validate(now=self._now_provider())
+            except ValueError as exc:
+                raise ValueError(
+                    "demo approval expired or is otherwise invalid at the execution time"
+                ) from exc
         return self._client.place_market_order(request)
 
 
@@ -163,22 +168,22 @@ def run_operator_approved_bybit_demo_trading_runtime(
     proceeds without requiring a still-valid approval or an ARMED new-entry state. Only a genuinely
     new entry reaches the closure below.
 
-    New exposure is fail-closed unless a Demo control plane is supplied. The first ARM check happens
-    inside the canonical runtime lease before the approved selector/account path starts. Live approval
-    expiry is then checked twice around the final durable/control boundary: once before immutable
-    authorization can be burned and again after the final ARM read immediately before the raw Demo
-    entry mutation. This minimizes both stale-approval authorization burns and the irreducible final
-    time-of-check/time-of-use interval before the external HTTPS call.
+    New exposure is fail-closed unless a Demo control plane is supplied. The first ARM check
+    happens inside the canonical runtime lease before the approved selector/account path starts.
+    Live approval expiry is then checked twice around the final durable/control boundary: once
+    before immutable authorization can be burned and again after the final ARM read immediately
+    before the raw Demo entry mutation. This minimizes both stale-approval authorization burns and
+    the irreducible final time-of-check/time-of-use interval before the external HTTPS call.
 
     Ordering for a new non-reduce-only order is therefore:
 
-    exact identity/single-use guard -> live approval check -> durable authorization -> live ARM check
-    -> live approval check -> raw Demo OMS/network client.
+    exact identity/single-use guard -> live approval check -> durable authorization
+    -> live ARM check -> live approval check -> raw Demo OMS/network client.
 
-    If approval is already expired before authorization, authorization is not persisted. If it expires
-    while durable/control checks are running, the burned authorization remains recovery-only evidence
-    and the broker mutation is still blocked. If ARM disappears after authorization persistence, the
-    order is likewise blocked and that authorization remains recovery-only state.
+    If approval is already expired before authorization, authorization is not persisted. If it
+    expires while durable/control checks are running, the burned authorization remains recovery-only
+    evidence and the broker mutation is still blocked. If ARM disappears after authorization
+    persistence, the order is likewise blocked and that authorization remains recovery-only state.
 
     The v122 session-risk committer is passed to the canonical runtime. A real runtime invocation
     without it fails closed; the optional default only preserves compatibility for isolated mock
