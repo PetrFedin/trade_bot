@@ -15,6 +15,7 @@ _SOURCE_ORDER = (
     "supervisor",
     "arm_control",
     "operational_entry",
+    "halt_control",
     "recovery_receipt",
 )
 _WORKFLOW_NAMES = {
@@ -23,6 +24,7 @@ _WORKFLOW_NAMES = {
     "supervisor": "bybit-demo-persistent-supervisor",
     "arm_control": "bybit-demo-control-plane",
     "operational_entry": "bybit-operator-approved-demo-execution",
+    "halt_control": "bybit-demo-control-plane",
     "recovery_receipt": "bybit-demo-runtime-lease-recovery",
 }
 _MAX_ARM_TTL = timedelta(minutes=5)
@@ -35,6 +37,7 @@ class BybitDemoOperationalReleaseStage(StrEnum):
     SUPERVISOR_READY = "SUPERVISOR_READY"
     ARM_PROVEN = "ARM_PROVEN"
     DEMO_ENTRY_PROVEN = "DEMO_ENTRY_PROVEN"
+    HALT_PROVEN = "HALT_PROVEN"
     RECOVERY_DRILL_PROVEN = "RECOVERY_DRILL_PROVEN"
 
 
@@ -94,6 +97,7 @@ def assemble_bybit_demo_operational_release_evidence(
     supervisor: Mapping[str, Any] | None = None,
     arm_control: Mapping[str, Any] | None = None,
     operational_entry: Mapping[str, Any] | None = None,
+    halt_control: Mapping[str, Any] | None = None,
     recovery_receipt: Mapping[str, Any] | None = None,
 ) -> BybitDemoOperationalReleaseEvidence:
     """Assemble one read-only, exact-head operational evidence chain.
@@ -111,6 +115,7 @@ def assemble_bybit_demo_operational_release_evidence(
         "supervisor": supervisor,
         "arm_control": arm_control,
         "operational_entry": operational_entry,
+        "halt_control": halt_control,
         "recovery_receipt": recovery_receipt,
     }
     _validate_evidence_hashes(supplied, evidence_sha256)
@@ -230,9 +235,39 @@ def assemble_bybit_demo_operational_release_evidence(
             reasons,
         )
 
-    if recovery_receipt is None:
+    if halt_control is None:
         return _partial(
             BybitDemoOperationalReleaseStage.DEMO_ENTRY_PROVEN,
+            git_sha,
+            evidence_sha256,
+            source_runs,
+            source_run_metadata_sha256,
+            next_required="halt_control",
+        )
+    _validate_halt_control(halt_control, git_sha, reasons)
+    _validate_post_entry_halt_temporal_link(
+        operational_entry,
+        halt_control,
+        reasons,
+    )
+    _validate_artifact_time_with_source_run(
+        value=_nested(halt_control, "receipt").get("created_at"),
+        source_run=source_runs.get("halt_control"),
+        label="HALT_CONTROL",
+        reasons=reasons,
+    )
+    if reasons:
+        return _blocked(
+            git_sha,
+            evidence_sha256,
+            source_runs,
+            source_run_metadata_sha256,
+            reasons,
+        )
+
+    if recovery_receipt is None:
+        return _partial(
+            BybitDemoOperationalReleaseStage.HALT_PROVEN,
             git_sha,
             evidence_sha256,
             source_runs,
@@ -242,6 +277,11 @@ def assemble_bybit_demo_operational_release_evidence(
     _validate_recovery_receipt(recovery_receipt, git_sha, reasons)
     _validate_post_entry_recovery_temporal_link(
         operational_entry,
+        recovery_receipt,
+        reasons,
+    )
+    _validate_recovery_halt_link(
+        halt_control,
         recovery_receipt,
         reasons,
     )
@@ -672,6 +712,93 @@ def _validate_entry_arm_link(
         reasons.append("OPERATIONAL_ENTRY_OUTSIDE_ARM_WINDOW")
 
 
+def _validate_halt_control(
+    payload: Mapping[str, Any],
+    git_sha: str,
+    reasons: list[str],
+) -> None:
+    _validate_source_identity(
+        payload,
+        schema="BYBIT_DEMO_CONTROL_OPERATION_V1",
+        git_sha=git_sha,
+        label="HALT_CONTROL",
+        reasons=reasons,
+    )
+    if payload.get("mode") != "halt":
+        reasons.append("HALT_CONTROL_MODE_INVALID")
+    if payload.get("status") != "HALTED" or payload.get("passed") is not True:
+        reasons.append("HALT_CONTROL_NOT_HALTED")
+    if payload.get("fixed_egress_required") is not True:
+        reasons.append("HALT_CONTROL_FIXED_EGRESS_NOT_REQUIRED")
+    if payload.get("order_writes_supported") is not False:
+        reasons.append("HALT_CONTROL_UNSAFE_ORDER_CAPABILITY")
+
+    receipt = _nested(payload, "receipt")
+    if receipt.get("schema") != "BYBIT_DEMO_CONTROL_EVENT_RECEIPT_V1":
+        reasons.append("HALT_CONTROL_RECEIPT_SCHEMA_INVALID")
+    if receipt.get("event_kind") != "HALT_NEW_ENTRIES":
+        reasons.append("HALT_CONTROL_EVENT_KIND_INVALID")
+    _validate_optional_payload_sha(
+        receipt.get("event_id"),
+        "HALT_CONTROL_EVENT_ID_INVALID",
+        reasons,
+    )
+    if receipt.get("armed_until") is not None:
+        reasons.append("HALT_CONTROL_RECEIPT_UNEXPECTED_ARM_EXPIRY")
+    if receipt.get("preflight_record_sha256") is not None:
+        reasons.append("HALT_CONTROL_RECEIPT_UNEXPECTED_PREFLIGHT")
+    if receipt.get("immutable_record") is not True:
+        reasons.append("HALT_CONTROL_RECEIPT_NOT_IMMUTABLE")
+    if receipt.get("order_submission_supported") is not False:
+        reasons.append("HALT_CONTROL_RECEIPT_ORDER_SUBMISSION_CAPABILITY")
+    if receipt.get("live_mainnet_order_routing_allowed") is not False:
+        reasons.append("HALT_CONTROL_RECEIPT_MAINNET_CAPABILITY")
+
+    decision = _nested(payload, "decision")
+    if decision.get("schema") != "BYBIT_DEMO_CONTROL_DECISION_V1":
+        reasons.append("HALT_CONTROL_DECISION_SCHEMA_INVALID")
+    if decision.get("mode") != "HALTED":
+        reasons.append("HALT_CONTROL_DECISION_NOT_HALTED")
+    if decision.get("new_entry_allowed") is not False:
+        reasons.append("HALT_CONTROL_DECISION_ENTRY_ALLOWED")
+    if decision.get("latest_event_id") != receipt.get("event_id"):
+        reasons.append("HALT_CONTROL_DECISION_EVENT_MISMATCH")
+    if decision.get("latest_event_kind") != "HALT_NEW_ENTRIES":
+        reasons.append("HALT_CONTROL_DECISION_EVENT_KIND_INVALID")
+    if decision.get("armed_until") is not None:
+        reasons.append("HALT_CONTROL_DECISION_UNEXPECTED_ARM_EXPIRY")
+    if decision.get("immutable_audit") is not True:
+        reasons.append("HALT_CONTROL_DECISION_AUDIT_NOT_IMMUTABLE")
+    if decision.get("order_writes_supported") is not False:
+        reasons.append("HALT_CONTROL_DECISION_UNSAFE_ORDER_CAPABILITY")
+    if decision.get("live_mainnet_order_routing_allowed") is not False:
+        reasons.append("HALT_CONTROL_DECISION_MAINNET_CAPABILITY")
+
+    try:
+        _utc_datetime(receipt.get("created_at"))
+    except ValueError:
+        reasons.append("HALT_CONTROL_CREATED_AT_INVALID")
+
+
+def _validate_post_entry_halt_temporal_link(
+    operational_entry: Mapping[str, Any],
+    halt_control: Mapping[str, Any],
+    reasons: list[str],
+) -> None:
+    try:
+        entry_observed_at = _utc_datetime(operational_entry.get("observed_at"))
+    except ValueError:
+        reasons.append("OPERATIONAL_ENTRY_OBSERVED_AT_INVALID")
+        return
+    try:
+        halt_created_at = _utc_datetime(_nested(halt_control, "receipt").get("created_at"))
+    except ValueError:
+        reasons.append("HALT_CONTROL_CREATED_AT_INVALID")
+        return
+    if halt_created_at <= entry_observed_at:
+        reasons.append("HALT_CONTROL_NOT_AFTER_OPERATIONAL_ENTRY")
+
+
 def _validate_recovery_receipt(
     payload: Mapping[str, Any],
     git_sha: str,
@@ -694,6 +821,11 @@ def _validate_recovery_receipt(
     _validate_optional_payload_sha(
         payload.get("lease_owner_sha256"),
         "RECOVERY_RECEIPT_OWNER_SHA_INVALID",
+        reasons,
+    )
+    _validate_optional_payload_sha(
+        payload.get("control_event_id"),
+        "RECOVERY_RECEIPT_CONTROL_EVENT_ID_INVALID",
         reasons,
     )
     if payload.get("immutable_audit") is not True:
@@ -725,6 +857,25 @@ def _validate_post_entry_recovery_temporal_link(
         return
     if recovery_created_at <= entry_observed_at:
         reasons.append("RECOVERY_RECEIPT_NOT_AFTER_OPERATIONAL_ENTRY")
+
+
+def _validate_recovery_halt_link(
+    halt_control: Mapping[str, Any],
+    recovery_receipt: Mapping[str, Any],
+    reasons: list[str],
+) -> None:
+    halt_receipt = _nested(halt_control, "receipt")
+    halt_event_id = halt_receipt.get("event_id")
+    if recovery_receipt.get("control_event_id") != halt_event_id:
+        reasons.append("RECOVERY_RECEIPT_HALT_EVENT_MISMATCH")
+    try:
+        halt_created_at = _utc_datetime(halt_receipt.get("created_at"))
+        recovery_created_at = _utc_datetime(recovery_receipt.get("created_at"))
+    except ValueError:
+        reasons.append("RECOVERY_RECEIPT_HALT_TEMPORAL_LINK_INVALID")
+        return
+    if recovery_created_at <= halt_created_at:
+        reasons.append("RECOVERY_RECEIPT_NOT_AFTER_HALT")
 
 
 def _validate_artifact_time_with_source_run(
