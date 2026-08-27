@@ -44,6 +44,7 @@ def test_operational_job_is_protected_fixed_egress_and_non_cancellable() -> None
     assert "environment: bybit-demo" in job
     assert "group: bybit-demo-protected-operational-entry" in job
     assert "cancel-in-progress: false" in job
+    assert "timeout-minutes:" not in job
     assert "ubuntu-latest" not in job
 
 
@@ -70,3 +71,4 @@ def test_operational_evidence_is_uploaded_even_when_runner_blocks() -> None:
     assert "Upload allowlisted operational entry evidence" in job
     assert "if: always()" in job
     assert "artifacts/bybit-demo-operational-entry.json" in job
+    assert "if-no-files-found: error" in job
