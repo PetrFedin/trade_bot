@@ -4,9 +4,25 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+_SOURCE_ORDER = (
+    "activation_readiness",
+    "session_start",
+    "supervisor",
+    "operational_entry",
+    "recovery_receipt",
+)
+_WORKFLOW_NAMES = {
+    "activation_readiness": "bybit-demo-activation-readiness",
+    "session_start": "bybit-demo-session-start",
+    "supervisor": "bybit-demo-persistent-supervisor",
+    "operational_entry": "bybit-operator-approved-demo-execution",
+    "recovery_receipt": "bybit-demo-runtime-lease-recovery",
+}
 
 
 class BybitDemoOperationalReleaseStage(StrEnum):
@@ -24,6 +40,8 @@ class BybitDemoOperationalReleaseEvidence:
     reasons: tuple[str, ...]
     git_sha: str
     evidence_sha256: Mapping[str, str]
+    source_runs: Mapping[str, Mapping[str, Any]]
+    source_run_metadata_sha256: str
     next_required_evidence: str | None
     release_gate_complete: bool
     operator_action_required: bool = True
@@ -44,6 +62,11 @@ class BybitDemoOperationalReleaseEvidence:
             "reasons": list(self.reasons),
             "git_sha": self.git_sha,
             "evidence_sha256": dict(sorted(self.evidence_sha256.items())),
+            "source_runs": {
+                name: dict(value)
+                for name, value in sorted(self.source_runs.items())
+            },
+            "source_run_metadata_sha256": self.source_run_metadata_sha256,
             "next_required_evidence": self.next_required_evidence,
             "release_gate_complete": self.release_gate_complete,
             "operator_action_required": self.operator_action_required,
@@ -61,6 +84,8 @@ def assemble_bybit_demo_operational_release_evidence(
     git_sha: str,
     activation_readiness: Mapping[str, Any],
     evidence_sha256: Mapping[str, str],
+    source_run_metadata: Mapping[str, Any],
+    source_run_metadata_sha256: str,
     session_start: Mapping[str, Any] | None = None,
     supervisor: Mapping[str, Any] | None = None,
     operational_entry: Mapping[str, Any] | None = None,
@@ -68,12 +93,14 @@ def assemble_bybit_demo_operational_release_evidence(
 ) -> BybitDemoOperationalReleaseEvidence:
     """Assemble one read-only, exact-head operational evidence chain.
 
-    Missing later-stage evidence produces the highest proven stage. Any supplied artifact that is
-    malformed, unsafe or bound to a different Git SHA fails the whole manifest closed.
+    Missing later-stage evidence produces the highest proven stage. Any supplied artifact or run
+    metadata that is malformed, unsafe, out of sequence or bound to a different Git SHA fails the
+    whole manifest closed.
     """
 
     _validate_git_sha(git_sha)
-    supplied = {
+    _validate_sha256(source_run_metadata_sha256, label="source-run metadata")
+    supplied: dict[str, Mapping[str, Any] | None] = {
         "activation_readiness": activation_readiness,
         "session_start": session_start,
         "supervisor": supervisor,
@@ -82,60 +109,115 @@ def assemble_bybit_demo_operational_release_evidence(
     }
     _validate_evidence_hashes(supplied, evidence_sha256)
 
-    reasons: list[str] = []
+    reasons = _validate_contiguous_chain(supplied)
+    source_runs, run_reasons = _validate_run_metadata(
+        supplied=supplied,
+        source_run_metadata=source_run_metadata,
+        git_sha=git_sha,
+    )
+    reasons.extend(run_reasons)
+    if reasons:
+        return _blocked(
+            git_sha,
+            evidence_sha256,
+            source_runs,
+            source_run_metadata_sha256,
+            reasons,
+        )
+
     _validate_activation_readiness(activation_readiness, git_sha, reasons)
     if reasons:
-        return _blocked(git_sha, evidence_sha256, reasons)
+        return _blocked(
+            git_sha,
+            evidence_sha256,
+            source_runs,
+            source_run_metadata_sha256,
+            reasons,
+        )
 
     if session_start is None:
         return _partial(
             BybitDemoOperationalReleaseStage.INFRA_READY,
             git_sha,
             evidence_sha256,
+            source_runs,
+            source_run_metadata_sha256,
             next_required="session_start",
         )
     _validate_session_start(session_start, git_sha, reasons)
     if reasons:
-        return _blocked(git_sha, evidence_sha256, reasons)
+        return _blocked(
+            git_sha,
+            evidence_sha256,
+            source_runs,
+            source_run_metadata_sha256,
+            reasons,
+        )
 
     if supervisor is None:
         return _partial(
             BybitDemoOperationalReleaseStage.SESSION_READY,
             git_sha,
             evidence_sha256,
+            source_runs,
+            source_run_metadata_sha256,
             next_required="supervisor",
         )
     _validate_supervisor(supervisor, git_sha, reasons)
     if reasons:
-        return _blocked(git_sha, evidence_sha256, reasons)
+        return _blocked(
+            git_sha,
+            evidence_sha256,
+            source_runs,
+            source_run_metadata_sha256,
+            reasons,
+        )
 
     if operational_entry is None:
         return _partial(
             BybitDemoOperationalReleaseStage.SUPERVISOR_READY,
             git_sha,
             evidence_sha256,
+            source_runs,
+            source_run_metadata_sha256,
             next_required="operational_entry",
         )
     _validate_operational_entry(operational_entry, git_sha, reasons)
     if reasons:
-        return _blocked(git_sha, evidence_sha256, reasons)
+        return _blocked(
+            git_sha,
+            evidence_sha256,
+            source_runs,
+            source_run_metadata_sha256,
+            reasons,
+        )
 
     if recovery_receipt is None:
         return _partial(
             BybitDemoOperationalReleaseStage.DEMO_ENTRY_PROVEN,
             git_sha,
             evidence_sha256,
+            source_runs,
+            source_run_metadata_sha256,
             next_required="recovery_receipt",
         )
     _validate_recovery_receipt(recovery_receipt, git_sha, reasons)
     if reasons:
-        return _blocked(git_sha, evidence_sha256, reasons)
+        return _blocked(
+            git_sha,
+            evidence_sha256,
+            source_runs,
+            source_run_metadata_sha256,
+            reasons,
+        )
 
     return BybitDemoOperationalReleaseEvidence(
         stage=BybitDemoOperationalReleaseStage.RECOVERY_DRILL_PROVEN,
         reasons=(),
         git_sha=git_sha,
-        evidence_sha256=_present_hashes(evidence_sha256),
+        evidence_sha256=dict(evidence_sha256),
+        source_runs=source_runs,
+        source_run_metadata_sha256=source_run_metadata_sha256,
         next_required_evidence=None,
         release_gate_complete=True,
     )
@@ -154,6 +236,8 @@ def _partial(
     stage: BybitDemoOperationalReleaseStage,
     git_sha: str,
     evidence_sha256: Mapping[str, str],
+    source_runs: Mapping[str, Mapping[str, Any]],
+    source_run_metadata_sha256: str,
     *,
     next_required: str,
 ) -> BybitDemoOperationalReleaseEvidence:
@@ -161,7 +245,9 @@ def _partial(
         stage=stage,
         reasons=(f"NEXT_REQUIRED_EVIDENCE:{next_required}",),
         git_sha=git_sha,
-        evidence_sha256=_present_hashes(evidence_sha256),
+        evidence_sha256=dict(evidence_sha256),
+        source_runs=source_runs,
+        source_run_metadata_sha256=source_run_metadata_sha256,
         next_required_evidence=next_required,
         release_gate_complete=False,
     )
@@ -170,13 +256,17 @@ def _partial(
 def _blocked(
     git_sha: str,
     evidence_sha256: Mapping[str, str],
+    source_runs: Mapping[str, Mapping[str, Any]],
+    source_run_metadata_sha256: str,
     reasons: list[str],
 ) -> BybitDemoOperationalReleaseEvidence:
     return BybitDemoOperationalReleaseEvidence(
         stage=BybitDemoOperationalReleaseStage.BLOCKED,
         reasons=tuple(reasons),
         git_sha=git_sha,
-        evidence_sha256=_present_hashes(evidence_sha256),
+        evidence_sha256=dict(evidence_sha256),
+        source_runs=source_runs,
+        source_run_metadata_sha256=source_run_metadata_sha256,
         next_required_evidence=None,
         release_gate_complete=False,
     )
@@ -198,6 +288,84 @@ def _validate_evidence_hashes(
     unknown = set(evidence_sha256) - set(supplied)
     if unknown:
         raise ValueError("Bybit Demo operational release evidence contains unknown hash keys")
+
+
+def _validate_contiguous_chain(
+    supplied: Mapping[str, Mapping[str, Any] | None],
+) -> list[str]:
+    reasons: list[str] = []
+    missing_seen = False
+    for name in _SOURCE_ORDER:
+        present = supplied[name] is not None
+        if not present:
+            missing_seen = True
+        elif missing_seen:
+            reasons.append(f"NON_CONTIGUOUS_EVIDENCE_CHAIN:{name}")
+    return reasons
+
+
+def _validate_run_metadata(
+    *,
+    supplied: Mapping[str, Mapping[str, Any] | None],
+    source_run_metadata: Mapping[str, Any],
+    git_sha: str,
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    reasons: list[str] = []
+    present_names = {name for name, payload in supplied.items() if payload is not None}
+    metadata_names = set(source_run_metadata)
+    for missing in sorted(present_names - metadata_names):
+        reasons.append(f"SOURCE_RUN_METADATA_MISSING:{missing}")
+    for extra in sorted(metadata_names - present_names):
+        reasons.append(f"SOURCE_RUN_METADATA_WITHOUT_EVIDENCE:{extra}")
+
+    normalized: dict[str, dict[str, Any]] = {}
+    seen_run_ids: set[int] = set()
+    prior_time: datetime | None = None
+    for name in _SOURCE_ORDER:
+        if name not in present_names:
+            continue
+        value = source_run_metadata.get(name)
+        if not isinstance(value, Mapping):
+            reasons.append(f"SOURCE_RUN_METADATA_INVALID:{name}")
+            continue
+
+        run_id = value.get("run_id")
+        if isinstance(run_id, bool) or not isinstance(run_id, int) or run_id <= 0:
+            reasons.append(f"SOURCE_RUN_ID_INVALID:{name}")
+            continue
+        if run_id in seen_run_ids:
+            reasons.append(f"SOURCE_RUN_ID_REUSED:{name}")
+        seen_run_ids.add(run_id)
+
+        expected_workflow = _WORKFLOW_NAMES[name]
+        workflow_name = value.get("workflow_name")
+        if workflow_name != expected_workflow:
+            reasons.append(f"SOURCE_RUN_WORKFLOW_MISMATCH:{name}")
+        if value.get("event") != "workflow_dispatch":
+            reasons.append(f"SOURCE_RUN_NOT_MANUAL_DISPATCH:{name}")
+        if value.get("conclusion") != "success":
+            reasons.append(f"SOURCE_RUN_NOT_SUCCESSFUL:{name}")
+        if value.get("head_sha") != git_sha:
+            reasons.append(f"SOURCE_RUN_GIT_SHA_MISMATCH:{name}")
+
+        try:
+            started_at = _utc_datetime(value.get("run_started_at"))
+        except ValueError:
+            reasons.append(f"SOURCE_RUN_STARTED_AT_INVALID:{name}")
+            continue
+        if prior_time is not None and started_at <= prior_time:
+            reasons.append(f"SOURCE_RUN_ORDER_INVALID:{name}")
+        prior_time = started_at
+
+        normalized[name] = {
+            "run_id": run_id,
+            "workflow_name": workflow_name,
+            "event": value.get("event"),
+            "conclusion": value.get("conclusion"),
+            "head_sha": value.get("head_sha"),
+            "run_started_at": started_at.astimezone(UTC).isoformat(),
+        }
+    return normalized, reasons
 
 
 def _validate_activation_readiness(
@@ -421,8 +589,19 @@ def _validate_optional_payload_sha(value: Any, reason: str, reasons: list[str]) 
         reasons.append(reason)
 
 
-def _present_hashes(value: Mapping[str, str]) -> dict[str, str]:
-    return dict(value)
+def _utc_datetime(value: Any) -> datetime:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("run timestamp is required")
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        moment = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError("run timestamp is invalid") from exc
+    if moment.tzinfo is None or moment.utcoffset() is None:
+        raise ValueError("run timestamp must be timezone-aware")
+    return moment.astimezone(UTC)
 
 
 def _validate_git_sha(value: str) -> None:
