@@ -68,6 +68,11 @@ on:
         required: false
         default: ''
         type: string
+      halt_control_run_id:
+        description: 'Optional successful manual bybit-demo-control-plane halt run on this exact Git SHA'
+        required: false
+        default: ''
+        type: string
       recovery_run_id:
         description: 'Optional successful manual runtime-lease recovery run on this exact Git SHA'
         required: false
@@ -153,6 +158,7 @@ jobs:
       SUPERVISOR_RUN_ID: ${{ inputs.supervisor_run_id }}
       ARM_RUN_ID: ${{ inputs.arm_control_run_id }}
       ENTRY_RUN_ID: ${{ inputs.operational_entry_run_id }}
+      HALT_RUN_ID: ${{ inputs.halt_control_run_id }}
       RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
@@ -196,6 +202,7 @@ jobs:
                   os.environ["ENTRY_RUN_ID"],
                   "bybit-operator-approved-demo-execution",
               ),
+              ("halt_control", os.environ["HALT_RUN_ID"], "bybit-demo-control-plane"),
               (
                   "recovery_receipt",
                   os.environ["RECOVERY_RUN_ID"],
@@ -300,6 +307,10 @@ jobs:
             "bybit-demo-operational-entry-$ENTRY_RUN_ID" \
             evidence/entry
           download_exact \
+            "$HALT_RUN_ID" \
+            "bybit-demo-control-plane-$HALT_RUN_ID" \
+            evidence/halt
+          download_exact \
             "$RECOVERY_RUN_ID" \
             "bybit-demo-runtime-lease-recovery-$RECOVERY_RUN_ID" \
             evidence/recovery
@@ -324,6 +335,9 @@ jobs:
           fi
           if [ -n "$ENTRY_RUN_ID" ]; then
             args+=(--operational-entry evidence/entry/bybit-demo-operational-entry.json)
+          fi
+          if [ -n "$HALT_RUN_ID" ]; then
+            args+=(--halt-control evidence/halt/bybit-demo-control-plane.json)
           fi
           if [ -n "$RECOVERY_RUN_ID" ]; then
             args+=(
