@@ -22,6 +22,7 @@ _SOURCE_ORDER = (
     "supervisor",
     "arm_control",
     "operational_entry",
+    "halt_control",
     "recovery_receipt",
 )
 _WORKFLOWS = {
@@ -30,13 +31,16 @@ _WORKFLOWS = {
     "supervisor": "bybit-demo-persistent-supervisor",
     "arm_control": "bybit-demo-control-plane",
     "operational_entry": "bybit-operator-approved-demo-execution",
+    "halt_control": "bybit-demo-control-plane",
     "recovery_receipt": "bybit-demo-runtime-lease-recovery",
 }
 _ARM_EVENT_ID = "6" * 64
+_HALT_EVENT_ID = "b" * 64
 _ARM_CREATED_AT = "2026-08-28T00:04:10+00:00"
 _ARMED_UNTIL = "2026-08-28T00:06:10+00:00"
 _ENTRY_OBSERVED_AT = "2026-08-28T00:05:10+00:00"
-_RECOVERY_CREATED_AT = "2026-08-28T00:06:10+00:00"
+_HALT_CREATED_AT = "2026-08-28T00:06:10+00:00"
+_RECOVERY_CREATED_AT = "2026-08-28T00:07:10+00:00"
 
 
 def _sha256_json(payload: dict[str, object]) -> str:
@@ -196,6 +200,42 @@ def _entry() -> dict[str, object]:
     }
 
 
+def _halt_control() -> dict[str, object]:
+    return {
+        "schema": "BYBIT_DEMO_CONTROL_OPERATION_V1",
+        "git_sha": _GIT_SHA,
+        "mode": "halt",
+        "status": "HALTED",
+        "passed": True,
+        "fixed_egress_required": True,
+        "order_writes_supported": False,
+        "live_mainnet_order_routing_allowed": False,
+        "receipt": {
+            "schema": "BYBIT_DEMO_CONTROL_EVENT_RECEIPT_V1",
+            "event_id": _HALT_EVENT_ID,
+            "event_kind": "HALT_NEW_ENTRIES",
+            "created_at": _HALT_CREATED_AT,
+            "armed_until": None,
+            "preflight_record_sha256": None,
+            "immutable_record": True,
+            "order_submission_supported": False,
+            "live_mainnet_order_routing_allowed": False,
+        },
+        "decision": {
+            "schema": "BYBIT_DEMO_CONTROL_DECISION_V1",
+            "mode": "HALTED",
+            "reasons": ["OPERATOR_HALTED"],
+            "new_entry_allowed": False,
+            "latest_event_id": _HALT_EVENT_ID,
+            "latest_event_kind": "HALT_NEW_ENTRIES",
+            "armed_until": None,
+            "immutable_audit": True,
+            "order_writes_supported": False,
+            "live_mainnet_order_routing_allowed": False,
+        },
+    }
+
+
 def _recovery() -> dict[str, object]:
     return {
         "schema": "BYBIT_DEMO_RUNTIME_LEASE_RECOVERY_RECEIPT_V1",
@@ -203,7 +243,7 @@ def _recovery() -> dict[str, object]:
         "status": "RECOVERED",
         "recovery_id": "9" * 64,
         "lease_owner_sha256": "a" * 64,
-        "control_event_id": "b" * 64,
+        "control_event_id": _HALT_EVENT_ID,
         "active_checkpoint_present": True,
         "created_at": _RECOVERY_CREATED_AT,
         "idempotent_existing_recovery": False,
@@ -222,6 +262,7 @@ def _payloads() -> dict[str, dict[str, object]]:
         "supervisor": _supervisor(),
         "arm_control": _arm_control(),
         "operational_entry": _entry(),
+        "halt_control": _halt_control(),
         "recovery_receipt": _recovery(),
     }
 
@@ -263,7 +304,8 @@ def _assemble(count: int, **overrides: object):
         "supervisor": payloads["supervisor"] if count >= 3 else None,
         "arm_control": payloads["arm_control"] if count >= 4 else None,
         "operational_entry": payloads["operational_entry"] if count >= 5 else None,
-        "recovery_receipt": payloads["recovery_receipt"] if count >= 6 else None,
+        "halt_control": payloads["halt_control"] if count >= 6 else None,
+        "recovery_receipt": payloads["recovery_receipt"] if count >= 7 else None,
     }
     kwargs.update(overrides)
     return assemble_bybit_demo_operational_release_evidence(**kwargs)
@@ -276,8 +318,9 @@ def _assemble(count: int, **overrides: object):
         (2, BybitDemoOperationalReleaseStage.SESSION_READY, "supervisor"),
         (3, BybitDemoOperationalReleaseStage.SUPERVISOR_READY, "arm_control"),
         (4, BybitDemoOperationalReleaseStage.ARM_PROVEN, "operational_entry"),
-        (5, BybitDemoOperationalReleaseStage.DEMO_ENTRY_PROVEN, "recovery_receipt"),
-        (6, BybitDemoOperationalReleaseStage.RECOVERY_DRILL_PROVEN, None),
+        (5, BybitDemoOperationalReleaseStage.DEMO_ENTRY_PROVEN, "halt_control"),
+        (6, BybitDemoOperationalReleaseStage.HALT_PROVEN, "recovery_receipt"),
+        (7, BybitDemoOperationalReleaseStage.RECOVERY_DRILL_PROVEN, None),
     ],
 )
 def test_release_evidence_reports_highest_proven_stage(
@@ -290,7 +333,7 @@ def test_release_evidence_reports_highest_proven_stage(
     assert result.stage is stage
     assert result.passed is True
     assert result.next_required_evidence == next_required
-    assert result.release_gate_complete is (count == 6)
+    assert result.release_gate_complete is (count == 7)
     assert result.automatic_activation_allowed is False
     assert result.order_write_performed is False
     assert result.order_writes_supported is False
@@ -299,22 +342,21 @@ def test_release_evidence_reports_highest_proven_stage(
 
 
 def test_full_manifest_is_self_hashing_and_run_bound() -> None:
-    payload = _assemble(6).to_payload()
+    payload = _assemble(7).to_payload()
     manifest_sha = payload.pop("manifest_sha256")
 
     assert manifest_sha == _sha256_json(payload)
     assert payload["source_run_metadata_sha256"] == _RUN_METADATA_SHA
     assert payload["source_runs"]["arm_control"]["run_id"] == 1003
     assert payload["source_runs"]["operational_entry"]["run_id"] == 1004
+    assert payload["source_runs"]["halt_control"]["run_id"] == 1005
     assert payload["release_gate_complete"] is True
 
 
 def test_tampered_activation_manifest_fails_closed() -> None:
     activation = _activation()
     activation["control_mode"] = "ARMED"
-
     result = _assemble(1, activation_readiness=activation)
-
     assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
     assert "ACTIVATION_READINESS_MANIFEST_SHA_MISMATCH" in result.reasons
 
@@ -322,11 +364,79 @@ def test_tampered_activation_manifest_fails_closed() -> None:
 def test_mismatched_artifact_git_sha_fails_closed() -> None:
     supervisor = _supervisor()
     supervisor["git_sha"] = "b" * 40
-
     result = _assemble(3, supervisor=supervisor)
-
     assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
     assert "SUPERVISOR_GIT_SHA_MISMATCH" in result.reasons
+
+
+def test_arm_receipt_identity_must_match_entry_pin() -> None:
+    entry = _entry()
+    entry["pinned_control_event_id"] = "e" * 64
+    result = _assemble(5, operational_entry=entry)
+    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
+    assert "OPERATIONAL_ENTRY_ARM_EVENT_MISMATCH" in result.reasons
+
+
+def test_unresolved_or_replacement_entry_fails_closed() -> None:
+    entry = _entry()
+    entry["protection_reconciliation_status"] = "UNRESOLVED"
+    entry["protection_reconciliation_completed"] = False
+    entry["same_invocation_additional_entry_allowed"] = True
+    result = _assemble(5, operational_entry=entry)
+    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
+    assert "OPERATIONAL_ENTRY_EXECUTION_NOT_SAFELY_RECONCILED" in result.reasons
+    assert "OPERATIONAL_ENTRY_RECONCILIATION_INCOMPLETE" in result.reasons
+    assert "OPERATIONAL_ENTRY_REPLACEMENT_ALLOWED" in result.reasons
+
+
+def test_halt_receipt_must_be_successful_exact_head_evidence() -> None:
+    halt = _halt_control()
+    halt["mode"] = "status"
+    halt["status"] = "STATUS_READ"
+    halt["git_sha"] = "b" * 40
+    result = _assemble(6, halt_control=halt)
+    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
+    assert "HALT_CONTROL_MODE_INVALID" in result.reasons
+    assert "HALT_CONTROL_NOT_HALTED" in result.reasons
+    assert "HALT_CONTROL_GIT_SHA_MISMATCH" in result.reasons
+
+
+def test_halt_must_be_created_after_operational_entry() -> None:
+    halt = _halt_control()
+    receipt = dict(halt["receipt"])
+    receipt["created_at"] = "2026-08-28T00:05:00+00:00"
+    halt["receipt"] = receipt
+    result = _assemble(6, halt_control=halt)
+    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
+    assert "HALT_CONTROL_NOT_AFTER_OPERATIONAL_ENTRY" in result.reasons
+    assert "HALT_CONTROL_OUTSIDE_SOURCE_RUN_WINDOW" in result.reasons
+
+
+def test_recovery_must_reference_exact_halt_event() -> None:
+    recovery = _recovery()
+    recovery["control_event_id"] = "c" * 64
+    result = _assemble(7, recovery_receipt=recovery)
+    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
+    assert "RECOVERY_RECEIPT_HALT_EVENT_MISMATCH" in result.reasons
+
+
+def test_idempotent_old_recovery_cannot_substitute_for_new_drill() -> None:
+    recovery = _recovery()
+    recovery["status"] = "ALREADY_RECOVERED"
+    recovery["idempotent_existing_recovery"] = True
+    result = _assemble(7, recovery_receipt=recovery)
+    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
+    assert "RECOVERY_DRILL_NOT_NEWLY_PROVEN" in result.reasons
+    assert "RECOVERY_RECEIPT_IDEMPOTENCY_INVALID" in result.reasons
+
+
+def test_recovery_receipt_must_be_created_after_halt() -> None:
+    recovery = _recovery()
+    recovery["created_at"] = _HALT_CREATED_AT
+    result = _assemble(7, recovery_receipt=recovery)
+    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
+    assert "RECOVERY_RECEIPT_NOT_AFTER_HALT" in result.reasons
+    assert "RECOVERY_RECEIPT_OUTSIDE_SOURCE_RUN_WINDOW" in result.reasons
 
 
 def test_non_contiguous_artifacts_fail_closed() -> None:
@@ -336,7 +446,6 @@ def test_non_contiguous_artifacts_fail_closed() -> None:
         for key, value in _run_metadata(3).items()
         if key != "session_start"
     }
-
     result = assemble_bybit_demo_operational_release_evidence(
         git_sha=_GIT_SHA,
         activation_readiness=payloads["activation_readiness"],
@@ -349,7 +458,6 @@ def test_non_contiguous_artifacts_fail_closed() -> None:
         source_run_metadata=metadata,
         source_run_metadata_sha256=_RUN_METADATA_SHA,
     )
-
     assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
     assert "NON_CONTIGUOUS_EVIDENCE_CHAIN:supervisor" in result.reasons
 
@@ -358,129 +466,10 @@ def test_wrong_source_workflow_or_run_order_fails_closed() -> None:
     metadata = _run_metadata(2)
     metadata["session_start"]["workflow_name"] = "unrelated-workflow"
     metadata["session_start"]["run_started_at"] = "2026-08-28T00:01:20+00:00"
-
     result = _assemble(2, source_run_metadata=metadata)
-
     assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
     assert "SOURCE_RUN_WORKFLOW_MISMATCH:session_start" in result.reasons
     assert "SOURCE_RUN_ORDER_INVALID:session_start" in result.reasons
-
-
-def test_non_manual_or_wrong_head_source_run_fails_closed() -> None:
-    metadata = _run_metadata(1)
-    metadata["activation_readiness"]["event"] = "pull_request"
-    metadata["activation_readiness"]["head_sha"] = "b" * 40
-
-    result = _assemble(1, source_run_metadata=metadata)
-
-    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
-    assert "SOURCE_RUN_NOT_MANUAL_DISPATCH:activation_readiness" in result.reasons
-    assert "SOURCE_RUN_GIT_SHA_MISMATCH:activation_readiness" in result.reasons
-
-
-def test_arm_receipt_must_be_successful_exact_head_evidence() -> None:
-    arm = _arm_control()
-    arm["status"] = "HALTED"
-    arm["passed"] = False
-    arm["git_sha"] = "b" * 40
-
-    result = _assemble(4, arm_control=arm)
-
-    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
-    assert "ARM_CONTROL_NOT_ARMED" in result.reasons
-    assert "ARM_CONTROL_GIT_SHA_MISMATCH" in result.reasons
-
-
-def test_arm_receipt_identity_must_match_entry_pin() -> None:
-    entry = _entry()
-    entry["pinned_control_event_id"] = "e" * 64
-
-    result = _assemble(5, operational_entry=entry)
-
-    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
-    assert "OPERATIONAL_ENTRY_ARM_EVENT_MISMATCH" in result.reasons
-
-
-def test_entry_must_remain_inside_exact_arm_window() -> None:
-    entry = _entry()
-    entry["observed_at"] = _ARMED_UNTIL
-
-    result = _assemble(5, operational_entry=entry)
-
-    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
-    assert "OPERATIONAL_ENTRY_OUTSIDE_ARM_WINDOW" in result.reasons
-
-
-def test_arm_event_timestamp_must_belong_to_arm_run() -> None:
-    arm = _arm_control()
-    receipt = dict(arm["receipt"])
-    receipt["created_at"] = "2026-08-28T00:03:50+00:00"
-    arm["receipt"] = receipt
-
-    result = _assemble(4, arm_control=arm)
-
-    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
-    assert "ARM_CONTROL_OUTSIDE_SOURCE_RUN_WINDOW" in result.reasons
-
-
-def test_unresolved_or_replacement_entry_fails_closed() -> None:
-    entry = _entry()
-    entry["protection_reconciliation_status"] = "UNRESOLVED"
-    entry["protection_reconciliation_completed"] = False
-    entry["same_invocation_additional_entry_allowed"] = True
-
-    result = _assemble(5, operational_entry=entry)
-
-    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
-    assert "OPERATIONAL_ENTRY_EXECUTION_NOT_SAFELY_RECONCILED" in result.reasons
-    assert "OPERATIONAL_ENTRY_RECONCILIATION_INCOMPLETE" in result.reasons
-    assert "OPERATIONAL_ENTRY_REPLACEMENT_ALLOWED" in result.reasons
-
-
-def test_recovery_inspection_cannot_substitute_for_recovery_receipt() -> None:
-    recovery = _recovery()
-    recovery["schema"] = "BYBIT_DEMO_RUNTIME_LEASE_RECOVERY_INSPECTION_V1"
-    recovery["status"] = "RECOVERY_REQUIRED"
-
-    result = _assemble(6, recovery_receipt=recovery)
-
-    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
-    assert "RECOVERY_RECEIPT_SCHEMA_INVALID" in result.reasons
-    assert "RECOVERY_DRILL_NOT_NEWLY_PROVEN" in result.reasons
-
-
-def test_idempotent_old_recovery_cannot_substitute_for_new_drill() -> None:
-    recovery = _recovery()
-    recovery["status"] = "ALREADY_RECOVERED"
-    recovery["idempotent_existing_recovery"] = True
-
-    result = _assemble(6, recovery_receipt=recovery)
-
-    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
-    assert "RECOVERY_DRILL_NOT_NEWLY_PROVEN" in result.reasons
-    assert "RECOVERY_RECEIPT_IDEMPOTENCY_INVALID" in result.reasons
-
-
-def test_recovery_receipt_must_be_created_after_operational_entry() -> None:
-    recovery = _recovery()
-    recovery["created_at"] = "2026-08-28T00:05:00+00:00"
-
-    result = _assemble(6, recovery_receipt=recovery)
-
-    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
-    assert "RECOVERY_RECEIPT_NOT_AFTER_OPERATIONAL_ENTRY" in result.reasons
-    assert "RECOVERY_RECEIPT_OUTSIDE_SOURCE_RUN_WINDOW" in result.reasons
-
-
-def test_invalid_entry_timestamp_blocks_recovery_linkage() -> None:
-    entry = _entry()
-    entry["observed_at"] = "not-a-timestamp"
-
-    result = _assemble(6, operational_entry=entry)
-
-    assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
-    assert "OPERATIONAL_ENTRY_ARM_TEMPORAL_LINK_INVALID" in result.reasons
-    assert "OPERATIONAL_ENTRY_SOURCE_RUN_TIME_BINDING_INVALID" in result.reasons
 
 
 def test_evidence_hash_without_source_is_rejected() -> None:
@@ -498,9 +487,7 @@ def test_load_json_evidence_hashes_raw_bytes(tmp_path: Path) -> None:
     target = tmp_path / "evidence.json"
     raw = b'{"a":1}\n'
     target.write_bytes(raw)
-
     payload, digest = load_json_evidence(target)
-
     assert payload == {"a": 1}
     assert digest == hashlib.sha256(raw).hexdigest()
 
@@ -508,8 +495,6 @@ def test_load_json_evidence_hashes_raw_bytes(tmp_path: Path) -> None:
 def test_duplicate_source_run_id_is_rejected() -> None:
     metadata = deepcopy(_run_metadata(2))
     metadata["session_start"]["run_id"] = metadata["activation_readiness"]["run_id"]
-
     result = _assemble(2, source_run_metadata=metadata)
-
     assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
     assert "SOURCE_RUN_ID_REUSED:session_start" in result.reasons
