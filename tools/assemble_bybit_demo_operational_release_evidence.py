@@ -25,6 +25,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--activation-readiness", type=Path, required=True)
     parser.add_argument("--session-start", type=Path)
     parser.add_argument("--supervisor", type=Path)
+    parser.add_argument("--arm-control", type=Path)
     parser.add_argument("--operational-entry", type=Path)
     parser.add_argument("--recovery-receipt", type=Path)
     parser.add_argument(
@@ -44,6 +45,7 @@ def main(argv: list[str] | None = None) -> int:
             "activation_readiness": activation,
             "session_start": None,
             "supervisor": None,
+            "arm_control": None,
             "operational_entry": None,
             "recovery_receipt": None,
         }
@@ -53,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
         for name, path in (
             ("session_start", args.session_start),
             ("supervisor", args.supervisor),
+            ("arm_control", args.arm_control),
             ("operational_entry", args.operational_entry),
             ("recovery_receipt", args.recovery_receipt),
         ):
@@ -67,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
             activation_readiness=activation,
             session_start=payloads["session_start"],
             supervisor=payloads["supervisor"],
+            arm_control=payloads["arm_control"],
             operational_entry=payloads["operational_entry"],
             recovery_receipt=payloads["recovery_receipt"],
             evidence_sha256=evidence_sha256,

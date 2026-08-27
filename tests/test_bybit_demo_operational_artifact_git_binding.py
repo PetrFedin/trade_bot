@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 
+import tools.control_bybit_demo_entries as control_cli
 import tools.manage_bybit_demo_session_risk as session_cli
 import tools.recover_bybit_demo_runtime_lease as recovery_cli
 import tools.run_bybit_demo_operator_approved_entry as entry_cli
@@ -41,6 +42,34 @@ def test_recovery_artifact_binds_github_sha(monkeypatch, tmp_path: Path) -> None
     recovery_cli._emit(str(target), {"schema": "TEST"})
 
     assert _read(target)["git_sha"] == _GIT_SHA
+
+
+def test_control_failure_artifact_binds_explicit_git_sha(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "control.json"
+    monkeypatch.delenv("BYBIT_DEMO_DATABASE_DSN", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "control_bybit_demo_entries",
+            "--mode",
+            "status",
+            "--git-sha",
+            _GIT_SHA,
+            "--output",
+            str(target),
+        ],
+    )
+
+    code = control_cli.main()
+
+    assert code == 2
+    payload = _read(target)
+    assert payload["git_sha"] == _GIT_SHA
+    assert payload["status"] == "CONTROL_OPERATION_FAILED"
 
 
 def test_session_failure_artifact_binds_explicit_git_sha(

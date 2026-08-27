@@ -5,17 +5,20 @@ on:
     paths:
       - 'app/execution/bybit_demo_operational_release_evidence.py'
       - 'tools/assemble_bybit_demo_operational_release_evidence.py'
+      - 'tools/control_bybit_demo_entries.py'
       - 'tools/manage_bybit_demo_session_risk.py'
       - 'tools/run_bybit_demo_persistent_supervisor.py'
       - 'tools/run_bybit_demo_operator_approved_entry.py'
       - 'tools/recover_bybit_demo_runtime_lease.py'
       - 'tests/test_bybit_demo_operational_release_evidence.py'
       - 'tests/test_bybit_demo_operational_release_evidence_workflow.py'
+      - 'tests/test_bybit_demo_operational_artifact_git_binding.py'
       - 'docs/BYBIT_DEMO_OPERATIONAL_RELEASE_EVIDENCE.md'
       - '.github/workflows/bybit-demo-operational-release-evidence.yml'
       - '.github/workflows/bybit-demo-activation-readiness.yml'
       - '.github/workflows/bybit-demo-session-start.yml'
       - '.github/workflows/bybit-demo-persistent-supervisor.yml'
+      - '.github/workflows/bybit-demo-control-plane.yml'
       - '.github/workflows/bybit-operator-approved-demo-execution.yml'
       - '.github/workflows/bybit-demo-runtime-lease-recovery.yml'
   push:
@@ -23,17 +26,20 @@ on:
     paths:
       - 'app/execution/bybit_demo_operational_release_evidence.py'
       - 'tools/assemble_bybit_demo_operational_release_evidence.py'
+      - 'tools/control_bybit_demo_entries.py'
       - 'tools/manage_bybit_demo_session_risk.py'
       - 'tools/run_bybit_demo_persistent_supervisor.py'
       - 'tools/run_bybit_demo_operator_approved_entry.py'
       - 'tools/recover_bybit_demo_runtime_lease.py'
       - 'tests/test_bybit_demo_operational_release_evidence.py'
       - 'tests/test_bybit_demo_operational_release_evidence_workflow.py'
+      - 'tests/test_bybit_demo_operational_artifact_git_binding.py'
       - 'docs/BYBIT_DEMO_OPERATIONAL_RELEASE_EVIDENCE.md'
       - '.github/workflows/bybit-demo-operational-release-evidence.yml'
       - '.github/workflows/bybit-demo-activation-readiness.yml'
       - '.github/workflows/bybit-demo-session-start.yml'
       - '.github/workflows/bybit-demo-persistent-supervisor.yml'
+      - '.github/workflows/bybit-demo-control-plane.yml'
       - '.github/workflows/bybit-operator-approved-demo-execution.yml'
       - '.github/workflows/bybit-demo-runtime-lease-recovery.yml'
   workflow_dispatch:
@@ -49,6 +55,11 @@ on:
         type: string
       supervisor_run_id:
         description: 'Optional successful manual bybit-demo-persistent-supervisor run on this exact Git SHA'
+        required: false
+        default: ''
+        type: string
+      arm_control_run_id:
+        description: 'Optional successful manual bybit-demo-control-plane arm run on this exact Git SHA'
         required: false
         default: ''
         type: string
@@ -91,6 +102,7 @@ jobs:
           pytest -q \
             tests/test_bybit_demo_operational_release_evidence.py \
             tests/test_bybit_demo_operational_release_evidence_workflow.py \
+            tests/test_bybit_demo_operational_artifact_git_binding.py \
             tests/test_bybit_demo_persistent_supervisor_cli.py \
             tests/test_bybit_demo_operational_entry_cli.py \
             tests/test_bybit_demo_runtime_lease_recovery_cli.py
@@ -101,17 +113,20 @@ jobs:
           ruff check \
             app/execution/bybit_demo_operational_release_evidence.py \
             tools/assemble_bybit_demo_operational_release_evidence.py \
+            tools/control_bybit_demo_entries.py \
             tools/manage_bybit_demo_session_risk.py \
             tools/run_bybit_demo_persistent_supervisor.py \
             tools/run_bybit_demo_operator_approved_entry.py \
             tools/recover_bybit_demo_runtime_lease.py \
             tests/test_bybit_demo_operational_release_evidence.py \
-            tests/test_bybit_demo_operational_release_evidence_workflow.py
+            tests/test_bybit_demo_operational_release_evidence_workflow.py \
+            tests/test_bybit_demo_operational_artifact_git_binding.py
       - name: Bandit operational release evidence boundary
         run: |
           bandit -q \
             app/execution/bybit_demo_operational_release_evidence.py \
             tools/assemble_bybit_demo_operational_release_evidence.py \
+            tools/control_bybit_demo_entries.py \
             tools/manage_bybit_demo_session_risk.py \
             tools/run_bybit_demo_persistent_supervisor.py \
             tools/run_bybit_demo_operator_approved_entry.py \
@@ -121,6 +136,7 @@ jobs:
           python -m compileall -q \
             app/execution/bybit_demo_operational_release_evidence.py \
             tools/assemble_bybit_demo_operational_release_evidence.py \
+            tools/control_bybit_demo_entries.py \
             tools/manage_bybit_demo_session_risk.py \
             tools/run_bybit_demo_persistent_supervisor.py \
             tools/run_bybit_demo_operator_approved_entry.py \
@@ -135,6 +151,7 @@ jobs:
       READINESS_RUN_ID: ${{ inputs.activation_readiness_run_id }}
       SESSION_RUN_ID: ${{ inputs.session_start_run_id }}
       SUPERVISOR_RUN_ID: ${{ inputs.supervisor_run_id }}
+      ARM_RUN_ID: ${{ inputs.arm_control_run_id }}
       ENTRY_RUN_ID: ${{ inputs.operational_entry_run_id }}
       RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
     steps:
@@ -173,6 +190,7 @@ jobs:
                   os.environ["SUPERVISOR_RUN_ID"],
                   "bybit-demo-persistent-supervisor",
               ),
+              ("arm_control", os.environ["ARM_RUN_ID"], "bybit-demo-control-plane"),
               (
                   "operational_entry",
                   os.environ["ENTRY_RUN_ID"],
@@ -197,11 +215,7 @@ jobs:
                   raise SystemExit(f"invalid GitHub Actions run id:{name}")
               run_id = int(run_id_text)
               response = subprocess.run(
-                  [
-                      "gh",
-                      "api",
-                      f"repos/{repository}/actions/runs/{run_id}",
-                  ],
+                  ["gh", "api", f"repos/{repository}/actions/runs/{run_id}"],
                   check=True,
                   capture_output=True,
                   text=True,
@@ -216,8 +230,11 @@ jobs:
               if run.get("head_sha") != exact_sha:
                   raise SystemExit(f"source run Git SHA mismatch:{name}")
               started_at = run.get("run_started_at") or run.get("created_at")
+              completed_at = run.get("updated_at")
               if not isinstance(started_at, str) or not started_at:
-                  raise SystemExit(f"source run timestamp unavailable:{name}")
+                  raise SystemExit(f"source run start timestamp unavailable:{name}")
+              if not isinstance(completed_at, str) or not completed_at:
+                  raise SystemExit(f"source run completion timestamp unavailable:{name}")
               metadata[name] = {
                   "run_id": run_id,
                   "workflow_name": run.get("name"),
@@ -225,6 +242,7 @@ jobs:
                   "conclusion": run.get("conclusion"),
                   "head_sha": run.get("head_sha"),
                   "run_started_at": started_at,
+                  "run_completed_at": completed_at,
               }
           Path("evidence/source-runs.json").write_text(
               json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n",
@@ -274,6 +292,10 @@ jobs:
             "bybit-demo-persistent-supervisor-$SUPERVISOR_RUN_ID" \
             evidence/supervisor
           download_exact \
+            "$ARM_RUN_ID" \
+            "bybit-demo-control-plane-$ARM_RUN_ID" \
+            evidence/arm
+          download_exact \
             "$ENTRY_RUN_ID" \
             "bybit-demo-operational-entry-$ENTRY_RUN_ID" \
             evidence/entry
@@ -296,6 +318,9 @@ jobs:
           fi
           if [ -n "$SUPERVISOR_RUN_ID" ]; then
             args+=(--supervisor evidence/supervisor/bybit-demo-persistent-supervisor.json)
+          fi
+          if [ -n "$ARM_RUN_ID" ]; then
+            args+=(--arm-control evidence/arm/bybit-demo-control-plane.json)
           fi
           if [ -n "$ENTRY_RUN_ID" ]; then
             args+=(--operational-entry evidence/entry/bybit-demo-operational-entry.json)

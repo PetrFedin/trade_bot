@@ -30,6 +30,7 @@ def test_release_evidence_workflow_requires_exact_manual_successful_sources() ->
         "bybit-demo-activation-readiness",
         "bybit-demo-session-start",
         "bybit-demo-persistent-supervisor",
+        "bybit-demo-control-plane",
         "bybit-operator-approved-demo-execution",
         "bybit-demo-runtime-lease-recovery",
     ):
@@ -38,6 +39,8 @@ def test_release_evidence_workflow_requires_exact_manual_successful_sources() ->
     assert 'run.get("status") != "completed"' in text
     assert 'run.get("conclusion") != "success"' in text
     assert 'run.get("head_sha") != exact_sha' in text
+    assert 'run.get("updated_at")' in text
+    assert '"run_completed_at": completed_at' in text
     assert "non-contiguous operational evidence input" in text
 
 
@@ -47,9 +50,11 @@ def test_release_evidence_workflow_downloads_exact_artifacts_and_fails_on_missin
     assert 'gh run download "$run_id"' in text
     assert '"bybit-demo-activation-readiness-$READINESS_RUN_ID"' in text
     assert '"bybit-demo-persistent-supervisor-$SUPERVISOR_RUN_ID"' in text
+    assert '"bybit-demo-control-plane-$ARM_RUN_ID"' in text
     assert '"bybit-demo-operational-entry-$ENTRY_RUN_ID"' in text
     assert '"bybit-demo-runtime-lease-recovery-$RECOVERY_RUN_ID"' in text
     assert "bybit-demo-session-(status|initialize)-$SESSION_RUN_ID" in text
+    assert "--arm-control evidence/arm/bybit-demo-control-plane.json" in text
     assert "python -m tools.assemble_bybit_demo_operational_release_evidence" in text
     assert "if-no-files-found: error" in text
     assert "retention-days: 30" in text

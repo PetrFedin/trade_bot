@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -13,6 +13,7 @@ _SOURCE_ORDER = (
     "activation_readiness",
     "session_start",
     "supervisor",
+    "arm_control",
     "operational_entry",
     "recovery_receipt",
 )
@@ -20,9 +21,11 @@ _WORKFLOW_NAMES = {
     "activation_readiness": "bybit-demo-activation-readiness",
     "session_start": "bybit-demo-session-start",
     "supervisor": "bybit-demo-persistent-supervisor",
+    "arm_control": "bybit-demo-control-plane",
     "operational_entry": "bybit-operator-approved-demo-execution",
     "recovery_receipt": "bybit-demo-runtime-lease-recovery",
 }
+_MAX_ARM_TTL = timedelta(minutes=5)
 
 
 class BybitDemoOperationalReleaseStage(StrEnum):
@@ -30,6 +33,7 @@ class BybitDemoOperationalReleaseStage(StrEnum):
     INFRA_READY = "INFRA_READY"
     SESSION_READY = "SESSION_READY"
     SUPERVISOR_READY = "SUPERVISOR_READY"
+    ARM_PROVEN = "ARM_PROVEN"
     DEMO_ENTRY_PROVEN = "DEMO_ENTRY_PROVEN"
     RECOVERY_DRILL_PROVEN = "RECOVERY_DRILL_PROVEN"
 
@@ -88,6 +92,7 @@ def assemble_bybit_demo_operational_release_evidence(
     source_run_metadata_sha256: str,
     session_start: Mapping[str, Any] | None = None,
     supervisor: Mapping[str, Any] | None = None,
+    arm_control: Mapping[str, Any] | None = None,
     operational_entry: Mapping[str, Any] | None = None,
     recovery_receipt: Mapping[str, Any] | None = None,
 ) -> BybitDemoOperationalReleaseEvidence:
@@ -104,6 +109,7 @@ def assemble_bybit_demo_operational_release_evidence(
         "activation_readiness": activation_readiness,
         "session_start": session_start,
         "supervisor": supervisor,
+        "arm_control": arm_control,
         "operational_entry": operational_entry,
         "recovery_receipt": recovery_receipt,
     }
@@ -173,9 +179,34 @@ def assemble_bybit_demo_operational_release_evidence(
             reasons,
         )
 
-    if operational_entry is None:
+    if arm_control is None:
         return _partial(
             BybitDemoOperationalReleaseStage.SUPERVISOR_READY,
+            git_sha,
+            evidence_sha256,
+            source_runs,
+            source_run_metadata_sha256,
+            next_required="arm_control",
+        )
+    _validate_arm_control(arm_control, git_sha, reasons)
+    _validate_artifact_time_with_source_run(
+        value=_nested(arm_control, "receipt").get("created_at"),
+        source_run=source_runs.get("arm_control"),
+        label="ARM_CONTROL",
+        reasons=reasons,
+    )
+    if reasons:
+        return _blocked(
+            git_sha,
+            evidence_sha256,
+            source_runs,
+            source_run_metadata_sha256,
+            reasons,
+        )
+
+    if operational_entry is None:
+        return _partial(
+            BybitDemoOperationalReleaseStage.ARM_PROVEN,
             git_sha,
             evidence_sha256,
             source_runs,
@@ -183,6 +214,13 @@ def assemble_bybit_demo_operational_release_evidence(
             next_required="operational_entry",
         )
     _validate_operational_entry(operational_entry, git_sha, reasons)
+    _validate_entry_arm_link(arm_control, operational_entry, reasons)
+    _validate_artifact_time_with_source_run(
+        value=operational_entry.get("observed_at"),
+        source_run=source_runs.get("operational_entry"),
+        label="OPERATIONAL_ENTRY",
+        reasons=reasons,
+    )
     if reasons:
         return _blocked(
             git_sha,
@@ -206,6 +244,12 @@ def assemble_bybit_demo_operational_release_evidence(
         operational_entry,
         recovery_receipt,
         reasons,
+    )
+    _validate_artifact_time_with_source_run(
+        value=recovery_receipt.get("created_at"),
+        source_run=source_runs.get("recovery_receipt"),
+        label="RECOVERY_RECEIPT",
+        reasons=reasons,
     )
     if reasons:
         return _blocked(
@@ -325,7 +369,7 @@ def _validate_run_metadata(
 
     normalized: dict[str, dict[str, Any]] = {}
     seen_run_ids: set[int] = set()
-    prior_time: datetime | None = None
+    prior_completed_at: datetime | None = None
     for name in _SOURCE_ORDER:
         if name not in present_names:
             continue
@@ -358,9 +402,16 @@ def _validate_run_metadata(
         except ValueError:
             reasons.append(f"SOURCE_RUN_STARTED_AT_INVALID:{name}")
             continue
-        if prior_time is not None and started_at <= prior_time:
+        try:
+            completed_at = _utc_datetime(value.get("run_completed_at"))
+        except ValueError:
+            reasons.append(f"SOURCE_RUN_COMPLETED_AT_INVALID:{name}")
+            continue
+        if completed_at < started_at:
+            reasons.append(f"SOURCE_RUN_WINDOW_INVALID:{name}")
+        if prior_completed_at is not None and started_at < prior_completed_at:
             reasons.append(f"SOURCE_RUN_ORDER_INVALID:{name}")
-        prior_time = started_at
+        prior_completed_at = completed_at
 
         normalized[name] = {
             "run_id": run_id,
@@ -368,7 +419,8 @@ def _validate_run_metadata(
             "event": value.get("event"),
             "conclusion": value.get("conclusion"),
             "head_sha": value.get("head_sha"),
-            "run_started_at": started_at.astimezone(UTC).isoformat(),
+            "run_started_at": started_at.isoformat(),
+            "run_completed_at": completed_at.isoformat(),
         }
     return normalized, reasons
 
@@ -466,6 +518,84 @@ def _validate_supervisor(
         reasons.append("SUPERVISOR_NOT_DEMO_ONLY")
 
 
+def _validate_arm_control(
+    payload: Mapping[str, Any],
+    git_sha: str,
+    reasons: list[str],
+) -> None:
+    _validate_source_identity(
+        payload,
+        schema="BYBIT_DEMO_CONTROL_OPERATION_V1",
+        git_sha=git_sha,
+        label="ARM_CONTROL",
+        reasons=reasons,
+    )
+    if payload.get("mode") != "arm":
+        reasons.append("ARM_CONTROL_MODE_INVALID")
+    if payload.get("status") != "ARMED" or payload.get("passed") is not True:
+        reasons.append("ARM_CONTROL_NOT_ARMED")
+    if payload.get("fixed_egress_required") is not True:
+        reasons.append("ARM_CONTROL_FIXED_EGRESS_NOT_REQUIRED")
+    if payload.get("order_writes_supported") is not False:
+        reasons.append("ARM_CONTROL_UNSAFE_ORDER_CAPABILITY")
+
+    preflight = _nested(payload, "preflight")
+    if preflight.get("status") != "READY_FOR_MANUAL_OPERATOR_APPROVAL":
+        reasons.append("ARM_CONTROL_PREFLIGHT_NOT_READY")
+
+    receipt = _nested(payload, "receipt")
+    if receipt.get("schema") != "BYBIT_DEMO_CONTROL_EVENT_RECEIPT_V1":
+        reasons.append("ARM_CONTROL_RECEIPT_SCHEMA_INVALID")
+    if receipt.get("event_kind") != "ARM_NEW_ENTRIES":
+        reasons.append("ARM_CONTROL_EVENT_KIND_INVALID")
+    _validate_optional_payload_sha(
+        receipt.get("event_id"),
+        "ARM_CONTROL_EVENT_ID_INVALID",
+        reasons,
+    )
+    _validate_optional_payload_sha(
+        receipt.get("preflight_record_sha256"),
+        "ARM_CONTROL_PREFLIGHT_SHA_INVALID",
+        reasons,
+    )
+    if receipt.get("immutable_record") is not True:
+        reasons.append("ARM_CONTROL_RECEIPT_NOT_IMMUTABLE")
+    if receipt.get("order_submission_supported") is not False:
+        reasons.append("ARM_CONTROL_RECEIPT_ORDER_SUBMISSION_CAPABILITY")
+    if receipt.get("live_mainnet_order_routing_allowed") is not False:
+        reasons.append("ARM_CONTROL_RECEIPT_MAINNET_CAPABILITY")
+
+    decision = _nested(payload, "decision")
+    if decision.get("schema") != "BYBIT_DEMO_CONTROL_DECISION_V1":
+        reasons.append("ARM_CONTROL_DECISION_SCHEMA_INVALID")
+    if decision.get("mode") != "ARMED_NEW_ENTRIES":
+        reasons.append("ARM_CONTROL_DECISION_NOT_ARMED")
+    if decision.get("new_entry_allowed") is not True:
+        reasons.append("ARM_CONTROL_DECISION_ENTRY_NOT_ALLOWED")
+    if decision.get("latest_event_id") != receipt.get("event_id"):
+        reasons.append("ARM_CONTROL_DECISION_EVENT_MISMATCH")
+    if decision.get("latest_event_kind") != "ARM_NEW_ENTRIES":
+        reasons.append("ARM_CONTROL_DECISION_EVENT_KIND_INVALID")
+    if decision.get("armed_until") != receipt.get("armed_until"):
+        reasons.append("ARM_CONTROL_DECISION_EXPIRY_MISMATCH")
+    if decision.get("immutable_audit") is not True:
+        reasons.append("ARM_CONTROL_DECISION_AUDIT_NOT_IMMUTABLE")
+    if decision.get("order_writes_supported") is not False:
+        reasons.append("ARM_CONTROL_DECISION_UNSAFE_ORDER_CAPABILITY")
+    if decision.get("live_mainnet_order_routing_allowed") is not False:
+        reasons.append("ARM_CONTROL_DECISION_MAINNET_CAPABILITY")
+
+    try:
+        created_at = _utc_datetime(receipt.get("created_at"))
+        armed_until = _utc_datetime(receipt.get("armed_until"))
+    except ValueError:
+        reasons.append("ARM_CONTROL_WINDOW_INVALID")
+        return
+    ttl = armed_until - created_at
+    if ttl <= timedelta(0) or ttl > _MAX_ARM_TTL:
+        reasons.append("ARM_CONTROL_TTL_INVALID")
+
+
 def _validate_operational_entry(
     payload: Mapping[str, Any],
     git_sha: str,
@@ -515,6 +645,31 @@ def _validate_operational_entry(
         reasons.append("OPERATIONAL_ENTRY_AUTOMATIC_ARM_ALLOWED")
     if payload.get("ranked_fallback_allowed") is not False:
         reasons.append("OPERATIONAL_ENTRY_RANKED_FALLBACK_ALLOWED")
+
+
+def _validate_entry_arm_link(
+    arm_control: Mapping[str, Any],
+    operational_entry: Mapping[str, Any],
+    reasons: list[str],
+) -> None:
+    receipt = _nested(arm_control, "receipt")
+    event_id = receipt.get("event_id")
+    armed_until_value = receipt.get("armed_until")
+    if operational_entry.get("pinned_control_event_id") != event_id:
+        reasons.append("OPERATIONAL_ENTRY_ARM_EVENT_MISMATCH")
+    if operational_entry.get("pinned_control_armed_until") != armed_until_value:
+        reasons.append("OPERATIONAL_ENTRY_ARM_EXPIRY_MISMATCH")
+    try:
+        created_at = _utc_datetime(receipt.get("created_at"))
+        armed_until = _utc_datetime(armed_until_value)
+        entry_observed_at = _utc_datetime(operational_entry.get("observed_at"))
+    except ValueError:
+        reasons.append("OPERATIONAL_ENTRY_ARM_TEMPORAL_LINK_INVALID")
+        return
+    if entry_observed_at <= created_at:
+        reasons.append("ARM_CONTROL_NOT_BEFORE_OPERATIONAL_ENTRY")
+    if entry_observed_at >= armed_until:
+        reasons.append("OPERATIONAL_ENTRY_OUTSIDE_ARM_WINDOW")
 
 
 def _validate_recovery_receipt(
@@ -572,6 +727,27 @@ def _validate_post_entry_recovery_temporal_link(
         reasons.append("RECOVERY_RECEIPT_NOT_AFTER_OPERATIONAL_ENTRY")
 
 
+def _validate_artifact_time_with_source_run(
+    *,
+    value: Any,
+    source_run: Mapping[str, Any] | None,
+    label: str,
+    reasons: list[str],
+) -> None:
+    if source_run is None:
+        reasons.append(f"{label}_SOURCE_RUN_MISSING")
+        return
+    try:
+        artifact_time = _utc_datetime(value)
+        started_at = _utc_datetime(source_run.get("run_started_at"))
+        completed_at = _utc_datetime(source_run.get("run_completed_at"))
+    except ValueError:
+        reasons.append(f"{label}_SOURCE_RUN_TIME_BINDING_INVALID")
+        return
+    if artifact_time < started_at or artifact_time > completed_at:
+        reasons.append(f"{label}_OUTSIDE_SOURCE_RUN_WINDOW")
+
+
 def _validate_source_identity(
     payload: Mapping[str, Any],
     *,
@@ -604,6 +780,11 @@ def _validate_embedded_manifest(
         reasons.append(f"{label}_MANIFEST_SHA_MISMATCH")
 
 
+def _nested(payload: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    value = payload.get(key)
+    return value if isinstance(value, Mapping) else {}
+
+
 def _validate_optional_payload_sha(value: Any, reason: str, reasons: list[str]) -> None:
     if not isinstance(value, str) or not _is_sha256(value):
         reasons.append(reason)
@@ -611,16 +792,16 @@ def _validate_optional_payload_sha(value: Any, reason: str, reasons: list[str]) 
 
 def _utc_datetime(value: Any) -> datetime:
     if not isinstance(value, str) or not value.strip():
-        raise ValueError("run timestamp is required")
+        raise ValueError("timestamp is required")
     text = value.strip()
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
     try:
         moment = datetime.fromisoformat(text)
     except ValueError as exc:
-        raise ValueError("run timestamp is invalid") from exc
+        raise ValueError("timestamp is invalid") from exc
     if moment.tzinfo is None or moment.utcoffset() is None:
-        raise ValueError("run timestamp must be timezone-aware")
+        raise ValueError("timestamp must be timezone-aware")
     return moment.astimezone(UTC)
 
 
