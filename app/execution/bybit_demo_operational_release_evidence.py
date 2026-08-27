@@ -228,6 +228,8 @@ def _validate_activation_readiness(
         reasons.append("ACTIVATION_READINESS_UNSAFE_ACTIONABILITY")
     if payload.get("order_write_performed") is not False:
         reasons.append("ACTIVATION_READINESS_PERFORMED_ORDER_WRITE")
+    if payload.get("order_writes_supported") is not False:
+        reasons.append("ACTIVATION_READINESS_UNSAFE_ORDER_CAPABILITY")
     _validate_embedded_manifest(payload, "ACTIVATION_READINESS", reasons)
 
 
@@ -259,6 +261,8 @@ def _validate_session_start(
         reasons.append("SESSION_START_UNEXPECTED_TRADING_CREDENTIAL")
     if payload.get("order_write_performed") is not False:
         reasons.append("SESSION_START_PERFORMED_ORDER_WRITE")
+    if payload.get("order_writes_supported") is not False:
+        reasons.append("SESSION_START_UNSAFE_ORDER_CAPABILITY")
 
 
 def _validate_supervisor(
@@ -371,6 +375,8 @@ def _validate_recovery_receipt(
         reasons.append("RECOVERY_RECEIPT_AUTOMATIC_RECOVERY_ALLOWED")
     if payload.get("automatic_stale_takeover_allowed") is not False:
         reasons.append("RECOVERY_RECEIPT_STALE_TAKEOVER_ALLOWED")
+    if payload.get("order_writes_supported") is not False:
+        reasons.append("RECOVERY_RECEIPT_UNSAFE_ORDER_CAPABILITY")
     idempotent = payload.get("idempotent_existing_recovery")
     if status == "RECOVERED" and idempotent is not False:
         reasons.append("RECOVERY_RECEIPT_NEW_RECOVERY_IDEMPOTENCY_INVALID")
@@ -390,8 +396,6 @@ def _validate_source_identity(
         reasons.append(f"{label}_SCHEMA_INVALID")
     if payload.get("git_sha") != git_sha:
         reasons.append(f"{label}_GIT_SHA_MISMATCH")
-    if payload.get("order_writes_supported") is not False:
-        reasons.append(f"{label}_UNSAFE_ORDER_CAPABILITY")
     if payload.get("live_mainnet_order_routing_allowed") is not False:
         reasons.append(f"{label}_UNSAFE_MAINNET_CAPABILITY")
 
@@ -418,7 +422,7 @@ def _validate_optional_payload_sha(value: Any, reason: str, reasons: list[str]) 
 
 
 def _present_hashes(value: Mapping[str, str]) -> dict[str, str]:
-    return {name: digest for name, digest in value.items() if digest is not None}
+    return dict(value)
 
 
 def _validate_git_sha(value: str) -> None:
