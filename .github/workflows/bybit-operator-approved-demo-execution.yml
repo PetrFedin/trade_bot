@@ -10,12 +10,23 @@ on:
       - 'app/execution/bybit_demo_durable_approval_client.py'
       - 'app/execution/bybit_demo_approved_runtime.py'
       - 'app/execution/bybit_demo_approved_trade_attribution.py'
+      - 'app/execution/bybit_demo_operational_entry.py'
+      - 'app/execution/bybit_demo_operational_reconciliation.py'
+      - 'app/execution/bybit_demo_postgres_approval_lineage_store.py'
+      - 'app/execution/bybit_demo_postgres_entry_provenance_store.py'
+      - 'app/execution/bybit_oms_entry_client.py'
+      - 'app/execution/bybit_postgres_entry_recovery.py'
       - 'tools/prepare_bybit_demo_operator_approval.py'
+      - 'tools/run_bybit_demo_operator_approved_entry.py'
       - 'tests/test_bybit_demo_operator_approval.py'
       - 'tests/test_bybit_demo_approved_bridge.py'
       - 'tests/test_bybit_demo_approval_lineage_store.py'
       - 'tests/test_bybit_demo_approved_runtime.py'
       - 'tests/test_bybit_demo_approved_trade_attribution.py'
+      - 'tests/test_bybit_demo_operational_entry.py'
+      - 'tests/test_bybit_demo_operational_reconciliation.py'
+      - 'tests/test_bybit_demo_operational_entry_cli.py'
+      - 'tests/test_bybit_operator_approved_demo_execution_workflow.py'
       - 'tests/test_prepare_bybit_demo_operator_approval.py'
       - 'docs/BYBIT_OPERATOR_APPROVED_DEMO_EXECUTION.md'
       - '.github/workflows/bybit-operator-approved-demo-execution.yml'
@@ -29,28 +40,53 @@ on:
       - 'app/execution/bybit_demo_durable_approval_client.py'
       - 'app/execution/bybit_demo_approved_runtime.py'
       - 'app/execution/bybit_demo_approved_trade_attribution.py'
+      - 'app/execution/bybit_demo_operational_entry.py'
+      - 'app/execution/bybit_demo_operational_reconciliation.py'
+      - 'app/execution/bybit_demo_postgres_approval_lineage_store.py'
+      - 'app/execution/bybit_demo_postgres_entry_provenance_store.py'
+      - 'app/execution/bybit_oms_entry_client.py'
+      - 'app/execution/bybit_postgres_entry_recovery.py'
       - 'tools/prepare_bybit_demo_operator_approval.py'
+      - 'tools/run_bybit_demo_operator_approved_entry.py'
       - 'tests/test_bybit_demo_operator_approval.py'
       - 'tests/test_bybit_demo_approved_bridge.py'
       - 'tests/test_bybit_demo_approval_lineage_store.py'
       - 'tests/test_bybit_demo_approved_runtime.py'
       - 'tests/test_bybit_demo_approved_trade_attribution.py'
+      - 'tests/test_bybit_demo_operational_entry.py'
+      - 'tests/test_bybit_demo_operational_reconciliation.py'
+      - 'tests/test_bybit_demo_operational_entry_cli.py'
+      - 'tests/test_bybit_operator_approved_demo_execution_workflow.py'
       - 'tests/test_prepare_bybit_demo_operator_approval.py'
       - 'docs/BYBIT_OPERATOR_APPROVED_DEMO_EXECUTION.md'
       - '.github/workflows/bybit-operator-approved-demo-execution.yml'
   workflow_dispatch:
+    inputs:
+      evidence_rank:
+        description: 'Exact latest positive-evidence rank to approve'
+        required: true
+        type: string
+      symbol:
+        description: 'Expected normalized USDT symbol for that exact rank'
+        required: true
+        type: string
+      confirmation_phrase:
+        description: 'Type APPROVE_BYBIT_DEMO_EXECUTION exactly'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
   group: bybit-operator-approved-demo-${{ github.event.pull_request.head.ref || github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   qualify:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -59,9 +95,9 @@ jobs:
           cache: pip
       - name: Install qualification dependencies
         run: |
-          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip install --disable-pip-version-check '.[dev,postgresql]'
           python -m pip check
-      - name: Operator-approved canonical runtime regression tests
+      - name: Operator-approved canonical and operational runtime regression tests
         run: |
           pytest -q \
             tests/test_bybit_demo_operator_approval.py \
@@ -69,6 +105,10 @@ jobs:
             tests/test_bybit_demo_approval_lineage_store.py \
             tests/test_bybit_demo_approved_runtime.py \
             tests/test_bybit_demo_approved_trade_attribution.py \
+            tests/test_bybit_demo_operational_entry.py \
+            tests/test_bybit_demo_operational_reconciliation.py \
+            tests/test_bybit_demo_operational_entry_cli.py \
+            tests/test_bybit_operator_approved_demo_execution_workflow.py \
             tests/test_prepare_bybit_demo_operator_approval.py \
             tests/test_bybit_demo_trading_runtime.py \
             tests/test_bybit_demo_entry_provenance.py \
@@ -77,7 +117,9 @@ jobs:
             tests/test_bybit_demo_account_sized_strategy.py \
             tests/test_bybit_demo_strategy_selector.py \
             tests/test_bybit_demo_cycle.py
-      - name: Ruff operator-approved canonical runtime
+      - name: Full regression without shared PostgreSQL singleton env
+        run: pytest -q
+      - name: Ruff operator-approved operational boundary
         run: |
           ruff check \
             app/execution/bybit_demo_operator_approval.py \
@@ -87,14 +129,25 @@ jobs:
             app/execution/bybit_demo_durable_approval_client.py \
             app/execution/bybit_demo_approved_runtime.py \
             app/execution/bybit_demo_approved_trade_attribution.py \
+            app/execution/bybit_demo_operational_entry.py \
+            app/execution/bybit_demo_operational_reconciliation.py \
+            app/execution/bybit_demo_postgres_approval_lineage_store.py \
+            app/execution/bybit_demo_postgres_entry_provenance_store.py \
+            app/execution/bybit_oms_entry_client.py \
+            app/execution/bybit_postgres_entry_recovery.py \
             tools/prepare_bybit_demo_operator_approval.py \
+            tools/run_bybit_demo_operator_approved_entry.py \
             tests/test_bybit_demo_operator_approval.py \
             tests/test_bybit_demo_approved_bridge.py \
             tests/test_bybit_demo_approval_lineage_store.py \
             tests/test_bybit_demo_approved_runtime.py \
             tests/test_bybit_demo_approved_trade_attribution.py \
+            tests/test_bybit_demo_operational_entry.py \
+            tests/test_bybit_demo_operational_reconciliation.py \
+            tests/test_bybit_demo_operational_entry_cli.py \
+            tests/test_bybit_operator_approved_demo_execution_workflow.py \
             tests/test_prepare_bybit_demo_operator_approval.py
-      - name: Bandit operator-approved canonical runtime
+      - name: Bandit operator-approved operational boundary
         run: |
           bandit -q \
             app/execution/bybit_demo_operator_approval.py \
@@ -104,8 +157,15 @@ jobs:
             app/execution/bybit_demo_durable_approval_client.py \
             app/execution/bybit_demo_approved_runtime.py \
             app/execution/bybit_demo_approved_trade_attribution.py \
-            tools/prepare_bybit_demo_operator_approval.py
-      - name: Compile operator-approved canonical runtime
+            app/execution/bybit_demo_operational_entry.py \
+            app/execution/bybit_demo_operational_reconciliation.py \
+            app/execution/bybit_demo_postgres_approval_lineage_store.py \
+            app/execution/bybit_demo_postgres_entry_provenance_store.py \
+            app/execution/bybit_oms_entry_client.py \
+            app/execution/bybit_postgres_entry_recovery.py \
+            tools/prepare_bybit_demo_operator_approval.py \
+            tools/run_bybit_demo_operator_approved_entry.py
+      - name: Compile operator-approved operational boundary
         run: |
           python -m compileall -q \
             app/execution/bybit_demo_operator_approval.py \
@@ -115,4 +175,58 @@ jobs:
             app/execution/bybit_demo_durable_approval_client.py \
             app/execution/bybit_demo_approved_runtime.py \
             app/execution/bybit_demo_approved_trade_attribution.py \
-            tools/prepare_bybit_demo_operator_approval.py
+            app/execution/bybit_demo_operational_entry.py \
+            app/execution/bybit_demo_operational_reconciliation.py \
+            app/execution/bybit_demo_postgres_approval_lineage_store.py \
+            app/execution/bybit_demo_postgres_entry_provenance_store.py \
+            app/execution/bybit_oms_entry_client.py \
+            app/execution/bybit_postgres_entry_recovery.py \
+            tools/prepare_bybit_demo_operator_approval.py \
+            tools/run_bybit_demo_operator_approved_entry.py
+
+  operational-entry:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, bybit-demo]
+    environment: bybit-demo
+    timeout-minutes: 15
+    concurrency:
+      group: bybit-demo-protected-operational-entry
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install operational dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[postgresql]'
+          python -m pip check
+      - name: Run one protected operator-approved Demo entry invocation
+        env:
+          BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
+          BYBIT_OPPORTUNITY_DATABASE_DSN: ${{ secrets.BYBIT_OPPORTUNITY_DATABASE_DSN }}
+          BYBIT_DEMO_TRADING_API_KEY: ${{ secrets.BYBIT_DEMO_TRADING_API_KEY }}
+          BYBIT_DEMO_TRADING_API_SECRET: ${{ secrets.BYBIT_DEMO_TRADING_API_SECRET }}
+          BYBIT_DEMO_READONLY_API_KEY: ${{ secrets.BYBIT_DEMO_READONLY_API_KEY }}
+          BYBIT_DEMO_READONLY_API_SECRET: ${{ secrets.BYBIT_DEMO_READONLY_API_SECRET }}
+          BYBIT_MAINNET_READONLY_API_KEY_SHA256: ${{ secrets.BYBIT_MAINNET_READONLY_API_KEY_SHA256 }}
+          BYBIT_RESEARCH_SITE: ${{ vars.BYBIT_RESEARCH_SITE }}
+          OPERATOR_EVIDENCE_RANK: ${{ inputs.evidence_rank }}
+          OPERATOR_SYMBOL: ${{ inputs.symbol }}
+          OPERATOR_CONFIRMATION_PHRASE: ${{ inputs.confirmation_phrase }}
+        run: |
+          mkdir -p artifacts
+          python -m tools.run_bybit_demo_operator_approved_entry \
+            --evidence-rank "$OPERATOR_EVIDENCE_RANK" \
+            --symbol "$OPERATOR_SYMBOL" \
+            --confirm "$OPERATOR_CONFIRMATION_PHRASE" \
+            --output artifacts/bybit-demo-operational-entry.json
+      - name: Upload allowlisted operational entry evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-demo-operational-entry-${{ github.run_id }}
+          path: artifacts/bybit-demo-operational-entry.json
+          if-no-files-found: warn
+          retention-days: 30
