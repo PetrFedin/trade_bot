@@ -26,17 +26,41 @@ There is no schedule.
 The workflow performs, in order:
 
 ```text
-1. PostgreSQL v119-v123 verify only
+1. PostgreSQL v119-v124 verify only
 2. fixed-egress connected read-only Demo preflight
 3. GET-only dedicated Demo trading credential preflight
 4. GET-only proof that read-only and trading credentials belong to one exact Demo account
 5. v121 control status read
-6. fail-closed manifest assembly
+6. fail-closed v124 manifest assembly
+7. v124-backed operational-zone sidecar generation
 ```
 
-The PostgreSQL artifact is `BYBIT_DEMO_POSTGRES_BOOTSTRAP_V3`; `VERIFIED_READY` requires the complete v119-v123 contract and its required append-only/anti-reset guards.
+The PostgreSQL artifact is `BYBIT_DEMO_POSTGRES_BOOTSTRAP_V4`. `VERIFIED_READY` requires the complete v119-v124 contract, including the immutable logical database identity singleton.
 
-The source steps write sanitized evidence artifacts. The final assembler reads those files, validates their schemas and safety flags, hashes the exact bytes with SHA-256, binds the manifest to the checked-out Git commit, and emits one readiness artifact.
+The readiness wrapper rejects legacy V3 bootstrap evidence and requires:
+
+```text
+logical_database_identity_verified = true
+```
+
+before ARM readiness can be reported.
+
+The source steps write sanitized evidence artifacts. The final assembler reads those files, validates schemas and safety flags, hashes exact bytes with SHA-256, binds the manifest to the checked-out Git commit, and emits one readiness artifact.
+
+## Logical operational database proof
+
+v124 adds an immutable logical database UUID stored only inside PostgreSQL. It is not exported in readiness evidence.
+
+After readiness assembly, the protected zone sidecar reads and validates that identity and includes it only inside the database HMAC input. The sidecar reports:
+
+```text
+schema = BYBIT_DEMO_OPERATIONAL_ZONE_BINDING_V2
+logical_database_identity_verified = true
+```
+
+This distinguishes an independently bootstrapped database even if it later appears at the same configured DSN endpoint.
+
+See `BYBIT_DEMO_LOGICAL_DATABASE_IDENTITY_V124.md` and `BYBIT_DEMO_OPERATIONAL_ZONE_BINDING.md`.
 
 ## Same-account proof
 
@@ -50,9 +74,9 @@ isMaster
 
 The raw values are compared only in memory and are never serialized. The sanitized artifact contains only booleans such as `same_user_id`, `same_parent_uid`, `same_master_scope` and final status `VERIFIED_SAME_ACCOUNT` or `BLOCKED`.
 
-This closes a critical configuration failure mode where accounting/preflight could read Demo account A while the write-capable key belonged to Demo account B.
+This closes a configuration failure mode where accounting/preflight could read Demo account A while the write-capable key belonged to Demo account B.
 
-The same guard is repeated by the operator-approved entry process and persistent supervisor before either process constructs its order-capable client. Readiness is therefore not the only line of defense.
+The same guard is repeated by operator-approved entry and persistent supervisor before either constructs its order-capable client.
 
 ## Step-scoped secrets
 
@@ -61,11 +85,12 @@ Credentials are not placed in a job-level environment.
 - PostgreSQL verify receives only `BYBIT_DEMO_DATABASE_DSN`.
 - Connected preflight receives the DSN plus the Demo read-only key/secret.
 - Trading credential preflight receives the Demo trading key/secret plus read-only/mainnet namespace fingerprints.
-- Same-account identity proof receives the Demo read-only and trading key/secret pairs, but no database DSN and no order-capable client. It performs authenticated GET only and emits no UID or key material.
+- Same-account identity proof receives the Demo read-only and trading key/secret pairs, but no database DSN and no order-capable client.
 - Control status receives only the DSN.
 - Manifest assembly receives no credential secret.
+- Zone sidecar receives the DSN, Demo read-only credential and separate `BYBIT_DEMO_ZONE_BINDING_SECRET`; it performs PostgreSQL reads plus authenticated GET only.
 
-The identity comparison is the only readiness step that intentionally sees both Demo credential pairs because exact account equality cannot be proven from the existing redacted artifacts alone. Its implementation exposes no mutation method.
+The GitHub-hosted final release assembler never receives the zone-binding secret or raw database identity.
 
 ## Ready verdict
 
@@ -75,18 +100,19 @@ A manifest may return:
 READY_FOR_EXPLICIT_ACTIVATION_GATES
 ```
 
-only when all of these are true.
+only when all required source gates are clean.
 
 ### PostgreSQL
 
 ```text
-schema = BYBIT_DEMO_POSTGRES_BOOTSTRAP_V3
+schema = BYBIT_DEMO_POSTGRES_BOOTSTRAP_V4
 mode = verify
 status = VERIFIED_READY
 passed = true
 schema_mutation_performed = false
-v119-v123 relations = ready
-required durability/append-only/anti-reset guards = ready
+logical_database_identity_verified = true
+v119-v124 relations = ready
+required durability/append-only/anti-reset/immutability guards = ready
 ```
 
 ### Connected preflight
@@ -101,7 +127,7 @@ preflight_only = true
 trade_actionable = false
 ```
 
-An existing open canonical trade returns `EXISTING_TRADE_MANAGEMENT_REQUIRED` and therefore is not new-entry activation readiness.
+An existing open canonical trade returns `EXISTING_TRADE_MANAGEMENT_REQUIRED` and is not new-entry readiness.
 
 ### Trading credential
 
@@ -130,7 +156,7 @@ authenticated_get_only = true
 order_write_performed = false
 ```
 
-The same-account evidence must carry the exact readiness `git_sha`. A mismatched SHA or any identity mismatch blocks ARM readiness.
+The same-account evidence must carry the exact readiness `git_sha`. Any identity mismatch blocks ARM readiness.
 
 ### v121 control plane
 
@@ -141,44 +167,39 @@ mode = HALTED
 new_entry_allowed = false
 ```
 
-The product is considered infrastructure-ready while still safely halted. ARM remains a later explicit, short-lived operator action.
+The product is infrastructure-ready while still safely halted. ARM remains a later explicit, short-lived operator action.
 
-## Manifest
+## Manifest and sidecar
 
-The final artifact is:
+The readiness artifact is:
 
 ```text
 artifacts/bybit-demo-activation-readiness.json
 ```
 
-It contains the exact Git commit SHA, SHA-256 of each source evidence file including the same-account proof, bounded source statuses, `demo_account_identity_verified`, final reasons/verdict, a SHA-256 over the canonical readiness manifest, and booleans proving ARM/order/mainnet actions were not performed or enabled.
-
-It does not embed source evidence contents, API keys, API secrets, user IDs, parent UIDs, IP addresses, DSN, exact balances, quantities, prices, order IDs or execution IDs.
-
-A ready manifest remains explicitly:
+and the same protected run also creates:
 
 ```text
-demo_account_identity_verified = true
-operator_action_required = true
-arm_performed = false
-trade_actionable = false
-order_write_performed = false
-order_writes_supported = false
-live_mainnet_order_routing_allowed = false
+artifacts/bybit-demo-operational-zone-binding.json
 ```
+
+The readiness artifact contains exact Git SHA, SHA-256 of source evidence, bounded statuses, `demo_account_identity_verified`, final reasons/verdict and its canonical manifest hash.
+
+The V2 zone sidecar contains only opaque HMAC resource bindings and verification booleans. Neither artifact contains raw database UUID, DSN, API credentials, user IDs, balances, quantities, prices or order identities.
 
 ## Intended activation sequence
 
 ```text
-v119-v123 activation readiness PASS while HALTED
--> explicit one-time v122 session-risk initialization if no durable ledger exists
--> thereafter always load/resume the v122 ledger on restart
+v119-v124 activation readiness PASS while HALTED
+-> v124-backed zone sidecar from the same run
+-> explicit one-time v122 session-risk initialization if needed
 -> pre-entry persistent-supervisor IDLE proof
 -> explicit short-lived v121 ARM
 -> exact short-lived operator approval
 -> one protected Demo entry
 -> explicit HALT
 -> controlled recovery drill when required
+-> exact-head release assembly from V2 same-zone sidecars
 ```
 
 Session initialization must be flat/HALTED and read current opening equity from authenticated Demo account state. It must never silently recreate a missing ledger during normal worker startup.
@@ -187,6 +208,6 @@ Session initialization must be flat/HALTED and read current opening equity from 
 
 Pull-request qualification proves code, PostgreSQL lifecycle and manifest logic using isolated/synthetic evidence. Protected/manual jobs remain skipped on pull requests.
 
-A real `READY_FOR_EXPLICIT_ACTIVATION_GATES` requires a manual run on the protected self-hosted Demo runner with configured operational database, network and credentials, and the same-account GET-only proof must pass for the actual configured credentials.
+A real `READY_FOR_EXPLICIT_ACTIVATION_GATES` requires a manual run on the protected self-hosted Demo runner after v124 has been explicitly applied to the intended operational database. The same-account and V2 zone proofs must pass for the actual configured resources.
 
 Mainnet remains read-only. No pull-request result, including this readiness workflow, is trade authorization.

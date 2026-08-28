@@ -18,7 +18,7 @@ def test_database_only_cli_writes_sanitized_sidecar(monkeypatch, tmp_path) -> No
         "build_bybit_demo_operational_zone_binding",
         lambda **kwargs: SimpleNamespace(
             to_payload=lambda: {
-                "schema": "BYBIT_DEMO_OPERATIONAL_ZONE_BINDING_V1",
+                "schema": "BYBIT_DEMO_OPERATIONAL_ZONE_BINDING_V2",
                 "status": "BOUND",
                 "passed": True,
                 "producer": kwargs["producer"],
@@ -28,6 +28,7 @@ def test_database_only_cli_writes_sanitized_sidecar(monkeypatch, tmp_path) -> No
                 "binding_key_marker_sha256": "1" * 64,
                 "database_binding_present": True,
                 "database_binding_sha256": "2" * 64,
+                "logical_database_identity_verified": True,
                 "demo_account_binding_present": False,
                 "demo_account_binding_sha256": None,
                 "order_writes_supported": False,
@@ -51,8 +52,10 @@ def test_database_only_cli_writes_sanitized_sidecar(monkeypatch, tmp_path) -> No
     assert code == 0
     text = output.read_text(encoding="utf-8")
     payload = json.loads(text)
+    assert payload["schema"] == "BYBIT_DEMO_OPERATIONAL_ZONE_BINDING_V2"
     assert payload["producer"] == "session_start"
     assert payload["database_binding_present"] is True
+    assert payload["logical_database_identity_verified"] is True
     assert "super-secret" not in text
     assert "db.example.com" not in text
     assert "operator" not in text
@@ -83,7 +86,9 @@ def test_failure_payload_never_exposes_exception_message(monkeypatch, tmp_path) 
     assert code == 2
     text = output.read_text(encoding="utf-8")
     payload = json.loads(text)
+    assert payload["schema"] == "BYBIT_DEMO_OPERATIONAL_ZONE_BINDING_V2"
     assert payload["status"] == "BLOCKED"
     assert payload["error_type"] == "RuntimeError"
+    assert payload["logical_database_identity_verified"] is False
     assert "super-secret" not in text
     assert "db.example.com" not in text

@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from app.execution.bybit_demo_activation_readiness import (
-    assemble_bybit_demo_activation_readiness,
-    load_json_evidence,
+from app.execution.bybit_demo_activation_readiness import load_json_evidence
+from app.execution.bybit_demo_activation_readiness_v124 import (
+    assemble_v124_bybit_demo_activation_readiness,
 )
 
 
@@ -68,7 +68,7 @@ def main() -> int:
         credential, credential_sha = load_json_evidence(args.trading_credential)
         same_account, same_account_sha = load_json_evidence(args.same_account)
         control, control_sha = load_json_evidence(args.control_status)
-        result = assemble_bybit_demo_activation_readiness(
+        result = assemble_v124_bybit_demo_activation_readiness(
             git_sha=args.git_sha,
             postgres_payload=postgres,
             connected_preflight_payload=connected,

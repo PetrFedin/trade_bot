@@ -4,34 +4,44 @@ on:
   pull_request:
     paths:
       - 'app/execution/bybit_demo_activation_readiness.py'
+      - 'app/execution/bybit_demo_activation_readiness_v124.py'
       - 'app/execution/bybit_demo_same_account.py'
+      - 'app/execution/bybit_demo_operational_database_identity.py'
       - 'app/execution/bybit_demo_postgres_bootstrap.py'
       - 'app/execution/bybit_demo_postgres_session_risk_store.py'
       - 'migrations/v122/**'
       - 'migrations/v123/**'
+      - 'migrations/v124/**'
       - 'tools/assemble_bybit_demo_activation_readiness.py'
       - 'tools/probe_bybit_demo_same_account.py'
       - 'tests/test_bybit_demo_activation_readiness.py'
+      - 'tests/test_bybit_demo_activation_readiness_v124.py'
       - 'tests/test_bybit_demo_same_account.py'
       - 'tests/test_bybit_demo_postgres_session_risk_store.py'
       - 'docs/BYBIT_DEMO_ACTIVATION_READINESS.md'
+      - 'docs/BYBIT_DEMO_LOGICAL_DATABASE_IDENTITY_V124.md'
       - 'docs/BYBIT_DEMO_POSTGRES_SESSION_RISK.md'
       - '.github/workflows/bybit-demo-activation-readiness.yml'
   push:
     branches: [main]
     paths:
       - 'app/execution/bybit_demo_activation_readiness.py'
+      - 'app/execution/bybit_demo_activation_readiness_v124.py'
       - 'app/execution/bybit_demo_same_account.py'
+      - 'app/execution/bybit_demo_operational_database_identity.py'
       - 'app/execution/bybit_demo_postgres_bootstrap.py'
       - 'app/execution/bybit_demo_postgres_session_risk_store.py'
       - 'migrations/v122/**'
       - 'migrations/v123/**'
+      - 'migrations/v124/**'
       - 'tools/assemble_bybit_demo_activation_readiness.py'
       - 'tools/probe_bybit_demo_same_account.py'
       - 'tests/test_bybit_demo_activation_readiness.py'
+      - 'tests/test_bybit_demo_activation_readiness_v124.py'
       - 'tests/test_bybit_demo_same_account.py'
       - 'tests/test_bybit_demo_postgres_session_risk_store.py'
       - 'docs/BYBIT_DEMO_ACTIVATION_READINESS.md'
+      - 'docs/BYBIT_DEMO_LOGICAL_DATABASE_IDENTITY_V124.md'
       - 'docs/BYBIT_DEMO_POSTGRES_SESSION_RISK.md'
       - '.github/workflows/bybit-demo-activation-readiness.yml'
   workflow_dispatch:
@@ -58,24 +68,28 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[dev]'
           python -m pip check
-      - name: Activation readiness and same-account tests
+      - name: Activation readiness, v124 and same-account tests
         run: |
           pytest -q \
             tests/test_bybit_demo_activation_readiness.py \
+            tests/test_bybit_demo_activation_readiness_v124.py \
             tests/test_bybit_demo_same_account.py
       - name: Ruff activation readiness
         run: |
           ruff check \
             app/execution/bybit_demo_activation_readiness.py \
+            app/execution/bybit_demo_activation_readiness_v124.py \
             app/execution/bybit_demo_same_account.py \
             tools/assemble_bybit_demo_activation_readiness.py \
             tools/probe_bybit_demo_same_account.py \
             tests/test_bybit_demo_activation_readiness.py \
+            tests/test_bybit_demo_activation_readiness_v124.py \
             tests/test_bybit_demo_same_account.py
       - name: Bandit activation readiness
         run: |
           bandit -q \
             app/execution/bybit_demo_activation_readiness.py \
+            app/execution/bybit_demo_activation_readiness_v124.py \
             app/execution/bybit_demo_same_account.py \
             tools/assemble_bybit_demo_activation_readiness.py \
             tools/probe_bybit_demo_same_account.py
@@ -83,6 +97,7 @@ jobs:
         run: |
           python -m compileall -q \
             app/execution/bybit_demo_activation_readiness.py \
+            app/execution/bybit_demo_activation_readiness_v124.py \
             app/execution/bybit_demo_same_account.py \
             tools/assemble_bybit_demo_activation_readiness.py \
             tools/probe_bybit_demo_same_account.py
@@ -104,7 +119,7 @@ jobs:
           python -m pip check
           mkdir -p artifacts
 
-      - name: Verify PostgreSQL v119-v123 without DDL
+      - name: Verify PostgreSQL v119-v124 without DDL
         continue-on-error: true
         env:
           BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
@@ -155,7 +170,7 @@ jobs:
             --mode status \
             --output artifacts/bybit-demo-control-status.json
 
-      - name: Assemble fail-closed activation readiness manifest
+      - name: Assemble fail-closed v124 activation readiness manifest
         run: |
           python -m tools.assemble_bybit_demo_activation_readiness \
             --git-sha "$GITHUB_SHA" \
@@ -166,7 +181,7 @@ jobs:
             --control-status artifacts/bybit-demo-control-status.json \
             --output artifacts/bybit-demo-activation-readiness.json
 
-      - name: Bind readiness to protected operational DB and Demo account
+      - name: Bind readiness to v124 logical DB and Demo account
         env:
           BYBIT_DEMO_ZONE_BINDING_SECRET: ${{ secrets.BYBIT_DEMO_ZONE_BINDING_SECRET }}
           BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
