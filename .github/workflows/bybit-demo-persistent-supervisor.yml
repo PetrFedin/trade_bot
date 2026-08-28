@@ -137,11 +137,25 @@ jobs:
           python -m tools.run_bybit_demo_persistent_supervisor \
             --mode once \
             --output artifacts/bybit-demo-persistent-supervisor.json
+      - name: Bind supervisor to protected operational DB and Demo account
+        env:
+          BYBIT_DEMO_ZONE_BINDING_SECRET: ${{ secrets.BYBIT_DEMO_ZONE_BINDING_SECRET }}
+          BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
+          BYBIT_DEMO_READONLY_API_KEY: ${{ secrets.BYBIT_DEMO_READONLY_API_KEY }}
+          BYBIT_DEMO_READONLY_API_SECRET: ${{ secrets.BYBIT_DEMO_READONLY_API_SECRET }}
+        run: |
+          python -m tools.probe_bybit_demo_operational_zone_binding \
+            --producer supervisor \
+            --git-sha "$GITHUB_SHA" \
+            --include-demo-account \
+            --output artifacts/bybit-demo-operational-zone-binding.json
       - name: Upload sanitized supervisor evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: bybit-demo-persistent-supervisor-${{ github.run_id }}
-          path: artifacts/bybit-demo-persistent-supervisor.json
+          path: |
+            artifacts/bybit-demo-persistent-supervisor.json
+            artifacts/bybit-demo-operational-zone-binding.json
           if-no-files-found: error
           retention-days: 30
