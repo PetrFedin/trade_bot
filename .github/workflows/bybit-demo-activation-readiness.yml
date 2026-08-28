@@ -166,6 +166,19 @@ jobs:
             --control-status artifacts/bybit-demo-control-status.json \
             --output artifacts/bybit-demo-activation-readiness.json
 
+      - name: Bind readiness to protected operational DB and Demo account
+        env:
+          BYBIT_DEMO_ZONE_BINDING_SECRET: ${{ secrets.BYBIT_DEMO_ZONE_BINDING_SECRET }}
+          BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
+          BYBIT_DEMO_READONLY_API_KEY: ${{ secrets.BYBIT_DEMO_READONLY_API_KEY }}
+          BYBIT_DEMO_READONLY_API_SECRET: ${{ secrets.BYBIT_DEMO_READONLY_API_SECRET }}
+        run: |
+          python -m tools.probe_bybit_demo_operational_zone_binding \
+            --producer activation_readiness \
+            --git-sha "$GITHUB_SHA" \
+            --include-demo-account \
+            --output artifacts/bybit-demo-operational-zone-binding.json
+
       - name: Upload sanitized readiness evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -178,5 +191,6 @@ jobs:
             artifacts/bybit-demo-same-account-preflight.json
             artifacts/bybit-demo-control-status.json
             artifacts/bybit-demo-activation-readiness.json
+            artifacts/bybit-demo-operational-zone-binding.json
           if-no-files-found: error
           retention-days: 30
