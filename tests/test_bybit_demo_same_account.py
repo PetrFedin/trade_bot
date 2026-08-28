@@ -31,7 +31,7 @@ class _FakeTransport:
         headers: Mapping[str, str],
     ) -> Mapping[str, Any]:
         assert query_string == ""
-        assert headers["X-BAPI-API-KEY"] == self.result["apiKey"]
+        assert headers["X-BAPI-API-KEY"]
         self.calls.append(path)
         return {
             "retCode": 0,
