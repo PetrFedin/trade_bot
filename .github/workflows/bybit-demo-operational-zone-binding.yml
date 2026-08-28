@@ -3,15 +3,19 @@ name: bybit-demo-operational-zone-binding
 on:
   pull_request:
     paths:
+      - 'app/execution/bybit_demo_operational_database_identity.py'
       - 'app/execution/bybit_demo_operational_zone_binding.py'
       - 'app/execution/bybit_demo_operational_release_zone_binding.py'
+      - 'app/execution/bybit_demo_operational_release_logical_db_binding.py'
       - 'tools/probe_bybit_demo_operational_zone_binding.py'
       - 'tools/assemble_bybit_demo_operational_release_evidence.py'
       - 'tests/test_bybit_demo_operational_zone_binding.py'
       - 'tests/test_probe_bybit_demo_operational_zone_binding.py'
       - 'tests/test_bybit_demo_operational_release_zone_binding.py'
+      - 'tests/test_bybit_demo_operational_release_logical_db_binding.py'
       - 'tests/test_bybit_demo_operational_zone_binding_workflows.py'
       - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE_BINDING.md'
+      - 'docs/BYBIT_DEMO_LOGICAL_DATABASE_IDENTITY_V124.md'
       - '.github/workflows/bybit-demo-operational-zone-binding.yml'
       - '.github/workflows/bybit-demo-activation-readiness.yml'
       - '.github/workflows/bybit-demo-session-start.yml'
@@ -23,15 +27,19 @@ on:
   push:
     branches: [main]
     paths:
+      - 'app/execution/bybit_demo_operational_database_identity.py'
       - 'app/execution/bybit_demo_operational_zone_binding.py'
       - 'app/execution/bybit_demo_operational_release_zone_binding.py'
+      - 'app/execution/bybit_demo_operational_release_logical_db_binding.py'
       - 'tools/probe_bybit_demo_operational_zone_binding.py'
       - 'tools/assemble_bybit_demo_operational_release_evidence.py'
       - 'tests/test_bybit_demo_operational_zone_binding.py'
       - 'tests/test_probe_bybit_demo_operational_zone_binding.py'
       - 'tests/test_bybit_demo_operational_release_zone_binding.py'
+      - 'tests/test_bybit_demo_operational_release_logical_db_binding.py'
       - 'tests/test_bybit_demo_operational_zone_binding_workflows.py'
       - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE_BINDING.md'
+      - 'docs/BYBIT_DEMO_LOGICAL_DATABASE_IDENTITY_V124.md'
       - '.github/workflows/bybit-demo-operational-zone-binding.yml'
       - '.github/workflows/bybit-demo-activation-readiness.yml'
       - '.github/workflows/bybit-demo-session-start.yml'
@@ -68,31 +76,39 @@ jobs:
             tests/test_bybit_demo_operational_zone_binding.py \
             tests/test_probe_bybit_demo_operational_zone_binding.py \
             tests/test_bybit_demo_operational_release_zone_binding.py \
+            tests/test_bybit_demo_operational_release_logical_db_binding.py \
             tests/test_bybit_demo_operational_zone_binding_workflows.py
       - name: Full deterministic regression
         run: pytest -q
       - name: Ruff operational zone boundary
         run: |
           ruff check \
+            app/execution/bybit_demo_operational_database_identity.py \
             app/execution/bybit_demo_operational_zone_binding.py \
             app/execution/bybit_demo_operational_release_zone_binding.py \
+            app/execution/bybit_demo_operational_release_logical_db_binding.py \
             tools/probe_bybit_demo_operational_zone_binding.py \
             tools/assemble_bybit_demo_operational_release_evidence.py \
             tests/test_bybit_demo_operational_zone_binding.py \
             tests/test_probe_bybit_demo_operational_zone_binding.py \
             tests/test_bybit_demo_operational_release_zone_binding.py \
+            tests/test_bybit_demo_operational_release_logical_db_binding.py \
             tests/test_bybit_demo_operational_zone_binding_workflows.py
       - name: Bandit operational zone boundary
         run: |
           bandit -q \
+            app/execution/bybit_demo_operational_database_identity.py \
             app/execution/bybit_demo_operational_zone_binding.py \
             app/execution/bybit_demo_operational_release_zone_binding.py \
+            app/execution/bybit_demo_operational_release_logical_db_binding.py \
             tools/probe_bybit_demo_operational_zone_binding.py \
             tools/assemble_bybit_demo_operational_release_evidence.py
       - name: Compile operational zone boundary
         run: |
           python -m compileall -q \
+            app/execution/bybit_demo_operational_database_identity.py \
             app/execution/bybit_demo_operational_zone_binding.py \
             app/execution/bybit_demo_operational_release_zone_binding.py \
+            app/execution/bybit_demo_operational_release_logical_db_binding.py \
             tools/probe_bybit_demo_operational_zone_binding.py \
             tools/assemble_bybit_demo_operational_release_evidence.py
