@@ -20,9 +20,13 @@ def test_readiness_emits_database_and_account_zone_sidecar() -> None:
 
 def test_session_sidecars_bind_database_only_for_both_modes() -> None:
     text = _workflow("bybit-demo-session-start.yml")
+    secret_binding = (
+        "BYBIT_DEMO_ZONE_BINDING_SECRET: "
+        "${{ secrets.BYBIT_DEMO_ZONE_BINDING_SECRET }}"
+    )
 
     assert text.count("--producer session_start") == 2
-    assert text.count("BYBIT_DEMO_ZONE_BINDING_SECRET: ${{ secrets.BYBIT_DEMO_ZONE_BINDING_SECRET }}") == 2
+    assert text.count(secret_binding) == 2
     assert "--include-demo-account" not in text
     assert text.count("artifacts/bybit-demo-operational-zone-binding.json") >= 4
 
