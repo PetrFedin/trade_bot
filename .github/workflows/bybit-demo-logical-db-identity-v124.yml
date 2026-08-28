@@ -1,0 +1,139 @@
+name: bybit-demo-logical-db-identity-v124
+
+on:
+  pull_request:
+    paths:
+      - 'migrations/v124/**'
+      - 'app/execution/bybit_demo_operational_database_identity.py'
+      - 'app/execution/bybit_demo_postgres_bootstrap.py'
+      - 'app/execution/bybit_demo_activation_readiness_v124.py'
+      - 'app/execution/bybit_demo_operational_zone_binding.py'
+      - 'app/execution/bybit_demo_operational_release_logical_db_binding.py'
+      - 'tools/bootstrap_bybit_demo_postgres.py'
+      - 'tools/assemble_bybit_demo_activation_readiness.py'
+      - 'tools/probe_bybit_demo_operational_zone_binding.py'
+      - 'tools/assemble_bybit_demo_operational_release_evidence.py'
+      - 'tests/test_bybit_demo_postgres_bootstrap.py'
+      - 'tests/test_bybit_demo_activation_readiness_v124.py'
+      - 'tests/test_bybit_demo_operational_zone_binding.py'
+      - 'tests/test_probe_bybit_demo_operational_zone_binding.py'
+      - 'tests/test_bybit_demo_operational_release_logical_db_binding.py'
+      - 'docs/BYBIT_DEMO_LOGICAL_DATABASE_IDENTITY_V124.md'
+      - '.github/workflows/bybit-demo-logical-db-identity-v124.yml'
+      - '.github/workflows/bybit-demo-postgres-bootstrap.yml'
+      - '.github/workflows/bybit-demo-activation-readiness.yml'
+      - '.github/workflows/bybit-demo-operational-zone-binding.yml'
+      - '.github/workflows/bybit-demo-operational-release-evidence.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'migrations/v124/**'
+      - 'app/execution/bybit_demo_operational_database_identity.py'
+      - 'app/execution/bybit_demo_postgres_bootstrap.py'
+      - 'app/execution/bybit_demo_activation_readiness_v124.py'
+      - 'app/execution/bybit_demo_operational_zone_binding.py'
+      - 'app/execution/bybit_demo_operational_release_logical_db_binding.py'
+      - 'tools/bootstrap_bybit_demo_postgres.py'
+      - 'tools/assemble_bybit_demo_activation_readiness.py'
+      - 'tools/probe_bybit_demo_operational_zone_binding.py'
+      - 'tools/assemble_bybit_demo_operational_release_evidence.py'
+      - 'tests/test_bybit_demo_postgres_bootstrap.py'
+      - 'tests/test_bybit_demo_activation_readiness_v124.py'
+      - 'tests/test_bybit_demo_operational_zone_binding.py'
+      - 'tests/test_probe_bybit_demo_operational_zone_binding.py'
+      - 'tests/test_bybit_demo_operational_release_logical_db_binding.py'
+      - 'docs/BYBIT_DEMO_LOGICAL_DATABASE_IDENTITY_V124.md'
+      - '.github/workflows/bybit-demo-logical-db-identity-v124.yml'
+      - '.github/workflows/bybit-demo-postgres-bootstrap.yml'
+      - '.github/workflows/bybit-demo-activation-readiness.yml'
+      - '.github/workflows/bybit-demo-operational-zone-binding.yml'
+      - '.github/workflows/bybit-demo-operational-release-evidence.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-demo-logical-db-identity-v124-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra
+          POSTGRES_DB: astra_demo_v124_identity
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra_demo_v124_identity"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ASTRA_DEMO_BOOTSTRAP_TEST_DSN: postgresql://astra:astra@localhost:5432/astra_demo_v124_identity
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev,postgresql]'
+          python -m pip check
+      - name: v124 PostgreSQL identity lifecycle and release gates
+        run: |
+          pytest -q \
+            tests/test_bybit_demo_postgres_bootstrap.py \
+            tests/test_bybit_demo_activation_readiness_v124.py \
+            tests/test_bybit_demo_operational_zone_binding.py \
+            tests/test_probe_bybit_demo_operational_zone_binding.py \
+            tests/test_bybit_demo_operational_release_logical_db_binding.py
+      - name: Full deterministic regression
+        run: pytest -q
+      - name: Ruff v124 logical database identity boundary
+        run: |
+          ruff check \
+            app/execution/bybit_demo_operational_database_identity.py \
+            app/execution/bybit_demo_postgres_bootstrap.py \
+            app/execution/bybit_demo_activation_readiness_v124.py \
+            app/execution/bybit_demo_operational_zone_binding.py \
+            app/execution/bybit_demo_operational_release_logical_db_binding.py \
+            tools/bootstrap_bybit_demo_postgres.py \
+            tools/assemble_bybit_demo_activation_readiness.py \
+            tools/probe_bybit_demo_operational_zone_binding.py \
+            tools/assemble_bybit_demo_operational_release_evidence.py \
+            tests/test_bybit_demo_postgres_bootstrap.py \
+            tests/test_bybit_demo_activation_readiness_v124.py \
+            tests/test_bybit_demo_operational_zone_binding.py \
+            tests/test_probe_bybit_demo_operational_zone_binding.py \
+            tests/test_bybit_demo_operational_release_logical_db_binding.py
+      - name: Bandit v124 logical database identity boundary
+        run: |
+          bandit -q \
+            app/execution/bybit_demo_operational_database_identity.py \
+            app/execution/bybit_demo_postgres_bootstrap.py \
+            app/execution/bybit_demo_activation_readiness_v124.py \
+            app/execution/bybit_demo_operational_zone_binding.py \
+            app/execution/bybit_demo_operational_release_logical_db_binding.py \
+            tools/bootstrap_bybit_demo_postgres.py \
+            tools/assemble_bybit_demo_activation_readiness.py \
+            tools/probe_bybit_demo_operational_zone_binding.py \
+            tools/assemble_bybit_demo_operational_release_evidence.py
+      - name: Compile v124 logical database identity boundary
+        run: |
+          python -m compileall -q \
+            app/execution/bybit_demo_operational_database_identity.py \
+            app/execution/bybit_demo_postgres_bootstrap.py \
+            app/execution/bybit_demo_activation_readiness_v124.py \
+            app/execution/bybit_demo_operational_zone_binding.py \
+            app/execution/bybit_demo_operational_release_logical_db_binding.py \
+            tools/bootstrap_bybit_demo_postgres.py \
+            tools/assemble_bybit_demo_activation_readiness.py \
+            tools/probe_bybit_demo_operational_zone_binding.py \
+            tools/assemble_bybit_demo_operational_release_evidence.py
