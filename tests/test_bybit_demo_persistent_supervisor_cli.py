@@ -30,8 +30,36 @@ def test_startup_failure_artifact_exposes_only_exception_type(monkeypatch, tmp_p
     payload = json.loads(text)
     assert payload["status"] == "STARTUP_BLOCKED"
     assert payload["error_type"] == "RuntimeError"
+    assert payload["demo_account_identity_verified"] is False
     assert secret_marker not in text
     assert "super-secret" not in text
+
+
+def test_main_marks_successful_cycle_as_same_account_verified(monkeypatch, tmp_path) -> None:
+    dependencies = SimpleNamespace(same_account_verified=True)
+    result = BybitDemoPersistentSupervisorResult(
+        status=BybitDemoPersistentSupervisorStatus.IDLE_NO_ACTIVE_TRADE,
+        reasons=(),
+        active_symbol=None,
+        runtime=None,
+        session_risk=None,
+        new_entry_attempted=False,
+    )
+    monkeypatch.setattr(
+        supervisor_cli,
+        "_build_dependencies_from_environment",
+        lambda: dependencies,
+    )
+    monkeypatch.setattr(supervisor_cli, "_run_one_cycle", lambda _deps: result)
+    output = tmp_path / "supervisor.json"
+
+    code = supervisor_cli.main(["--mode", "once", "--output", str(output)])
+
+    assert code == 0
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["status"] == "IDLE_NO_ACTIVE_TRADE"
+    assert payload["demo_account_identity_verified"] is True
+    assert payload["new_entry_attempted"] is False
 
 
 def test_status_payload_does_not_expose_equity_or_durable_revision() -> None:
