@@ -1,0 +1,94 @@
+name: bybit-demo-operational-zone-binding
+
+on:
+  pull_request:
+    paths:
+      - 'app/execution/bybit_demo_operational_zone_binding.py'
+      - 'app/execution/bybit_demo_operational_release_zone_binding.py'
+      - 'tools/probe_bybit_demo_operational_zone_binding.py'
+      - 'tools/assemble_bybit_demo_operational_release_evidence.py'
+      - 'tests/test_bybit_demo_operational_zone_binding.py'
+      - 'tests/test_probe_bybit_demo_operational_zone_binding.py'
+      - 'tests/test_bybit_demo_operational_release_zone_binding.py'
+      - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE_BINDING.md'
+      - '.github/workflows/bybit-demo-operational-zone-binding.yml'
+      - '.github/workflows/bybit-demo-activation-readiness.yml'
+      - '.github/workflows/bybit-demo-session-start.yml'
+      - '.github/workflows/bybit-demo-persistent-supervisor.yml'
+      - '.github/workflows/bybit-demo-control-plane.yml'
+      - '.github/workflows/bybit-operator-approved-demo-execution.yml'
+      - '.github/workflows/bybit-demo-runtime-lease-recovery.yml'
+      - '.github/workflows/bybit-demo-operational-release-evidence.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/execution/bybit_demo_operational_zone_binding.py'
+      - 'app/execution/bybit_demo_operational_release_zone_binding.py'
+      - 'tools/probe_bybit_demo_operational_zone_binding.py'
+      - 'tools/assemble_bybit_demo_operational_release_evidence.py'
+      - 'tests/test_bybit_demo_operational_zone_binding.py'
+      - 'tests/test_probe_bybit_demo_operational_zone_binding.py'
+      - 'tests/test_bybit_demo_operational_release_zone_binding.py'
+      - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE_BINDING.md'
+      - '.github/workflows/bybit-demo-operational-zone-binding.yml'
+      - '.github/workflows/bybit-demo-activation-readiness.yml'
+      - '.github/workflows/bybit-demo-session-start.yml'
+      - '.github/workflows/bybit-demo-persistent-supervisor.yml'
+      - '.github/workflows/bybit-demo-control-plane.yml'
+      - '.github/workflows/bybit-operator-approved-demo-execution.yml'
+      - '.github/workflows/bybit-demo-runtime-lease-recovery.yml'
+      - '.github/workflows/bybit-demo-operational-release-evidence.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-demo-operational-zone-binding-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev,postgresql]'
+          python -m pip check
+      - name: Operational zone binding proof
+        run: |
+          pytest -q \
+            tests/test_bybit_demo_operational_zone_binding.py \
+            tests/test_probe_bybit_demo_operational_zone_binding.py \
+            tests/test_bybit_demo_operational_release_zone_binding.py
+      - name: Full deterministic regression
+        run: pytest -q
+      - name: Ruff operational zone boundary
+        run: |
+          ruff check \
+            app/execution/bybit_demo_operational_zone_binding.py \
+            app/execution/bybit_demo_operational_release_zone_binding.py \
+            tools/probe_bybit_demo_operational_zone_binding.py \
+            tools/assemble_bybit_demo_operational_release_evidence.py \
+            tests/test_bybit_demo_operational_zone_binding.py \
+            tests/test_probe_bybit_demo_operational_zone_binding.py \
+            tests/test_bybit_demo_operational_release_zone_binding.py
+      - name: Bandit operational zone boundary
+        run: |
+          bandit -q \
+            app/execution/bybit_demo_operational_zone_binding.py \
+            app/execution/bybit_demo_operational_release_zone_binding.py \
+            tools/probe_bybit_demo_operational_zone_binding.py \
+            tools/assemble_bybit_demo_operational_release_evidence.py
+      - name: Compile operational zone boundary
+        run: |
+          python -m compileall -q \
+            app/execution/bybit_demo_operational_zone_binding.py \
+            app/execution/bybit_demo_operational_release_zone_binding.py \
+            tools/probe_bybit_demo_operational_zone_binding.py \
+            tools/assemble_bybit_demo_operational_release_evidence.py
