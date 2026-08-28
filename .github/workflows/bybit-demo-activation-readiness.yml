@@ -4,12 +4,15 @@ on:
   pull_request:
     paths:
       - 'app/execution/bybit_demo_activation_readiness.py'
+      - 'app/execution/bybit_demo_same_account.py'
       - 'app/execution/bybit_demo_postgres_bootstrap.py'
       - 'app/execution/bybit_demo_postgres_session_risk_store.py'
       - 'migrations/v122/**'
       - 'migrations/v123/**'
       - 'tools/assemble_bybit_demo_activation_readiness.py'
+      - 'tools/probe_bybit_demo_same_account.py'
       - 'tests/test_bybit_demo_activation_readiness.py'
+      - 'tests/test_bybit_demo_same_account.py'
       - 'tests/test_bybit_demo_postgres_session_risk_store.py'
       - 'docs/BYBIT_DEMO_ACTIVATION_READINESS.md'
       - 'docs/BYBIT_DEMO_POSTGRES_SESSION_RISK.md'
@@ -18,12 +21,15 @@ on:
     branches: [main]
     paths:
       - 'app/execution/bybit_demo_activation_readiness.py'
+      - 'app/execution/bybit_demo_same_account.py'
       - 'app/execution/bybit_demo_postgres_bootstrap.py'
       - 'app/execution/bybit_demo_postgres_session_risk_store.py'
       - 'migrations/v122/**'
       - 'migrations/v123/**'
       - 'tools/assemble_bybit_demo_activation_readiness.py'
+      - 'tools/probe_bybit_demo_same_account.py'
       - 'tests/test_bybit_demo_activation_readiness.py'
+      - 'tests/test_bybit_demo_same_account.py'
       - 'tests/test_bybit_demo_postgres_session_risk_store.py'
       - 'docs/BYBIT_DEMO_ACTIVATION_READINESS.md'
       - 'docs/BYBIT_DEMO_POSTGRES_SESSION_RISK.md'
@@ -52,25 +58,34 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[dev]'
           python -m pip check
-      - name: Activation readiness tests
+      - name: Activation readiness and same-account tests
         run: |
-          pytest -q tests/test_bybit_demo_activation_readiness.py
+          pytest -q \
+            tests/test_bybit_demo_activation_readiness.py \
+            tests/test_bybit_demo_same_account.py
       - name: Ruff activation readiness
         run: |
           ruff check \
             app/execution/bybit_demo_activation_readiness.py \
+            app/execution/bybit_demo_same_account.py \
             tools/assemble_bybit_demo_activation_readiness.py \
-            tests/test_bybit_demo_activation_readiness.py
+            tools/probe_bybit_demo_same_account.py \
+            tests/test_bybit_demo_activation_readiness.py \
+            tests/test_bybit_demo_same_account.py
       - name: Bandit activation readiness
         run: |
           bandit -q \
             app/execution/bybit_demo_activation_readiness.py \
-            tools/assemble_bybit_demo_activation_readiness.py
+            app/execution/bybit_demo_same_account.py \
+            tools/assemble_bybit_demo_activation_readiness.py \
+            tools/probe_bybit_demo_same_account.py
       - name: Compile activation readiness
         run: |
           python -m compileall -q \
             app/execution/bybit_demo_activation_readiness.py \
-            tools/assemble_bybit_demo_activation_readiness.py
+            app/execution/bybit_demo_same_account.py \
+            tools/assemble_bybit_demo_activation_readiness.py \
+            tools/probe_bybit_demo_same_account.py
 
   operational-readiness:
     if: github.event_name == 'workflow_dispatch'
@@ -119,6 +134,18 @@ jobs:
           python -m tools.probe_bybit_demo_trading_credential_preflight \
             --output artifacts/bybit-demo-trading-credential-preflight.json
 
+      - name: Prove Demo read-only and trading keys belong to one account
+        continue-on-error: true
+        env:
+          BYBIT_DEMO_READONLY_API_KEY: ${{ secrets.BYBIT_DEMO_READONLY_API_KEY }}
+          BYBIT_DEMO_READONLY_API_SECRET: ${{ secrets.BYBIT_DEMO_READONLY_API_SECRET }}
+          BYBIT_DEMO_TRADING_API_KEY: ${{ secrets.BYBIT_DEMO_TRADING_API_KEY }}
+          BYBIT_DEMO_TRADING_API_SECRET: ${{ secrets.BYBIT_DEMO_TRADING_API_SECRET }}
+        run: |
+          python -m tools.probe_bybit_demo_same_account \
+            --git-sha "$GITHUB_SHA" \
+            --output artifacts/bybit-demo-same-account-preflight.json
+
       - name: Read v121 control status without ARM or HALT mutation
         continue-on-error: true
         env:
@@ -135,6 +162,7 @@ jobs:
             --postgres artifacts/bybit-demo-postgres-bootstrap.json \
             --connected-preflight artifacts/bybit-demo-connected-preflight.json \
             --trading-credential artifacts/bybit-demo-trading-credential-preflight.json \
+            --same-account artifacts/bybit-demo-same-account-preflight.json \
             --control-status artifacts/bybit-demo-control-status.json \
             --output artifacts/bybit-demo-activation-readiness.json
 
@@ -147,6 +175,7 @@ jobs:
             artifacts/bybit-demo-postgres-bootstrap.json
             artifacts/bybit-demo-connected-preflight.json
             artifacts/bybit-demo-trading-credential-preflight.json
+            artifacts/bybit-demo-same-account-preflight.json
             artifacts/bybit-demo-control-status.json
             artifacts/bybit-demo-activation-readiness.json
           if-no-files-found: error
