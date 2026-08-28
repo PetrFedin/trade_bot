@@ -3,7 +3,7 @@ from __future__ import annotations
 import hmac
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Mapping
+from typing import Any
 
 from app.execution.bybit_demo_account_reader import BybitDemoAccountingClient
 from app.execution.bybit_rest_policy import BybitRestProtocolError
@@ -148,7 +148,9 @@ def require_same_bybit_demo_account(
 ) -> BybitDemoSameAccountProof:
     proof = prove_same_bybit_demo_account(readonly_inspector, trading_inspector)
     if not proof.passed:
-        raise RuntimeError("Bybit Demo read-only and trading credentials belong to different accounts")
+        raise RuntimeError(
+            "Bybit Demo read-only and trading credentials belong to different accounts"
+        )
     return proof
 
 
