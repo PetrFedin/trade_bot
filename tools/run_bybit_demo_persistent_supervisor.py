@@ -35,6 +35,10 @@ from app.execution.bybit_demo_postgres_session_risk_store import (
 from app.execution.bybit_demo_postgres_terminal_evidence_store import (
     PostgresBybitDemoTerminalEvidenceStore,
 )
+from app.execution.bybit_demo_same_account import (
+    BybitDemoAccountIdentityInspector,
+    require_same_bybit_demo_account,
+)
 from app.execution.bybit_demo_session_risk_flatten import BybitDemoSessionRiskFlattenPolicy
 from app.execution.bybit_demo_session_risk_runtime import (
     PostgresBybitDemoSessionRiskCommitter,
@@ -70,6 +74,7 @@ class _SupervisorDependencies:
     session_risk_committer: PostgresBybitDemoSessionRiskCommitter
     session_risk_observer: PostgresBybitDemoSessionRiskObserver
     managed_policy: BybitDemoManagedTradePollPolicy
+    same_account_verified: bool
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -99,6 +104,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             result = _run_one_cycle(dependencies)
             payload = _result_payload(result)
+            payload["demo_account_identity_verified"] = dependencies.same_account_verified
         except Exception as exc:  # noqa: BLE001 - process must stop on unknown management state.
             payload = _cycle_failure_payload(exc)
             _emit(payload, output=args.output)
@@ -118,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
             "schema": "BYBIT_DEMO_PERSISTENT_SUPERVISOR_V1",
             "status": "STOPPED_BEFORE_FIRST_CYCLE",
             "blocked": False,
+            "demo_account_identity_verified": dependencies.same_account_verified,
             "live_mainnet_order_routing_allowed": False,
         }
         _emit(last_payload, output=args.output)
@@ -165,6 +172,17 @@ def _build_dependencies_from_environment() -> _SupervisorDependencies:
         detail = ",".join(credential.reasons) or "TRADING_CREDENTIAL_BLOCKED"
         raise RuntimeError(f"Bybit Demo trading credential preflight blocked:{detail}")
 
+    same_account = require_same_bybit_demo_account(
+        BybitDemoAccountIdentityInspector(
+            api_key=readonly_key,
+            api_secret=readonly_secret,
+        ),
+        BybitDemoAccountIdentityInspector(
+            api_key=trading_key,
+            api_secret=trading_secret,
+        ),
+    )
+
     session_store = PostgresBybitDemoSessionRiskLedgerStore(dsn)
     session_store.load_active()
 
@@ -194,6 +212,7 @@ def _build_dependencies_from_environment() -> _SupervisorDependencies:
                 writes_enabled=True,
             ),
         ),
+        same_account_verified=same_account.passed,
     )
 
 
@@ -266,6 +285,7 @@ def _startup_failure_payload(exc: Exception) -> dict[str, Any]:
         "status": "STARTUP_BLOCKED",
         "blocked": True,
         "error_type": type(exc).__name__,
+        "demo_account_identity_verified": False,
         "new_entry_attempted": False,
         "autonomous_entry_allowed": False,
         "live_mainnet_order_routing_allowed": False,
@@ -278,6 +298,7 @@ def _cycle_failure_payload(exc: Exception) -> dict[str, Any]:
         "status": "CYCLE_BLOCKED",
         "blocked": True,
         "error_type": type(exc).__name__,
+        "demo_account_identity_verified": False,
         "new_entry_attempted": False,
         "autonomous_entry_allowed": False,
         "live_mainnet_order_routing_allowed": False,

@@ -27,7 +27,11 @@ def _fake_evidence(status: BybitDemoOperationalEntryStatus):
 
 def test_main_writes_allowlisted_success_evidence(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(cli, "_environment_from_process", lambda: object())
-    monkeypatch.setattr(cli, "_build_dependencies", lambda _environment: object())
+    monkeypatch.setattr(
+        cli,
+        "_build_dependencies",
+        lambda _environment: SimpleNamespace(same_account_verified=True),
+    )
     monkeypatch.setattr(
         cli,
         "_run_once",
@@ -53,6 +57,7 @@ def test_main_writes_allowlisted_success_evidence(monkeypatch, tmp_path) -> None
     assert code == 0
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["status"] == "ENTRY_CYCLE_COMPLETE"
+    assert payload["demo_account_identity_verified"] is True
     assert payload["live_mainnet_order_routing_allowed"] is False
 
 
@@ -84,6 +89,7 @@ def test_startup_failure_never_leaks_exception_text(monkeypatch, tmp_path) -> No
     payload = json.loads(text)
     assert payload["status"] == "STARTUP_BLOCKED"
     assert payload["error_type"] == "RuntimeError"
+    assert payload["demo_account_identity_verified"] is False
     assert payload["automatic_arm_allowed"] is False
     assert payload["ranked_fallback_allowed"] is False
     assert payload["same_invocation_additional_entry_allowed"] is False
@@ -146,6 +152,7 @@ def test_run_once_pins_existing_arm_before_creating_approval(monkeypatch) -> Non
         session_risk_committer=object(),
         terminal_evidence_store=object(),
         managed_policy=object(),
+        same_account_verified=True,
     )
     environment = cli._OperationalEnvironment(
         demo_database_dsn="postgresql://demo",

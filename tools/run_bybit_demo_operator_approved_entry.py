@@ -45,6 +45,10 @@ from app.execution.bybit_demo_postgres_session_risk_store import (
 from app.execution.bybit_demo_postgres_terminal_evidence_store import (
     PostgresBybitDemoTerminalEvidenceStore,
 )
+from app.execution.bybit_demo_same_account import (
+    BybitDemoAccountIdentityInspector,
+    require_same_bybit_demo_account,
+)
 from app.execution.bybit_demo_session_risk_flatten import BybitDemoSessionRiskFlattenPolicy
 from app.execution.bybit_demo_session_risk_runtime import (
     PostgresBybitDemoSessionRiskCommitter,
@@ -115,6 +119,7 @@ class _OperationalDependencies:
     quote_client: BybitEntryReferenceQuoteClient
     order_client: OmsAwareBybitDemoStopRatchetClient
     managed_policy: BybitDemoManagedTradePollPolicy
+    same_account_verified: bool
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -145,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
         dependencies = _build_dependencies(environment)
         evidence = _run_once(inputs, environment, dependencies)
         payload = evidence.to_payload()
+        payload["demo_account_identity_verified"] = dependencies.same_account_verified
     except Exception as exc:  # noqa: BLE001 - output is intentionally allowlisted and sanitized.
         payload = _failure_payload(exc)
         _emit(payload, output=args.output)
@@ -174,6 +180,17 @@ def _build_dependencies(environment: _OperationalEnvironment) -> _OperationalDep
     )
     if not credential.passed:
         raise RuntimeError("Bybit Demo trading credential preflight is blocked")
+
+    same_account = require_same_bybit_demo_account(
+        BybitDemoAccountIdentityInspector(
+            api_key=environment.readonly_api_key,
+            api_secret=environment.readonly_api_secret,
+        ),
+        BybitDemoAccountIdentityInspector(
+            api_key=environment.trading_api_key,
+            api_secret=environment.trading_api_secret,
+        ),
+    )
 
     session_store = PostgresBybitDemoSessionRiskLedgerStore(environment.demo_database_dsn)
     session_store.load_active()
@@ -223,6 +240,7 @@ def _build_dependencies(environment: _OperationalEnvironment) -> _OperationalDep
         ),
         order_client=order_client,
         managed_policy=_managed_policy(),
+        same_account_verified=same_account.passed,
     )
 
 
@@ -358,6 +376,7 @@ def _failure_payload(exc: Exception) -> dict[str, Any]:
         "status": "STARTUP_BLOCKED",
         "blocked": True,
         "error_type": type(exc).__name__,
+        "demo_account_identity_verified": False,
         "same_invocation_additional_entry_allowed": False,
         "automatic_arm_allowed": False,
         "ranked_fallback_allowed": False,

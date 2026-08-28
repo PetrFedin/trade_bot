@@ -22,6 +22,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--postgres", required=True)
     parser.add_argument("--connected-preflight", required=True)
     parser.add_argument("--trading-credential", required=True)
+    parser.add_argument("--same-account", required=True)
     parser.add_argument("--control-status", required=True)
     parser.add_argument(
         "--output",
@@ -46,6 +47,7 @@ def _failure(error_type: str, *, git_sha: str) -> dict[str, Any]:
         "passed": False,
         "reasons": ["READINESS_EVIDENCE_INVALID"],
         "git_sha": git_sha if len(git_sha) == 40 else "INVALID",
+        "demo_account_identity_verified": False,
         "ready_for_explicit_arm": False,
         "ready_for_exact_trade_approval": False,
         "operator_action_required": True,
@@ -64,17 +66,20 @@ def main() -> int:
         postgres, postgres_sha = load_json_evidence(args.postgres)
         connected, connected_sha = load_json_evidence(args.connected_preflight)
         credential, credential_sha = load_json_evidence(args.trading_credential)
+        same_account, same_account_sha = load_json_evidence(args.same_account)
         control, control_sha = load_json_evidence(args.control_status)
         result = assemble_bybit_demo_activation_readiness(
             git_sha=args.git_sha,
             postgres_payload=postgres,
             connected_preflight_payload=connected,
             trading_credential_payload=credential,
+            same_account_payload=same_account,
             control_status_payload=control,
             evidence_sha256={
                 "postgres": postgres_sha,
                 "connected": connected_sha,
                 "credential": credential_sha,
+                "same_account": same_account_sha,
                 "control": control_sha,
             },
         )
