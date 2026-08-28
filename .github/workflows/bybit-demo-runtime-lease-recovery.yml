@@ -192,11 +192,21 @@ jobs:
             --process-stop-evidence "$RECOVERY_PROCESS_STOP_EVIDENCE" \
             --confirmation "$RECOVERY_CONFIRMATION" \
             --output artifacts/bybit-demo-runtime-lease-recovery.json
+      - name: Bind recovery run to protected operational database
+        env:
+          BYBIT_DEMO_ZONE_BINDING_SECRET: ${{ secrets.BYBIT_DEMO_ZONE_BINDING_SECRET }}
+        run: |
+          python -m tools.probe_bybit_demo_operational_zone_binding \
+            --producer recovery_receipt \
+            --git-sha "$GITHUB_SHA" \
+            --output artifacts/bybit-demo-operational-zone-binding.json
       - name: Upload sanitized recovery artifact
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: bybit-demo-runtime-lease-recovery-${{ github.run_id }}
-          path: artifacts/bybit-demo-runtime-lease-recovery.json
+          path: |
+            artifacts/bybit-demo-runtime-lease-recovery.json
+            artifacts/bybit-demo-operational-zone-binding.json
           if-no-files-found: error
           retention-days: 30
