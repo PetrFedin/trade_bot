@@ -66,6 +66,8 @@ Typical statuses:
 - `BLOCKED` — schema is not ready or the latest control event is not an explicit HALT.
 - `RECOVERY_REQUIRED` — a lease exists and explicit HALT is present. The artifact contains the exact `lease_owner_sha256` fingerprint that must be supplied to recovery.
 
+When an active checkpoint exists, inspection also exposes only `active_checkpoint_entry_order_link_id_sha256`, never the raw runtime owner token. This digest is derived from the durable v119 checkpoint identity and is later copied from the immutable v123 audit into the recovery receipt.
+
 The inspection artifact does not expose the raw owner token, DSN, database identity, API credentials, position quantity, price, equity, or PnL.
 
 ## Recovery
@@ -85,7 +87,9 @@ python -m tools.recover_bybit_demo_runtime_lease \
 
 A wrong confirmation or changed fingerprint is fail-closed and leaves the lease untouched.
 
-If the first caller loses the response after a committed recovery, retrying with the same old owner fingerprint returns `ALREADY_RECOVERED` from the immutable v123 journal instead of attempting another delete.
+A successful receipt carries `active_checkpoint_present` and `active_checkpoint_entry_order_link_id_sha256`. The digest is the exact value persisted in the append-only v123 recovery audit at the moment of recovery. If no checkpoint existed, the boolean is false and the digest is null.
+
+If the first caller loses the response after a committed recovery, retrying with the same old owner fingerprint returns `ALREADY_RECOVERED` from the immutable v123 journal instead of attempting another delete. The replay rehydrates the same checkpoint-presence flag and checkpoint identity digest from that existing audit record; it does not recompute them from current runtime state.
 
 ## GitHub Actions
 
@@ -107,6 +111,10 @@ Do not immediately ARM a new entry.
 2. Re-run connected Demo read-only preflight.
 3. If an active checkpoint exists, require a matching real Demo position/execution and resume the persistent supervisor.
 4. If there is no checkpoint/position, remain HALTED until a separate deliberate new-entry workflow performs fresh connected preflight, short-lived ARM, fresh operator approval, and immutable pre-submit authorization.
+
+## Relation to operational release proof
+
+Lease recovery and release-drill proof are intentionally different contracts. Recovery may legitimately free an orphaned lease with no active checkpoint. The higher-level `BYBIT_DEMO_OPERATIONAL_RELEASE_EVIDENCE_V1` gate is stricter when claiming `RECOVERY_DRILL_PROVEN`: it requires the recovery receipt to contain an active checkpoint digest equal to `SHA256(entry_order_link_id)` from the exact operator-approved entry artifact in the same evidence chain. This prevents a valid recovery of another orphaned runtime from being reused as proof for the approved trade under review.
 
 ## What this does not prove
 
