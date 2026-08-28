@@ -87,7 +87,10 @@ def test_legacy_v1_zone_sidecar_is_rejected(monkeypatch) -> None:
 
     assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
     assert result.operational_zone_binding_verified is False
-    assert "OPERATIONAL_ZONE_V124_SCHEMA_INVALID:activation_readiness" in result.base.reasons
+    assert (
+        "OPERATIONAL_ZONE_V124_SCHEMA_INVALID:activation_readiness"
+        in result.base.reasons
+    )
 
 
 def test_sidecar_without_verified_logical_identity_is_rejected(monkeypatch) -> None:
@@ -100,7 +103,10 @@ def test_sidecar_without_verified_logical_identity_is_rejected(monkeypatch) -> N
     )
 
     assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
-    assert "OPERATIONAL_ZONE_LOGICAL_DB_IDENTITY_MISSING:activation_readiness" in result.base.reasons
+    assert (
+        "OPERATIONAL_ZONE_LOGICAL_DB_IDENTITY_MISSING:activation_readiness"
+        in result.base.reasons
+    )
 
 
 def test_v124_reason_is_preserved_when_legacy_zone_gate_already_blocked(monkeypatch) -> None:
@@ -137,5 +143,11 @@ def test_v124_reason_is_preserved_when_legacy_zone_gate_already_blocked(monkeypa
 
     assert result.stage is BybitDemoOperationalReleaseStage.BLOCKED
     assert "OPERATIONAL_ZONE_DATABASE_DRIFT" in result.base.reasons
-    assert "OPERATIONAL_ZONE_V124_SCHEMA_INVALID:activation_readiness" in result.base.reasons
-    assert "OPERATIONAL_ZONE_LOGICAL_DB_IDENTITY_MISSING:activation_readiness" in result.base.reasons
+    assert (
+        "OPERATIONAL_ZONE_V124_SCHEMA_INVALID:activation_readiness"
+        in result.base.reasons
+    )
+    assert (
+        "OPERATIONAL_ZONE_LOGICAL_DB_IDENTITY_MISSING:activation_readiness"
+        in result.base.reasons
+    )
