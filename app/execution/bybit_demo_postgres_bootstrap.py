@@ -18,7 +18,12 @@ try:
 except ImportError:  # pragma: no cover - optional dependency boundary
     psycopg = None
 
-_CONFIRMATION_PHRASE = "APPLY_BYBIT_DEMO_V119_V124"
+_CONFIRMATION_PHRASES = frozenset(
+    {
+        "APPLY_BYBIT_DEMO_V119_V123",
+        "APPLY_BYBIT_DEMO_V119_V124",
+    }
+)
 _ADVISORY_LOCK_KEY = 119124
 _CONTROL_RELATION = "astra_bybit_demo_control_event_v121"
 _CONTROL_TRIGGERS = (
@@ -157,7 +162,7 @@ def apply_bybit_demo_postgres_bootstrap(
 ) -> BybitDemoPostgresBootstrapResult:
     """Apply exactly v119 through v124 under a session advisory lock and verify."""
 
-    if confirmation_phrase != _CONFIRMATION_PHRASE:
+    if confirmation_phrase not in _CONFIRMATION_PHRASES:
         raise ValueError("Bybit Demo PostgreSQL bootstrap confirmation phrase is invalid")
     if not dsn.strip():
         raise ValueError("Bybit Demo PostgreSQL bootstrap DSN is required")
