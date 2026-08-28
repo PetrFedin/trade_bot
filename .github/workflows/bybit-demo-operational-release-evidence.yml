@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'app/execution/bybit_demo_operational_release_evidence.py'
+      - 'app/execution/bybit_demo_operational_release_zone_binding.py'
       - 'tools/assemble_bybit_demo_operational_release_evidence.py'
       - 'tools/control_bybit_demo_entries.py'
       - 'tools/manage_bybit_demo_session_risk.py'
@@ -11,6 +12,7 @@ on:
       - 'tools/run_bybit_demo_operator_approved_entry.py'
       - 'tools/recover_bybit_demo_runtime_lease.py'
       - 'tests/test_bybit_demo_operational_release_evidence.py'
+      - 'tests/test_bybit_demo_operational_release_zone_binding.py'
       - 'tests/test_bybit_demo_operational_release_evidence_workflow.py'
       - 'tests/test_bybit_demo_operational_artifact_git_binding.py'
       - 'docs/BYBIT_DEMO_OPERATIONAL_RELEASE_EVIDENCE.md'
@@ -25,6 +27,7 @@ on:
     branches: [main]
     paths:
       - 'app/execution/bybit_demo_operational_release_evidence.py'
+      - 'app/execution/bybit_demo_operational_release_zone_binding.py'
       - 'tools/assemble_bybit_demo_operational_release_evidence.py'
       - 'tools/control_bybit_demo_entries.py'
       - 'tools/manage_bybit_demo_session_risk.py'
@@ -32,6 +35,7 @@ on:
       - 'tools/run_bybit_demo_operator_approved_entry.py'
       - 'tools/recover_bybit_demo_runtime_lease.py'
       - 'tests/test_bybit_demo_operational_release_evidence.py'
+      - 'tests/test_bybit_demo_operational_release_zone_binding.py'
       - 'tests/test_bybit_demo_operational_release_evidence_workflow.py'
       - 'tests/test_bybit_demo_operational_artifact_git_binding.py'
       - 'docs/BYBIT_DEMO_OPERATIONAL_RELEASE_EVIDENCE.md'
@@ -106,6 +110,7 @@ jobs:
         run: |
           pytest -q \
             tests/test_bybit_demo_operational_release_evidence.py \
+            tests/test_bybit_demo_operational_release_zone_binding.py \
             tests/test_bybit_demo_operational_release_evidence_workflow.py \
             tests/test_bybit_demo_operational_artifact_git_binding.py \
             tests/test_bybit_demo_persistent_supervisor_cli.py \
@@ -117,6 +122,7 @@ jobs:
         run: |
           ruff check \
             app/execution/bybit_demo_operational_release_evidence.py \
+            app/execution/bybit_demo_operational_release_zone_binding.py \
             tools/assemble_bybit_demo_operational_release_evidence.py \
             tools/control_bybit_demo_entries.py \
             tools/manage_bybit_demo_session_risk.py \
@@ -124,12 +130,14 @@ jobs:
             tools/run_bybit_demo_operator_approved_entry.py \
             tools/recover_bybit_demo_runtime_lease.py \
             tests/test_bybit_demo_operational_release_evidence.py \
+            tests/test_bybit_demo_operational_release_zone_binding.py \
             tests/test_bybit_demo_operational_release_evidence_workflow.py \
             tests/test_bybit_demo_operational_artifact_git_binding.py
       - name: Bandit operational release evidence boundary
         run: |
           bandit -q \
             app/execution/bybit_demo_operational_release_evidence.py \
+            app/execution/bybit_demo_operational_release_zone_binding.py \
             tools/assemble_bybit_demo_operational_release_evidence.py \
             tools/control_bybit_demo_entries.py \
             tools/manage_bybit_demo_session_risk.py \
@@ -140,6 +148,7 @@ jobs:
         run: |
           python -m compileall -q \
             app/execution/bybit_demo_operational_release_evidence.py \
+            app/execution/bybit_demo_operational_release_zone_binding.py \
             tools/assemble_bybit_demo_operational_release_evidence.py \
             tools/control_bybit_demo_entries.py \
             tools/manage_bybit_demo_session_risk.py \
@@ -315,7 +324,7 @@ jobs:
             "bybit-demo-runtime-lease-recovery-$RECOVERY_RUN_ID" \
             evidence/recovery
 
-      - name: Assemble exact-head operational release manifest
+      - name: Assemble exact-head same-zone operational release manifest
         shell: bash
         run: |
           set -euo pipefail
@@ -323,26 +332,42 @@ jobs:
             --git-sha "$GITHUB_SHA"
             --run-metadata evidence/source-runs.json
             --activation-readiness evidence/readiness/bybit-demo-activation-readiness.json
+            --activation-readiness-zone evidence/readiness/bybit-demo-operational-zone-binding.json
           )
           if [ -n "$SESSION_RUN_ID" ]; then
-            args+=(--session-start evidence/session/bybit-demo-session-risk.json)
+            args+=(
+              --session-start evidence/session/bybit-demo-session-risk.json
+              --session-start-zone evidence/session/bybit-demo-operational-zone-binding.json
+            )
           fi
           if [ -n "$SUPERVISOR_RUN_ID" ]; then
-            args+=(--supervisor evidence/supervisor/bybit-demo-persistent-supervisor.json)
+            args+=(
+              --supervisor evidence/supervisor/bybit-demo-persistent-supervisor.json
+              --supervisor-zone evidence/supervisor/bybit-demo-operational-zone-binding.json
+            )
           fi
           if [ -n "$ARM_RUN_ID" ]; then
-            args+=(--arm-control evidence/arm/bybit-demo-control-plane.json)
+            args+=(
+              --arm-control evidence/arm/bybit-demo-control-plane.json
+              --arm-control-zone evidence/arm/bybit-demo-operational-zone-binding.json
+            )
           fi
           if [ -n "$ENTRY_RUN_ID" ]; then
-            args+=(--operational-entry evidence/entry/bybit-demo-operational-entry.json)
+            args+=(
+              --operational-entry evidence/entry/bybit-demo-operational-entry.json
+              --operational-entry-zone evidence/entry/bybit-demo-operational-zone-binding.json
+            )
           fi
           if [ -n "$HALT_RUN_ID" ]; then
-            args+=(--halt-control evidence/halt/bybit-demo-control-plane.json)
+            args+=(
+              --halt-control evidence/halt/bybit-demo-control-plane.json
+              --halt-control-zone evidence/halt/bybit-demo-operational-zone-binding.json
+            )
           fi
           if [ -n "$RECOVERY_RUN_ID" ]; then
             args+=(
-              --recovery-receipt \
-              evidence/recovery/bybit-demo-runtime-lease-recovery.json
+              --recovery-receipt evidence/recovery/bybit-demo-runtime-lease-recovery.json
+              --recovery-receipt-zone evidence/recovery/bybit-demo-operational-zone-binding.json
             )
           fi
           python -m tools.assemble_bybit_demo_operational_release_evidence \
