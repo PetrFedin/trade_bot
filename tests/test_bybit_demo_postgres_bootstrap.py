@@ -43,7 +43,7 @@ def test_bootstrap_verify_apply_idempotency_locking_and_logical_identity() -> No
     with pytest.raises(ValueError, match="confirmation phrase"):
         apply_bybit_demo_postgres_bootstrap(
             _DSN,
-            confirmation_phrase="APPLY_BYBIT_DEMO_V119_V123",
+            confirmation_phrase="WRONG",
         )
 
     applied = apply_bybit_demo_postgres_bootstrap(
@@ -83,7 +83,7 @@ def test_bootstrap_verify_apply_idempotency_locking_and_logical_identity() -> No
 
     second = apply_bybit_demo_postgres_bootstrap(
         _DSN,
-        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V124",
+        confirmation_phrase="APPLY_BYBIT_DEMO_V119_V123",
     )
     assert second.status is BybitDemoPostgresBootstrapStatus.APPLIED_AND_VERIFIED
     assert second.migration_fingerprints == applied.migration_fingerprints
