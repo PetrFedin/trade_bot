@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _failure_payload(*, producer: str, git_sha: str, error_type: str) -> dict[str, Any]:
     return {
-        "schema": "BYBIT_DEMO_OPERATIONAL_ZONE_BINDING_V1",
+        "schema": "BYBIT_DEMO_OPERATIONAL_ZONE_BINDING_V2",
         "status": "BLOCKED",
         "passed": False,
         "producer": producer,
@@ -75,6 +75,7 @@ def _failure_payload(*, producer: str, git_sha: str, error_type: str) -> dict[st
         "binding_key_marker_sha256": None,
         "database_binding_present": False,
         "database_binding_sha256": None,
+        "logical_database_identity_verified": False,
         "demo_account_binding_present": False,
         "demo_account_binding_sha256": None,
         "order_writes_supported": False,
