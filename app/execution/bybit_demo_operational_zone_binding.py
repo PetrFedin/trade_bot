@@ -179,7 +179,8 @@ def _parse_conninfo(text: str) -> dict[str, str]:
             "dbname": database,
         }
         query = {}
-        for pair in parsed.query.split("&") if parsed.query else ():
+        pairs = parsed.query.split("&") if parsed.query else ()
+        for pair in pairs:
             key, separator, value = pair.partition("=")
             if separator:
                 query[unquote(key)] = unquote(value)
