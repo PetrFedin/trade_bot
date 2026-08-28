@@ -22,11 +22,14 @@ class BybitDemoActivationReadinessResult:
     postgres_evidence_sha256: str
     connected_preflight_evidence_sha256: str
     trading_credential_evidence_sha256: str
+    same_account_evidence_sha256: str
     control_status_evidence_sha256: str
     postgres_status: str
     connected_preflight_status: str
     trading_credential_status: str
+    same_account_status: str
     control_mode: str
+    demo_account_identity_verified: bool
     ready_for_explicit_arm: bool
     ready_for_exact_trade_approval: bool
     operator_action_required: bool = True
@@ -54,11 +57,14 @@ class BybitDemoActivationReadinessResult:
                 "postgres_sha256": self.postgres_evidence_sha256,
                 "connected_preflight_sha256": self.connected_preflight_evidence_sha256,
                 "trading_credential_sha256": self.trading_credential_evidence_sha256,
+                "same_account_sha256": self.same_account_evidence_sha256,
                 "control_status_sha256": self.control_status_evidence_sha256,
             },
             "postgres_status": self.postgres_status,
             "connected_preflight_status": self.connected_preflight_status,
             "trading_credential_status": self.trading_credential_status,
+            "same_account_status": self.same_account_status,
+            "demo_account_identity_verified": self.demo_account_identity_verified,
             "control_mode": self.control_mode,
             "ready_for_explicit_arm": self.ready_for_explicit_arm,
             "ready_for_exact_trade_approval": self.ready_for_exact_trade_approval,
@@ -79,13 +85,14 @@ def assemble_bybit_demo_activation_readiness(
     postgres_payload: Mapping[str, Any],
     connected_preflight_payload: Mapping[str, Any],
     trading_credential_payload: Mapping[str, Any],
+    same_account_payload: Mapping[str, Any],
     control_status_payload: Mapping[str, Any],
     evidence_sha256: Mapping[str, str],
 ) -> BybitDemoActivationReadinessResult:
     """Fail-closed infrastructure readiness; performs no ARM, approval or order mutation."""
 
     _validate_git_sha(git_sha)
-    for name in ("postgres", "connected", "credential", "control"):
+    for name in ("postgres", "connected", "credential", "same_account", "control"):
         value = evidence_sha256.get(name, "")
         _validate_sha256(value, label=f"{name} evidence")
 
@@ -93,11 +100,17 @@ def assemble_bybit_demo_activation_readiness(
     _validate_postgres(postgres_payload, reasons)
     _validate_connected(connected_preflight_payload, reasons)
     _validate_credential(trading_credential_payload, reasons)
+    _validate_same_account(same_account_payload, git_sha, reasons)
     control_mode = _validate_control(control_status_payload, reasons)
 
     postgres_status = _safe_string(postgres_payload.get("status"))
     connected_status = _safe_string(connected_preflight_payload.get("status"))
     credential_status = _safe_string(trading_credential_payload.get("status"))
+    same_account_status = _safe_string(same_account_payload.get("status"))
+    same_account_verified = (
+        same_account_status == "VERIFIED_SAME_ACCOUNT"
+        and same_account_payload.get("passed") is True
+    )
     ready = not reasons
     return BybitDemoActivationReadinessResult(
         status=(
@@ -110,11 +123,14 @@ def assemble_bybit_demo_activation_readiness(
         postgres_evidence_sha256=evidence_sha256["postgres"],
         connected_preflight_evidence_sha256=evidence_sha256["connected"],
         trading_credential_evidence_sha256=evidence_sha256["credential"],
+        same_account_evidence_sha256=evidence_sha256["same_account"],
         control_status_evidence_sha256=evidence_sha256["control"],
         postgres_status=postgres_status,
         connected_preflight_status=connected_status,
         trading_credential_status=credential_status,
+        same_account_status=same_account_status,
         control_mode=control_mode,
+        demo_account_identity_verified=same_account_verified,
         ready_for_explicit_arm=ready,
         ready_for_exact_trade_approval=ready,
     )
@@ -200,6 +216,32 @@ def _validate_credential(payload: Mapping[str, Any], reasons: list[str]) -> None
         reasons.append("TRADING_CREDENTIAL_PREFLIGHT_EXPOSES_ORDER_WRITES")
     if payload.get("live_mainnet_order_routing_allowed") is not False:
         reasons.append("TRADING_CREDENTIAL_PREFLIGHT_EXPOSES_MAINNET")
+
+
+def _validate_same_account(
+    payload: Mapping[str, Any],
+    git_sha: str,
+    reasons: list[str],
+) -> None:
+    if payload.get("schema") != "BYBIT_DEMO_SAME_ACCOUNT_PREFLIGHT_V1":
+        reasons.append("SAME_ACCOUNT_EVIDENCE_SCHEMA_INVALID")
+        return
+    if payload.get("git_sha") != git_sha:
+        reasons.append("SAME_ACCOUNT_EVIDENCE_GIT_SHA_MISMATCH")
+    if payload.get("status") != "VERIFIED_SAME_ACCOUNT" or payload.get("passed") is not True:
+        reasons.append("DEMO_CREDENTIALS_NOT_SAME_ACCOUNT")
+    if payload.get("reasons") != []:
+        reasons.append("SAME_ACCOUNT_EVIDENCE_HAS_REASONS")
+    for field in ("same_user_id", "same_parent_uid", "same_master_scope", "authenticated_get_only"):
+        if payload.get(field) is not True:
+            reasons.append("SAME_ACCOUNT_EVIDENCE_INCOMPLETE")
+            break
+    if payload.get("order_write_performed") is not False:
+        reasons.append("SAME_ACCOUNT_PREFLIGHT_PERFORMED_ORDER_WRITE")
+    if payload.get("order_writes_supported") is not False:
+        reasons.append("SAME_ACCOUNT_PREFLIGHT_EXPOSES_ORDER_WRITES")
+    if payload.get("live_mainnet_order_routing_allowed") is not False:
+        reasons.append("SAME_ACCOUNT_PREFLIGHT_EXPOSES_MAINNET")
 
 
 def _validate_control(payload: Mapping[str, Any], reasons: list[str]) -> str:
