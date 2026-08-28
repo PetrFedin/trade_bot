@@ -6,8 +6,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from app.execution.bybit_demo_operational_release_checkpoint_binding import (
-    assemble_checkpoint_bound_bybit_demo_operational_release_evidence,
+from app.execution.bybit_demo_operational_release_account_binding import (
+    assemble_account_bound_bybit_demo_operational_release_evidence,
 )
 from app.execution.bybit_demo_operational_release_evidence import (
     BybitDemoOperationalReleaseStage,
@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
             payloads[name] = item
             evidence_sha256[name] = digest
 
-        result = assemble_checkpoint_bound_bybit_demo_operational_release_evidence(
+        result = assemble_account_bound_bybit_demo_operational_release_evidence(
             git_sha=args.git_sha,
             activation_readiness=activation,
             session_start=payloads["session_start"],
