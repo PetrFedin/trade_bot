@@ -177,6 +177,22 @@ jobs:
           set -e
           cat artifacts/bybit-demo-control-plane.json
           exit "$CONTROL_STATUS"
+      - name: Bind ARM or HALT to protected operational DB and Demo account
+        if: inputs.mode == 'arm' || inputs.mode == 'halt'
+        env:
+          BYBIT_DEMO_ZONE_BINDING_SECRET: ${{ secrets.BYBIT_DEMO_ZONE_BINDING_SECRET }}
+        shell: bash
+        run: |
+          if [ "$CONTROL_MODE" = "arm" ]; then
+            ZONE_PRODUCER="arm_control"
+          else
+            ZONE_PRODUCER="halt_control"
+          fi
+          python -m tools.probe_bybit_demo_operational_zone_binding \
+            --producer "$ZONE_PRODUCER" \
+            --git-sha "$GITHUB_SHA" \
+            --include-demo-account \
+            --output artifacts/bybit-demo-operational-zone-binding.json
       - name: Upload sanitized control evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -185,5 +201,6 @@ jobs:
           path: |
             artifacts/bybit-demo-postgres-bootstrap.json
             artifacts/bybit-demo-control-plane.json
+            artifacts/bybit-demo-operational-zone-binding.json
           if-no-files-found: error
           retention-days: 30
