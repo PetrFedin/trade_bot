@@ -133,12 +133,23 @@ jobs:
             --mode status \
             --git-sha "$GITHUB_SHA" \
             --output artifacts/bybit-demo-session-risk.json
+      - name: Bind session status to protected operational database
+        env:
+          BYBIT_DEMO_ZONE_BINDING_SECRET: ${{ secrets.BYBIT_DEMO_ZONE_BINDING_SECRET }}
+          BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
+        run: |
+          python -m tools.probe_bybit_demo_operational_zone_binding \
+            --producer session_start \
+            --git-sha "$GITHUB_SHA" \
+            --output artifacts/bybit-demo-operational-zone-binding.json
       - name: Upload sanitized status evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: bybit-demo-session-status-${{ github.run_id }}
-          path: artifacts/bybit-demo-session-risk.json
+          path: |
+            artifacts/bybit-demo-session-risk.json
+            artifacts/bybit-demo-operational-zone-binding.json
           if-no-files-found: error
           retention-days: 30
 
@@ -174,11 +185,22 @@ jobs:
             --reason "$SESSION_REASON" \
             --git-sha "$GITHUB_SHA" \
             --output artifacts/bybit-demo-session-risk.json
+      - name: Bind initialized session to protected operational database
+        env:
+          BYBIT_DEMO_ZONE_BINDING_SECRET: ${{ secrets.BYBIT_DEMO_ZONE_BINDING_SECRET }}
+          BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
+        run: |
+          python -m tools.probe_bybit_demo_operational_zone_binding \
+            --producer session_start \
+            --git-sha "$GITHUB_SHA" \
+            --output artifacts/bybit-demo-operational-zone-binding.json
       - name: Upload sanitized initialization evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: bybit-demo-session-initialize-${{ github.run_id }}
-          path: artifacts/bybit-demo-session-risk.json
+          path: |
+            artifacts/bybit-demo-session-risk.json
+            artifacts/bybit-demo-operational-zone-binding.json
           if-no-files-found: error
           retention-days: 30

@@ -6,12 +6,12 @@ import os
 from pathlib import Path
 from typing import Any
 
-from app.execution.bybit_demo_operational_release_account_binding import (
-    assemble_account_bound_bybit_demo_operational_release_evidence,
-)
 from app.execution.bybit_demo_operational_release_evidence import (
     BybitDemoOperationalReleaseStage,
     load_json_evidence,
+)
+from app.execution.bybit_demo_operational_release_zone_binding import (
+    assemble_zone_bound_bybit_demo_operational_release_evidence,
 )
 
 
@@ -25,12 +25,19 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--git-sha", default=os.environ.get("GITHUB_SHA", ""))
     parser.add_argument("--run-metadata", type=Path, required=True)
     parser.add_argument("--activation-readiness", type=Path, required=True)
+    parser.add_argument("--activation-readiness-zone", type=Path, required=True)
     parser.add_argument("--session-start", type=Path)
+    parser.add_argument("--session-start-zone", type=Path)
     parser.add_argument("--supervisor", type=Path)
+    parser.add_argument("--supervisor-zone", type=Path)
     parser.add_argument("--arm-control", type=Path)
+    parser.add_argument("--arm-control-zone", type=Path)
     parser.add_argument("--operational-entry", type=Path)
+    parser.add_argument("--operational-entry-zone", type=Path)
     parser.add_argument("--halt-control", type=Path)
+    parser.add_argument("--halt-control-zone", type=Path)
     parser.add_argument("--recovery-receipt", type=Path)
+    parser.add_argument("--recovery-receipt-zone", type=Path)
     parser.add_argument(
         "--output",
         type=Path,
@@ -44,6 +51,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         run_metadata, run_metadata_sha = load_json_evidence(args.run_metadata)
         activation, activation_sha = load_json_evidence(args.activation_readiness)
+        activation_zone, activation_zone_sha = load_json_evidence(
+            args.activation_readiness_zone
+        )
         payloads: dict[str, dict[str, Any] | None] = {
             "activation_readiness": activation,
             "session_start": None,
@@ -56,21 +66,38 @@ def main(argv: list[str] | None = None) -> int:
         evidence_sha256: dict[str, str] = {
             "activation_readiness": activation_sha,
         }
-        for name, path in (
-            ("session_start", args.session_start),
-            ("supervisor", args.supervisor),
-            ("arm_control", args.arm_control),
-            ("operational_entry", args.operational_entry),
-            ("halt_control", args.halt_control),
-            ("recovery_receipt", args.recovery_receipt),
+        zone_bindings: dict[str, dict[str, Any]] = {
+            "activation_readiness": activation_zone,
+        }
+        zone_binding_sha256: dict[str, str] = {
+            "activation_readiness": activation_zone_sha,
+        }
+        for name, evidence_path, zone_path in (
+            ("session_start", args.session_start, args.session_start_zone),
+            ("supervisor", args.supervisor, args.supervisor_zone),
+            ("arm_control", args.arm_control, args.arm_control_zone),
+            (
+                "operational_entry",
+                args.operational_entry,
+                args.operational_entry_zone,
+            ),
+            ("halt_control", args.halt_control, args.halt_control_zone),
+            (
+                "recovery_receipt",
+                args.recovery_receipt,
+                args.recovery_receipt_zone,
+            ),
         ):
-            if path is None:
-                continue
-            item, digest = load_json_evidence(path)
-            payloads[name] = item
-            evidence_sha256[name] = digest
+            if evidence_path is not None:
+                item, digest = load_json_evidence(evidence_path)
+                payloads[name] = item
+                evidence_sha256[name] = digest
+            if zone_path is not None:
+                zone_item, zone_digest = load_json_evidence(zone_path)
+                zone_bindings[name] = zone_item
+                zone_binding_sha256[name] = zone_digest
 
-        result = assemble_account_bound_bybit_demo_operational_release_evidence(
+        result = assemble_zone_bound_bybit_demo_operational_release_evidence(
             git_sha=args.git_sha,
             activation_readiness=activation,
             session_start=payloads["session_start"],
@@ -82,6 +109,8 @@ def main(argv: list[str] | None = None) -> int:
             evidence_sha256=evidence_sha256,
             source_run_metadata=run_metadata,
             source_run_metadata_sha256=run_metadata_sha,
+            zone_bindings=zone_bindings,
+            zone_binding_sha256=zone_binding_sha256,
         )
         output = result.to_payload()
         exit_code = 0 if result.stage is not BybitDemoOperationalReleaseStage.BLOCKED else 2
@@ -105,6 +134,8 @@ def _failure_payload(error_type: str, *, git_sha: str) -> dict[str, Any]:
         "source_run_metadata_sha256": None,
         "next_required_evidence": None,
         "release_gate_complete": False,
+        "operational_zone_binding_verified": False,
+        "zone_binding_sha256": {},
         "operator_action_required": True,
         "automatic_activation_allowed": False,
         "order_write_performed": False,

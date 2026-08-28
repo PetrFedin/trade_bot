@@ -225,11 +225,25 @@ jobs:
             --symbol "$OPERATOR_SYMBOL" \
             --confirm "$OPERATOR_CONFIRMATION_PHRASE" \
             --output artifacts/bybit-demo-operational-entry.json
+      - name: Bind entry to protected operational DB and Demo account
+        env:
+          BYBIT_DEMO_ZONE_BINDING_SECRET: ${{ secrets.BYBIT_DEMO_ZONE_BINDING_SECRET }}
+          BYBIT_DEMO_DATABASE_DSN: ${{ secrets.BYBIT_DEMO_DATABASE_DSN }}
+          BYBIT_DEMO_READONLY_API_KEY: ${{ secrets.BYBIT_DEMO_READONLY_API_KEY }}
+          BYBIT_DEMO_READONLY_API_SECRET: ${{ secrets.BYBIT_DEMO_READONLY_API_SECRET }}
+        run: |
+          python -m tools.probe_bybit_demo_operational_zone_binding \
+            --producer operational_entry \
+            --git-sha "$GITHUB_SHA" \
+            --include-demo-account \
+            --output artifacts/bybit-demo-operational-zone-binding.json
       - name: Upload allowlisted operational entry evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: bybit-demo-operational-entry-${{ github.run_id }}
-          path: artifacts/bybit-demo-operational-entry.json
+          path: |
+            artifacts/bybit-demo-operational-entry.json
+            artifacts/bybit-demo-operational-zone-binding.json
           if-no-files-found: error
           retention-days: 30
