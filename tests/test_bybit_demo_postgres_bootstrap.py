@@ -72,7 +72,8 @@ def test_bootstrap_verify_apply_idempotency_locking_and_logical_identity() -> No
     bootstrap_payload = applied.to_payload()
     assert bootstrap_payload["schema"] == "BYBIT_DEMO_POSTGRES_BOOTSTRAP_V4"
     assert bootstrap_payload["logical_database_identity_verified"] is True
-    assert first_identity.database_instance_id not in json.dumps(bootstrap_payload, sort_keys=True)
+    serialized_bootstrap = json.dumps(bootstrap_payload, sort_keys=True)
+    assert first_identity.database_instance_id not in serialized_bootstrap
 
     verified = verify_bybit_demo_postgres_schema(_DSN)
     assert verified.status is BybitDemoPostgresBootstrapStatus.VERIFIED_READY
@@ -87,7 +88,8 @@ def test_bootstrap_verify_apply_idempotency_locking_and_logical_identity() -> No
     )
     assert second.status is BybitDemoPostgresBootstrapStatus.APPLIED_AND_VERIFIED
     assert second.migration_fingerprints == applied.migration_fingerprints
-    assert identity_reader.read_identity().database_instance_id == first_identity.database_instance_id
+    second_identity = identity_reader.read_identity()
+    assert second_identity.database_instance_id == first_identity.database_instance_id
 
     with psycopg.connect(_DSN, autocommit=True) as connection:
         with pytest.raises(psycopg.Error, match="immutable"):
