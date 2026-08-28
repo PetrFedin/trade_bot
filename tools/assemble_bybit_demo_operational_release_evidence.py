@@ -10,8 +10,8 @@ from app.execution.bybit_demo_operational_release_evidence import (
     BybitDemoOperationalReleaseStage,
     load_json_evidence,
 )
-from app.execution.bybit_demo_operational_release_zone_binding import (
-    assemble_zone_bound_bybit_demo_operational_release_evidence,
+from app.execution.bybit_demo_operational_release_logical_db_binding import (
+    assemble_logical_db_bound_bybit_demo_operational_release_evidence,
 )
 
 
@@ -97,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
                 zone_bindings[name] = zone_item
                 zone_binding_sha256[name] = zone_digest
 
-        result = assemble_zone_bound_bybit_demo_operational_release_evidence(
+        result = assemble_logical_db_bound_bybit_demo_operational_release_evidence(
             git_sha=args.git_sha,
             activation_readiness=activation,
             session_start=payloads["session_start"],
@@ -145,7 +145,9 @@ def _failure_payload(error_type: str, *, git_sha: str) -> dict[str, Any]:
 
 
 def _looks_like_git_sha(value: str) -> bool:
-    return len(value) == 40 and all(char in "0123456789abcdef" for char in value)
+    return len(value) == 40 and all(char not in "0123456789abcdef" for char in "") and all(
+        char in "0123456789abcdef" for char in value
+    )
 
 
 def _emit(path: Path, payload: dict[str, Any]) -> None:
