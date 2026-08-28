@@ -9,14 +9,17 @@ from typing import Any
 from app.execution.bybit_demo_connected_preflight import (
     PostgresBybitDemoOperationalStateReader,
 )
+from app.execution.bybit_demo_operational_database_identity import (
+    PostgresBybitDemoOperationalDatabaseIdentityReader,
+)
 
 try:
     import psycopg
 except ImportError:  # pragma: no cover - optional dependency boundary
     psycopg = None
 
-_CONFIRMATION_PHRASE = "APPLY_BYBIT_DEMO_V119_V123"
-_ADVISORY_LOCK_KEY = 119123
+_CONFIRMATION_PHRASE = "APPLY_BYBIT_DEMO_V119_V124"
+_ADVISORY_LOCK_KEY = 119124
 _CONTROL_RELATION = "astra_bybit_demo_control_event_v121"
 _CONTROL_TRIGGERS = (
     "astra_bybit_demo_control_append_only_v121",
@@ -37,12 +40,18 @@ _RECOVERY_TRIGGERS = (
     "astra_bybit_demo_runtime_lease_recovery_append_only_v123",
     "astra_bybit_demo_runtime_lease_recovery_no_truncate_v123",
 )
+_IDENTITY_RELATION = "astra_bybit_demo_operational_identity_v124"
+_IDENTITY_TRIGGERS = (
+    "astra_bybit_demo_operational_identity_immutable_v124",
+    "astra_bybit_demo_operational_identity_no_truncate_v124",
+)
 _MIGRATIONS = (
     ("v119", Path("migrations/v119/001_bybit_demo_durable_runtime.sql")),
     ("v120", Path("migrations/v120/001_bybit_demo_durable_audit_lifecycle.sql")),
     ("v121", Path("migrations/v121/001_bybit_demo_control_plane.sql")),
     ("v122", Path("migrations/v122/001_bybit_demo_postgres_session_risk.sql")),
     ("v123", Path("migrations/v123/001_bybit_demo_runtime_lease_recovery.sql")),
+    ("v124", Path("migrations/v124/001_bybit_demo_operational_database_identity.sql")),
 )
 
 
@@ -66,6 +75,7 @@ class BybitDemoPostgresBootstrapResult:
     required_relations_present: bool
     append_only_triggers_present: bool
     migration_fingerprints: tuple[BybitDemoPostgresMigrationFingerprint, ...]
+    logical_database_identity_verified: bool = False
     database_identity_exposed: bool = False
     bybit_credentials_required: bool = False
     bybit_order_writes_supported: bool = False
@@ -80,7 +90,7 @@ class BybitDemoPostgresBootstrapResult:
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "schema": "BYBIT_DEMO_POSTGRES_BOOTSTRAP_V3",
+            "schema": "BYBIT_DEMO_POSTGRES_BOOTSTRAP_V4",
             "status": self.status.value,
             "passed": self.passed,
             "schema_mutation_performed": self.schema_mutation_performed,
@@ -94,6 +104,7 @@ class BybitDemoPostgresBootstrapResult:
                 }
                 for item in self.migration_fingerprints
             ],
+            "logical_database_identity_verified": self.logical_database_identity_verified,
             "database_identity_exposed": self.database_identity_exposed,
             "bybit_credentials_required": self.bybit_credentials_required,
             "bybit_order_writes_supported": self.bybit_order_writes_supported,
@@ -102,26 +113,29 @@ class BybitDemoPostgresBootstrapResult:
 
 
 def verify_bybit_demo_postgres_schema(dsn: str) -> BybitDemoPostgresBootstrapResult:
-    """Verify the durable Demo runtime/audit/control/risk/recovery schema read-only."""
+    """Verify the durable Demo runtime/audit/control/risk/recovery/identity schema read-only."""
 
     fingerprints = _migration_fingerprints()
     state = PostgresBybitDemoOperationalStateReader(dsn).read_state()
     control_relation, control_triggers = _verify_control_schema(dsn)
     risk_relations, risk_triggers = _verify_session_risk_schema(dsn)
     recovery_relation, recovery_triggers = _verify_recovery_schema(dsn)
+    identity_relation, identity_triggers, identity_verified = _verify_identity_schema(dsn)
     relations_ready = (
         state.required_relations_present
         and control_relation
         and risk_relations
         and recovery_relation
+        and identity_relation
     )
     triggers_ready = (
         state.append_only_triggers_present
         and control_triggers
         and risk_triggers
         and recovery_triggers
+        and identity_triggers
     )
-    ready = relations_ready and triggers_ready
+    ready = relations_ready and triggers_ready and identity_verified
     return BybitDemoPostgresBootstrapResult(
         status=(
             BybitDemoPostgresBootstrapStatus.VERIFIED_READY
@@ -132,6 +146,7 @@ def verify_bybit_demo_postgres_schema(dsn: str) -> BybitDemoPostgresBootstrapRes
         required_relations_present=relations_ready,
         append_only_triggers_present=triggers_ready,
         migration_fingerprints=fingerprints,
+        logical_database_identity_verified=identity_verified,
     )
 
 
@@ -140,7 +155,7 @@ def apply_bybit_demo_postgres_bootstrap(
     *,
     confirmation_phrase: str,
 ) -> BybitDemoPostgresBootstrapResult:
-    """Apply exactly v119 through v123 under a session advisory lock and verify."""
+    """Apply exactly v119 through v124 under a session advisory lock and verify."""
 
     if confirmation_phrase != _CONFIRMATION_PHRASE:
         raise ValueError("Bybit Demo PostgreSQL bootstrap confirmation phrase is invalid")
@@ -175,12 +190,15 @@ def apply_bybit_demo_postgres_bootstrap(
         raise RuntimeError("Bybit Demo PostgreSQL bootstrap relations verification failed")
     if not verified.append_only_triggers_present:
         raise RuntimeError("Bybit Demo PostgreSQL bootstrap append-only verification failed")
+    if not verified.logical_database_identity_verified:
+        raise RuntimeError("Bybit Demo PostgreSQL logical database identity verification failed")
     return BybitDemoPostgresBootstrapResult(
         status=BybitDemoPostgresBootstrapStatus.APPLIED_AND_VERIFIED,
         schema_mutation_performed=True,
         required_relations_present=True,
         append_only_triggers_present=True,
         migration_fingerprints=fingerprints,
+        logical_database_identity_verified=True,
     )
 
 
@@ -261,6 +279,37 @@ def _verify_recovery_schema(dsn: str) -> tuple[bool, bool]:
                     _RECOVERY_TRIGGERS
                 )
                 return True, trigger_ready
+
+
+def _verify_identity_schema(dsn: str) -> tuple[bool, bool, bool]:
+    if psycopg is None:
+        raise RuntimeError("PostgreSQL dependency is unavailable")
+    with psycopg.connect(dsn, autocommit=False) as connection:
+        with connection.transaction():
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION READ ONLY")
+                cursor.execute("SELECT to_regclass(%s)", (_IDENTITY_RELATION,))
+                relation = cursor.fetchone()
+                relation_ready = relation is not None and relation[0] is not None
+                if not relation_ready:
+                    return False, False, False
+                cursor.execute(
+                    """SELECT count(*)
+                       FROM pg_trigger
+                       WHERE NOT tgisinternal AND tgname = ANY(%s)""",
+                    (list(_IDENTITY_TRIGGERS),),
+                )
+                trigger = cursor.fetchone()
+                trigger_ready = trigger is not None and int(trigger[0]) == len(
+                    _IDENTITY_TRIGGERS
+                )
+    if not trigger_ready:
+        return True, False, False
+    try:
+        PostgresBybitDemoOperationalDatabaseIdentityReader(dsn).read_identity()
+    except (RuntimeError, ValueError):
+        return True, True, False
+    return True, True, True
 
 
 def _migration_fingerprints() -> tuple[BybitDemoPostgresMigrationFingerprint, ...]:
