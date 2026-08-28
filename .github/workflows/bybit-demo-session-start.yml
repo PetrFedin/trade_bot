@@ -139,7 +139,7 @@ jobs:
         with:
           name: bybit-demo-session-status-${{ github.run_id }}
           path: artifacts/bybit-demo-session-risk.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
 
   operational-initialize:
@@ -180,5 +180,5 @@ jobs:
         with:
           name: bybit-demo-session-initialize-${{ github.run_id }}
           path: artifacts/bybit-demo-session-risk.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30

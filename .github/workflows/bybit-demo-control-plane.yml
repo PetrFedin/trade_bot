@@ -12,6 +12,7 @@ on:
       - 'tests/test_bybit_demo_control_plane_postgres.py'
       - 'tests/test_bybit_demo_approved_runtime.py'
       - 'tests/test_bybit_demo_fixed_egress.py'
+      - 'tests/test_bybit_demo_operational_artifact_git_binding.py'
       - 'docs/BYBIT_DEMO_CONTROL_PLANE.md'
       - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE.md'
       - '.github/workflows/bybit-demo-control-plane.yml'
@@ -27,6 +28,7 @@ on:
       - 'tests/test_bybit_demo_control_plane_postgres.py'
       - 'tests/test_bybit_demo_approved_runtime.py'
       - 'tests/test_bybit_demo_fixed_egress.py'
+      - 'tests/test_bybit_demo_operational_artifact_git_binding.py'
       - 'docs/BYBIT_DEMO_CONTROL_PLANE.md'
       - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE.md'
       - '.github/workflows/bybit-demo-control-plane.yml'
@@ -101,7 +103,8 @@ jobs:
             tests/test_bybit_demo_control_plane.py \
             tests/test_bybit_demo_control_plane_postgres.py \
             tests/test_bybit_demo_approved_runtime.py \
-            tests/test_bybit_demo_fixed_egress.py
+            tests/test_bybit_demo_fixed_egress.py \
+            tests/test_bybit_demo_operational_artifact_git_binding.py
       - name: Ruff Demo control plane
         run: |
           ruff check \
@@ -112,7 +115,8 @@ jobs:
             tests/test_bybit_demo_control_plane.py \
             tests/test_bybit_demo_control_plane_postgres.py \
             tests/test_bybit_demo_approved_runtime.py \
-            tests/test_bybit_demo_fixed_egress.py
+            tests/test_bybit_demo_fixed_egress.py \
+            tests/test_bybit_demo_operational_artifact_git_binding.py
       - name: Bandit Demo control plane
         run: |
           bandit -q \
@@ -167,6 +171,7 @@ jobs:
             --operator-id "$GITHUB_ACTOR" \
             --reason "$CONTROL_REASON" \
             --ttl-seconds "$CONTROL_TTL_SECONDS" \
+            --git-sha "$GITHUB_SHA" \
             --output artifacts/bybit-demo-control-plane.json
           CONTROL_STATUS=$?
           set -e
@@ -180,5 +185,5 @@ jobs:
           path: |
             artifacts/bybit-demo-postgres-bootstrap.json
             artifacts/bybit-demo-control-plane.json
-          if-no-files-found: warn
-          retention-days: 7
+          if-no-files-found: error
+          retention-days: 30

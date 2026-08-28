@@ -67,9 +67,12 @@ def _failure(error_type: str, *, mode: str) -> dict[str, Any]:
 
 def main() -> int:
     args = _parser().parse_args()
+    git_sha = _artifact_git_sha(args.git_sha)
     dsn = os.environ.get("BYBIT_DEMO_DATABASE_DSN", "")
     if not dsn:
-        payload = _failure("DEMO_DATABASE_CONFIG_UNAVAILABLE", mode=args.mode)
+        payload = _failure("DEMO_DATABASE_CONFIG_UNAVAILABLE", mode=args.mode) | {
+            "git_sha": git_sha,
+        }
         _write(args.output, payload)
         print(json.dumps(payload, sort_keys=True))
         return 2
@@ -94,7 +97,7 @@ def main() -> int:
                 git_sha=args.git_sha,
                 now=datetime.now(UTC),
             )
-        payload = result.to_payload() | {"mode": args.mode}
+        payload = result.to_payload() | {"mode": args.mode, "git_sha": git_sha}
         if args.mode == "status":
             exit_code = 0 if result.passed else 2
         else:
@@ -104,12 +107,17 @@ def main() -> int:
                 else 2
             )
     except Exception as exc:  # noqa: BLE001 - never serialize DSN/credential-bearing errors.
-        payload = _failure(type(exc).__name__, mode=args.mode)
+        payload = _failure(type(exc).__name__, mode=args.mode) | {"git_sha": git_sha}
         exit_code = 2
 
     _write(args.output, payload)
     print(json.dumps(payload, sort_keys=True))
     return exit_code
+
+
+def _artifact_git_sha(value: str) -> str | None:
+    normalized = value.strip()
+    return normalized or None
 
 
 if __name__ == "__main__":

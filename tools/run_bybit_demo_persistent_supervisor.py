@@ -299,8 +299,20 @@ def _install_signal_handlers(stop: Event) -> None:
     signal.signal(signal.SIGINT, _handle)
 
 
+def _artifact_git_sha() -> str | None:
+    value = os.environ.get("GITHUB_SHA", "").strip()
+    return value or None
+
+
 def _emit(payload: dict[str, Any], *, output: Path | None) -> None:
-    text = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    bound_payload = dict(payload)
+    bound_payload["git_sha"] = _artifact_git_sha()
+    text = json.dumps(
+        bound_payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
     print(text, flush=True)
     if output is None:
         return

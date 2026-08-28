@@ -149,5 +149,5 @@ jobs:
             artifacts/bybit-demo-trading-credential-preflight.json
             artifacts/bybit-demo-control-status.json
             artifacts/bybit-demo-activation-readiness.json
-          if-no-files-found: warn
-          retention-days: 7
+          if-no-files-found: error
+          retention-days: 30

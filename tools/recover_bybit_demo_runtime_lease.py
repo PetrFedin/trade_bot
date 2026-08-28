@@ -83,8 +83,20 @@ def _failure(error_type: str, *, mode: str) -> dict[str, Any]:
     }
 
 
+def _artifact_git_sha() -> str | None:
+    value = os.environ.get("GITHUB_SHA", "").strip()
+    return value or None
+
+
 def _emit(path: str, payload: dict[str, Any]) -> None:
-    text = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    bound_payload = dict(payload)
+    bound_payload["git_sha"] = _artifact_git_sha()
+    text = json.dumps(
+        bound_payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
     print(text, flush=True)
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)

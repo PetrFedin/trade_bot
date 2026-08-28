@@ -89,6 +89,7 @@ class BybitDemoRuntimeLeaseRecoveryReceipt:
     lease_owner_sha256: str
     control_event_id: str
     active_checkpoint_present: bool
+    active_checkpoint_entry_order_link_id_sha256: str | None
     created_at: datetime
     idempotent_existing_recovery: bool
     immutable_audit: bool = True
@@ -105,6 +106,9 @@ class BybitDemoRuntimeLeaseRecoveryReceipt:
             "lease_owner_sha256": self.lease_owner_sha256,
             "control_event_id": self.control_event_id,
             "active_checkpoint_present": self.active_checkpoint_present,
+            "active_checkpoint_entry_order_link_id_sha256": (
+                self.active_checkpoint_entry_order_link_id_sha256
+            ),
             "created_at": self.created_at.isoformat(),
             "idempotent_existing_recovery": self.idempotent_existing_recovery,
             "immutable_audit": self.immutable_audit,
@@ -275,6 +279,7 @@ class PostgresBybitDemoRuntimeLeaseRecovery:
             lease_owner_sha256=owner_sha,
             control_event_id=control_event_id,
             active_checkpoint_present=checkpoint is not None,
+            active_checkpoint_entry_order_link_id_sha256=checkpoint_hash,
             created_at=created_at,
             idempotent_existing_recovery=False,
         )
@@ -395,8 +400,9 @@ def _insert_recovery_audit(
 def _recovery_by_owner_sha(cursor: Any, owner_sha: str) -> Any | None:
     cursor.execute(
         """SELECT recovery_id, lease_owner_sha256, control_event_id,
-                  active_checkpoint_present, created_at,
-                  immutable_record, order_writes_supported,
+                  active_checkpoint_present,
+                  active_checkpoint_entry_order_link_id_sha256,
+                  created_at, immutable_record, order_writes_supported,
                   automatic_stale_takeover_allowed,
                   live_mainnet_order_routing_allowed
            FROM astra_bybit_demo_runtime_lease_recovery_v123
@@ -418,6 +424,14 @@ def _receipt_from_row(row: Any, *, idempotent: bool) -> BybitDemoRuntimeLeaseRec
     _validate_sha256(row["recovery_id"], "stored recovery id")
     _validate_sha256(row["lease_owner_sha256"], "stored lease owner fingerprint")
     _validate_sha256(row["control_event_id"], "stored control event id")
+    checkpoint_present = row["active_checkpoint_present"] is True
+    checkpoint_hash = row["active_checkpoint_entry_order_link_id_sha256"]
+    if checkpoint_present:
+        _validate_sha256(checkpoint_hash, "stored active checkpoint entry identity")
+    elif checkpoint_hash is not None:
+        raise ValueError(
+            "Bybit Demo runtime lease recovery audit has checkpoint identity without checkpoint"
+        )
     created_at = row["created_at"]
     if not isinstance(created_at, datetime) or created_at.tzinfo is None:
         raise ValueError("Bybit Demo runtime lease recovery audit time is invalid")
@@ -426,7 +440,8 @@ def _receipt_from_row(row: Any, *, idempotent: bool) -> BybitDemoRuntimeLeaseRec
         recovery_id=row["recovery_id"],
         lease_owner_sha256=row["lease_owner_sha256"],
         control_event_id=row["control_event_id"],
-        active_checkpoint_present=row["active_checkpoint_present"] is True,
+        active_checkpoint_present=checkpoint_present,
+        active_checkpoint_entry_order_link_id_sha256=checkpoint_hash,
         created_at=created_at.astimezone(UTC),
         idempotent_existing_recovery=idempotent,
     )

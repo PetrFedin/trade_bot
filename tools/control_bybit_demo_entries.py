@@ -31,6 +31,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--operator-id", default="")
     parser.add_argument("--reason", default="")
     parser.add_argument("--ttl-seconds", type=int, default=120)
+    parser.add_argument("--git-sha", default=os.environ.get("GITHUB_SHA", ""))
     parser.add_argument(
         "--output",
         default="artifacts/bybit-demo-control-plane.json",
@@ -71,7 +72,10 @@ def main() -> int:
     args = _parser().parse_args()
     dsn = os.environ.get("BYBIT_DEMO_DATABASE_DSN", "")
     if not dsn:
-        payload = _failure("DEMO_DATABASE_CONFIG_UNAVAILABLE", mode=args.mode)
+        payload = _bind_git_sha(
+            _failure("DEMO_DATABASE_CONFIG_UNAVAILABLE", mode=args.mode),
+            args.git_sha,
+        )
         _write(args.output, payload)
         print(json.dumps(payload, sort_keys=True))
         return 2
@@ -148,9 +152,17 @@ def main() -> int:
         payload = _failure(type(exc).__name__, mode=args.mode)
         exit_code = 2
 
+    payload = _bind_git_sha(payload, args.git_sha)
     _write(args.output, payload)
     print(json.dumps(payload, sort_keys=True))
     return exit_code
+
+
+def _bind_git_sha(payload: dict[str, Any], value: str) -> dict[str, Any]:
+    bound = dict(payload)
+    normalized = value.strip()
+    bound["git_sha"] = normalized or None
+    return bound
 
 
 if __name__ == "__main__":

@@ -90,7 +90,7 @@ jobs:
             tests/test_bybit_demo_approved_runtime.py \
             tests/test_bybit_demo_trading_runtime.py \
             tests/test_bybit_demo_terminal_handoff.py
-      - name: Full regression without shared PostgreSQL singleton env
+      - name: Full regression without PostgreSQL singleton test variables
         run: pytest -q
       - name: Ruff persistent supervisor and execution boundary
         run: |
@@ -143,5 +143,5 @@ jobs:
         with:
           name: bybit-demo-persistent-supervisor-${{ github.run_id }}
           path: artifacts/bybit-demo-persistent-supervisor.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30

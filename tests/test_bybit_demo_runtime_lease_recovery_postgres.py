@@ -149,6 +149,10 @@ def test_explicit_halt_exact_identity_atomic_audit_and_idempotent_recovery() -> 
     assert receipt.lease_owner_sha256 == ready.lease_owner_sha256
     assert receipt.control_event_id == halt_receipt.event_id
     assert receipt.active_checkpoint_present is True
+    assert (
+        receipt.active_checkpoint_entry_order_link_id_sha256
+        == ready.active_checkpoint_entry_order_link_id_sha256
+    )
     assert receipt.idempotent_existing_recovery is False
     assert receipt.automatic_recovery_allowed is False
     assert receipt.automatic_stale_takeover_allowed is False
@@ -173,6 +177,10 @@ def test_explicit_halt_exact_identity_atomic_audit_and_idempotent_recovery() -> 
     )
     assert repeated.status is BybitDemoRuntimeLeaseRecoveryStatus.ALREADY_RECOVERED
     assert repeated.recovery_id == receipt.recovery_id
+    assert (
+        repeated.active_checkpoint_entry_order_link_id_sha256
+        == receipt.active_checkpoint_entry_order_link_id_sha256
+    )
     assert repeated.idempotent_existing_recovery is True
 
     with psycopg.connect(_DSN, autocommit=True) as connection:
