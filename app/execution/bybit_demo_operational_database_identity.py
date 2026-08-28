@@ -40,7 +40,9 @@ class BybitDemoOperationalDatabaseIdentity:
         if self.order_writes_supported is not False:
             raise ValueError("Bybit Demo logical database identity cannot support order writes")
         if self.live_mainnet_order_routing_allowed is not False:
-            raise ValueError("Bybit Demo logical database identity cannot route mainnet orders")
+            raise ValueError(
+                "Bybit Demo logical database identity cannot route mainnet orders"
+            )
 
 
 class PostgresBybitDemoOperationalDatabaseIdentityReader:
