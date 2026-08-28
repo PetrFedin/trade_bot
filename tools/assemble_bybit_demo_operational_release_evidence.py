@@ -145,9 +145,7 @@ def _failure_payload(error_type: str, *, git_sha: str) -> dict[str, Any]:
 
 
 def _looks_like_git_sha(value: str) -> bool:
-    return len(value) == 40 and all(char not in "0123456789abcdef" for char in "") and all(
-        char in "0123456789abcdef" for char in value
-    )
+    return len(value) == 40 and all(char in "0123456789abcdef" for char in value)
 
 
 def _emit(path: Path, payload: dict[str, Any]) -> None:
