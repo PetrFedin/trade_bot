@@ -206,7 +206,9 @@ def _hmac_json(secret: bytes, payload: dict[str, Any]) -> str:
 
 def _binding_secret_bytes(value: str) -> bytes:
     if not isinstance(value, str) or value != value.strip() or len(value) < 32:
-        raise ValueError("Bybit Demo operational zone binding secret must be at least 32 characters")
+        raise ValueError(
+            "Bybit Demo operational zone binding secret must be at least 32 characters"
+        )
     return value.encode("utf-8")
 
 
