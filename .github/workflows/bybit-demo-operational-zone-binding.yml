@@ -10,6 +10,7 @@ on:
       - 'tests/test_bybit_demo_operational_zone_binding.py'
       - 'tests/test_probe_bybit_demo_operational_zone_binding.py'
       - 'tests/test_bybit_demo_operational_release_zone_binding.py'
+      - 'tests/test_bybit_demo_operational_zone_binding_workflows.py'
       - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE_BINDING.md'
       - '.github/workflows/bybit-demo-operational-zone-binding.yml'
       - '.github/workflows/bybit-demo-activation-readiness.yml'
@@ -29,6 +30,7 @@ on:
       - 'tests/test_bybit_demo_operational_zone_binding.py'
       - 'tests/test_probe_bybit_demo_operational_zone_binding.py'
       - 'tests/test_bybit_demo_operational_release_zone_binding.py'
+      - 'tests/test_bybit_demo_operational_zone_binding_workflows.py'
       - 'docs/BYBIT_DEMO_OPERATIONAL_ZONE_BINDING.md'
       - '.github/workflows/bybit-demo-operational-zone-binding.yml'
       - '.github/workflows/bybit-demo-activation-readiness.yml'
@@ -65,7 +67,8 @@ jobs:
           pytest -q \
             tests/test_bybit_demo_operational_zone_binding.py \
             tests/test_probe_bybit_demo_operational_zone_binding.py \
-            tests/test_bybit_demo_operational_release_zone_binding.py
+            tests/test_bybit_demo_operational_release_zone_binding.py \
+            tests/test_bybit_demo_operational_zone_binding_workflows.py
       - name: Full deterministic regression
         run: pytest -q
       - name: Ruff operational zone boundary
@@ -77,7 +80,8 @@ jobs:
             tools/assemble_bybit_demo_operational_release_evidence.py \
             tests/test_bybit_demo_operational_zone_binding.py \
             tests/test_probe_bybit_demo_operational_zone_binding.py \
-            tests/test_bybit_demo_operational_release_zone_binding.py
+            tests/test_bybit_demo_operational_release_zone_binding.py \
+            tests/test_bybit_demo_operational_zone_binding_workflows.py
       - name: Bandit operational zone boundary
         run: |
           bandit -q \
