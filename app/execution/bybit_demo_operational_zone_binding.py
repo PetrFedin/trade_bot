@@ -8,6 +8,10 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
+from app.execution.bybit_demo_operational_database_identity import (
+    BybitDemoOperationalDatabaseIdentity,
+    PostgresBybitDemoOperationalDatabaseIdentityReader,
+)
 from app.execution.bybit_demo_same_account import (
     BybitDemoAccountIdentityInspector,
     BybitDemoApiAccountIdentity,
@@ -29,7 +33,7 @@ _ALLOWED_PRODUCERS = frozenset(
         "recovery_receipt",
     }
 )
-_BINDING_KEY_MARKER = b"BYBIT_DEMO_OPERATIONAL_ZONE_BINDING_KEY_V1"
+_BINDING_KEY_MARKER = b"BYBIT_DEMO_OPERATIONAL_ZONE_BINDING_KEY_V2"
 
 
 @dataclass(frozen=True)
@@ -39,6 +43,7 @@ class BybitDemoOperationalZoneBinding:
     observed_at: datetime
     binding_key_marker_sha256: str
     database_binding_sha256: str | None
+    logical_database_identity_verified: bool
     demo_account_binding_sha256: str | None
     order_writes_supported: bool = False
     live_mainnet_order_routing_allowed: bool = False
@@ -53,7 +58,7 @@ class BybitDemoOperationalZoneBinding:
 
     def to_payload(self) -> dict[str, Any]:
         return {
-            "schema": "BYBIT_DEMO_OPERATIONAL_ZONE_BINDING_V1",
+            "schema": "BYBIT_DEMO_OPERATIONAL_ZONE_BINDING_V2",
             "status": "BOUND",
             "passed": True,
             "producer": self.producer,
@@ -63,6 +68,7 @@ class BybitDemoOperationalZoneBinding:
             "binding_key_marker_sha256": self.binding_key_marker_sha256,
             "database_binding_present": self.database_binding_present,
             "database_binding_sha256": self.database_binding_sha256,
+            "logical_database_identity_verified": self.logical_database_identity_verified,
             "demo_account_binding_present": self.demo_account_binding_present,
             "demo_account_binding_sha256": self.demo_account_binding_sha256,
             "order_writes_supported": self.order_writes_supported,
@@ -76,6 +82,7 @@ def build_bybit_demo_operational_zone_binding(
     git_sha: str,
     binding_secret: str,
     database_dsn: str | None = None,
+    database_identity: BybitDemoOperationalDatabaseIdentity | None = None,
     account_inspector: BybitDemoAccountIdentityInspector | None = None,
     observed_at: datetime | None = None,
 ) -> BybitDemoOperationalZoneBinding:
@@ -85,11 +92,24 @@ def build_bybit_demo_operational_zone_binding(
     moment = _utc_now(observed_at)
 
     database_binding = None
+    identity_verified = False
     if database_dsn is not None:
+        resolved_identity = (
+            PostgresBybitDemoOperationalDatabaseIdentityReader(database_dsn).read_identity()
+            if database_identity is None
+            else database_identity
+        )
+        resolved_identity.validate()
         database_binding = _hmac_json(
             secret,
-            _canonical_database_resource(database_dsn),
+            _canonical_database_resource(
+                database_dsn,
+                database_instance_id=resolved_identity.database_instance_id,
+            ),
         )
+        identity_verified = True
+    elif database_identity is not None:
+        raise ValueError("Bybit Demo logical database identity requires a database DSN")
 
     account_binding = None
     if account_inspector is not None:
@@ -114,6 +134,7 @@ def build_bybit_demo_operational_zone_binding(
             hashlib.sha256,
         ).hexdigest(),
         database_binding_sha256=database_binding,
+        logical_database_identity_verified=identity_verified,
         demo_account_binding_sha256=account_binding,
     )
 
@@ -136,12 +157,35 @@ def bind_bybit_demo_account_identity(
     return _hmac_json(secret, payload)
 
 
-def bind_bybit_demo_database_dsn(database_dsn: str, *, binding_secret: str) -> str:
+def bind_bybit_demo_database_dsn(
+    database_dsn: str,
+    *,
+    database_instance_id: str,
+    binding_secret: str,
+) -> str:
+    identity = BybitDemoOperationalDatabaseIdentity(
+        database_instance_id=database_instance_id,
+        immutable_record=True,
+        diagnostics_only=True,
+        order_writes_supported=False,
+        live_mainnet_order_routing_allowed=False,
+    )
+    identity.validate()
     secret = _binding_secret_bytes(binding_secret)
-    return _hmac_json(secret, _canonical_database_resource(database_dsn))
+    return _hmac_json(
+        secret,
+        _canonical_database_resource(
+            database_dsn,
+            database_instance_id=identity.database_instance_id,
+        ),
+    )
 
 
-def _canonical_database_resource(database_dsn: str) -> dict[str, str]:
+def _canonical_database_resource(
+    database_dsn: str,
+    *,
+    database_instance_id: str,
+) -> dict[str, str]:
     if not isinstance(database_dsn, str) or not database_dsn.strip():
         raise ValueError("Bybit Demo operational database DSN is required")
     text = database_dsn.strip()
@@ -159,13 +203,14 @@ def _canonical_database_resource(database_dsn: str) -> dict[str, str]:
     if not port.isdigit() or not 1 <= int(port) <= 65535:
         raise ValueError("Bybit Demo operational database DSN port is invalid")
     return {
-        "namespace": "BYBIT_DEMO_DATABASE_RESOURCE_V1",
+        "namespace": "BYBIT_DEMO_DATABASE_RESOURCE_V2",
         "host": host,
         "hostaddr": hostaddr,
         "port": str(int(port)),
         "dbname": dbname,
         "sslmode": sslmode,
         "target_session_attrs": target_session_attrs,
+        "logical_database_instance_id": database_instance_id,
     }
 
 
