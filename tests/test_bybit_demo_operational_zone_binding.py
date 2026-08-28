@@ -33,27 +33,42 @@ def _database_identity(value: str = _DB_ID) -> BybitDemoOperationalDatabaseIdent
 
 def test_database_binding_ignores_credentials_but_binds_endpoint_database_and_lineage() -> None:
     first = bind_bybit_demo_database_dsn(
-        "postgresql://user-a:password-a@db.example.com:5432/astra_demo?sslmode=require",
+        (
+            "postgresql://user-a:password-a@db.example.com:5432/"
+            "astra_demo?sslmode=require"
+        ),
         database_instance_id=_DB_ID,
         binding_secret=_SECRET,
     )
     rotated = bind_bybit_demo_database_dsn(
-        "postgresql://user-b:password-b@DB.EXAMPLE.COM:5432/astra_demo?sslmode=require",
+        (
+            "postgresql://user-b:password-b@DB.EXAMPLE.COM:5432/"
+            "astra_demo?sslmode=require"
+        ),
         database_instance_id=_DB_ID,
         binding_secret=_SECRET,
     )
     other_database = bind_bybit_demo_database_dsn(
-        "postgresql://user-b:password-b@db.example.com:5432/other_demo?sslmode=require",
+        (
+            "postgresql://user-b:password-b@db.example.com:5432/"
+            "other_demo?sslmode=require"
+        ),
         database_instance_id=_DB_ID,
         binding_secret=_SECRET,
     )
     other_host = bind_bybit_demo_database_dsn(
-        "postgresql://user-b:password-b@other.example.com:5432/astra_demo?sslmode=require",
+        (
+            "postgresql://user-b:password-b@other.example.com:5432/"
+            "astra_demo?sslmode=require"
+        ),
         database_instance_id=_DB_ID,
         binding_secret=_SECRET,
     )
     independent_database_same_endpoint = bind_bybit_demo_database_dsn(
-        "postgresql://user-b:password-b@db.example.com:5432/astra_demo?sslmode=require",
+        (
+            "postgresql://user-b:password-b@db.example.com:5432/"
+            "astra_demo?sslmode=require"
+        ),
         database_instance_id=_OTHER_DB_ID,
         binding_secret=_SECRET,
     )
