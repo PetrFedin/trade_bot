@@ -1,0 +1,54 @@
+name: bybit-signal-pattern-holdout
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/strategy/crypto_signal_pattern_holdout.py'
+      - 'tests/test_crypto_signal_pattern_holdout.py'
+      - '.github/workflows/bybit-signal-pattern-holdout.yml'
+  push:
+    branches:
+      - agent/bybit-signal-pattern-holdout
+    paths:
+      - 'app/strategy/crypto_signal_pattern_holdout.py'
+      - 'tests/test_crypto_signal_pattern_holdout.py'
+      - '.github/workflows/bybit-signal-pattern-holdout.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Test frozen pattern holdout gate
+        run: pytest -q tests/test_crypto_signal_pattern_holdout.py
+
+      - name: Lint holdout gate
+        run: >-
+          ruff check --output-format=github
+          app/strategy/crypto_signal_pattern_holdout.py
+          tests/test_crypto_signal_pattern_holdout.py
+
+      - name: Security scan holdout gate
+        run: bandit -q app/strategy/crypto_signal_pattern_holdout.py
+
+      - name: Compile holdout gate
+        run: python -m compileall -q app/strategy/crypto_signal_pattern_holdout.py
