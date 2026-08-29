@@ -1,0 +1,216 @@
+name: bybit-signal-pattern-historical-holdout
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/strategy/crypto_signal_pattern_holdout.py'
+      - 'tools/audit_bybit_crypto_single_symbol_current.py'
+      - 'tools/validate_bybit_signal_pattern_holdout.py'
+      - 'tests/test_crypto_signal_pattern_holdout.py'
+      - 'tests/test_validate_bybit_signal_pattern_holdout.py'
+      - '.github/workflows/bybit-signal-pattern-historical-holdout.yml'
+  push:
+    branches:
+      - agent/bybit-signal-pattern-holdout
+    paths:
+      - 'app/strategy/crypto_signal_pattern_holdout.py'
+      - 'tools/audit_bybit_crypto_single_symbol_current.py'
+      - 'tools/validate_bybit_signal_pattern_holdout.py'
+      - 'tests/test_crypto_signal_pattern_holdout.py'
+      - 'tests/test_validate_bybit_signal_pattern_holdout.py'
+      - '.github/workflows/bybit-signal-pattern-historical-holdout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-signal-pattern-historical-holdout-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Test historical holdout boundary
+        run: >-
+          pytest -q
+          tests/test_crypto_signal_pattern_holdout.py
+          tests/test_validate_bybit_signal_pattern_holdout.py
+
+      - name: Lint historical holdout boundary
+        run: >-
+          ruff check --output-format=github
+          app/strategy/crypto_signal_pattern_holdout.py
+          tools/audit_bybit_crypto_single_symbol_current.py
+          tools/validate_bybit_signal_pattern_holdout.py
+          tests/test_crypto_signal_pattern_holdout.py
+          tests/test_validate_bybit_signal_pattern_holdout.py
+
+      - name: Security scan historical holdout boundary
+        run: >-
+          bandit -q
+          app/strategy/crypto_signal_pattern_holdout.py
+          tools/audit_bybit_crypto_single_symbol_current.py
+          tools/validate_bybit_signal_pattern_holdout.py
+
+      - name: Compile historical holdout boundary
+        run: >-
+          python -m compileall -q
+          app/strategy/crypto_signal_pattern_holdout.py
+          tools/audit_bybit_crypto_single_symbol_current.py
+          tools/validate_bybit_signal_pattern_holdout.py
+
+  source-windows:
+    if: github.event_name != 'pull_request'
+    needs: contract
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol:
+          - BTCUSDT
+          - ETHUSDT
+          - SOLUSDT
+          - XRPUSDT
+          - BNBUSDT
+          - DOGEUSDT
+          - LINKUSDT
+          - ADAUSDT
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Build frozen discovery and holdout evidence
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+        run: |
+          set -o pipefail
+          ROOT="artifacts/bybit-signal-holdout-source/$SYMBOL"
+          mkdir -p "$ROOT/discovery" "$ROOT/holdout"
+          PYTHONPATH=. python tools/audit_bybit_crypto_single_symbol_current.py \
+            --symbol "$SYMBOL" \
+            --lookback-days 7 \
+            --opening-equity 1000 \
+            --cutoff '2026-08-22T00:00:00+00:00' \
+            --output "$ROOT/discovery/report.json" \
+            2>&1 | tee "$ROOT/discovery/run.log"
+          PYTHONPATH=. python tools/audit_bybit_crypto_single_symbol_current.py \
+            --symbol "$SYMBOL" \
+            --lookback-days 7 \
+            --opening-equity 1000 \
+            --cutoff '2026-08-29T00:00:00+00:00' \
+            --output "$ROOT/holdout/report.json" \
+            2>&1 | tee "$ROOT/holdout/run.log"
+
+      - name: Upload one-token discovery and holdout source
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-signal-holdout-source-${{ matrix.symbol }}-${{ github.run_id }}
+          path: artifacts/bybit-signal-holdout-source
+          if-no-files-found: error
+          retention-days: 30
+
+  aggregate-holdout:
+    if: github.event_name != 'pull_request'
+    needs: source-windows
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Download immutable per-token source artifacts
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          pattern: bybit-signal-holdout-source-*-${{ github.run_id }}
+          path: artifacts/bybit-signal-holdout-source
+          merge-multiple: true
+
+      - name: Validate frozen discovery patterns on chronological holdout
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/bybit-signal-pattern-holdout
+          PYTHONPATH=. python tools/validate_bybit_signal_pattern_holdout.py \
+            --root artifacts/bybit-signal-holdout-source \
+            --minimum-discovery-trades 5 \
+            --minimum-holdout-trades 5 \
+            --minimum-discovery-symbols 2 \
+            --minimum-holdout-symbols 2 \
+            --output artifacts/bybit-signal-pattern-holdout/report.json \
+            2>&1 | tee artifacts/bybit-signal-pattern-holdout/run.log
+
+      - name: Print historical holdout decision
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(
+              Path('artifacts/bybit-signal-pattern-holdout/report.json').read_text()
+          )
+          summary = {
+              'discovery_archive_dates': report['discovery_archive_dates'],
+              'holdout_archive_dates': report['holdout_archive_dates'],
+              'discovery_trade_count': report['discovery_trade_count'],
+              'holdout_trade_count': report['holdout_trade_count'],
+              'candidate_count': report['candidate_count'],
+              'observed_holdout_perfect_count': report[
+                  'observed_holdout_perfect_count'
+              ],
+              'candidates': report['candidates'],
+          }
+          print('BYBIT_SIGNAL_HISTORICAL_HOLDOUT=' + json.dumps(summary, sort_keys=True))
+          PY
+
+      - name: Upload aggregate historical holdout evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-signal-pattern-holdout-${{ github.run_id }}
+          path: artifacts/bybit-signal-pattern-holdout
+          if-no-files-found: error
+          retention-days: 30
