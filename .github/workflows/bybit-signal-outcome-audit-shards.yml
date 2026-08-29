@@ -1,0 +1,99 @@
+name: bybit-signal-outcome-audit-shards
+
+on:
+  push:
+    branches:
+      - agent/bybit-signal-outcome-audit-shards
+    paths:
+      - '.github/workflows/bybit-signal-outcome-audit-shards.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  per-symbol-audit:
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol:
+          - BTCUSDT
+          - ETHUSDT
+          - SOLUSDT
+          - XRPUSDT
+          - BNBUSDT
+          - DOGEUSDT
+          - LINKUSDT
+          - ADAUSDT
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Audit one frozen token from official archives
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+        run: |
+          set -o pipefail
+          mkdir -p "artifacts/bybit-signal-shards/$SYMBOL"
+          PYTHONPATH=. python tools/audit_bybit_crypto_signal_outcomes.py \
+            --symbols "$SYMBOL" \
+            --lookback-days 7 \
+            --opening-equity 1000 \
+            --target 20 \
+            --minimum-pattern-trades 5 \
+            --sample-sufficient-trades 30 \
+            --minimum-cross-symbol-count 2 \
+            --output "artifacts/bybit-signal-shards/$SYMBOL/report.json" \
+            2>&1 | tee "artifacts/bybit-signal-shards/$SYMBOL/run.log"
+
+      - name: Print one-token summary
+        if: success()
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          symbol = os.environ['SYMBOL']
+          report = json.loads(
+              Path(f'artifacts/bybit-signal-shards/{symbol}/report.json').read_text()
+          )
+          all_signals = report['all_eligible_signal_events']
+          summary = {
+              'symbol': symbol,
+              'all_signal_event_count': all_signals['signal_event_count'],
+              'all_signal_aggregate': all_signals['aggregate'],
+              'all_signal_by_side': all_signals['by_side'],
+              'all_signal_by_clarity': all_signals['by_clarity_band'],
+              'closed_trade_count': report['trade_count'],
+              'trade_aggregate': report['aggregate'],
+              'trade_by_side': report['by_side'],
+              'exact_symbol_patterns': report['exact_symbol_patterns'],
+          }
+          print('BYBIT_SIGNAL_SHARD_SUMMARY=' + json.dumps(summary, sort_keys=True))
+          PY
+
+      - name: Upload one-token evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-signal-shard-${{ matrix.symbol }}-${{ github.run_id }}
+          path: artifacts/bybit-signal-shards/${{ matrix.symbol }}
+          if-no-files-found: error
+          retention-days: 30
