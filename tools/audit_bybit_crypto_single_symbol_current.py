@@ -32,6 +32,9 @@ def run_single_symbol_current_audit(
     if normalized != symbol or not symbol.endswith("USDT"):
         raise ValueError("single-symbol audit requires normalized USDT symbol")
     cutoff = datetime.now(UTC) if now is None else now
+    if cutoff.tzinfo is None or cutoff.utcoffset() is None:
+        raise ValueError("single-symbol audit cutoff must be timezone-aware")
+    cutoff = cutoff.astimezone(UTC)
     dates = completed_archive_dates(now=cutoff, lookback_days=lookback_days)
     archive = BybitPublicTradeArchiveClient().fetch_klines(
         symbols=(symbol,),
@@ -62,6 +65,7 @@ def run_single_symbol_current_audit(
         "audit": "BYBIT_CRYPTO_SINGLE_SYMBOL_CURRENT_QUALIFIED_AUDIT_V1",
         "symbol": symbol,
         "source": "BYBIT_OFFICIAL_PUBLIC_TRADE_ARCHIVE_AGGREGATED_5M",
+        "cutoff_utc": cutoff.isoformat(),
         "archive_dates": [value.isoformat() for value in dates],
         "opening_equity_usdt": float(opening_equity_usdt),
         "strategy_mode": "CONDITIONAL_1_5X_OPEN_ENDED_RUNNER",
@@ -93,8 +97,22 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--lookback-days", type=int, default=7)
     parser.add_argument("--opening-equity", default="1000")
+    parser.add_argument(
+        "--cutoff",
+        help="Timezone-aware ISO-8601 cutoff used to freeze completed archive days",
+    )
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
+
+
+def _parse_cutoff(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    normalized = value.strip().replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("single-symbol audit --cutoff must include timezone")
+    return parsed.astimezone(UTC)
 
 
 def main() -> None:
@@ -103,6 +121,7 @@ def main() -> None:
         symbol=args.symbol.strip().upper(),
         lookback_days=args.lookback_days,
         opening_equity_usdt=Decimal(args.opening_equity),
+        now=_parse_cutoff(args.cutoff),
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
@@ -118,6 +137,8 @@ def main() -> None:
         + json.dumps(
             {
                 "symbol": report["symbol"],
+                "cutoff_utc": report["cutoff_utc"],
+                "archive_dates": report["archive_dates"],
                 "signal_event_count": all_signals["signal_event_count"],
                 "closed_trade_count": trade_outcomes["trade_count"],
                 "aggregate": trade_outcomes["aggregate"],
