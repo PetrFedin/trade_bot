@@ -1,0 +1,181 @@
+{
+  "evidence": "BYBIT_CRYPTO_SIGNAL_OUTCOME_SNAPSHOT_V1",
+  "source_run_id": 33248448689,
+  "source_head_sha": "931ee7db3ded79b4574485bb0dbf075e29cea104",
+  "source": "BYBIT_OFFICIAL_PUBLIC_TRADE_ARCHIVE_AGGREGATED_5M",
+  "archive_dates": [
+    "2026-08-22",
+    "2026-08-23",
+    "2026-08-24",
+    "2026-08-25",
+    "2026-08-26",
+    "2026-08-27",
+    "2026-08-28"
+  ],
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "BNBUSDT",
+    "DOGEUSDT",
+    "LINKUSDT",
+    "ADAUSDT"
+  ],
+  "artifact_sha256": {
+    "ADAUSDT": "8a4b3fb9e8f8b28eebcc6f82a582dc69924343f88b6bab761f3a869b5f7e2fe7",
+    "BNBUSDT": "d3f1680877a0ae96554555012ca32bba13528cbcddb7a06d279ad01868baca9b",
+    "BTCUSDT": "054527332ac30519d021e09503b21508bf444f72c27535b08e0bdb9c76543ba4",
+    "DOGEUSDT": "30c4b194546941c5c80b45b131319fe9458bc5e8b50cdd88de8c54ab1794943f",
+    "ETHUSDT": "67192a23c3806e13125274b835aab7627833b077999ac908db2adc591307b189",
+    "LINKUSDT": "4c0d1f7ea4dc83957965574b3b14e5681cb8db1188d3c6641f4033dc7c7526c7",
+    "SOLUSDT": "0470326b7dcfa727e296a1d31a57fd4237c54122e73589ee55d6411c6888243d",
+    "XRPUSDT": "e3ccfca09a0f3eef668d0c02e898cb9d0038ce2e378c4ecf1f98465c15da3951"
+  },
+  "all_eligible_signals": {
+    "signal_count": 1438,
+    "plan_eligible_at_reference_1000_usdt": 452,
+    "plan_eligible_rate": 0.31432545201668985,
+    "median_quality_ratio_to_entry_gate": 3.292,
+    "forward_direction": {
+      "15m": {
+        "complete_count": 1438,
+        "positive_count": 617,
+        "positive_rate": 0.4290681502086231,
+        "average_directional_return_fraction": -0.000613
+      },
+      "60m": {
+        "complete_count": 1434,
+        "positive_count": 500,
+        "positive_rate": 0.3486750348675035,
+        "average_directional_return_fraction": -0.002643
+      },
+      "240m": {
+        "complete_count": 1418,
+        "positive_count": 552,
+        "positive_rate": 0.38928067700987307,
+        "average_directional_return_fraction": -0.004736
+      }
+    },
+    "median_240m_mfe_r": 2.524,
+    "median_240m_mae_r": 3.55
+  },
+  "quality_response_descriptive_only": [
+    {
+      "quality_ratio_band": "1.00-1.25x",
+      "signal_count": 43,
+      "positive_240m_rate": 0.357,
+      "average_240m_directional_return_fraction": -0.003767
+    },
+    {
+      "quality_ratio_band": "1.25-1.75x",
+      "signal_count": 135,
+      "positive_240m_rate": 0.452,
+      "average_240m_directional_return_fraction": -0.003172
+    },
+    {
+      "quality_ratio_band": "1.75-3.00x",
+      "signal_count": 436,
+      "positive_240m_rate": 0.418,
+      "average_240m_directional_return_fraction": -0.003322
+    },
+    {
+      "quality_ratio_band": "3.00-5.00x",
+      "signal_count": 604,
+      "positive_240m_rate": 0.396,
+      "average_240m_directional_return_fraction": -0.003998
+    },
+    {
+      "quality_ratio_band": ">=5.00x",
+      "signal_count": 220,
+      "positive_240m_rate": 0.2831,
+      "average_240m_directional_return_fraction": -0.010647
+    }
+  ],
+  "closed_trades": {
+    "trade_count": 156,
+    "positive_close_count": 68,
+    "positive_close_rate": 0.4358974358974359,
+    "planned_profit_exit_count": 52,
+    "planned_profit_exit_rate": 0.3333333333333333,
+    "total_net_pnl_usdt": -218.43,
+    "exit_reasons": {
+      "HARD_STOP": {
+        "count": 65,
+        "positive_rate": 0.0,
+        "total_net_pnl_usdt": -644.09,
+        "average_net_pnl_usdt": -9.91
+      },
+      "BREAK_EVEN_STOP": {
+        "count": 37,
+        "positive_rate": 0.4324,
+        "total_net_pnl_usdt": -46.67,
+        "average_net_pnl_usdt": -1.26
+      },
+      "NET_TARGET": {
+        "count": 22,
+        "positive_rate": 1.0,
+        "total_net_pnl_usdt": 440.0,
+        "average_net_pnl_usdt": 20.0
+      },
+      "PROFIT_PROTECTION": {
+        "count": 32,
+        "positive_rate": 0.9375,
+        "total_net_pnl_usdt": 32.33,
+        "average_net_pnl_usdt": 1.01
+      }
+    }
+  },
+  "per_symbol_trade_summary": {
+    "ADAUSDT": {"signal_count": 58, "trade_count": 21, "positive_close_rate": 0.4286, "planned_profit_exit_rate": 0.381, "net_pnl_usdt": -10.91, "profit_factor": 0.888},
+    "BNBUSDT": {"signal_count": 10, "trade_count": 2, "positive_close_rate": 1.0, "planned_profit_exit_rate": 1.0, "net_pnl_usdt": 1.39, "profit_factor": null},
+    "BTCUSDT": {"signal_count": 224, "trade_count": 1, "positive_close_rate": 1.0, "planned_profit_exit_rate": 0.0, "net_pnl_usdt": 0.0, "profit_factor": null},
+    "DOGEUSDT": {"signal_count": 199, "trade_count": 42, "positive_close_rate": 0.4762, "planned_profit_exit_rate": 0.3571, "net_pnl_usdt": -44.92, "profit_factor": 0.767},
+    "ETHUSDT": {"signal_count": 240, "trade_count": 3, "positive_close_rate": 0.3333, "planned_profit_exit_rate": 0.3333, "net_pnl_usdt": -18.12, "profit_factor": 0.063},
+    "LINKUSDT": {"signal_count": 29, "trade_count": 11, "positive_close_rate": 0.2727, "planned_profit_exit_rate": 0.2727, "net_pnl_usdt": -51.42, "profit_factor": 0.052},
+    "SOLUSDT": {"signal_count": 324, "trade_count": 24, "positive_close_rate": 0.3333, "planned_profit_exit_rate": 0.25, "net_pnl_usdt": -77.03, "profit_factor": 0.36},
+    "XRPUSDT": {"signal_count": 354, "trade_count": 52, "positive_close_rate": 0.4615, "planned_profit_exit_rate": 0.3269, "net_pnl_usdt": -17.41, "profit_factor": 0.917}
+  },
+  "supported_cross_token_pattern_search": {
+    "pattern": "side|volatility_regime|trend_regime|breakout_regime|turnover_regime",
+    "minimum_trades": 5,
+    "minimum_symbols": 2,
+    "perfect_positive_pattern_count": 0,
+    "perfect_planned_profit_pattern_count": 0,
+    "best_observed_candidate": {
+      "pattern": "LONG|VOL_LOW_NORMAL|TREND_MODERATE|BREAKOUT_PULLBACK|TURNOVER_LOW",
+      "trade_count": 13,
+      "symbol_count": 4,
+      "symbols": ["ADAUSDT", "DOGEUSDT", "SOLUSDT", "XRPUSDT"],
+      "positive_close_count": 10,
+      "positive_close_rate": 0.7692,
+      "positive_rate_wilson_lower_95": 0.4974,
+      "planned_profit_exit_count": 7,
+      "planned_profit_exit_rate": 0.5385,
+      "total_net_pnl_usdt": 71.59,
+      "profit_factor": 3.393,
+      "candidate_only": true
+    },
+    "strong_counterexample": {
+      "pattern": "SHORT|VOL_LOW_NORMAL|TREND_STRONG|BREAKOUT_CONFIRMED|TURNOVER_HIGH",
+      "trade_count": 5,
+      "symbol_count": 4,
+      "positive_close_count": 0,
+      "positive_close_rate": 0.0,
+      "total_net_pnl_usdt": -42.88,
+      "median_quality_ratio_to_entry_gate": 6.07
+    }
+  },
+  "interpretation": {
+    "historically_always_worked_supported_pattern_found": false,
+    "quality_score_monotonic_edge_found": false,
+    "parameter_retuning_performed": false,
+    "strategy_selection_allowed": false,
+    "strategy_promotion_allowed": false,
+    "trade_actionable": false,
+    "demo_activation_allowed": false,
+    "live_activation_allowed": false,
+    "bybit_live_order_routing_allowed": false,
+    "next_gate": "NON_OVERLAPPING_DISCOVERY_HOLDOUT_THEN_PROSPECTIVE_V112_V118_EXACT_CELL_CONFIRMATION"
+  }
+}
