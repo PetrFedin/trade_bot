@@ -6,7 +6,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
 
 from app.marketdata.bybit_public_archive import (
     BybitArchiveAcquisition,
