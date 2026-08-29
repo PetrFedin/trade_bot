@@ -2,7 +2,6 @@ name: bybit-signal-outcome-audit
 
 on:
   pull_request:
-    branches: [main]
     paths:
       - 'app/strategy/crypto_signal_outcome_audit.py'
       - 'app/strategy/crypto_signal_event_outcomes.py'
