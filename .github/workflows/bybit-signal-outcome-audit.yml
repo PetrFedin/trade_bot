@@ -5,16 +5,20 @@ on:
     branches: [main]
     paths:
       - 'app/strategy/crypto_signal_outcome_audit.py'
+      - 'app/strategy/crypto_signal_event_outcomes.py'
       - 'tools/audit_bybit_crypto_signal_outcomes.py'
       - 'tests/test_crypto_signal_outcome_audit.py'
+      - 'tests/test_crypto_signal_event_outcomes.py'
       - '.github/workflows/bybit-signal-outcome-audit.yml'
   push:
     branches:
       - agent/bybit-signal-outcome-audit
     paths:
       - 'app/strategy/crypto_signal_outcome_audit.py'
+      - 'app/strategy/crypto_signal_event_outcomes.py'
       - 'tools/audit_bybit_crypto_signal_outcomes.py'
       - 'tests/test_crypto_signal_outcome_audit.py'
+      - 'tests/test_crypto_signal_event_outcomes.py'
       - '.github/workflows/bybit-signal-outcome-audit.yml'
   workflow_dispatch:
     inputs:
@@ -55,25 +59,32 @@ jobs:
           python -m pip check
 
       - name: Test signal outcome audit
-        run: pytest -q tests/test_crypto_signal_outcome_audit.py
+        run: >-
+          pytest -q
+          tests/test_crypto_signal_outcome_audit.py
+          tests/test_crypto_signal_event_outcomes.py
 
       - name: Lint signal outcome audit
         run: >-
           ruff check --output-format=github
           app/strategy/crypto_signal_outcome_audit.py
+          app/strategy/crypto_signal_event_outcomes.py
           tools/audit_bybit_crypto_signal_outcomes.py
           tests/test_crypto_signal_outcome_audit.py
+          tests/test_crypto_signal_event_outcomes.py
 
       - name: Security scan audit boundary
         run: >-
           bandit -q
           app/strategy/crypto_signal_outcome_audit.py
+          app/strategy/crypto_signal_event_outcomes.py
           tools/audit_bybit_crypto_signal_outcomes.py
 
       - name: Compile signal outcome audit
         run: >-
           python -m compileall -q
           app/strategy/crypto_signal_outcome_audit.py
+          app/strategy/crypto_signal_event_outcomes.py
           tools/audit_bybit_crypto_signal_outcomes.py
 
   real-market-audit:
@@ -124,13 +135,19 @@ jobs:
           report = json.loads(
               Path('artifacts/bybit-signal-outcome-audit/report.json').read_text()
           )
+          all_signals = report['all_eligible_signal_events']
           summary = {
               'archive_dates': report['archive_dates'],
               'symbols': report['symbols'],
-              'trade_count': report['trade_count'],
-              'aggregate': report['aggregate'],
-              'by_symbol': report['by_symbol'],
-              'by_side': report['by_side'],
+              'all_signal_event_count': all_signals['signal_event_count'],
+              'all_signal_aggregate': all_signals['aggregate'],
+              'all_signal_by_symbol': all_signals['by_symbol'],
+              'all_signal_by_side': all_signals['by_side'],
+              'all_signal_by_clarity': all_signals['by_clarity_band'],
+              'closed_trade_count': report['trade_count'],
+              'trade_aggregate': report['aggregate'],
+              'trade_by_symbol': report['by_symbol'],
+              'trade_by_side': report['by_side'],
               'perfect_positive': report[
                   'retrospective_perfect_positive_cross_symbol_patterns'
               ],
