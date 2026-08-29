@@ -1,0 +1,151 @@
+name: bybit-signal-outcome-audit
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/strategy/crypto_signal_outcome_audit.py'
+      - 'tools/audit_bybit_crypto_signal_outcomes.py'
+      - 'tests/test_crypto_signal_outcome_audit.py'
+      - '.github/workflows/bybit-signal-outcome-audit.yml'
+  push:
+    branches:
+      - agent/bybit-signal-outcome-audit
+    paths:
+      - 'app/strategy/crypto_signal_outcome_audit.py'
+      - 'tools/audit_bybit_crypto_signal_outcomes.py'
+      - 'tests/test_crypto_signal_outcome_audit.py'
+      - '.github/workflows/bybit-signal-outcome-audit.yml'
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: 'Completed Bybit UTC archive days'
+        required: false
+        default: '7'
+      symbols:
+        description: 'Frozen comma-separated USDT perpetual symbols'
+        required: false
+        default: 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,LINKUSDT,ADAUSDT'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-signal-outcome-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Test signal outcome audit
+        run: pytest -q tests/test_crypto_signal_outcome_audit.py
+
+      - name: Lint signal outcome audit
+        run: >-
+          ruff check --output-format=github
+          app/strategy/crypto_signal_outcome_audit.py
+          tools/audit_bybit_crypto_signal_outcomes.py
+          tests/test_crypto_signal_outcome_audit.py
+
+      - name: Security scan audit boundary
+        run: >-
+          bandit -q
+          app/strategy/crypto_signal_outcome_audit.py
+          tools/audit_bybit_crypto_signal_outcomes.py
+
+      - name: Compile signal outcome audit
+        run: >-
+          python -m compileall -q
+          app/strategy/crypto_signal_outcome_audit.py
+          tools/audit_bybit_crypto_signal_outcomes.py
+
+  real-market-audit:
+    if: github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Audit frozen signals on completed official Bybit archives
+        env:
+          LOOKBACK_DAYS: ${{ inputs.lookback_days || '7' }}
+          SYMBOLS: ${{ inputs.symbols || 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,LINKUSDT,ADAUSDT' }}
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/bybit-signal-outcome-audit
+          PYTHONPATH=. python tools/audit_bybit_crypto_signal_outcomes.py \
+            --symbols "$SYMBOLS" \
+            --lookback-days "$LOOKBACK_DAYS" \
+            --opening-equity 1000 \
+            --target 20 \
+            --minimum-pattern-trades 5 \
+            --sample-sufficient-trades 30 \
+            --minimum-cross-symbol-count 2 \
+            --output artifacts/bybit-signal-outcome-audit/report.json \
+            2>&1 | tee artifacts/bybit-signal-outcome-audit/run.log
+
+      - name: Print compact audit summary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(
+              Path('artifacts/bybit-signal-outcome-audit/report.json').read_text()
+          )
+          summary = {
+              'archive_dates': report['archive_dates'],
+              'symbols': report['symbols'],
+              'trade_count': report['trade_count'],
+              'aggregate': report['aggregate'],
+              'by_symbol': report['by_symbol'],
+              'by_side': report['by_side'],
+              'perfect_positive': report[
+                  'retrospective_perfect_positive_cross_symbol_patterns'
+              ],
+              'perfect_planned_profit': report[
+                  'retrospective_perfect_planned_profit_cross_symbol_patterns'
+              ],
+          }
+          print('BYBIT_SIGNAL_AUDIT_SUMMARY=' + json.dumps(summary, sort_keys=True))
+          PY
+
+      - name: Upload real-market signal outcome evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-signal-outcome-audit-${{ github.run_id }}
+          path: artifacts/bybit-signal-outcome-audit
+          if-no-files-found: error
+          retention-days: 30
