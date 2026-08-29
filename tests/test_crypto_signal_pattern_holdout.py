@@ -24,13 +24,26 @@ def _row(
         "positive_close": positive,
         "planned_profit_exit": planned,
         "net_pnl_usdt": 20.0 if positive else -10.0,
-        "exit_reason": "NET_TARGET" if planned else ("BREAK_EVEN_STOP" if positive else "HARD_STOP"),
+        "exit_reason": (
+            "NET_TARGET"
+            if planned
+            else ("BREAK_EVEN_STOP" if positive else "HARD_STOP")
+        ),
     }
 
 
-def _supported_rows(*, positive: bool = True, planned: bool = True) -> list[dict[str, object]]:
+def _supported_rows(
+    *,
+    positive: bool = True,
+    planned: bool = True,
+) -> list[dict[str, object]]:
     return [
-        _row(symbol="BTCUSDT" if index < 3 else "ETHUSDT", index=index, positive=positive, planned=planned)
+        _row(
+            symbol="BTCUSDT" if index < 3 else "ETHUSDT",
+            index=index,
+            positive=positive,
+            planned=planned,
+        )
         for index in range(5)
     ]
 
@@ -70,10 +83,7 @@ def test_small_discovery_perfect_sample_is_not_a_candidate() -> None:
 
 
 def test_single_symbol_discovery_is_not_cross_token_evidence() -> None:
-    discovery = [
-        _row(symbol="BTCUSDT", index=index)
-        for index in range(5)
-    ]
+    discovery = [_row(symbol="BTCUSDT", index=index) for index in range(5)]
     report = validate_crypto_signal_pattern_holdout(discovery, _supported_rows())
 
     assert report["candidate_count"] == 0
