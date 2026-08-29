@@ -87,7 +87,6 @@ jobs:
           tools/audit_bybit_crypto_signal_outcomes.py
 
   real-market-audit:
-    if: github.event_name != 'pull_request'
     needs: contract
     runs-on: ubuntu-latest
     timeout-minutes: 60
