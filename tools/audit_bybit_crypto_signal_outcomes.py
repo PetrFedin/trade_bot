@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -32,8 +33,10 @@ def run_signal_outcome_audit(
     opening_equity_usdt: Decimal = Decimal("1000"),
     target_usd: Decimal = Decimal("20"),
     policy: CryptoSignalOutcomeAuditPolicy | None = None,
+    now: datetime | None = None,
 ) -> dict[str, object]:
-    dates = completed_archive_dates(lookback_days=lookback_days)
+    cutoff = datetime.now(UTC) if now is None else now
+    dates = completed_archive_dates(now=cutoff, lookback_days=lookback_days)
     client = BybitPublicTradeArchiveClient()
     acquisition = client.fetch_klines(symbols=symbols, dates=dates, interval_minutes=5)
     acquisition.validate(requested_symbols=symbols, minimum_bars=25)
@@ -46,8 +49,13 @@ def run_signal_outcome_audit(
         base_config=config,
         interval="5",
     )
-    variant_name = f"TARGET_{str(target_usd).replace('.', '_')}_USD"
-    variant = replay["variants"][variant_name]
+    variants = replay["variants"]
+    if not isinstance(variants, dict) or len(variants) != 1:
+        raise ValueError("signal audit expected exactly one replay target variant")
+    variant = next(iter(variants.values()))
+    if not isinstance(variant, dict):
+        raise ValueError("signal audit replay target variant is invalid")
+
     records = build_crypto_historical_trade_conditions(
         acquisition.klines,
         variant,
