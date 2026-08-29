@@ -266,7 +266,9 @@ def _confirm_candidate(
         "historical_total_net_pnl_usdt": str(candidate.historical_total_net_pnl_usdt),
         "historical_average_net_pnl_usdt": str(candidate.historical_average_net_pnl_usdt),
         "historical_profit_factor": (
-            None if candidate.historical_profit_factor is None else str(candidate.historical_profit_factor)
+            None
+            if candidate.historical_profit_factor is None
+            else str(candidate.historical_profit_factor)
         ),
         "oos_status": status.value,
         "oos_observation_count": count,
