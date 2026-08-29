@@ -5,11 +5,16 @@ on:
     branches:
       - agent/bybit-signal-outcome-audit-shards
     paths:
+      - 'tools/audit_bybit_crypto_single_symbol_current.py'
       - '.github/workflows/bybit-signal-outcome-audit-shards.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: bybit-signal-outcome-audit-shards-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   per-symbol-audit:
@@ -43,20 +48,21 @@ jobs:
           python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
           python -m pip check
 
+      - name: Lint and compile single-token audit
+        run: |
+          ruff check --output-format=github tools/audit_bybit_crypto_single_symbol_current.py
+          python -m compileall -q tools/audit_bybit_crypto_single_symbol_current.py
+
       - name: Audit one frozen token from official archives
         env:
           SYMBOL: ${{ matrix.symbol }}
         run: |
           set -o pipefail
           mkdir -p "artifacts/bybit-signal-shards/$SYMBOL"
-          PYTHONPATH=. python tools/audit_bybit_crypto_signal_outcomes.py \
-            --symbols "$SYMBOL" \
+          PYTHONPATH=. python tools/audit_bybit_crypto_single_symbol_current.py \
+            --symbol "$SYMBOL" \
             --lookback-days 7 \
             --opening-equity 1000 \
-            --target 20 \
-            --minimum-pattern-trades 5 \
-            --sample-sufficient-trades 30 \
-            --minimum-cross-symbol-count 2 \
             --output "artifacts/bybit-signal-shards/$SYMBOL/report.json" \
             2>&1 | tee "artifacts/bybit-signal-shards/$SYMBOL/run.log"
 
@@ -75,16 +81,19 @@ jobs:
               Path(f'artifacts/bybit-signal-shards/{symbol}/report.json').read_text()
           )
           all_signals = report['all_eligible_signal_events']
+          trades = report['trade_outcomes']
           summary = {
               'symbol': symbol,
+              'strategy_mode': report['strategy_mode'],
               'all_signal_event_count': all_signals['signal_event_count'],
               'all_signal_aggregate': all_signals['aggregate'],
               'all_signal_by_side': all_signals['by_side'],
               'all_signal_by_clarity': all_signals['by_clarity_band'],
-              'closed_trade_count': report['trade_count'],
-              'trade_aggregate': report['aggregate'],
-              'trade_by_side': report['by_side'],
-              'exact_symbol_patterns': report['exact_symbol_patterns'],
+              'closed_trade_count': trades['trade_count'],
+              'trade_aggregate': trades['aggregate'],
+              'trade_by_side': trades['by_side'],
+              'exact_symbol_patterns': trades['exact_symbol_patterns'],
+              'runner_activation_event_count': report['runner_activation_event_count'],
           }
           print('BYBIT_SIGNAL_SHARD_SUMMARY=' + json.dumps(summary, sort_keys=True))
           PY
