@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import UTC, datetime
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 from app.marketdata.bybit_public_archive import (
+    BybitArchiveAcquisition,
     BybitPublicTradeArchiveClient,
     completed_archive_dates,
 )
+from app.marketdata.bybit_v5 import BybitKlineAcquisition
 from app.strategy.crypto_historical_diagnostics import (
     build_crypto_historical_trade_conditions,
 )
@@ -40,14 +44,15 @@ def run_signal_outcome_audit(
     target_usd: Decimal = Decimal("20"),
     policy: CryptoSignalOutcomeAuditPolicy | None = None,
     now: datetime | None = None,
+    archive_workers: int = 4,
 ) -> dict[str, object]:
     cutoff = datetime.now(UTC) if now is None else now
     dates = completed_archive_dates(now=cutoff, lookback_days=lookback_days)
-    client = BybitPublicTradeArchiveClient()
-    acquisition = client.fetch_klines(
+    acquisition = _fetch_archives_by_symbol(
         symbols=symbols,
         dates=dates,
         interval_minutes=5,
+        archive_workers=archive_workers,
     )
     acquisition.validate(requested_symbols=symbols, minimum_bars=25)
 
@@ -81,6 +86,7 @@ def run_signal_outcome_audit(
         source="BYBIT_OFFICIAL_PUBLIC_TRADE_ARCHIVE_AGGREGATED_5M",
         archive_dates=[value.isoformat() for value in dates],
         archive_completed_utc_days_only=True,
+        archive_download_workers=archive_workers,
         symbols=list(symbols),
         target_net_profit_usd=float(target_usd),
         opening_equity_usdt=float(opening_equity_usdt),
@@ -96,6 +102,57 @@ def run_signal_outcome_audit(
     return audit
 
 
+def _fetch_archives_by_symbol(
+    *,
+    symbols: tuple[str, ...],
+    dates: tuple[date, ...],
+    interval_minutes: int,
+    archive_workers: int,
+) -> BybitArchiveAcquisition:
+    if not 1 <= archive_workers <= 8:
+        raise ValueError("signal audit archive workers must be within [1, 8]")
+
+    def fetch_one(symbol: str) -> tuple[str, BybitArchiveAcquisition]:
+        result = BybitPublicTradeArchiveClient().fetch_klines(
+            symbols=(symbol,),
+            dates=dates,
+            interval_minutes=interval_minutes,
+        )
+        result.validate(requested_symbols=(symbol,), minimum_bars=1)
+        return symbol, result
+
+    workers = min(archive_workers, len(symbols))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        loaded = dict(executor.map(fetch_one, symbols))
+
+    bars = tuple(
+        sorted(
+            (
+                bar
+                for symbol in symbols
+                for bar in loaded[symbol].klines.bars
+            ),
+            key=lambda item: (item.symbol, item.start_time),
+        )
+    )
+    combined = BybitArchiveAcquisition(
+        klines=BybitKlineAcquisition(
+            bars=bars,
+            pages_by_symbol={symbol: len(dates) for symbol in symbols},
+        ),
+        files_by_symbol={
+            symbol: loaded[symbol].files_by_symbol[symbol]
+            for symbol in symbols
+        },
+        trade_rows_by_symbol={
+            symbol: loaded[symbol].trade_rows_by_symbol[symbol]
+            for symbol in symbols
+        },
+    )
+    combined.validate(requested_symbols=symbols, minimum_bars=1)
+    return combined
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Audit historical outcomes of frozen Bybit signals"
@@ -107,6 +164,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--minimum-pattern-trades", type=int, default=5)
     parser.add_argument("--sample-sufficient-trades", type=int, default=30)
     parser.add_argument("--minimum-cross-symbol-count", type=int, default=2)
+    parser.add_argument("--archive-workers", type=int, default=4)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -129,6 +187,7 @@ def main() -> None:
         opening_equity_usdt=Decimal(args.opening_equity),
         target_usd=Decimal(args.target),
         policy=policy,
+        archive_workers=args.archive_workers,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
