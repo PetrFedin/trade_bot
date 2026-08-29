@@ -6,8 +6,13 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from app.marketdata.bybit_public_archive import BybitPublicTradeArchiveClient, completed_archive_dates
-from app.strategy.crypto_historical_diagnostics import build_crypto_historical_trade_conditions
+from app.marketdata.bybit_public_archive import (
+    BybitPublicTradeArchiveClient,
+    completed_archive_dates,
+)
+from app.strategy.crypto_historical_diagnostics import (
+    build_crypto_historical_trade_conditions,
+)
 from app.strategy.crypto_signal_outcome_audit import (
     CryptoSignalOutcomeAuditPolicy,
     audit_crypto_signal_outcomes,
@@ -38,7 +43,11 @@ def run_signal_outcome_audit(
     cutoff = datetime.now(UTC) if now is None else now
     dates = completed_archive_dates(now=cutoff, lookback_days=lookback_days)
     client = BybitPublicTradeArchiveClient()
-    acquisition = client.fetch_klines(symbols=symbols, dates=dates, interval_minutes=5)
+    acquisition = client.fetch_klines(
+        symbols=symbols,
+        dates=dates,
+        interval_minutes=5,
+    )
     acquisition.validate(requested_symbols=symbols, minimum_bars=25)
 
     config = default_crypto_config().with_target(target_usd)
@@ -81,7 +90,9 @@ def run_signal_outcome_audit(
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Audit historical outcomes of frozen Bybit signals")
+    parser = argparse.ArgumentParser(
+        description="Audit historical outcomes of frozen Bybit signals"
+    )
     parser.add_argument("--symbols", default=",".join(_DEFAULT_SYMBOLS))
     parser.add_argument("--lookback-days", type=int, default=7)
     parser.add_argument("--opening-equity", default="1000")
@@ -95,7 +106,11 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
-    symbols = tuple(symbol.strip().upper() for symbol in args.symbols.split(",") if symbol.strip())
+    symbols = tuple(
+        symbol.strip().upper()
+        for symbol in args.symbols.split(",")
+        if symbol.strip()
+    )
     policy = CryptoSignalOutcomeAuditPolicy(
         minimum_pattern_trades=args.minimum_pattern_trades,
         sample_sufficient_trades=args.sample_sufficient_trades,
@@ -109,7 +124,10 @@ def main() -> None:
         policy=policy,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     print(
         "BYBIT_SIGNAL_OUTCOME_AUDIT="
         + json.dumps(
