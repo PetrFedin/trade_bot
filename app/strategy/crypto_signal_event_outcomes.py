@@ -4,7 +4,7 @@ import statistics
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -94,11 +94,16 @@ def audit_all_crypto_signal_events(
                 for bar in bars[index + 1 :]
                 if bar.start_time < next_bar.start_time + timedelta(minutes=240)
             )
+            full_240 = _contiguous_window(
+                available_at=next_bar.start_time,
+                bars=future,
+                minutes=240,
+            )
             mfe_r, mae_r = _excursions_r(
                 side=signal.side.value,
                 entry_price=next_bar.open,
                 risk_distance=atr * config.hard_stop_atr_multiple,
-                bars=future,
+                bars=full_240,
             )
             horizons = tuple(
                 _horizon(
@@ -170,6 +175,9 @@ def audit_all_crypto_signal_events(
             "signal becomes knowable after the completed decision bar; movement starts from "
             "the next contiguous 5m bar open and does not model an executed trade"
         ),
+        "excursion_contract": (
+            "240m MFE/MAE is emitted only when all 48 future 5m bars are contiguous"
+        ),
         "portfolio_slot_constraints_applied": False,
         "cooldown_constraints_applied": False,
         "parameter_retuning_performed": False,
@@ -199,20 +207,36 @@ def _bars_by_symbol(
     return result
 
 
-def _horizon(
+def _contiguous_window(
     *,
-    side: str,
-    entry_price: Decimal,
-    available_at: Any,
+    available_at: datetime,
     bars: Sequence[BybitKlineBar],
     minutes: int,
-) -> CryptoSignalForwardHorizon:
+) -> tuple[BybitKlineBar, ...]:
     expected_count = minutes // 5
     expected = tuple(available_at + index * _INTERVAL for index in range(expected_count))
     by_start = {bar.start_time: bar for bar in bars if bar.start_time in expected}
     if len(by_start) != expected_count:
+        return ()
+    return tuple(by_start[start] for start in expected)
+
+
+def _horizon(
+    *,
+    side: str,
+    entry_price: Decimal,
+    available_at: datetime,
+    bars: Sequence[BybitKlineBar],
+    minutes: int,
+) -> CryptoSignalForwardHorizon:
+    window = _contiguous_window(
+        available_at=available_at,
+        bars=bars,
+        minutes=minutes,
+    )
+    if not window:
         return CryptoSignalForwardHorizon(minutes, False, None)
-    close_price = by_start[expected[-1]].close
+    close_price = window[-1].close
     raw = close_price / entry_price - _ONE
     directional = raw if side == "LONG" else -raw
     return CryptoSignalForwardHorizon(minutes, True, directional)
@@ -264,12 +288,18 @@ def _summary(rows: Sequence[CryptoSignalEventOutcome]) -> dict[str, Any]:
         }
     plan_eligible = sum(item.plan_eligible_at_reference_equity for item in rows)
     block_reasons = Counter(
-        reason
-        for item in rows
-        for reason in item.plan_block_reasons
+        reason for item in rows for reason in item.plan_block_reasons
     )
-    mfe = [item.maximum_favorable_r_240m for item in rows if item.maximum_favorable_r_240m is not None]
-    mae = [item.maximum_adverse_r_240m for item in rows if item.maximum_adverse_r_240m is not None]
+    mfe = [
+        item.maximum_favorable_r_240m
+        for item in rows
+        if item.maximum_favorable_r_240m is not None
+    ]
+    mae = [
+        item.maximum_adverse_r_240m
+        for item in rows
+        if item.maximum_adverse_r_240m is not None
+    ]
     return {
         "signal_count": len(rows),
         "plan_eligible_count": plan_eligible,
@@ -281,7 +311,8 @@ def _summary(rows: Sequence[CryptoSignalEventOutcome]) -> dict[str, Any]:
         "median_mfe_r_240m": None if not mfe else float(statistics.median(mfe)),
         "median_mae_r_240m": None if not mae else float(statistics.median(mae)),
         "horizons": {
-            str(minutes): _horizon_summary(rows, minutes=minutes) for minutes in _HORIZONS
+            str(minutes): _horizon_summary(rows, minutes=minutes)
+            for minutes in _HORIZONS
         },
     }
 
@@ -313,7 +344,9 @@ def _horizon_summary(
         "positive_direction_count": positives,
         "positive_direction_rate": positives / len(values),
         "median_directional_return_fraction": float(statistics.median(values)),
-        "average_directional_return_fraction": float(sum(values, start=_ZERO) / Decimal(len(values))),
+        "average_directional_return_fraction": float(
+            sum(values, start=_ZERO) / Decimal(len(values))
+        ),
     }
 
 
@@ -337,10 +370,14 @@ def _to_payload(item: CryptoSignalEventOutcome) -> dict[str, Any]:
         "plan_eligible_at_reference_equity": item.plan_eligible_at_reference_equity,
         "plan_block_reasons": list(item.plan_block_reasons),
         "maximum_favorable_r_240m": (
-            None if item.maximum_favorable_r_240m is None else float(item.maximum_favorable_r_240m)
+            None
+            if item.maximum_favorable_r_240m is None
+            else float(item.maximum_favorable_r_240m)
         ),
         "maximum_adverse_r_240m": (
-            None if item.maximum_adverse_r_240m is None else float(item.maximum_adverse_r_240m)
+            None
+            if item.maximum_adverse_r_240m is None
+            else float(item.maximum_adverse_r_240m)
         ),
         "horizons": [
             {
