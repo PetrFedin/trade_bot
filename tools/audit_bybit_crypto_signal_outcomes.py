@@ -13,6 +13,7 @@ from app.marketdata.bybit_public_archive import (
 from app.strategy.crypto_historical_diagnostics import (
     build_crypto_historical_trade_conditions,
 )
+from app.strategy.crypto_signal_event_outcomes import audit_all_crypto_signal_events
 from app.strategy.crypto_signal_outcome_audit import (
     CryptoSignalOutcomeAuditPolicy,
     audit_crypto_signal_outcomes,
@@ -51,6 +52,11 @@ def run_signal_outcome_audit(
     acquisition.validate(requested_symbols=symbols, minimum_bars=25)
 
     config = default_crypto_config().with_target(target_usd)
+    all_signal_events = audit_all_crypto_signal_events(
+        acquisition.klines,
+        strategy_config=config,
+        reference_equity_usdt=opening_equity_usdt,
+    )
     replay = replay_acquisition(
         acquisition.klines,
         opening_equity_usdt=opening_equity_usdt,
@@ -78,6 +84,7 @@ def run_signal_outcome_audit(
         symbols=list(symbols),
         target_net_profit_usd=float(target_usd),
         opening_equity_usdt=float(opening_equity_usdt),
+        all_eligible_signal_events=all_signal_events,
         eligible_signal_event_count=variant["eligible_signal_event_count"],
         accepted_trade_plan_event_count=variant["accepted_trade_plan_event_count"],
         replay_metrics=variant["metrics"],
@@ -128,11 +135,15 @@ def main() -> None:
         json.dumps(report, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    all_signals = report["all_eligible_signal_events"]
+    if not isinstance(all_signals, dict):
+        raise ValueError("signal audit all-signal section is invalid")
     print(
         "BYBIT_SIGNAL_OUTCOME_AUDIT="
         + json.dumps(
             {
-                "trade_count": report["trade_count"],
+                "closed_trade_count": report["trade_count"],
+                "all_signal_event_count": all_signals["signal_event_count"],
                 "symbols": report["symbols"],
                 "perfect_positive_pattern_count": report["perfect_positive_pattern_count"],
                 "perfect_planned_profit_pattern_count": report[
