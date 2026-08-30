@@ -5,9 +5,11 @@ on:
     paths:
       - 'app/strategy/crypto_signal_outcome_audit.py'
       - 'app/strategy/crypto_signal_ranking_attribution.py'
+      - 'app/strategy/crypto_trade_quality_diagnostics.py'
       - 'tools/attribute_bybit_crypto_signal_failures.py'
       - 'tests/test_crypto_signal_outcome_audit.py'
       - 'tests/test_crypto_signal_ranking_attribution.py'
+      - 'tests/test_crypto_trade_quality_diagnostics.py'
       - '.github/workflows/bybit-signal-ranking-protection-attribution.yml'
   push:
     branches:
@@ -15,9 +17,11 @@ on:
     paths:
       - 'app/strategy/crypto_signal_outcome_audit.py'
       - 'app/strategy/crypto_signal_ranking_attribution.py'
+      - 'app/strategy/crypto_trade_quality_diagnostics.py'
       - 'tools/attribute_bybit_crypto_signal_failures.py'
       - 'tests/test_crypto_signal_outcome_audit.py'
       - 'tests/test_crypto_signal_ranking_attribution.py'
+      - 'tests/test_crypto_trade_quality_diagnostics.py'
       - '.github/workflows/bybit-signal-ranking-protection-attribution.yml'
   workflow_dispatch:
     inputs:
@@ -71,15 +75,18 @@ jobs:
           ruff check --output-format=github
           app/strategy/crypto_signal_outcome_audit.py
           app/strategy/crypto_signal_ranking_attribution.py
+          app/strategy/crypto_trade_quality_diagnostics.py
           tools/attribute_bybit_crypto_signal_failures.py
           tests/test_crypto_signal_outcome_audit.py
           tests/test_crypto_signal_ranking_attribution.py
+          tests/test_crypto_trade_quality_diagnostics.py
 
       - name: Security scan attribution boundary
         run: >-
           bandit -q
           app/strategy/crypto_signal_outcome_audit.py
           app/strategy/crypto_signal_ranking_attribution.py
+          app/strategy/crypto_trade_quality_diagnostics.py
           tools/attribute_bybit_crypto_signal_failures.py
 
       - name: Compile attribution boundary
@@ -87,6 +94,7 @@ jobs:
           python -m compileall -q
           app/strategy/crypto_signal_outcome_audit.py
           app/strategy/crypto_signal_ranking_attribution.py
+          app/strategy/crypto_trade_quality_diagnostics.py
           tools/attribute_bybit_crypto_signal_failures.py
 
   real-market-attribution:
