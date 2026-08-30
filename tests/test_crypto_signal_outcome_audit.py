@@ -147,7 +147,11 @@ def test_one_loss_breaks_perfect_positive_pattern() -> None:
 
 def test_numerical_dust_is_breakeven_not_a_win_or_perfect_pattern() -> None:
     rows = (
-        _record(symbol="BTCUSDT", pnl="0.00000000000000000000000017", exit_reason="BREAK_EVEN_STOP"),
+        _record(
+            symbol="BTCUSDT",
+            pnl="0.00000000000000000000000017",
+            exit_reason="BREAK_EVEN_STOP",
+        ),
         _record(
             symbol="ETHUSDT",
             pnl="0.00000000000000000000000030",
@@ -178,7 +182,8 @@ def test_numerical_dust_is_breakeven_not_a_win_or_perfect_pattern() -> None:
     assert aggregate["loss_close_count"] == 0
     assert aggregate["positive_close_rate"] == 0.0
     assert report["perfect_positive_pattern_count"] == 0
-    assert all(row["economic_outcome"] == "BREAKEVEN" for row in report["trade_rows"])
+    outcomes = [row["economic_outcome"] for row in report["trade_rows"]]
+    assert outcomes == ["BREAKEVEN", "BREAKEVEN", "BREAKEVEN"]
 
 
 def test_trade_rows_expose_signal_clarity_and_excursions() -> None:
