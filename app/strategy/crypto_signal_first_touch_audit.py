@@ -5,7 +5,7 @@ import statistics
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -36,6 +36,7 @@ class CryptoSignalFirstTouchPolicy:
     minimum_pattern_observations: int = 5
     sample_sufficient_observations: int = 30
     minimum_cross_symbol_count: int = 2
+    minimum_distinct_days: int = 3
 
     def validate(self) -> None:
         if self.horizon_minutes < 5 or self.horizon_minutes % 5 != 0:
@@ -46,6 +47,8 @@ class CryptoSignalFirstTouchPolicy:
             raise ValueError("first-touch sufficient observation count is unreasonable")
         if not 1 <= self.minimum_cross_symbol_count <= 1000:
             raise ValueError("first-touch minimum cross-symbol count is invalid")
+        if not 1 <= self.minimum_distinct_days <= 3650:
+            raise ValueError("first-touch minimum distinct days is invalid")
 
 
 @dataclass(frozen=True)
@@ -113,11 +116,14 @@ class CryptoSignalFirstTouchOutcome:
             raise ValueError("first-touch outcome symbol is invalid")
         if self.side not in {"LONG", "SHORT"}:
             raise ValueError("first-touch outcome side is invalid")
+        _parse_time(self.decision_time)
+        _parse_time(self.signal_available_at)
         if self.first_touch_state not in _FIRST_TOUCH_STATES:
             raise ValueError("first-touch state is invalid")
         if self.first_touch_state in {"TARGET_FIRST", "STOP_FIRST", "AMBIGUOUS_SAME_BAR"}:
             if self.first_touch_bar is None:
                 raise ValueError("ordered/ambiguous first touch requires a bar timestamp")
+            _parse_time(self.first_touch_bar)
         elif self.first_touch_bar is not None:
             raise ValueError("untouched first-touch outcome cannot carry a bar timestamp")
         values = (
@@ -140,6 +146,36 @@ class CryptoSignalFirstTouchOutcome:
             raise ValueError("first-touch MAE cannot be negative")
         if not self.pattern:
             raise ValueError("first-touch pattern is required")
+
+    def to_payload(self) -> dict[str, Any]:
+        self.validate()
+        return {
+            "symbol": self.symbol,
+            "side": self.side,
+            "decision_time": self.decision_time,
+            "signal_available_at": self.signal_available_at,
+            "utc_day": _parse_time(self.signal_available_at).date().isoformat(),
+            "quality_score": float(self.quality_score),
+            "quality_ratio_to_entry_gate": float(self.quality_ratio_to_entry_gate),
+            "clarity_band": self.clarity_band,
+            "momentum_to_atr": float(self.momentum_to_atr),
+            "trend_strength_atr": float(self.trend_strength_atr),
+            "breakout_strength_atr": float(self.breakout_strength_atr),
+            "atr_fraction": float(self.atr_fraction),
+            "one_bar_atr_multiple": float(self.one_bar_atr_multiple),
+            "average_turnover_usdt": float(self.average_turnover_usdt),
+            "expected_net_edge_usd": float(self.expected_net_edge_usd),
+            "first_touch_state": self.first_touch_state,
+            "first_touch_bar": self.first_touch_bar,
+            "maximum_favorable_r": (
+                None if self.maximum_favorable_r is None else float(self.maximum_favorable_r)
+            ),
+            "maximum_adverse_r": (
+                None if self.maximum_adverse_r is None else float(self.maximum_adverse_r)
+            ),
+            "modeled_stop_net_pnl_usdt": float(self.modeled_stop_net_pnl_usdt),
+            "pattern": self.pattern,
+        }
 
 
 def audit_crypto_plan_eligible_first_touch(
@@ -238,50 +274,51 @@ def audit_crypto_plan_eligible_first_touch(
             outcome.validate()
             outcomes.append(outcome)
 
-    by_symbol: dict[str, list[CryptoSignalFirstTouchOutcome]] = defaultdict(list)
-    by_side: dict[str, list[CryptoSignalFirstTouchOutcome]] = defaultdict(list)
-    by_clarity: dict[str, list[CryptoSignalFirstTouchOutcome]] = defaultdict(list)
-    by_pattern: dict[str, list[CryptoSignalFirstTouchOutcome]] = defaultdict(list)
-    for item in outcomes:
-        by_symbol[item.symbol].append(item)
-        by_side[item.side].append(item)
-        by_clarity[item.clarity_band].append(item)
-        by_pattern[item.pattern].append(item)
-
-    pattern_rows = [
-        _pattern_summary(pattern, rows, policy=active)
-        for pattern, rows in sorted(by_pattern.items())
-    ]
-    qualified = [
+    ordered_outcomes = tuple(
+        sorted(outcomes, key=lambda item: (_parse_time(item.signal_available_at), item.symbol))
+    )
+    episodes = _deduplicate_signal_episodes(ordered_outcomes)
+    raw_tables = _build_tables(ordered_outcomes, policy=active)
+    episode_tables = _build_tables(episodes, policy=active)
+    perfect_episodes = [
         row
-        for row in pattern_rows
-        if row["minimum_support_met"] and row["cross_symbol_support_met"]
+        for row in episode_tables["qualified_pattern_rows"]
+        if row["observed_perfect_target_first"]
     ]
-    perfect = [row for row in qualified if row["observed_perfect_target_first"]]
+    raw_perfect = [
+        row
+        for row in raw_tables["qualified_pattern_rows"]
+        if row["observed_perfect_target_first"]
+    ]
     return {
-        "audit": "BYBIT_CRYPTO_PLAN_ELIGIBLE_FIRST_TOUCH_V1",
+        "audit": "BYBIT_CRYPTO_PLAN_ELIGIBLE_FIRST_TOUCH_V2",
         "reference_equity_usdt": float(reference_equity_usdt),
         "horizon_minutes": active.horizon_minutes,
-        "plan_eligible_signal_count": len(outcomes),
-        "symbol_count": len(by_symbol),
-        "symbols": sorted(by_symbol),
-        "aggregate": _summary(outcomes),
-        "by_symbol": {key: _summary(rows) for key, rows in sorted(by_symbol.items())},
-        "by_side": {key: _summary(rows) for key, rows in sorted(by_side.items())},
-        "by_clarity_band": {
-            key: _summary(rows) for key, rows in sorted(by_clarity.items())
-        },
-        "pattern_rows": sorted(pattern_rows, key=_pattern_sort_key, reverse=True),
-        "qualified_pattern_rows": sorted(qualified, key=_pattern_sort_key, reverse=True),
-        "retrospective_perfect_target_first_patterns": sorted(
-            perfect,
-            key=_pattern_sort_key,
-            reverse=True,
-        ),
-        "perfect_target_first_pattern_count": len(perfect),
+        "plan_eligible_signal_count": len(ordered_outcomes),
+        "independent_episode_count": len(episodes),
+        "symbol_count": len({item.symbol for item in ordered_outcomes}),
+        "symbols": sorted({item.symbol for item in ordered_outcomes}),
+        "aggregate": _summary(ordered_outcomes),
+        "episode_aggregate": _summary(episodes),
+        "by_symbol": raw_tables["by_symbol"],
+        "by_side": raw_tables["by_side"],
+        "by_clarity_band": raw_tables["by_clarity_band"],
+        "by_utc_day": raw_tables["by_utc_day"],
+        "pattern_rows": raw_tables["pattern_rows"],
+        "qualified_pattern_rows": raw_tables["qualified_pattern_rows"],
+        "episode_pattern_rows": episode_tables["pattern_rows"],
+        "qualified_episode_pattern_rows": episode_tables["qualified_pattern_rows"],
+        "raw_perfect_target_first_pattern_count": len(raw_perfect),
+        "episode_perfect_target_first_pattern_count": len(perfect_episodes),
+        "perfect_target_first_pattern_count": len(perfect_episodes),
+        "retrospective_perfect_target_first_patterns": perfect_episodes,
+        "retrospective_perfect_raw_target_first_patterns": raw_perfect,
+        "outcome_rows": [item.to_payload() for item in ordered_outcomes],
+        "episode_outcome_rows": [item.to_payload() for item in episodes],
         "minimum_pattern_observations": active.minimum_pattern_observations,
         "sample_sufficient_observations": active.sample_sufficient_observations,
         "minimum_cross_symbol_count": active.minimum_cross_symbol_count,
+        "minimum_distinct_days": active.minimum_distinct_days,
         "success_definition": (
             "TARGET_FIRST within the fixed horizon; ambiguous same-bar, stop-first, neither and "
             "incomplete observations are not successes"
@@ -289,7 +326,16 @@ def audit_crypto_plan_eligible_first_touch(
         "pattern_definition": (
             "side|clarity|configured-volatility-third|trend>=1ATR|breakout-confirmed-vs-pullback"
         ),
+        "episode_dedup_contract": (
+            "retain the earliest signal in each uninterrupted 5m run sharing exact "
+            "symbol|side|pattern; a gap >5m starts a new independent episode"
+        ),
+        "perfect_candidate_contract": (
+            "100% TARGET_FIRST after episode dedup, minimum episode support, minimum cross-symbol "
+            "support and minimum distinct UTC-day support; still retrospective and not promotable"
+        ),
         "pattern_thresholds_fitted_to_outcomes": False,
+        "episode_definition_fitted_to_outcomes": False,
         "portfolio_slot_constraints_applied": False,
         "cooldown_constraints_applied": False,
         "retrospective_only": True,
@@ -327,7 +373,11 @@ def model_crypto_signal_entry_levels(
     quantity = plan.reference_quantity
     entry_fee = entry * quantity * config.taker_fee_rate
     risk_distance = entry * plan.stop_fraction
-    hard_stop = entry - risk_distance if signal.side is CryptoSide.LONG else entry + risk_distance
+    hard_stop = (
+        entry - risk_distance
+        if signal.side is CryptoSide.LONG
+        else entry + risk_distance
+    )
     target = _raw_trigger_for_net_pnl(
         side=signal.side,
         entry_price=entry,
@@ -421,7 +471,7 @@ def _modeled_net_pnl_at_raw_exit(
 def _contiguous_window(
     bars: Sequence[BybitKlineBar],
     *,
-    start: Any,
+    start: datetime,
     minutes: int,
 ) -> tuple[BybitKlineBar, ...]:
     expected_count = minutes // 5
@@ -467,7 +517,11 @@ def _pattern(
     else:
         volatility = "VOL_HIGH_NORMAL"
     trend = "TREND_STRONG" if trend_strength >= _ONE else "TREND_MODERATE"
-    breakout = "BREAKOUT_CONFIRMED" if signal.breakout_strength_atr >= _ZERO else "BREAKOUT_PULLBACK"
+    breakout = (
+        "BREAKOUT_CONFIRMED"
+        if signal.breakout_strength_atr >= _ZERO
+        else "BREAKOUT_PULLBACK"
+    )
     return "|".join(
         (signal.side.value, _clarity_band(quality_ratio), volatility, trend, breakout)
     )
@@ -497,6 +551,65 @@ def _bars_by_symbol(
             raise ValueError("first-touch bars contain duplicate timestamps")
         result[symbol] = ordered
     return result
+
+
+def _deduplicate_signal_episodes(
+    rows: Sequence[CryptoSignalFirstTouchOutcome],
+) -> tuple[CryptoSignalFirstTouchOutcome, ...]:
+    grouped: dict[tuple[str, str, str], list[CryptoSignalFirstTouchOutcome]] = defaultdict(list)
+    for item in rows:
+        grouped[(item.symbol, item.side, item.pattern)].append(item)
+    retained: list[CryptoSignalFirstTouchOutcome] = []
+    for key in sorted(grouped):
+        ordered = sorted(grouped[key], key=lambda item: _parse_time(item.signal_available_at))
+        previous_time: datetime | None = None
+        for item in ordered:
+            current = _parse_time(item.signal_available_at)
+            if previous_time is None or current - previous_time > _INTERVAL:
+                retained.append(item)
+            previous_time = current
+    return tuple(
+        sorted(retained, key=lambda item: (_parse_time(item.signal_available_at), item.symbol))
+    )
+
+
+def _build_tables(
+    rows: Sequence[CryptoSignalFirstTouchOutcome],
+    *,
+    policy: CryptoSignalFirstTouchPolicy,
+) -> dict[str, Any]:
+    by_symbol: dict[str, list[CryptoSignalFirstTouchOutcome]] = defaultdict(list)
+    by_side: dict[str, list[CryptoSignalFirstTouchOutcome]] = defaultdict(list)
+    by_clarity: dict[str, list[CryptoSignalFirstTouchOutcome]] = defaultdict(list)
+    by_day: dict[str, list[CryptoSignalFirstTouchOutcome]] = defaultdict(list)
+    by_pattern: dict[str, list[CryptoSignalFirstTouchOutcome]] = defaultdict(list)
+    for item in rows:
+        by_symbol[item.symbol].append(item)
+        by_side[item.side].append(item)
+        by_clarity[item.clarity_band].append(item)
+        by_day[_parse_time(item.signal_available_at).date().isoformat()].append(item)
+        by_pattern[item.pattern].append(item)
+    pattern_rows = [
+        _pattern_summary(pattern, values, policy=policy)
+        for pattern, values in sorted(by_pattern.items())
+    ]
+    qualified = [
+        row
+        for row in pattern_rows
+        if row["minimum_support_met"]
+        and row["cross_symbol_support_met"]
+        and row["distinct_day_support_met"]
+    ]
+    return {
+        "by_symbol": {key: _summary(values) for key, values in sorted(by_symbol.items())},
+        "by_side": {key: _summary(values) for key, values in sorted(by_side.items())},
+        "by_clarity_band": {
+            key: _summary(values) for key, values in sorted(by_clarity.items())
+        },
+        "by_utc_day": {key: _summary(values) for key, values in sorted(by_day.items())},
+        "pattern_rows": sorted(pattern_rows, key=_pattern_sort_key, reverse=True),
+        "qualified_pattern_rows": sorted(qualified, key=_pattern_sort_key, reverse=True),
+    }
 
 
 def _summary(rows: Sequence[CryptoSignalFirstTouchOutcome]) -> dict[str, Any]:
@@ -547,16 +660,18 @@ def _pattern_summary(
 ) -> dict[str, Any]:
     summary = _summary(rows)
     symbols = sorted({item.symbol for item in rows})
+    days = sorted({_parse_time(item.signal_available_at).date().isoformat() for item in rows})
     minimum_support = len(rows) >= policy.minimum_pattern_observations
     cross_symbol_support = len(symbols) >= policy.minimum_cross_symbol_count
+    day_support = len(days) >= policy.minimum_distinct_days
     perfect = bool(rows) and summary["target_first_count"] == len(rows)
-    if perfect and minimum_support and cross_symbol_support:
+    if perfect and minimum_support and cross_symbol_support and day_support:
         tier = (
             "RETROSPECTIVE_PERFECT_TARGET_FIRST_SAMPLE_SUFFICIENT"
             if len(rows) >= policy.sample_sufficient_observations
             else "RETROSPECTIVE_PERFECT_TARGET_FIRST_SMALL_SAMPLE"
         )
-    elif minimum_support and cross_symbol_support:
+    elif minimum_support and cross_symbol_support and day_support:
         tier = "RETROSPECTIVE_MIXED"
     else:
         tier = "INSUFFICIENT_SUPPORT"
@@ -564,12 +679,29 @@ def _pattern_summary(
         "pattern": pattern,
         "symbol_count": len(symbols),
         "symbols": symbols,
+        "distinct_day_count": len(days),
+        "utc_days": days,
         "minimum_support_met": minimum_support,
         "cross_symbol_support_met": cross_symbol_support,
+        "distinct_day_support_met": day_support,
         "sample_sufficient": len(rows) >= policy.sample_sufficient_observations,
         "observed_perfect_target_first": perfect,
         "candidate_tier": tier,
+        "chronological_halves": _chronological_halves(rows),
         **summary,
+    }
+
+
+def _chronological_halves(
+    rows: Sequence[CryptoSignalFirstTouchOutcome],
+) -> dict[str, Any]:
+    ordered = tuple(sorted(rows, key=lambda item: _parse_time(item.signal_available_at)))
+    if len(ordered) < 2:
+        return {"early": _summary(ordered), "late": _summary(())}
+    midpoint = len(ordered) // 2
+    return {
+        "early": _summary(ordered[:midpoint]),
+        "late": _summary(ordered[midpoint:]),
     }
 
 
@@ -577,11 +709,19 @@ def _pattern_sort_key(row: dict[str, Any]) -> tuple[Any, ...]:
     return (
         bool(row["observed_perfect_target_first"]),
         bool(row["sample_sufficient"]),
+        bool(row["distinct_day_support_met"]),
         float(row["target_first_rate"] or 0.0),
         int(row["observation_count"]),
         float(row["target_first_wilson_lower_95"] or 0.0),
         str(row["pattern"]),
     )
+
+
+def _parse_time(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("first-touch timestamp must be timezone-aware")
+    return parsed.astimezone(UTC)
 
 
 def _wilson_lower(successes: int, total: int) -> float | None:
