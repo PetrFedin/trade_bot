@@ -3,24 +3,30 @@ name: bybit-signal-ranking-protection-attribution
 on:
   pull_request:
     paths:
+      - 'app/strategy/crypto_position_selection.py'
       - 'app/strategy/crypto_signal_outcome_audit.py'
       - 'app/strategy/crypto_signal_ranking_attribution.py'
       - 'app/strategy/crypto_trade_quality_diagnostics.py'
+      - 'tools/audit_bybit_crypto_signal_outcomes.py'
       - 'tools/attribute_bybit_crypto_signal_failures.py'
       - 'tests/test_crypto_signal_outcome_audit.py'
       - 'tests/test_crypto_signal_ranking_attribution.py'
+      - 'tests/test_audit_bybit_crypto_position_selection.py'
       - 'tests/test_crypto_trade_quality_diagnostics.py'
       - '.github/workflows/bybit-signal-ranking-protection-attribution.yml'
   push:
     branches:
       - agent/bybit-signal-ranking-protection-attribution
     paths:
+      - 'app/strategy/crypto_position_selection.py'
       - 'app/strategy/crypto_signal_outcome_audit.py'
       - 'app/strategy/crypto_signal_ranking_attribution.py'
       - 'app/strategy/crypto_trade_quality_diagnostics.py'
+      - 'tools/audit_bybit_crypto_signal_outcomes.py'
       - 'tools/attribute_bybit_crypto_signal_failures.py'
       - 'tests/test_crypto_signal_outcome_audit.py'
       - 'tests/test_crypto_signal_ranking_attribution.py'
+      - 'tests/test_audit_bybit_crypto_position_selection.py'
       - 'tests/test_crypto_trade_quality_diagnostics.py'
       - '.github/workflows/bybit-signal-ranking-protection-attribution.yml'
   workflow_dispatch:
@@ -73,29 +79,125 @@ jobs:
       - name: Lint attribution boundary
         run: >-
           ruff check --output-format=github
+          app/strategy/crypto_position_selection.py
           app/strategy/crypto_signal_outcome_audit.py
           app/strategy/crypto_signal_ranking_attribution.py
           app/strategy/crypto_trade_quality_diagnostics.py
+          tools/audit_bybit_crypto_signal_outcomes.py
           tools/attribute_bybit_crypto_signal_failures.py
           tests/test_crypto_signal_outcome_audit.py
           tests/test_crypto_signal_ranking_attribution.py
+          tests/test_audit_bybit_crypto_position_selection.py
           tests/test_crypto_trade_quality_diagnostics.py
 
       - name: Security scan attribution boundary
         run: >-
           bandit -q
+          app/strategy/crypto_position_selection.py
           app/strategy/crypto_signal_outcome_audit.py
           app/strategy/crypto_signal_ranking_attribution.py
           app/strategy/crypto_trade_quality_diagnostics.py
+          tools/audit_bybit_crypto_signal_outcomes.py
           tools/attribute_bybit_crypto_signal_failures.py
 
       - name: Compile attribution boundary
         run: >-
           python -m compileall -q
+          app/strategy/crypto_position_selection.py
           app/strategy/crypto_signal_outcome_audit.py
           app/strategy/crypto_signal_ranking_attribution.py
           app/strategy/crypto_trade_quality_diagnostics.py
+          tools/audit_bybit_crypto_signal_outcomes.py
           tools/attribute_bybit_crypto_signal_failures.py
+
+  real-market-signal-outcomes:
+    if: github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Audit frozen signals on completed Bybit archives
+        env:
+          LOOKBACK_DAYS: ${{ inputs.lookback_days || '14' }}
+          SYMBOLS: ${{ inputs.symbols || 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,LINKUSDT,ADAUSDT' }}
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/bybit-signal-outcomes
+          PYTHONPATH=. python tools/audit_bybit_crypto_signal_outcomes.py \
+            --symbols "$SYMBOLS" \
+            --lookback-days "$LOOKBACK_DAYS" \
+            --opening-equity 1000 \
+            --target 20 \
+            --minimum-pattern-trades 5 \
+            --sample-sufficient-trades 30 \
+            --minimum-cross-symbol-count 2 \
+            --archive-workers 4 \
+            --output artifacts/bybit-signal-outcomes/report.json \
+            2>&1 | tee artifacts/bybit-signal-outcomes/run.log
+
+      - name: Print compact signal outcome summary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(
+              Path('artifacts/bybit-signal-outcomes/report.json').read_text()
+          )
+          aggregate = report['aggregate']
+          all_signals = report['all_eligible_signal_events']
+          print('BYBIT_SIGNAL_OUTCOME_14D_SUMMARY=' + json.dumps({
+              'archive_dates': report['archive_dates'],
+              'symbols': report['symbols'],
+              'all_signal_event_count': all_signals['signal_event_count'],
+              'all_signal_by_symbol': all_signals['by_symbol'],
+              'all_signal_by_clarity': all_signals['by_clarity_band'],
+              'closed_trade_count': report['trade_count'],
+              'economic_outcomes': {
+                  'positive_close_count': aggregate['positive_close_count'],
+                  'breakeven_close_count': aggregate['breakeven_close_count'],
+                  'loss_close_count': aggregate['loss_close_count'],
+                  'positive_close_rate': aggregate['positive_close_rate'],
+              },
+              'accepted_by_symbol': report['by_symbol'],
+              'accepted_by_side': report['by_side'],
+              'perfect_positive_pattern_count': report['perfect_positive_pattern_count'],
+              'perfect_planned_profit_pattern_count': report[
+                  'perfect_planned_profit_pattern_count'
+              ],
+              'perfect_positive_patterns': report[
+                  'retrospective_perfect_positive_cross_symbol_patterns'
+              ],
+              'perfect_planned_patterns': report[
+                  'retrospective_perfect_planned_profit_cross_symbol_patterns'
+              ],
+              'replay_metrics': report['replay_metrics'],
+          }, sort_keys=True))
+          PY
+
+      - name: Upload signal outcome evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-signal-outcomes-14d-${{ github.run_id }}
+          path: artifacts/bybit-signal-outcomes
+          if-no-files-found: error
+          retention-days: 30
 
   real-market-attribution:
     if: github.event_name != 'pull_request'
