@@ -67,6 +67,43 @@ class CryptoRankingDecisionAttribution:
         }
 
 
+def synchronize_crypto_portfolio_acquisition(
+    acquisition: BybitKlineAcquisition,
+) -> BybitKlineAcquisition:
+    """Apply the exact common-timestamp universe contract used by portfolio replay."""
+
+    by_symbol: dict[str, dict[datetime, BybitKlineBar]] = defaultdict(dict)
+    for bar in acquisition.bars:
+        bar.validate()
+        if bar.start_time in by_symbol[bar.symbol]:
+            raise ValueError("ranking attribution acquisition has duplicate symbol timestamp")
+        by_symbol[bar.symbol][bar.start_time] = bar
+    if not by_symbol:
+        raise ValueError("ranking attribution acquisition cannot be empty")
+
+    common_times: set[datetime] | None = None
+    for rows in by_symbol.values():
+        timestamps = set(rows)
+        common_times = timestamps if common_times is None else common_times & timestamps
+    if common_times is None or len(common_times) < 3:
+        raise ValueError("ranking attribution requires synchronized common timestamps")
+    ordered_times = tuple(sorted(common_times))
+    bars = tuple(
+        by_symbol[symbol][timestamp]
+        for symbol in sorted(by_symbol)
+        for timestamp in ordered_times
+    )
+    synchronized = BybitKlineAcquisition(
+        bars=bars,
+        pages_by_symbol=dict(acquisition.pages_by_symbol),
+    )
+    synchronized.validate(
+        requested_symbols=tuple(sorted(by_symbol)),
+        minimum_bars=3,
+    )
+    return synchronized
+
+
 def attribute_crypto_portfolio_ranking(
     acquisition: BybitKlineAcquisition,
     replay: Mapping[str, Any],
@@ -88,7 +125,8 @@ def attribute_crypto_portfolio_ranking(
     active.validate()
     _validate_replay_boundary(replay)
 
-    bars_by_symbol = _bars_by_symbol(acquisition.bars)
+    synchronized = synchronize_crypto_portfolio_acquisition(acquisition)
+    bars_by_symbol = _bars_by_symbol(synchronized.bars)
     equity_by_time = _equity_by_time(replay)
     trades = _closed_trades(replay)
     actual_by_decision = _actual_entries_by_decision(replay)
@@ -136,7 +174,10 @@ def attribute_crypto_portfolio_ranking(
             canonical_candidate_symbols.append(signal.symbol)
 
         if not canonical_candidates:
-            raise ValueError("ranking attribution cannot reconstruct any accepted candidates")
+            raise ValueError(
+                "ranking attribution cannot reconstruct any accepted candidates:"
+                f"{decision_text}"
+            )
         slots = min(available_slots, len(canonical_candidates))
         canonical_selected = tuple(canonical_candidate_symbols[:slots])
         economic_ranked = rank_crypto_position_candidates(canonical_candidates)
@@ -189,6 +230,9 @@ def attribute_crypto_portfolio_ranking(
         "canonical_reconstruction_verified": all(
             item.canonical_reconstruction_matches_actual for item in decisions
         ),
+        "portfolio_synchronized_bar_count_per_symbol": (
+            len(synchronized.bars) // len(synchronized.symbols)
+        ),
         "selection_changed_decision_count": len(changed),
         "selection_changed_decision_fraction": (
             None if not decisions else len(changed) / len(decisions)
@@ -200,6 +244,10 @@ def attribute_crypto_portfolio_ranking(
         "canonical_ranking_contract": (
             "eligible signal quality_score descending, then canonical symbol tie-break; "
             "trade-plan and runtime state gates remain unchanged"
+        ),
+        "portfolio_history_contract": (
+            "all ranking reconstruction uses the exact intersection of symbol timestamps, "
+            "matching canonical portfolio replay"
         ),
         "economic_shadow_ranking_contract": [
             "expected_net_r_desc",
@@ -232,10 +280,15 @@ def _bars_by_symbol(
     for bar in bars:
         bar.validate()
         grouped[bar.symbol].append(bar)
-    return {
+    result = {
         symbol: tuple(sorted(rows, key=lambda item: item.start_time))
         for symbol, rows in grouped.items()
     }
+    counts = {len(rows) for rows in result.values()}
+    timestamp_sets = {tuple(bar.start_time for bar in rows) for rows in result.values()}
+    if len(counts) != 1 or len(timestamp_sets) != 1:
+        raise ValueError("ranking attribution portfolio bars are not synchronized")
+    return result
 
 
 def _equity_by_time(replay: Mapping[str, Any]) -> dict[str, Decimal]:
@@ -501,4 +554,5 @@ def _parse_time(value: str) -> datetime:
 __all__ = [
     "CryptoRankingAttributionPolicy",
     "attribute_crypto_portfolio_ranking",
+    "synchronize_crypto_portfolio_acquisition",
 ]
