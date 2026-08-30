@@ -1,0 +1,72 @@
+name: bybit-trade-plan-feasibility
+
+on:
+  pull_request:
+    paths:
+      - 'app/strategy/crypto_perp.py'
+      - 'app/strategy/crypto_trade_plan_feasibility.py'
+      - 'tools/report_bybit_trade_plan_feasibility.py'
+      - 'tests/test_crypto_trade_plan_feasibility.py'
+      - '.github/workflows/bybit-trade-plan-feasibility.yml'
+  push:
+    branches:
+      - agent/bybit-fixed-target-feasibility-diagnostics
+    paths:
+      - 'app/strategy/crypto_trade_plan_feasibility.py'
+      - 'tools/report_bybit_trade_plan_feasibility.py'
+      - 'tests/test_crypto_trade_plan_feasibility.py'
+      - '.github/workflows/bybit-trade-plan-feasibility.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-trade-plan-feasibility-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Test fixed-target feasibility diagnostics
+        run: pytest -q tests/test_crypto_trade_plan_feasibility.py
+
+      - name: Generate frozen feasibility report
+        run: >-
+          PYTHONPATH=. python tools/report_bybit_trade_plan_feasibility.py
+          --output /tmp/bybit-trade-plan-feasibility.json
+
+      - name: Lint fixed-target feasibility boundary
+        run: >-
+          ruff check --output-format=github
+          app/strategy/crypto_trade_plan_feasibility.py
+          tools/report_bybit_trade_plan_feasibility.py
+          tests/test_crypto_trade_plan_feasibility.py
+
+      - name: Security scan fixed-target feasibility boundary
+        run: >-
+          bandit -q
+          app/strategy/crypto_trade_plan_feasibility.py
+          tools/report_bybit_trade_plan_feasibility.py
+
+      - name: Compile fixed-target feasibility boundary
+        run: >-
+          python -m compileall -q
+          app/strategy/crypto_trade_plan_feasibility.py
+          tools/report_bybit_trade_plan_feasibility.py
