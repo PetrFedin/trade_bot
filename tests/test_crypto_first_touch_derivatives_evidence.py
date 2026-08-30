@@ -18,7 +18,12 @@ def _ms(value: datetime) -> int:
     return int(value.timestamp() * 1000)
 
 
-def _history(symbol: str, start: datetime) -> BybitDerivativesHistory:
+def _history(
+    symbol: str,
+    start: datetime,
+    end: datetime,
+) -> BybitDerivativesHistory:
+    hours = int((end - start).total_seconds() // 3600) + 1
     oi = tuple(
         BybitOpenInterestPoint(
             symbol=symbol,
@@ -26,7 +31,7 @@ def _history(symbol: str, start: datetime) -> BybitDerivativesHistory:
             open_interest=Decimal("1000") + Decimal(index * 20),
             single_open_interest=None,
         )
-        for index in range(10)
+        for index in range(hours)
     )
     ratios = tuple(
         BybitAccountRatioPoint(
@@ -35,7 +40,7 @@ def _history(symbol: str, start: datetime) -> BybitDerivativesHistory:
             buy_ratio=Decimal("0.50"),
             sell_ratio=Decimal("0.50"),
         )
-        for index in range(10)
+        for index in range(hours)
     )
     funding = tuple(
         BybitHistoricalFundingPoint(
@@ -43,12 +48,12 @@ def _history(symbol: str, start: datetime) -> BybitDerivativesHistory:
             timestamp_ms=_ms(start + timedelta(hours=index * 2)),
             funding_rate=Decimal("0.0001"),
         )
-        for index in range(5)
+        for index in range((hours + 1) // 2)
     )
     history = BybitDerivativesHistory(
         symbol=symbol,
         start_ms=_ms(start),
-        end_ms=_ms(start + timedelta(hours=12)),
+        end_ms=_ms(end),
         interval="1h",
         open_interest=oi,
         account_ratio=ratios,
@@ -92,12 +97,14 @@ def _row(
 def _histories_for_rows(rows: list[dict[str, object]]) -> dict[str, BybitDerivativesHistory]:
     result: dict[str, BybitDerivativesHistory] = {}
     for symbol in {str(row["symbol"]) for row in rows}:
-        first = min(
+        decisions = [
             datetime.fromisoformat(str(row["decision_time"]))
             for row in rows
             if row["symbol"] == symbol
-        )
-        result[symbol] = _history(symbol, first - timedelta(hours=3))
+        ]
+        start = min(decisions) - timedelta(hours=3)
+        end = max(decisions) + timedelta(hours=3)
+        result[symbol] = _history(symbol, start, end)
     return result
 
 
