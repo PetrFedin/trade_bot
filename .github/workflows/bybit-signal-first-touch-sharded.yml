@@ -1,0 +1,74 @@
+name: bybit-signal-first-touch-sharded
+
+on:
+  push:
+    branches:
+      - agent/bybit-signal-first-touch-sharded
+    paths:
+      - '.github/workflows/bybit-signal-first-touch-sharded.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  first-touch-shard:
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        symbol:
+          - BTCUSDT
+          - ETHUSDT
+          - SOLUSDT
+          - XRPUSDT
+          - BNBUSDT
+          - DOGEUSDT
+          - LINKUSDT
+          - ADAUSDT
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Audit one frozen token
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+        run: |
+          set -o pipefail
+          OUT="artifacts/bybit-signal-first-touch/${SYMBOL}"
+          mkdir -p "$OUT"
+          PYTHONPATH=. python tools/audit_bybit_crypto_signal_first_touch.py \
+            --symbols "$SYMBOL" \
+            --lookback-days 14 \
+            --reference-equity 1000 \
+            --horizon-minutes 240 \
+            --minimum-pattern-observations 5 \
+            --sample-sufficient-observations 30 \
+            --minimum-cross-symbol-count 1 \
+            --minimum-distinct-days 3 \
+            --archive-workers 1 \
+            --output "$OUT/report.json" \
+            2>&1 | tee "$OUT/run.log"
+
+      - name: Upload token evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-first-touch-${{ matrix.symbol }}-${{ github.run_id }}
+          path: artifacts/bybit-signal-first-touch/${{ matrix.symbol }}
+          if-no-files-found: error
+          retention-days: 30
