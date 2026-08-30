@@ -1,0 +1,129 @@
+name: bybit-first-touch-derivatives-evidence
+
+on:
+  pull_request:
+    paths:
+      - 'app/strategy/crypto_first_touch_derivatives_evidence.py'
+      - 'tools/audit_bybit_first_touch_derivatives_evidence.py'
+      - 'tests/test_crypto_first_touch_derivatives_evidence.py'
+      - '.github/workflows/bybit-first-touch-derivatives-evidence.yml'
+  push:
+    branches:
+      - agent/bybit-first-touch-derivatives-cells
+    paths:
+      - 'app/strategy/crypto_first_touch_derivatives_evidence.py'
+      - 'tools/audit_bybit_first_touch_derivatives_evidence.py'
+      - 'tests/test_crypto_first_touch_derivatives_evidence.py'
+      - '.github/workflows/bybit-first-touch-derivatives-evidence.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: bybit-first-touch-derivatives-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Test derivatives-enriched first-touch evidence
+        run: pytest -q tests/test_crypto_first_touch_derivatives_evidence.py
+
+      - name: Lint derivatives-enriched boundary
+        run: >-
+          ruff check --output-format=github
+          app/strategy/crypto_first_touch_derivatives_evidence.py
+          tools/audit_bybit_first_touch_derivatives_evidence.py
+          tests/test_crypto_first_touch_derivatives_evidence.py
+
+      - name: Security scan derivatives-enriched boundary
+        run: >-
+          bandit -q
+          app/strategy/crypto_first_touch_derivatives_evidence.py
+          tools/audit_bybit_first_touch_derivatives_evidence.py
+
+      - name: Compile derivatives-enriched boundary
+        run: >-
+          python -m compileall -q
+          app/strategy/crypto_first_touch_derivatives_evidence.py
+          tools/audit_bybit_first_touch_derivatives_evidence.py
+
+  real-market-derivatives-evidence:
+    if: github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      UPSTREAM_ARTIFACT_ID: '9741109286'
+      UPSTREAM_ARTIFACT_SHA256: '13583327db0605846075105781039397eb015cb67636b79ed2a5266a83863854'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Download and verify frozen first-touch evidence
+        run: |
+          mkdir -p artifacts/upstream-first-touch
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${UPSTREAM_ARTIFACT_ID}/zip" \
+            > artifacts/upstream-first-touch/upstream.zip
+          echo "${UPSTREAM_ARTIFACT_SHA256}  artifacts/upstream-first-touch/upstream.zip" \
+            | sha256sum --check --strict
+          unzip -q artifacts/upstream-first-touch/upstream.zip \
+            -d artifacts/upstream-first-touch/extracted
+          test -f artifacts/upstream-first-touch/extracted/report.json
+
+      - name: Join point-in-time public derivatives history
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/bybit-first-touch-derivatives
+          PYTHONPATH=. python tools/audit_bybit_first_touch_derivatives_evidence.py \
+            --first-touch-report artifacts/upstream-first-touch/extracted/report.json \
+            --derivatives-workers 4 \
+            --interval 1h \
+            --minimum-cell-episodes 5 \
+            --sample-sufficient-episodes 30 \
+            --minimum-cross-symbol-count 2 \
+            --minimum-distinct-days 3 \
+            --output artifacts/bybit-first-touch-derivatives/report.json \
+            2>&1 | tee artifacts/bybit-first-touch-derivatives/run.log
+
+      - name: Upload derivatives-enriched evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-first-touch-derivatives-${{ github.run_id }}
+          path: artifacts/bybit-first-touch-derivatives
+          if-no-files-found: error
+          retention-days: 30
