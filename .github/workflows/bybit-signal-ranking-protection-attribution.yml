@@ -3,16 +3,20 @@ name: bybit-signal-ranking-protection-attribution
 on:
   pull_request:
     paths:
+      - 'app/strategy/crypto_signal_outcome_audit.py'
       - 'app/strategy/crypto_signal_ranking_attribution.py'
       - 'tools/attribute_bybit_crypto_signal_failures.py'
+      - 'tests/test_crypto_signal_outcome_audit.py'
       - 'tests/test_crypto_signal_ranking_attribution.py'
       - '.github/workflows/bybit-signal-ranking-protection-attribution.yml'
   push:
     branches:
       - agent/bybit-signal-ranking-protection-attribution
     paths:
+      - 'app/strategy/crypto_signal_outcome_audit.py'
       - 'app/strategy/crypto_signal_ranking_attribution.py'
       - 'tools/attribute_bybit_crypto_signal_failures.py'
+      - 'tests/test_crypto_signal_outcome_audit.py'
       - 'tests/test_crypto_signal_ranking_attribution.py'
       - '.github/workflows/bybit-signal-ranking-protection-attribution.yml'
   workflow_dispatch:
@@ -53,9 +57,10 @@ jobs:
           python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
           python -m pip check
 
-      - name: Test ranking and protection attribution
+      - name: Test ranking, protection and outcome attribution
         run: >-
           pytest -q
+          tests/test_crypto_signal_outcome_audit.py
           tests/test_crypto_signal_ranking_attribution.py
           tests/test_audit_bybit_crypto_position_selection.py
           tests/test_crypto_trade_quality_diagnostics.py
@@ -64,19 +69,23 @@ jobs:
       - name: Lint attribution boundary
         run: >-
           ruff check --output-format=github
+          app/strategy/crypto_signal_outcome_audit.py
           app/strategy/crypto_signal_ranking_attribution.py
           tools/attribute_bybit_crypto_signal_failures.py
+          tests/test_crypto_signal_outcome_audit.py
           tests/test_crypto_signal_ranking_attribution.py
 
       - name: Security scan attribution boundary
         run: >-
           bandit -q
+          app/strategy/crypto_signal_outcome_audit.py
           app/strategy/crypto_signal_ranking_attribution.py
           tools/attribute_bybit_crypto_signal_failures.py
 
       - name: Compile attribution boundary
         run: >-
           python -m compileall -q
+          app/strategy/crypto_signal_outcome_audit.py
           app/strategy/crypto_signal_ranking_attribution.py
           tools/attribute_bybit_crypto_signal_failures.py
 
@@ -126,10 +135,17 @@ jobs:
               Path('artifacts/bybit-signal-failure-attribution/report.json').read_text()
           )
           ranking = report['state_aware_ranking_attribution']
+          outcomes = report['accepted_trade_signal_outcomes']['aggregate']
           print('BYBIT_SIGNAL_FAILURE_SUMMARY=' + json.dumps({
               'archive_dates': report['archive_dates'],
               'symbols': report['symbols'],
               'replay_metrics': report['canonical_replay_metrics'],
+              'economic_outcomes': {
+                  'positive_close_count': outcomes['positive_close_count'],
+                  'breakeven_close_count': outcomes['breakeven_close_count'],
+                  'loss_close_count': outcomes['loss_close_count'],
+                  'positive_close_rate': outcomes['positive_close_rate'],
+              },
               'ranking': {
                   'decision_count': ranking['decision_count'],
                   'selection_changed_decision_count': ranking[
