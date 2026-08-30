@@ -21,7 +21,8 @@ from app.strategy.crypto_signal_outcome_audit import (
     CryptoSignalOutcomeAuditPolicy,
     audit_crypto_signal_outcomes,
 )
-from tools.replay_bybit_crypto import default_crypto_config, replay_acquisition
+from tools.replay_bybit_crypto import default_crypto_config
+from tools.replay_bybit_crypto_runner import replay_open_ended_crypto_runner
 
 _DEFAULT_SYMBOLS = (
     "BTCUSDT",
@@ -33,6 +34,7 @@ _DEFAULT_SYMBOLS = (
     "LINKUSDT",
     "ADAUSDT",
 )
+_CANONICAL_TARGET_USD = Decimal("20")
 
 
 def run_signal_outcome_audit(
@@ -40,11 +42,13 @@ def run_signal_outcome_audit(
     symbols: tuple[str, ...] = _DEFAULT_SYMBOLS,
     lookback_days: int = 7,
     opening_equity_usdt: Decimal = Decimal("1000"),
-    target_usd: Decimal = Decimal("20"),
+    target_usd: Decimal = _CANONICAL_TARGET_USD,
     policy: CryptoSignalOutcomeAuditPolicy | None = None,
     now: datetime | None = None,
     archive_workers: int = 4,
 ) -> dict[str, object]:
+    if target_usd != _CANONICAL_TARGET_USD:
+        raise ValueError("signal outcome audit is frozen to the canonical $20 activation target")
     cutoff = datetime.now(UTC) if now is None else now
     dates = completed_archive_dates(now=cutoff, lookback_days=lookback_days)
     acquisition = _fetch_archives_by_symbol(
@@ -61,19 +65,14 @@ def run_signal_outcome_audit(
         strategy_config=config,
         reference_equity_usdt=opening_equity_usdt,
     )
-    replay = replay_acquisition(
+    variant = replay_open_ended_crypto_runner(
         acquisition.klines,
         opening_equity_usdt=opening_equity_usdt,
-        targets_usd=(target_usd,),
         base_config=config,
         interval="5",
     )
-    variants = replay["variants"]
-    if not isinstance(variants, dict) or len(variants) != 1:
-        raise ValueError("signal audit expected exactly one replay target variant")
-    variant = next(iter(variants.values()))
-    if not isinstance(variant, dict):
-        raise ValueError("signal audit replay target variant is invalid")
+    if variant["mode"] != "MIN_20_NET_EDGE_CONDITIONAL_OPEN_ENDED_RUNNER":
+        raise ValueError("signal audit must use the canonical conditional runner replay")
 
     records = build_crypto_historical_trade_conditions(
         acquisition.klines,
@@ -89,6 +88,12 @@ def run_signal_outcome_audit(
         symbols=list(symbols),
         target_net_profit_usd=float(target_usd),
         opening_equity_usdt=float(opening_equity_usdt),
+        accepted_trade_replay_mode=variant["mode"],
+        runner_minimum_expected_edge_multiple=variant[
+            "runner_minimum_expected_edge_multiple"
+        ],
+        runner_selected_trade_count=variant["runner_selected_trade_count"],
+        fixed_target_selected_trade_count=variant["fixed_target_selected_trade_count"],
         all_eligible_signal_events=all_signal_events,
         eligible_signal_event_count=variant["eligible_signal_event_count"],
         accepted_trade_plan_event_count=variant["accepted_trade_plan_event_count"],
@@ -203,6 +208,11 @@ def main() -> None:
                 "closed_trade_count": report["trade_count"],
                 "all_signal_event_count": all_signals["signal_event_count"],
                 "symbols": report["symbols"],
+                "replay_mode": report["accepted_trade_replay_mode"],
+                "runner_selected_trade_count": report["runner_selected_trade_count"],
+                "fixed_target_selected_trade_count": report[
+                    "fixed_target_selected_trade_count"
+                ],
                 "perfect_positive_pattern_count": report["perfect_positive_pattern_count"],
                 "perfect_planned_profit_pattern_count": report[
                     "perfect_planned_profit_pattern_count"
