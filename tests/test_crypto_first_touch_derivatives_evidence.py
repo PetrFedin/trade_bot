@@ -87,7 +87,7 @@ def _row(
         "breakout_strength_atr": 0.3,
         "atr_fraction": 0.01,
         "one_bar_atr_multiple": 0.5,
-        "average_turnover_usdt": 1_000_000 + day_offset,
+        "average_turnover_usdt": 1_000_000,
         "expected_net_edge_usd": 24.0,
         "maximum_favorable_r": 2.5,
         "maximum_adverse_r": 0.5,
