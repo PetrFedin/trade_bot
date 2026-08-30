@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -20,7 +21,6 @@ from app.strategy.crypto_signal_event_outcomes import audit_all_crypto_signal_ev
 from app.strategy.crypto_signal_outcome_audit import audit_crypto_signal_outcomes
 from app.strategy.crypto_signal_ranking_attribution import attribute_crypto_portfolio_ranking
 from app.strategy.crypto_trade_quality_diagnostics import diagnose_crypto_replay_quality
-from tools.audit_bybit_crypto_position_selection import audit_position_selection
 from tools.replay_bybit_crypto import default_crypto_config
 from tools.replay_bybit_crypto_runner import replay_open_ended_crypto_runner
 
@@ -39,7 +39,7 @@ _DEFAULT_SYMBOLS = (
 def run_signal_failure_attribution(
     *,
     symbols: tuple[str, ...] = _DEFAULT_SYMBOLS,
-    lookback_days: int = 7,
+    lookback_days: int = 14,
     opening_equity_usdt: Decimal = Decimal("1000"),
     now: datetime | None = None,
     archive_workers: int = 4,
@@ -85,16 +85,14 @@ def run_signal_failure_attribution(
         all_signals,
         strategy_config=config,
     )
-    static_selection = audit_position_selection(
-        acquisition.klines,
-        equity_usdt=opening_equity_usdt,
-        config=config,
-        maximum_positions=config.maximum_concurrent_positions,
-    )
     trade_quality = diagnose_crypto_replay_quality(replay)
     protection_quality = evaluate_protection_quality(
         list(replay["closed_trades"])
     ).as_dict()
+    exit_counts = Counter(
+        str(trade["exit_reason"])
+        for trade in replay["closed_trades"]
+    )
 
     return {
         "report": "BYBIT_CRYPTO_SIGNAL_RANKING_PROTECTION_ATTRIBUTION_V1",
@@ -105,17 +103,10 @@ def run_signal_failure_attribution(
         "opening_equity_usdt": float(opening_equity_usdt),
         "canonical_replay_mode": replay["mode"],
         "canonical_replay_metrics": replay["metrics"],
-        "canonical_exit_reason_counts": {
-            row["exit_reason"]: sum(
-                trade["exit_reason"] == row["exit_reason"]
-                for trade in replay["closed_trades"]
-            )
-            for row in replay["closed_trades"]
-        },
+        "canonical_exit_reason_counts": dict(sorted(exit_counts.items())),
         "all_eligible_signal_events": all_signals,
         "accepted_trade_signal_outcomes": signal_outcomes,
         "state_aware_ranking_attribution": ranking,
-        "static_reference_equity_position_selection": static_selection,
         "trade_quality": trade_quality,
         "protection_quality": protection_quality,
         "interpretation_contract": (
@@ -187,7 +178,7 @@ def _parse_args() -> argparse.Namespace:
         description="Attribute Bybit crypto ranking and protection failures"
     )
     parser.add_argument("--symbols", default=",".join(_DEFAULT_SYMBOLS))
-    parser.add_argument("--lookback-days", type=int, default=7)
+    parser.add_argument("--lookback-days", type=int, default=14)
     parser.add_argument("--opening-equity", default="1000")
     parser.add_argument("--archive-workers", type=int, default=4)
     parser.add_argument("--output", type=Path, required=True)
