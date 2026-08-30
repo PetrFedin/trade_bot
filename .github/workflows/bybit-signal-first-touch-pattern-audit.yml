@@ -111,6 +111,7 @@ jobs:
             --minimum-pattern-observations 5 \
             --sample-sufficient-observations 30 \
             --minimum-cross-symbol-count 2 \
+            --minimum-distinct-days 3 \
             --archive-workers 4 \
             --output artifacts/bybit-signal-first-touch/report.json \
             2>&1 | tee artifacts/bybit-signal-first-touch/run.log
