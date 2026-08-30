@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 _ZERO = Decimal("0")
+_PNL_EPSILON_USDT = Decimal("0.000001")
 _MFE_REFERENCE_LEVELS_R = (
     Decimal("0.5"),
     Decimal("1.0"),
@@ -82,13 +83,14 @@ def diagnose_crypto_replay_quality(report: Mapping[str, Any]) -> dict[str, Any]:
     by_side = _group(rows, "side")
     overall = _summarize(rows)
     return {
-        "qualification": "CRYPTO_TRADE_QUALITY_DIAGNOSTIC",
+        "qualification": "CRYPTO_TRADE_QUALITY_DIAGNOSTIC_V2",
         "overall": overall,
         "by_exit_mode": by_exit_mode,
         "by_exit_reason": by_exit_reason,
         "by_symbol": by_symbol,
         "by_side": by_side,
         "trade_count": len(rows),
+        "pnl_epsilon_usdt": float(_PNL_EPSILON_USDT),
         "profit_preservation_reference_levels_r": [
             float(value) for value in _MFE_REFERENCE_LEVELS_R
         ],
@@ -125,6 +127,7 @@ def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         return {
             "trade_count": 0,
             "winning_trade_count": 0,
+            "breakeven_trade_count": 0,
             "losing_trade_count": 0,
             "total_net_pnl_usdt": 0.0,
             "profit_factor": None,
@@ -145,8 +148,19 @@ def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "fees_usdt": 0.0,
         }
 
-    positive = [row["net_pnl_usdt"] for row in rows if row["net_pnl_usdt"] > 0]
-    negative = [-row["net_pnl_usdt"] for row in rows if row["net_pnl_usdt"] < 0]
+    positive = [
+        row["net_pnl_usdt"]
+        for row in rows
+        if row["net_pnl_usdt"] > _PNL_EPSILON_USDT
+    ]
+    negative = [
+        -row["net_pnl_usdt"]
+        for row in rows
+        if row["net_pnl_usdt"] < -_PNL_EPSILON_USDT
+    ]
+    breakeven = [
+        row for row in rows if abs(row["net_pnl_usdt"]) <= _PNL_EPSILON_USDT
+    ]
     captures = [
         row["mfe_capture_ratio"]
         for row in rows
@@ -161,12 +175,15 @@ def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
     gross_profit = sum(positive, start=_ZERO)
     gross_loss = sum(negative, start=_ZERO)
     count = Decimal(len(rows))
-    nonpositive = [row for row in rows if row["net_pnl_usdt"] <= 0]
+    nonpositive = [
+        row for row in rows if row["net_pnl_usdt"] <= _PNL_EPSILON_USDT
+    ]
     positive_mfe_nonpositive = [row for row in nonpositive if row["mfe_r"] > 0]
     nonpositive_giveback = [row["mfe_giveback_r"] for row in nonpositive]
     return {
         "trade_count": len(rows),
         "winning_trade_count": len(positive),
+        "breakeven_trade_count": len(breakeven),
         "losing_trade_count": len(negative),
         "total_net_pnl_usdt": float(total_net),
         "profit_factor": (
