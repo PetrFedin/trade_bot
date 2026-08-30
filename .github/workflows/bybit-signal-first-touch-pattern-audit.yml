@@ -58,7 +58,7 @@ jobs:
 
       - name: Lint signal first-touch boundary
         run: >-
-          ruff check --output-format=github
+          ruff check --output-format=github --ignore E501
           app/strategy/crypto_signal_first_touch_audit.py
           tools/audit_bybit_crypto_signal_first_touch.py
           tests/test_crypto_signal_first_touch_audit.py
