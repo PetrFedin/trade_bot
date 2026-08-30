@@ -95,6 +95,34 @@ def test_quality_diagnostic_tracks_mfe_giveback_and_edge_realization() -> None:
     assert quality["live_activation_allowed"] is False
 
 
+def test_quality_diagnostic_classifies_numerical_dust_as_breakeven() -> None:
+    report = {
+        "decision_events": [],
+        "closed_trades": [
+            _trade(
+                symbol="BTCUSDT",
+                side="LONG",
+                entry_time="2026-08-17T10:05:00+00:00",
+                net=1.7e-25,
+                fees=1.0,
+                risk=10.0,
+                mfe_r=0.8,
+                mae_r=0.1,
+                exit_reason="BREAK_EVEN_STOP",
+            )
+        ],
+    }
+
+    quality = diagnose_crypto_replay_quality(report)
+    overall = quality["overall"]
+    assert quality["qualification"] == "CRYPTO_TRADE_QUALITY_DIAGNOSTIC_V2"
+    assert quality["pnl_epsilon_usdt"] == 0.000001
+    assert overall["winning_trade_count"] == 0
+    assert overall["breakeven_trade_count"] == 1
+    assert overall["losing_trade_count"] == 0
+    assert overall["positive_mfe_lost_trade_count"] == 1
+
+
 def test_quality_diagnostic_tolerates_closed_trade_without_entry_event() -> None:
     report = {
         "decision_events": [],

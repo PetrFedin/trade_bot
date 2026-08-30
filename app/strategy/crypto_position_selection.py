@@ -31,6 +31,66 @@ class CryptoPositionCandidate:
 
 
 @dataclass(frozen=True)
+class CryptoPositionRankInputs:
+    """Minimal immutable inputs for the qualified economic shadow ordering."""
+
+    symbol: str
+    expected_net_r: Decimal
+    expected_net_edge_usd: Decimal
+    quality_score: Decimal
+    cost_to_target_fraction: Decimal
+
+    def validate(self) -> None:
+        if not self.symbol or self.symbol != self.symbol.strip().upper():
+            raise ValueError("position rank symbol must be normalized uppercase text")
+        values = (
+            self.expected_net_r,
+            self.expected_net_edge_usd,
+            self.quality_score,
+            self.cost_to_target_fraction,
+        )
+        if any(not value.is_finite() for value in values):
+            raise ValueError("position rank inputs must be finite")
+        if self.expected_net_r <= 0 or self.expected_net_edge_usd <= 0:
+            raise ValueError("position rank expected edge must be positive")
+        if self.cost_to_target_fraction < 0:
+            raise ValueError("position rank cost fraction cannot be negative")
+
+
+def crypto_position_rank_inputs(
+    candidate: CryptoPositionCandidate,
+) -> CryptoPositionRankInputs:
+    if candidate.signal.symbol != candidate.plan.symbol:
+        raise ValueError("crypto position candidate signal/plan symbol mismatch")
+    if candidate.signal.side is not candidate.plan.side:
+        raise ValueError("crypto position candidate signal/plan side mismatch")
+    inputs = CryptoPositionRankInputs(
+        symbol=candidate.plan.symbol,
+        expected_net_r=candidate.expected_net_r,
+        expected_net_edge_usd=candidate.plan.expected_net_edge_usd,
+        quality_score=candidate.plan.quality_score,
+        cost_to_target_fraction=candidate.cost_to_target_fraction,
+    )
+    inputs.validate()
+    return inputs
+
+
+def crypto_position_rank_key(
+    inputs: CryptoPositionRankInputs,
+) -> tuple[Decimal, Decimal, Decimal, Decimal, str]:
+    """Return the one canonical lexicographic key used by economic shadow ranking."""
+
+    inputs.validate()
+    return (
+        -inputs.expected_net_r,
+        -inputs.expected_net_edge_usd,
+        -inputs.quality_score,
+        inputs.cost_to_target_fraction,
+        inputs.symbol,
+    )
+
+
+@dataclass(frozen=True)
 class CryptoPositionSelection:
     selected: tuple[CryptoPositionCandidate, ...]
     rejected: tuple[CryptoPositionCandidate, ...]
@@ -46,23 +106,13 @@ def rank_crypto_position_candidates(
     """Rank eligible plans lexicographically without fitted score weights."""
 
     rows = tuple(candidates)
+    inputs_by_id: dict[int, CryptoPositionRankInputs] = {}
     for candidate in rows:
-        if candidate.signal.symbol != candidate.plan.symbol:
-            raise ValueError("crypto position candidate signal/plan symbol mismatch")
-        if candidate.signal.side is not candidate.plan.side:
-            raise ValueError("crypto position candidate signal/plan side mismatch")
-        _ = candidate.expected_net_r
-        _ = candidate.cost_to_target_fraction
+        inputs_by_id[id(candidate)] = crypto_position_rank_inputs(candidate)
     return tuple(
         sorted(
             rows,
-            key=lambda item: (
-                -item.expected_net_r,
-                -item.plan.expected_net_edge_usd,
-                -item.plan.quality_score,
-                item.cost_to_target_fraction,
-                item.plan.symbol,
-            ),
+            key=lambda item: crypto_position_rank_key(inputs_by_id[id(item)]),
         )
     )
 
@@ -98,3 +148,15 @@ def average_expected_net_r(
     if not rows:
         return None
     return sum((row.expected_net_r for row in rows), start=_ZERO) / Decimal(len(rows))
+
+
+__all__ = [
+    "CryptoPositionCandidate",
+    "CryptoPositionRankInputs",
+    "CryptoPositionSelection",
+    "average_expected_net_r",
+    "crypto_position_rank_inputs",
+    "crypto_position_rank_key",
+    "rank_crypto_position_candidates",
+    "select_crypto_positions",
+]

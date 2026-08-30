@@ -12,6 +12,7 @@ from app.strategy.crypto_historical_diagnostics import CryptoHistoricalTradeCond
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig
 
 _ZERO = Decimal("0")
+_PNL_EPSILON_USDT = Decimal("0.000001")
 _Z_95 = 1.959963984540054
 _PLANNED_PROFIT_EXITS = frozenset({"NET_TARGET", "PROFIT_PROTECTION"})
 
@@ -86,7 +87,7 @@ def audit_crypto_signal_outcomes(
     ]
 
     return {
-        "audit": "BYBIT_CRYPTO_SIGNAL_OUTCOME_AUDIT_V1",
+        "audit": "BYBIT_CRYPTO_SIGNAL_OUTCOME_AUDIT_V2",
         "trade_count": len(ordered),
         "symbol_count": len(symbol_groups),
         "symbols": sorted(symbol_groups),
@@ -121,9 +122,18 @@ def audit_crypto_signal_outcomes(
         "retrospective_perfect_planned_profit_cross_symbol_patterns": perfect_planned,
         "perfect_positive_pattern_count": len(perfect_positive),
         "perfect_planned_profit_pattern_count": len(perfect_planned),
-        "positive_close_definition": "modeled realized net_pnl_usdt > 0",
+        "pnl_epsilon_usdt": float(_PNL_EPSILON_USDT),
+        "positive_close_definition": (
+            "modeled realized net_pnl_usdt > +0.000001 USDT"
+        ),
+        "breakeven_close_definition": (
+            "absolute modeled realized net_pnl_usdt <= 0.000001 USDT"
+        ),
+        "loss_close_definition": (
+            "modeled realized net_pnl_usdt < -0.000001 USDT"
+        ),
         "planned_profit_exit_definition": (
-            "modeled realized net_pnl_usdt > 0 and exit_reason in "
+            "modeled realized net_pnl_usdt > +0.000001 USDT and exit_reason in "
             "{NET_TARGET, PROFIT_PROTECTION}"
         ),
         "signal_clarity_definition": (
@@ -220,6 +230,8 @@ def _summarize(
         return {
             "trade_count": 0,
             "positive_close_count": 0,
+            "breakeven_close_count": 0,
+            "loss_close_count": 0,
             "non_positive_close_count": 0,
             "positive_close_rate": None,
             "positive_rate_wilson_lower_95": None,
@@ -240,20 +252,26 @@ def _summarize(
             "exit_reason_counts": {},
         }
 
-    positives = [item for item in rows if item.net_pnl_usdt > _ZERO]
+    positives = [item for item in rows if item.net_pnl_usdt > _PNL_EPSILON_USDT]
+    breakeven = [
+        item for item in rows if abs(item.net_pnl_usdt) <= _PNL_EPSILON_USDT
+    ]
+    negative = [item for item in rows if item.net_pnl_usdt < -_PNL_EPSILON_USDT]
     planned = [
         item
-        for item in rows
-        if item.net_pnl_usdt > _ZERO and item.exit_reason in _PLANNED_PROFIT_EXITS
+        for item in positives
+        if item.exit_reason in _PLANNED_PROFIT_EXITS
     ]
     gains = sum((item.net_pnl_usdt for item in positives), start=_ZERO)
-    losses = -sum((item.net_pnl_usdt for item in rows if item.net_pnl_usdt < _ZERO), start=_ZERO)
+    losses = -sum((item.net_pnl_usdt for item in negative), start=_ZERO)
     total = sum((item.net_pnl_usdt for item in rows), start=_ZERO)
     qualities = [item.quality_score for item in rows]
     quality_ratios = [value / quality_minimum for value in qualities]
     return {
         "trade_count": len(rows),
         "positive_close_count": len(positives),
+        "breakeven_close_count": len(breakeven),
+        "loss_close_count": len(negative),
         "non_positive_close_count": len(rows) - len(positives),
         "positive_close_rate": len(positives) / len(rows),
         "positive_rate_wilson_lower_95": _wilson_lower(len(positives), len(rows)),
@@ -280,6 +298,9 @@ def _trade_row(
     *,
     quality_minimum: Decimal,
 ) -> dict[str, Any]:
+    positive = record.net_pnl_usdt > _PNL_EPSILON_USDT
+    loss = record.net_pnl_usdt < -_PNL_EPSILON_USDT
+    outcome = "WIN" if positive else "LOSS" if loss else "BREAKEVEN"
     return {
         "symbol": record.symbol,
         "side": record.side,
@@ -288,9 +309,12 @@ def _trade_row(
         "exit_time": record.exit_time,
         "exit_reason": record.exit_reason,
         "net_pnl_usdt": float(record.net_pnl_usdt),
-        "positive_close": record.net_pnl_usdt > _ZERO,
+        "economic_outcome": outcome,
+        "positive_close": positive,
+        "breakeven_close": not positive and not loss,
+        "loss_close": loss,
         "planned_profit_exit": (
-            record.net_pnl_usdt > _ZERO and record.exit_reason in _PLANNED_PROFIT_EXITS
+            positive and record.exit_reason in _PLANNED_PROFIT_EXITS
         ),
         "quality_score": float(record.quality_score),
         "quality_ratio_to_entry_gate": float(record.quality_score / quality_minimum),
