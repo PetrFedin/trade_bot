@@ -19,7 +19,10 @@ from app.strategy.crypto_historical_diagnostics import build_crypto_historical_t
 from app.strategy.crypto_protection_quality import evaluate_protection_quality
 from app.strategy.crypto_signal_event_outcomes import audit_all_crypto_signal_events
 from app.strategy.crypto_signal_outcome_audit import audit_crypto_signal_outcomes
-from app.strategy.crypto_signal_ranking_attribution import attribute_crypto_portfolio_ranking
+from app.strategy.crypto_signal_ranking_attribution import (
+    attribute_crypto_portfolio_ranking,
+    synchronize_crypto_portfolio_acquisition,
+)
 from app.strategy.crypto_trade_quality_diagnostics import diagnose_crypto_replay_quality
 from tools.replay_bybit_crypto import default_crypto_config
 from tools.replay_bybit_crypto_runner import replay_open_ended_crypto_runner
@@ -57,21 +60,22 @@ def run_signal_failure_attribution(
         archive_workers=archive_workers,
     )
     acquisition.validate(requested_symbols=symbols, minimum_bars=25)
+    portfolio_acquisition = synchronize_crypto_portfolio_acquisition(acquisition.klines)
 
     config = default_crypto_config().with_target(Decimal("20"))
     all_signals = audit_all_crypto_signal_events(
-        acquisition.klines,
+        portfolio_acquisition,
         strategy_config=config,
         reference_equity_usdt=opening_equity_usdt,
     )
     replay = replay_open_ended_crypto_runner(
-        acquisition.klines,
+        portfolio_acquisition,
         opening_equity_usdt=opening_equity_usdt,
         base_config=config,
         interval="5",
     )
     conditions = build_crypto_historical_trade_conditions(
-        acquisition.klines,
+        portfolio_acquisition,
         replay,
         strategy_config=config,
     )
@@ -80,7 +84,7 @@ def run_signal_failure_attribution(
         strategy_config=config,
     )
     ranking = attribute_crypto_portfolio_ranking(
-        acquisition.klines,
+        portfolio_acquisition,
         replay,
         all_signals,
         strategy_config=config,
@@ -93,6 +97,7 @@ def run_signal_failure_attribution(
         str(trade["exit_reason"])
         for trade in replay["closed_trades"]
     )
+    synchronized_count = len(portfolio_acquisition.bars) // len(portfolio_acquisition.symbols)
 
     return {
         "report": "BYBIT_CRYPTO_SIGNAL_RANKING_PROTECTION_ATTRIBUTION_V1",
@@ -101,6 +106,12 @@ def run_signal_failure_attribution(
         "archive_completed_utc_days_only": True,
         "symbols": list(symbols),
         "opening_equity_usdt": float(opening_equity_usdt),
+        "raw_bar_counts_by_symbol": acquisition.klines.counts_by_symbol(),
+        "portfolio_synchronized_bar_count_per_symbol": synchronized_count,
+        "portfolio_history_contract": (
+            "all signal, replay, condition and ranking attribution layers use the same exact "
+            "intersection of symbol timestamps"
+        ),
         "canonical_replay_mode": replay["mode"],
         "canonical_replay_metrics": replay["metrics"],
         "canonical_exit_reason_counts": dict(sorted(exit_counts.items())),
@@ -211,6 +222,9 @@ def main() -> None:
             {
                 "archive_dates": report["archive_dates"],
                 "symbols": report["symbols"],
+                "portfolio_synchronized_bar_count_per_symbol": report[
+                    "portfolio_synchronized_bar_count_per_symbol"
+                ],
                 "replay_metrics": report["canonical_replay_metrics"],
                 "ranking": {
                     "decision_count": ranking["decision_count"],
