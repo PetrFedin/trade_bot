@@ -131,6 +131,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--minimum-pattern-observations", type=int, default=5)
     parser.add_argument("--sample-sufficient-observations", type=int, default=30)
     parser.add_argument("--minimum-cross-symbol-count", type=int, default=2)
+    parser.add_argument("--minimum-distinct-days", type=int, default=3)
     parser.add_argument("--archive-workers", type=int, default=4)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
@@ -148,6 +149,7 @@ def main() -> None:
         minimum_pattern_observations=args.minimum_pattern_observations,
         sample_sufficient_observations=args.sample_sufficient_observations,
         minimum_cross_symbol_count=args.minimum_cross_symbol_count,
+        minimum_distinct_days=args.minimum_distinct_days,
     )
     report = run_bybit_signal_first_touch_audit(
         symbols=symbols,
@@ -167,7 +169,9 @@ def main() -> None:
             {
                 "archive_dates": report["archive_dates"],
                 "plan_eligible_signal_count": report["plan_eligible_signal_count"],
+                "independent_episode_count": report["independent_episode_count"],
                 "aggregate": report["aggregate"],
+                "episode_aggregate": report["episode_aggregate"],
                 "by_symbol": report["by_symbol"],
                 "by_clarity_band": report["by_clarity_band"],
                 "perfect_target_first_pattern_count": report[
@@ -176,7 +180,9 @@ def main() -> None:
                 "perfect_target_first_patterns": report[
                     "retrospective_perfect_target_first_patterns"
                 ],
-                "qualified_pattern_rows": report["qualified_pattern_rows"],
+                "qualified_episode_pattern_rows": report[
+                    "qualified_episode_pattern_rows"
+                ],
                 "output": str(args.output),
             },
             sort_keys=True,
