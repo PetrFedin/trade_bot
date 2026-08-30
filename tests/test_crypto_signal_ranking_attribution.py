@@ -7,7 +7,10 @@ import pytest
 from app.marketdata.bybit_v5 import BybitKlineAcquisition, BybitKlineBar
 from app.strategy.crypto_perp import CryptoPerpStrategyConfig
 from app.strategy.crypto_signal_event_outcomes import audit_all_crypto_signal_events
-from app.strategy.crypto_signal_ranking_attribution import attribute_crypto_portfolio_ranking
+from app.strategy.crypto_signal_ranking_attribution import (
+    attribute_crypto_portfolio_ranking,
+    synchronize_crypto_portfolio_acquisition,
+)
 from tools.replay_bybit_crypto_runner import replay_open_ended_crypto_runner
 
 
@@ -98,6 +101,47 @@ def test_ranking_attribution_reconstructs_canonical_entries_before_shadow_compar
     assert report["demo_activation_allowed"] is False
     assert report["live_activation_allowed"] is False
     assert report["bybit_live_order_routing_allowed"] is False
+
+
+def test_ranking_attribution_uses_same_common_timestamp_history_as_portfolio_replay() -> None:
+    raw = _acquisition()
+    removed_time = datetime(2026, 8, 1, tzinfo=UTC) + timedelta(minutes=5 * 40)
+    sparse = BybitKlineAcquisition(
+        bars=tuple(
+            bar
+            for bar in raw.bars
+            if not (bar.symbol == "ETHUSDT" and bar.start_time == removed_time)
+        ),
+        pages_by_symbol=dict(raw.pages_by_symbol),
+    )
+    synchronized = synchronize_crypto_portfolio_acquisition(sparse)
+    config = _config()
+    replay = replay_open_ended_crypto_runner(
+        synchronized,
+        opening_equity_usdt=Decimal("1000"),
+        base_config=config,
+        interval="5",
+    )
+    signals = audit_all_crypto_signal_events(
+        synchronized,
+        strategy_config=config,
+        reference_equity_usdt=Decimal("1000"),
+    )
+
+    report = attribute_crypto_portfolio_ranking(
+        sparse,
+        replay,
+        signals,
+        strategy_config=config,
+    )
+
+    assert synchronized.counts_by_symbol() == {
+        "BTCUSDT": 119,
+        "ETHUSDT": 119,
+        "SOLUSDT": 119,
+    }
+    assert report["portfolio_synchronized_bar_count_per_symbol"] == 119
+    assert report["canonical_reconstruction_verified"] is True
 
 
 def test_ranking_attribution_fails_closed_when_entry_trace_is_tampered() -> None:
