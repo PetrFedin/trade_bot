@@ -77,7 +77,7 @@ def _bar(
     )
 
 
-def test_modeled_entry_levels_match_canonical_replay_open_position() -> None:
+def _assert_entry_level_parity(side: CryptoSide) -> None:
     config = CryptoPerpStrategyConfig()
     bar = _bar(
         "BTCUSDT",
@@ -85,8 +85,8 @@ def test_modeled_entry_levels_match_canonical_replay_open_position() -> None:
         slope="0.2",
         start=datetime(2026, 8, 1, tzinfo=UTC),
     )
-    signal = _signal()
-    plan = _plan()
+    signal = _signal(side)
+    plan = _plan(side)
     levels = model_crypto_signal_entry_levels(
         signal,
         plan,
@@ -102,6 +102,14 @@ def test_modeled_entry_levels_match_canonical_replay_open_position() -> None:
     assert levels.hard_stop_raw_price == canonical.protection.active_stop_price
     assert levels.target_raw_price == canonical.target_trigger_price
     assert levels.risk_price_distance == canonical.risk_price_distance
+
+
+def test_modeled_long_entry_levels_match_canonical_replay_open_position() -> None:
+    _assert_entry_level_parity(CryptoSide.LONG)
+
+
+def test_modeled_short_entry_levels_match_canonical_replay_open_position() -> None:
+    _assert_entry_level_parity(CryptoSide.SHORT)
 
 
 def test_first_touch_keeps_same_bar_target_stop_as_ambiguous() -> None:
@@ -135,7 +143,7 @@ def test_first_touch_keeps_same_bar_target_stop_as_ambiguous() -> None:
     assert timestamp == bar.start_time.isoformat()
 
 
-def test_audit_reports_cross_symbol_target_first_without_promoting_strategy() -> None:
+def test_audit_exposes_independent_episodes_without_promoting_strategy() -> None:
     start = datetime(2026, 8, 1, tzinfo=UTC)
     bars = []
     for symbol, slope in (
@@ -173,12 +181,21 @@ def test_audit_reports_cross_symbol_target_first_without_promoting_strategy() ->
             minimum_pattern_observations=2,
             sample_sufficient_observations=5,
             minimum_cross_symbol_count=2,
+            minimum_distinct_days=1,
         ),
     )
 
+    assert report["audit"] == "BYBIT_CRYPTO_PLAN_ELIGIBLE_FIRST_TOUCH_V2"
     assert report["plan_eligible_signal_count"] > 0
     assert report["aggregate"]["complete_count"] > 0
+    assert 0 < report["independent_episode_count"] <= report["plan_eligible_signal_count"]
+    assert len(report["outcome_rows"]) == report["plan_eligible_signal_count"]
+    assert len(report["episode_outcome_rows"]) == report["independent_episode_count"]
+    assert report["perfect_target_first_pattern_count"] == report[
+        "episode_perfect_target_first_pattern_count"
+    ]
     assert report["pattern_thresholds_fitted_to_outcomes"] is False
+    assert report["episode_definition_fitted_to_outcomes"] is False
     assert report["strategy_selection_allowed"] is False
     assert report["strategy_promotion_allowed"] is False
     assert report["demo_activation_allowed"] is False
