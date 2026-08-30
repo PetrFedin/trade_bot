@@ -1,0 +1,75 @@
+name: bybit-signal-oos-confirmation
+
+on:
+  pull_request:
+    paths:
+      - 'app/strategy/crypto_signal_oos_confirmation.py'
+      - 'app/strategy/crypto_signal_oos_confirmation_postgres.py'
+      - 'tools/report_bybit_signal_oos_confirmation.py'
+      - 'tests/test_crypto_signal_oos_confirmation.py'
+      - '.github/workflows/bybit-signal-oos-confirmation.yml'
+  push:
+    branches:
+      - agent/bybit-signal-oos-confirmation
+    paths:
+      - 'app/strategy/crypto_signal_oos_confirmation.py'
+      - 'app/strategy/crypto_signal_oos_confirmation_postgres.py'
+      - 'tools/report_bybit_signal_oos_confirmation.py'
+      - 'tests/test_crypto_signal_oos_confirmation.py'
+      - '.github/workflows/bybit-signal-oos-confirmation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-signal-oos-confirmation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Test frozen OOS confirmation
+        run: >-
+          pytest -q
+          tests/test_crypto_signal_oos_confirmation.py
+          tests/test_crypto_prospective_exact_cell_matrix.py
+          tests/test_crypto_prospective_exact_cell_matrix_postgres.py
+
+      - name: Lint signal OOS confirmation
+        run: >-
+          ruff check --output-format=github
+          app/strategy/crypto_signal_oos_confirmation.py
+          app/strategy/crypto_signal_oos_confirmation_postgres.py
+          tools/report_bybit_signal_oos_confirmation.py
+          tests/test_crypto_signal_oos_confirmation.py
+
+      - name: Security scan signal OOS boundary
+        run: >-
+          bandit -q
+          app/strategy/crypto_signal_oos_confirmation.py
+          app/strategy/crypto_signal_oos_confirmation_postgres.py
+          tools/report_bybit_signal_oos_confirmation.py
+
+      - name: Compile signal OOS confirmation
+        run: >-
+          python -m compileall -q
+          app/strategy/crypto_signal_oos_confirmation.py
+          app/strategy/crypto_signal_oos_confirmation_postgres.py
+          tools/report_bybit_signal_oos_confirmation.py
