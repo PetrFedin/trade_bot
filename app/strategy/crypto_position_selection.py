@@ -57,7 +57,9 @@ class CryptoPositionRankInputs:
             raise ValueError("position rank cost fraction cannot be negative")
 
 
-def crypto_position_rank_inputs(candidate: CryptoPositionCandidate) -> CryptoPositionRankInputs:
+def crypto_position_rank_inputs(
+    candidate: CryptoPositionCandidate,
+) -> CryptoPositionRankInputs:
     if candidate.signal.symbol != candidate.plan.symbol:
         raise ValueError("crypto position candidate signal/plan symbol mismatch")
     if candidate.signal.side is not candidate.plan.side:
@@ -73,7 +75,9 @@ def crypto_position_rank_inputs(candidate: CryptoPositionCandidate) -> CryptoPos
     return inputs
 
 
-def crypto_position_rank_key(inputs: CryptoPositionRankInputs) -> tuple[Decimal, Decimal, Decimal, Decimal, str]:
+def crypto_position_rank_key(
+    inputs: CryptoPositionRankInputs,
+) -> tuple[Decimal, Decimal, Decimal, Decimal, str]:
     """Return the one canonical lexicographic key used by economic shadow ranking."""
 
     inputs.validate()
