@@ -145,6 +145,42 @@ def test_one_loss_breaks_perfect_positive_pattern() -> None:
     assert report["perfect_positive_pattern_count"] == 0
 
 
+def test_numerical_dust_is_breakeven_not_a_win_or_perfect_pattern() -> None:
+    rows = (
+        _record(symbol="BTCUSDT", pnl="0.00000000000000000000000017", exit_reason="BREAK_EVEN_STOP"),
+        _record(
+            symbol="ETHUSDT",
+            pnl="0.00000000000000000000000030",
+            exit_reason="BREAK_EVEN_STOP",
+            decision_time="2026-08-01T01:00:00+00:00",
+        ),
+        _record(
+            symbol="SOLUSDT",
+            pnl="0.0000004",
+            exit_reason="BREAK_EVEN_STOP",
+            decision_time="2026-08-01T02:00:00+00:00",
+        ),
+    )
+    report = audit_crypto_signal_outcomes(
+        rows,
+        policy=CryptoSignalOutcomeAuditPolicy(
+            minimum_pattern_trades=3,
+            sample_sufficient_trades=3,
+            minimum_cross_symbol_count=2,
+        ),
+    )
+
+    aggregate = report["aggregate"]
+    assert report["audit"] == "BYBIT_CRYPTO_SIGNAL_OUTCOME_AUDIT_V2"
+    assert report["pnl_epsilon_usdt"] == 0.000001
+    assert aggregate["positive_close_count"] == 0
+    assert aggregate["breakeven_close_count"] == 3
+    assert aggregate["loss_close_count"] == 0
+    assert aggregate["positive_close_rate"] == 0.0
+    assert report["perfect_positive_pattern_count"] == 0
+    assert all(row["economic_outcome"] == "BREAKEVEN" for row in report["trade_rows"])
+
+
 def test_trade_rows_expose_signal_clarity_and_excursions() -> None:
     report = audit_crypto_signal_outcomes((_record(symbol="BTCUSDT", pnl="20"),))
     trade = report["trade_rows"][0]
@@ -154,6 +190,7 @@ def test_trade_rows_expose_signal_clarity_and_excursions() -> None:
     assert trade["quality_margin_above_entry_gate"] == pytest.approx(0.4)
     assert trade["maximum_favorable_r"] == 1.8
     assert trade["maximum_adverse_r"] == 0.4
+    assert trade["economic_outcome"] == "WIN"
     assert trade["planned_profit_exit"] is True
 
 
