@@ -1,0 +1,252 @@
+name: bybit-signal-derivatives-first-touch-audit
+
+on:
+  pull_request:
+    paths:
+      - 'app/strategy/crypto_signal_derivatives_first_touch.py'
+      - 'tools/audit_bybit_crypto_signal_derivatives_first_touch.py'
+      - 'tests/test_crypto_signal_derivatives_first_touch.py'
+      - '.github/workflows/bybit-signal-derivatives-first-touch-audit.yml'
+  push:
+    branches:
+      - agent/bybit-signal-derivatives-first-touch-audit
+    paths:
+      - 'app/strategy/crypto_signal_derivatives_first_touch.py'
+      - 'tools/audit_bybit_crypto_signal_derivatives_first_touch.py'
+      - 'tests/test_crypto_signal_derivatives_first_touch.py'
+      - '.github/workflows/bybit-signal-derivatives-first-touch-audit.yml'
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: 'Completed Bybit UTC archive days'
+        required: false
+        default: '14'
+      symbols:
+        description: 'Frozen comma-separated USDT perpetual symbols'
+        required: false
+        default: 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,LINKUSDT,ADAUSDT'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bybit-signal-derivatives-first-touch-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Test derivatives first-touch evidence
+        run: >-
+          pytest -q
+          tests/test_crypto_signal_derivatives_first_touch.py
+          tests/test_crypto_signal_first_touch_audit.py
+          tests/test_crypto_derivatives_context.py
+          tests/test_crypto_strategy_evidence_matrix.py
+
+      - name: Lint derivatives first-touch boundary
+        run: >-
+          ruff check --output-format=github
+          app/strategy/crypto_signal_derivatives_first_touch.py
+          tools/audit_bybit_crypto_signal_derivatives_first_touch.py
+          tests/test_crypto_signal_derivatives_first_touch.py
+
+      - name: Security scan derivatives first-touch boundary
+        run: >-
+          bandit -q
+          app/strategy/crypto_signal_derivatives_first_touch.py
+          tools/audit_bybit_crypto_signal_derivatives_first_touch.py
+
+      - name: Compile derivatives first-touch boundary
+        run: >-
+          python -m compileall -q
+          app/strategy/crypto_signal_derivatives_first_touch.py
+          tools/audit_bybit_crypto_signal_derivatives_first_touch.py
+
+  hosted-public-api-access-probe:
+    if: github.event_name == 'push'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+          mkdir -p artifacts/bybit-signal-derivatives-first-touch
+
+      - name: Probe public derivatives access before expensive archive replay
+        run: |
+          python - <<'PY'
+          import json
+          from datetime import UTC, datetime, timedelta
+          from pathlib import Path
+
+          from app.marketdata.bybit_derivatives_history import BybitHistoricalDerivativesClient
+          from app.marketdata.bybit_http import BybitPublicHttpError, blocked_evidence
+
+          output = Path(
+              'artifacts/bybit-signal-derivatives-first-touch/public-api-access.json'
+          )
+          end = datetime.now(UTC)
+          start = end - timedelta(hours=3)
+          client = BybitHistoricalDerivativesClient()
+          try:
+              rows, request_count = client.fetch_open_interest(
+                  symbol='BTCUSDT',
+                  start_ms=int(start.timestamp() * 1000),
+                  end_ms=int(end.timestamp() * 1000),
+                  interval='1h',
+              )
+          except BybitPublicHttpError as exc:
+              payload = {
+                  'status': 'PUBLIC_DERIVATIVES_API_UNAVAILABLE',
+                  'host': client.host,
+                  'read_only': True,
+                  'authenticated_request_performed': False,
+                  'trade_actionable': False,
+                  'bybit_live_order_routing_allowed': False,
+                  **blocked_evidence(exc),
+              }
+              output.write_text(json.dumps(payload, sort_keys=True) + '\n')
+              print(json.dumps(payload, sort_keys=True))
+              raise
+          payload = {
+              'status': 'PUBLIC_DERIVATIVES_API_AVAILABLE',
+              'host': client.host,
+              'point_count': len(rows),
+              'request_count': request_count,
+              'read_only': True,
+              'authenticated_request_performed': False,
+              'trade_actionable': False,
+              'bybit_live_order_routing_allowed': False,
+          }
+          output.write_text(json.dumps(payload, sort_keys=True) + '\n')
+          print(json.dumps(payload, sort_keys=True))
+          PY
+
+      - name: Upload public access evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-public-derivatives-access-${{ github.run_id }}
+          path: artifacts/bybit-signal-derivatives-first-touch/public-api-access.json
+          if-no-files-found: error
+          retention-days: 30
+
+  protected-fixed-egress-derivatives-first-touch:
+    if: github.event_name == 'workflow_dispatch'
+    needs: contract
+    runs-on: [self-hosted, bybit-demo]
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked research dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+          mkdir -p artifacts/bybit-signal-derivatives-first-touch
+
+      - name: Guard research job against trading credentials
+        shell: bash
+        run: |
+          if env | grep -Eq '^BYBIT_(DEMO_)?(TRADING|READONLY)_API_(KEY|SECRET)='; then
+            echo 'Refusing derivatives research with Bybit credentials present in process env' >&2
+            exit 1
+          fi
+
+      - name: Audit first-touch signals with public derivatives history
+        env:
+          LOOKBACK_DAYS: ${{ inputs.lookback_days || '14' }}
+          SYMBOLS: ${{ inputs.symbols || 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,LINKUSDT,ADAUSDT' }}
+        run: |
+          set -o pipefail
+          PYTHONPATH=. python tools/audit_bybit_crypto_signal_derivatives_first_touch.py \
+            --symbols "$SYMBOLS" \
+            --lookback-days "$LOOKBACK_DAYS" \
+            --reference-equity 1000 \
+            --minimum-pattern-observations 5 \
+            --sample-sufficient-observations 30 \
+            --minimum-cross-symbol-count 2 \
+            --minimum-distinct-days 3 \
+            --archive-workers 4 \
+            --derivatives-workers 4 \
+            --output artifacts/bybit-signal-derivatives-first-touch/report.json \
+            2>&1 | tee artifacts/bybit-signal-derivatives-first-touch/run.log
+
+      - name: Print compact derivatives first-touch summary
+        if: success()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(
+              Path('artifacts/bybit-signal-derivatives-first-touch/report.json').read_text()
+          )
+          print('BYBIT_DERIVATIVES_FIRST_TOUCH_SUMMARY=' + json.dumps({
+              'archive_dates': report['archive_dates'],
+              'raw_signal_count': report['raw_signal_count'],
+              'independent_episode_count': report['independent_episode_count'],
+              'complete_derivatives_episode_count': report[
+                  'complete_derivatives_episode_count'
+              ],
+              'episode_aggregate': report['episode_aggregate'],
+              'by_open_interest_regime': report['by_open_interest_regime'],
+              'by_crowding_regime': report['by_crowding_regime'],
+              'by_prior_funding_regime': report['by_prior_funding_regime'],
+              'by_stress_regime': report['by_stress_regime'],
+              'perfect_transferable_pattern_count': report[
+                  'perfect_transferable_pattern_count'
+              ],
+              'perfect_exact_cell_count': report['perfect_exact_cell_count'],
+              'oos_ready_retrospective_exact_cell_count': report[
+                  'oos_ready_retrospective_exact_cell_count'
+              ],
+          }, sort_keys=True))
+          PY
+
+      - name: Upload derivatives first-touch evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bybit-signal-derivatives-first-touch-14d-${{ github.run_id }}
+          path: artifacts/bybit-signal-derivatives-first-touch
+          if-no-files-found: error
+          retention-days: 30
