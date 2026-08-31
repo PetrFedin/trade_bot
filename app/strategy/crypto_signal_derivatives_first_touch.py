@@ -475,7 +475,10 @@ def _stress_context(
     if one_bar_atr_multiple >= config.maximum_one_bar_atr_multiple / Decimal("2"):
         score += 1
         reasons.append("ONE_BAR_MOVE_AT_LEAST_HALF_STRATEGY_LIMIT")
-    if oi_delta_fraction is not None and abs(oi_delta_fraction) >= policy.open_interest_impulse_fraction:
+    if (
+        oi_delta_fraction is not None
+        and abs(oi_delta_fraction) >= policy.open_interest_impulse_fraction
+    ):
         score += 1
         reasons.append("OPEN_INTEREST_IMPULSE")
     if crowding_regime in {"LONG_HEAVY", "SHORT_HEAVY"}:
@@ -762,7 +765,10 @@ def _as_decimal(value: object, *, field: str) -> Decimal | None:
     return parsed
 
 
-def _median(rows: Sequence[CryptoSignalDerivativesFirstTouchRow], field: str) -> float | None:
+def _median(
+    rows: Sequence[CryptoSignalDerivativesFirstTouchRow],
+    field: str,
+) -> float | None:
     if not rows:
         return None
     values = [getattr(item, field) for item in rows]
