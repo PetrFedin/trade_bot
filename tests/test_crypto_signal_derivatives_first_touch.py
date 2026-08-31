@@ -76,7 +76,12 @@ def _report(rows: list[dict[str, object]]) -> dict[str, object]:
     }
 
 
-def _history(symbol: str, *, days: int = 10, include_future_extreme: bool = False) -> BybitDerivativesHistory:
+def _history(
+    symbol: str,
+    *,
+    days: int = 10,
+    include_future_extreme: bool = False,
+) -> BybitDerivativesHistory:
     open_interest: list[BybitOpenInterestPoint] = []
     ratios: list[BybitAccountRatioPoint] = []
     funding: list[BybitHistoricalFundingPoint] = []
@@ -192,7 +197,12 @@ def test_incomplete_derivatives_context_is_explicit_and_not_used_for_candidates(
         end_ms=_ms(_START + timedelta(days=1)),
         interval="1h",
         open_interest=(
-            BybitOpenInterestPoint(symbol, _ms(_START - timedelta(hours=1)), Decimal("100"), None),
+            BybitOpenInterestPoint(
+                symbol,
+                _ms(_START - timedelta(hours=1)),
+                Decimal("100"),
+                None,
+            ),
         ),
         account_ratio=(
             BybitAccountRatioPoint(
