@@ -142,8 +142,6 @@ jobs:
           PY
 
       - name: Complete deterministic regression
-        env:
-          ASTRA_TEST_POSTGRES_DSN: ''
         run: pytest -q
 
       - name: Verify fail-closed live state
