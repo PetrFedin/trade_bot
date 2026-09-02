@@ -11,9 +11,16 @@ on:
       - 'app/oms/postgres.py'
       - 'app/oms/order_mutations.py'
       - 'app/oms/order_mutations_postgres.py'
+      - 'migrations/v107/**'
+      - 'migrations/v108/**'
+      - 'migrations/v109/**'
+      - 'app/platform_assets/v107/migrations/**'
+      - 'app/platform_assets/v108/migrations/**'
+      - 'app/platform_assets/v109/migrations/**'
       - 'tests/test_paper_executor_e2e.py'
       - 'tests/test_order_mutation_e2e.py'
       - 'tests/test_postgres_order_mutation_e2e.py'
+      - 'tests/test_postgres_remote_signer_repository_v109.py'
       - 'requirements.lock'
       - '.github/workflows/order-lifecycle-fault-campaign.yml'
   pull_request:
@@ -25,9 +32,16 @@ on:
       - 'app/oms/postgres.py'
       - 'app/oms/order_mutations.py'
       - 'app/oms/order_mutations_postgres.py'
+      - 'migrations/v107/**'
+      - 'migrations/v108/**'
+      - 'migrations/v109/**'
+      - 'app/platform_assets/v107/migrations/**'
+      - 'app/platform_assets/v108/migrations/**'
+      - 'app/platform_assets/v109/migrations/**'
       - 'tests/test_paper_executor_e2e.py'
       - 'tests/test_order_mutation_e2e.py'
       - 'tests/test_postgres_order_mutation_e2e.py'
+      - 'tests/test_postgres_remote_signer_repository_v109.py'
       - 'requirements.lock'
       - '.github/workflows/order-lifecycle-fault-campaign.yml'
   schedule:
@@ -61,6 +75,7 @@ jobs:
           --health-retries 12
     env:
       ASTRA_TEST_POSTGRES_DSN: postgresql://astra:astra-ci@127.0.0.1:5432/astra
+      PGPASSWORD: astra-ci
 
     steps:
       - name: Checkout exact revision
@@ -77,6 +92,10 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
           python -m pip check
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
 
       - name: Repeated SQLite submit and mutation fault campaign
         shell: bash
@@ -110,6 +129,25 @@ jobs:
           done
           echo "POSTGRES_CYCLES=$CYCLES" >> "$GITHUB_ENV"
 
+      - name: Verify and apply security migration lineage twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp migrations/v107/001_production_rollout_actuator.sql app/platform_assets/v107/migrations/001_production_rollout_actuator.sql
+          cmp migrations/v108/001_asymmetric_signing_authority.sql app/platform_assets/v108/migrations/001_asymmetric_signing_authority.sql
+          cmp migrations/v109/001_remote_signer_attestation.sql app/platform_assets/v109/migrations/001_remote_signer_attestation.sql
+          migrations=(
+            migrations/v107/001_production_rollout_actuator.sql
+            migrations/v108/001_asymmetric_signing_authority.sql
+            migrations/v109/001_remote_signer_attestation.sql
+          )
+          for pass in 1 2; do
+            echo "Security migration lineage pass ${pass}/2"
+            for migration in "${migrations[@]}"; do
+              psql -h 127.0.0.1 -p 5432 -U astra -d astra -v ON_ERROR_STOP=1 -f "$migration"
+            done
+          done
+
       - name: Write and validate campaign evidence
         run: |
           mkdir -p fault-campaign-evidence
@@ -122,6 +160,9 @@ jobs:
               'status': 'PASS',
               'sqlite_cycles': int(os.environ['SQLITE_CYCLES']),
               'postgres_cycles': int(os.environ['POSTGRES_CYCLES']),
+              'postgres_full_regression_enabled': bool(os.environ.get('ASTRA_TEST_POSTGRES_DSN')),
+              'security_migration_lineage_applied': ['v107', 'v108', 'v109'],
+              'security_migration_idempotency_passes': 2,
               'submit_fault_suite': 'tests/test_paper_executor_e2e.py',
               'mutation_fault_suite': 'tests/test_order_mutation_e2e.py',
               'postgres_mutation_suite': 'tests/test_postgres_order_mutation_e2e.py',
@@ -135,15 +176,15 @@ jobs:
           }
           assert evidence['sqlite_cycles'] >= 25
           assert evidence['postgres_cycles'] >= 8
+          assert evidence['postgres_full_regression_enabled'] is True
+          assert evidence['security_migration_idempotency_passes'] == 2
           Path('fault-campaign-evidence/summary.json').write_text(
               json.dumps(evidence, indent=2, sort_keys=True) + '\n',
               encoding='utf-8',
           )
           PY
 
-      - name: Complete deterministic regression
-        env:
-          ASTRA_TEST_POSTGRES_DSN: ''
+      - name: Complete deterministic regression with PostgreSQL enabled
         run: pytest -q
 
       - name: Verify fail-closed live state
