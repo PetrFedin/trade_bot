@@ -4,6 +4,7 @@ from pathlib import Path
 
 STATUS_PATH = Path("STACKED_PR_CONSOLIDATION_STATUS.json")
 OPERATIONAL_AUDIT_PATH = Path("OPERATIONAL_PRESERVATION_AUDIT_89_93.json")
+PREREQUISITE_AUDIT_PATH = Path("OPERATIONAL_PREREQUISITE_AUDIT_75_88.json")
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -13,6 +14,10 @@ def load_status() -> dict:
 
 def load_operational_audit() -> dict:
     return json.loads(OPERATIONAL_AUDIT_PATH.read_text(encoding="utf-8"))
+
+
+def load_prerequisite_audit() -> dict:
+    return json.loads(PREREQUISITE_AUDIT_PATH.read_text(encoding="utf-8"))
 
 
 def test_consolidation_policy_is_fail_closed() -> None:
@@ -143,3 +148,67 @@ def test_operational_canonicalization_is_capability_sliced_not_commit_order_repl
     assert "NO_MAINNET_WRITE_PATH" in by_pr[89]["safety_invariants"]
     assert "NO_ORDER_CAPABLE_CLIENT_BEFORE_IDENTITY_PASS" in by_pr[91]["safety_invariants"]
     assert "ONE_IMMUTABLE_LOGICAL_DATABASE_UUID" in by_pr[93]["safety_invariants"]
+
+
+def test_pr_75_88_prerequisite_audit_is_fail_closed_and_preserves_final_capabilities() -> None:
+    audit = load_prerequisite_audit()
+    decision = audit["decision"]
+
+    assert audit["schema_version"] == "operational-prerequisite-audit-75-88-v1"
+    assert audit["scope"] == list(range(75, 89))
+    assert decision["wholesale_merge_allowed"] is False
+    assert decision["wholesale_cherry_pick_allowed"] is False
+    assert decision["close_any_scoped_pr_allowed"] is False
+    assert decision["intermediate_version_replay_required"] is False
+    assert decision["canonicalize_capabilities_from_current_final_forms"] is True
+
+    chain = audit["chain"]
+    assert [row["pr"] for row in chain] == list(range(75, 89))
+    assert all(SHA40.fullmatch(row["head_sha"]) for row in chain)
+    assert all(SHA40.fullmatch(row["base_sha"]) for row in chain)
+
+    by_pr = {row["pr"]: row for row in chain}
+    for previous, current in zip(range(75, 87), range(76, 88), strict=True):
+        assert by_pr[current]["base_sha"] == by_pr[previous]["head_sha"]
+
+    assert by_pr[88]["base_sha"] != by_pr[87]["head_sha"]
+    assert "diverge" in by_pr[88]["ancestry_note"].lower()
+    assert by_pr[88]["preservation"] == "REQUIRED_C2_RECOVERY"
+
+
+def test_prerequisite_audit_preserves_v119_v124_lineage_without_replaying_old_wrappers() -> None:
+    audit = load_prerequisite_audit()
+    migrations = audit["migration_lineage_to_preserve"]
+
+    assert [row["version"] for row in migrations] == [
+        "v119",
+        "v120",
+        "v121",
+        "v122",
+        "v123",
+        "v124",
+    ]
+    assert [row["source_pr"] for row in migrations] == [76, 77, 80, 84, 88, 93]
+    assert migrations[2]["hardened_by_pr"] == 88
+
+    decisions = {row["pr"]: row for row in audit["intermediate_implementation_decisions"]}
+    assert decisions[79]["replacement"] == "PR #93 v119-v124 bootstrap"
+    assert decisions[83]["replacement"] == "PR #93 v124 activation readiness wrapper/current source artifacts"
+    assert decisions[88]["decision"] == "DO_NOT_ASSUME_PR87_CURRENT_HEAD_IS_ANCESTOR"
+
+
+def test_prerequisite_capability_slices_keep_readiness_control_risk_and_entry_lineage_separate() -> None:
+    audit = load_prerequisite_audit()
+    slices = {row["id"]: row for row in audit["required_capability_slices"]}
+
+    assert slices["C2A"]["source_prs"] == [76, 77]
+    assert slices["C2B"]["source_prs"] == [80, 84, 85, 86]
+    assert slices["C2C"]["source_prs"] == [87, 88]
+    assert slices["C1A"]["source_prs"] == [78, 81, 82]
+    assert slices["C1B"]["source_prs"] == [79, 83, 93]
+    assert slices["C1B"]["canonical_source"] == "PR_93_FINAL_V124_FORMS"
+    assert slices["C3A"]["source_prs"] == [75]
+
+    assert audit["next_canonicalization_gate"] == (
+        "BUILD_C2A_FOUNDATION_DIFF_FROM_CURRENT_MAIN_WITHOUT_RESEARCH_ANCESTRY"
+    )
