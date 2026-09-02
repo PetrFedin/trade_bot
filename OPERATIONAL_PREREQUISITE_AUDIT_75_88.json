@@ -1,0 +1,121 @@
+{
+  "schema_version": "operational-prerequisite-audit-75-88-v1",
+  "observed_at": "2026-09-02",
+  "scope": [75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88],
+  "purpose": "Identify the minimum durable control, readiness, risk, supervisor and recovery capabilities required by the current PR #89-#93 operational boundary without replaying superseded intermediate version layers.",
+  "decision": {
+    "wholesale_merge_allowed": false,
+    "wholesale_cherry_pick_allowed": false,
+    "close_any_scoped_pr_allowed": false,
+    "intermediate_version_replay_required": false,
+    "canonicalize_capabilities_from_current_final_forms": true
+  },
+  "chain": [
+    {"pr":75,"head_sha":"755b1dc2d2330b53b3ecc0d32db1cc4eb5e21814","base_sha":"c970459ec7f02bcb9736c2d43ef097150bcfac81","changed_file_count":10,"capability":"IMMUTABLE_APPROVAL_LINEAGE_AND_CANONICAL_RUNTIME_BINDING","preservation":"REQUIRED_C3_PREREQUISITE"},
+    {"pr":76,"head_sha":"84b9965e5128562c49620c6164afe5f43ca343f2","base_sha":"755b1dc2d2330b53b3ecc0d32db1cc4eb5e21814","changed_file_count":6,"capability":"POSTGRES_V119_RUNTIME_LEASE_AND_ACTIVE_CHECKPOINT","preservation":"REQUIRED_C2_FOUNDATION"},
+    {"pr":77,"head_sha":"6d557dd4bdb555b68789db247b9a112b962e2481","base_sha":"84b9965e5128562c49620c6164afe5f43ca343f2","changed_file_count":7,"capability":"POSTGRES_V120_APPEND_ONLY_APPROVAL_PROVENANCE_TERMINAL_EVIDENCE","preservation":"REQUIRED_C2_FOUNDATION"},
+    {"pr":78,"head_sha":"09b58db5b34252473c670fa6b600c45df0a33ce0","base_sha":"6d557dd4bdb555b68789db247b9a112b962e2481","changed_file_count":6,"capability":"CONNECTED_GET_ONLY_DEMO_ACCOUNT_AND_DB_PREFLIGHT","preservation":"REQUIRED_C1_READINESS"},
+    {"pr":79,"head_sha":"ca08bc3278d0dda8916d81edaf27b6dab738b6a6","base_sha":"09b58db5b34252473c670fa6b600c45df0a33ce0","changed_file_count":5,"capability":"EXPLICIT_POSTGRES_BOOTSTRAP_INITIAL_V119_V120","preservation":"SEMANTICS_REQUIRED_IMPLEMENTATION_SUPERSEDED_BY_FINAL_V124_BOOTSTRAP"},
+    {"pr":80,"head_sha":"f40d9dee0baadd254a6fe7425b117be709088f9d","base_sha":"ca08bc3278d0dda8916d81edaf27b6dab738b6a6","changed_file_count":15,"capability":"POSTGRES_V121_FAIL_CLOSED_ARM_HALT_CONTROL_PLANE","preservation":"REQUIRED_C2_CONTROL"},
+    {"pr":81,"head_sha":"2e6671dc696e18a381764d5e9a579b78c117997e","base_sha":"f40d9dee0baadd254a6fe7425b117be709088f9d","changed_file_count":6,"capability":"GET_ONLY_LEAST_PRIVILEGE_TRADING_CREDENTIAL_PREFLIGHT","preservation":"REQUIRED_C1_READINESS"},
+    {"pr":82,"head_sha":"d088d040c23eab778a56a93f45488cd0ff38806e","base_sha":"2e6671dc696e18a381764d5e9a579b78c117997e","changed_file_count":9,"capability":"PROTECTED_FIXED_EGRESS_OPERATIONAL_ZONE","preservation":"REQUIRED_C1_READINESS"},
+    {"pr":83,"head_sha":"3a67672db6609f3f4d3399eccd7f5bbec7a33c2b","base_sha":"d088d040c23eab778a56a93f45488cd0ff38806e","changed_file_count":5,"capability":"SHA_BOUND_FAIL_CLOSED_ACTIVATION_READINESS","preservation":"SEMANTICS_REQUIRED_IMPLEMENTATION_SUPERSEDED_BY_FINAL_V124_READINESS"},
+    {"pr":84,"head_sha":"bdcdf7189b56b494e14ac746ad9b867c108dcd30","base_sha":"3a67672db6609f3f4d3399eccd7f5bbec7a33c2b","changed_file_count":13,"capability":"POSTGRES_V122_RESTART_SAFE_SESSION_RISK","preservation":"REQUIRED_C2_RISK"},
+    {"pr":85,"head_sha":"067adc55845556c772f1e9c3281a1ae995a67ada","base_sha":"bdcdf7189b56b494e14ac746ad9b867c108dcd30","changed_file_count":6,"capability":"ONE_TIME_FIXED_EGRESS_SESSION_START","preservation":"REQUIRED_C2_RISK"},
+    {"pr":86,"head_sha":"700e59e0b67329ea7df00bbd78aebd6ddfdba334","base_sha":"067adc55845556c772f1e9c3281a1ae995a67ada","changed_file_count":13,"capability":"CRASH_SAFE_TERMINAL_EVIDENCE_RISK_CHECKPOINT_COMMIT","preservation":"REQUIRED_C2_RISK"},
+    {"pr":87,"head_sha":"d8e937c70e046afc9abe39732511e824fca03b86","base_sha":"700e59e0b67329ea7df00bbd78aebd6ddfdba334","changed_file_count":15,"capability":"RESTART_SAFE_PERSISTENT_ACTIVE_TRADE_SUPERVISOR","preservation":"REQUIRED_C2_MANAGEMENT"},
+    {"pr":88,"head_sha":"d40e3e9b6740896cd5317c01eb9f482cb238b53f","base_sha":"6cf3891d3f953e648dc5582dbc604eaa87dd7488","changed_file_count":22,"capability":"POSTGRES_V123_CONTROLLED_RUNTIME_LEASE_RECOVERY_AND_V121_INTEGRITY_HARDENING","preservation":"REQUIRED_C2_RECOVERY","ancestry_note":"PR #88 forked from merge-base 6cf3891d... while current PR #87 later gained two cleanup commits. Current #87 and #88 therefore diverge by 2 commits behind / 30 ahead when comparing #87 head to #88 head. The late #87 instrument formatting fix is present in #88 as the identical blob; the supervisor cleanup is reflected in #88 alongside the required v123 schema-version update. Canonical extraction must use final file semantics/tests rather than assume perfect branch ancestry."}
+  ],
+  "required_capability_slices": [
+    {
+      "id":"C2A",
+      "name":"DURABLE_RUNTIME_AND_AUDIT_FOUNDATION",
+      "source_prs":[76,77],
+      "required_artifacts":[
+        "v119 single-writer runtime lease without TTL or automatic stale takeover",
+        "v119 active excursion checkpoint with CAS semantics",
+        "v120 append-only approval authorization",
+        "v120 append-only protected-entry provenance",
+        "v120 append-only fully reconciled terminal evidence"
+      ]
+    },
+    {
+      "id":"C2B",
+      "name":"CONTROL_AND_SESSION_RISK",
+      "source_prs":[80,84,85,86],
+      "required_artifacts":[
+        "v121 append-only ARM/HALT journal and cryptographic event identity",
+        "short-lived ARM with repeated final check before new exposure",
+        "v122 immutable opening equity and monotonic high-water session-risk ledger",
+        "one-time flat/HALTED session initialization",
+        "terminal evidence -> risk commit -> exact checkpoint ACK ordering"
+      ]
+    },
+    {
+      "id":"C2C",
+      "name":"ACTIVE_TRADE_SUPERVISION_AND_CONTROLLED_RECOVERY",
+      "source_prs":[87,88],
+      "required_artifacts":[
+        "persistent supervisor has no selector/approval/new-entry capability",
+        "hard-block entry executor during active-trade management",
+        "protection tightening and reduce-only exits only for existing Demo exposure",
+        "ambiguous close is never blindly retried",
+        "v123 recovery requires exact verified HALT, owner fingerprint, external process-stop evidence and explicit confirmation",
+        "recovery never clears active excursion or session-risk state and never ARMs entries"
+      ]
+    },
+    {
+      "id":"C1A",
+      "name":"CONNECTED_IDENTITY_AND_READINESS_PREREQUISITES",
+      "source_prs":[78,81,82],
+      "required_artifacts":[
+        "connected Demo read-only account/database reconciliation",
+        "GET-only least-privilege metadata proof for the separate trading credential",
+        "protected fixed-egress trust zone and IP-binding checks"
+      ]
+    },
+    {
+      "id":"C1B",
+      "name":"FINAL_BOOTSTRAP_AND_ACTIVATION_READINESS",
+      "source_prs":[79,83,93],
+      "canonical_source":"PR_93_FINAL_V124_FORMS",
+      "required_artifacts":[
+        "explicit guarded schema apply/verify",
+        "v119-v124 final migration fingerprinting and readiness",
+        "SHA-bound fail-closed activation manifest",
+        "logical operational database identity verified"
+      ],
+      "reason":"PR #79 and #83 introduce required semantics, but their intermediate version-specific implementations are superseded by the strengthened v124 bootstrap/readiness forms in PR #93."
+    },
+    {
+      "id":"C3A",
+      "name":"APPROVAL_LINEAGE_PREREQUISITE",
+      "source_prs":[75],
+      "required_artifacts":[
+        "outcome-free immutable approval lineage",
+        "exact-symbol approval with no ranked fallback",
+        "burned authorization becomes recovery-only after restart/late block",
+        "terminal attribution remains diagnostics-only"
+      ]
+    }
+  ],
+  "migration_lineage_to_preserve": [
+    {"version":"v119","source_pr":76,"purpose":"runtime lease and active checkpoint"},
+    {"version":"v120","source_pr":77,"purpose":"append-only approval/provenance/terminal evidence"},
+    {"version":"v121","source_pr":80,"purpose":"ARM/HALT control plane","hardened_by_pr":88},
+    {"version":"v122","source_pr":84,"purpose":"restart-safe session risk"},
+    {"version":"v123","source_pr":88,"purpose":"audited runtime lease recovery and control no-TRUNCATE hardening"},
+    {"version":"v124","source_pr":93,"purpose":"immutable logical operational database identity"}
+  ],
+  "intermediate_implementation_decisions": [
+    {"pr":79,"decision":"DO_NOT_REPLAY_OLD_V119_V120_BOOTSTRAP_AS_FINAL","replacement":"PR #93 v119-v124 bootstrap"},
+    {"pr":83,"decision":"DO_NOT_REPLAY_OLD_PRE_V124_READINESS_AS_FINAL","replacement":"PR #93 v124 activation readiness wrapper/current source artifacts"},
+    {"pr":88,"decision":"DO_NOT_ASSUME_PR87_CURRENT_HEAD_IS_ANCESTOR","replacement":"preserve final equivalent cleanup semantics plus v123 hardening through explicit file-level extraction/tests"}
+  ],
+  "next_canonicalization_gate": "BUILD_C2A_FOUNDATION_DIFF_FROM_CURRENT_MAIN_WITHOUT_RESEARCH_ANCESTRY",
+  "next_required_audits": [
+    "AUDIT_PR_68_APPROVAL_BRIDGE_VERSUS_PR_75_AND_PR_89_SUPERSESSION",
+    "AUDIT_PR_74_READ_ONLY_CONTEXT_VERSUS_PR_78_PR_91_PR_92_CURRENT_FORMS",
+    "AUDIT_CURRENT_MAIN_FOR_ALREADY_PRESENT_EQUIVALENT_PR75_88_CAPABILITIES_BEFORE_COPYING_ANY_FILE"
+  ]
+}
