@@ -1,0 +1,183 @@
+{
+  "schema_version": "operational-preservation-audit-89-93-v1",
+  "observed_at": "2026-09-02",
+  "scope": [89, 90, 91, 92, 93],
+  "conclusion": {
+    "wholesale_merge_allowed": false,
+    "wholesale_cherry_pick_allowed": false,
+    "close_any_scoped_pr_allowed": false,
+    "reason": "The five PRs form a clean current-head chain but downstream identity/provenance hardening changes the capability contract that the earlier one-shot entry and evidence layers must consume. Canonicalization must therefore be capability-sliced, not commit-order replayed."
+  },
+  "chain": [
+    {
+      "pr": 89,
+      "title": "Harden Bybit Demo operational activation and entry path",
+      "base_branch": "agent/bybit-demo-controlled-lease-recovery",
+      "base_sha": "d40e3e9b6740896cd5317c01eb9f482cb238b53f",
+      "head_branch": "agent/bybit-demo-operational-entry-runner",
+      "head_sha": "fe124d84c490055e2fbe5e711ab2c61f37d0611a",
+      "head_verified_current": true,
+      "changed_file_count": 17,
+      "capability": "PROTECTED_ONE_SHOT_DEMO_ENTRY",
+      "target_work_package": "C3",
+      "preserve": [
+        "app/execution/bybit_demo_approved_runtime.py",
+        "app/execution/bybit_demo_operational_entry.py",
+        "app/execution/bybit_demo_operational_reconciliation.py",
+        "app/execution/bybit_demo_operator_approval.py",
+        ".github/workflows/bybit-operator-approved-demo-execution.yml",
+        "tools/prepare_bybit_demo_operator_approval.py",
+        "tools/run_bybit_demo_operator_approved_entry.py"
+      ],
+      "safety_invariants": [
+        "EXISTING_ARM_ONLY",
+        "SHORT_LIVED_EXPLICIT_APPROVAL",
+        "SUBMIT_STARTED_BEFORE_BROKER_POST",
+        "AT_MOST_ONE_ENTRY_ATTEMPT",
+        "NO_BLIND_RESUBMIT",
+        "MANDATORY_POST_ATTEMPT_RECONCILIATION",
+        "RECOVERY_CANNOT_CREATE_SECOND_ENTRY",
+        "NO_MAINNET_WRITE_PATH",
+        "NO_STRATEGY_OR_RISK_RETUNING"
+      ],
+      "canonicalization_status": "PRESERVE_BUT_ADAPT_TO_DOWNSTREAM_IDENTITY_GATES"
+    },
+    {
+      "pr": 90,
+      "title": "Bind Bybit Demo operational release evidence to one exact head",
+      "base_branch": "agent/bybit-demo-operational-entry-runner",
+      "base_sha": "fe124d84c490055e2fbe5e711ab2c61f37d0611a",
+      "head_branch": "agent/bybit-demo-operational-release-evidence",
+      "head_sha": "16fe096c2f2f4dba46d35f36508b132168773965",
+      "head_verified_current": true,
+      "changed_file_count": 22,
+      "capability": "EXACT_HEAD_OPERATIONAL_EVIDENCE",
+      "target_work_package": "C4",
+      "preserve": [
+        "app/execution/bybit_demo_operational_release_checkpoint_binding.py",
+        "app/execution/bybit_demo_operational_release_evidence.py",
+        ".github/workflows/bybit-demo-operational-release-evidence.yml",
+        "tools/assemble_bybit_demo_operational_release_evidence.py"
+      ],
+      "required_stage_order": [
+        "INFRA_READY",
+        "SESSION_READY",
+        "SUPERVISOR_READY",
+        "ARM_PROVEN",
+        "DEMO_ENTRY_PROVEN",
+        "HALT_PROVEN",
+        "RECOVERY_DRILL_PROVEN"
+      ],
+      "canonicalization_status": "PRESERVE_AFTER_CURRENT_IDENTITY_AND_ENTRY_SLICES"
+    },
+    {
+      "pr": 91,
+      "title": "Require one exact Bybit Demo account across operational credentials",
+      "base_branch": "agent/bybit-demo-operational-release-evidence",
+      "base_sha": "16fe096c2f2f4dba46d35f36508b132168773965",
+      "head_branch": "agent/bybit-demo-same-account-gate",
+      "head_sha": "22fc150b14d52fa15007554b4d2bc4996b72fdc1",
+      "head_verified_current": true,
+      "changed_file_count": 19,
+      "capability": "GET_ONLY_SAME_ACCOUNT_IDENTITY",
+      "target_work_package": "C1",
+      "preserve": [
+        "app/execution/bybit_demo_same_account.py",
+        "app/execution/bybit_demo_operational_release_account_binding.py",
+        ".github/workflows/bybit-demo-same-account.yml",
+        "tools/probe_bybit_demo_same_account.py"
+      ],
+      "safety_invariants": [
+        "READ_ONLY_AND_TRADING_KEYS_MUST_BE_DIFFERENT_KEYS",
+        "BOTH_KEYS_MUST_RESOLVE_TO_SAME_EXACT_DEMO_ACCOUNT",
+        "GET_ONLY_IDENTITY_PROBE",
+        "NO_RAW_UID_OR_SECRET_SERIALIZATION",
+        "NO_ORDER_CAPABLE_CLIENT_BEFORE_IDENTITY_PASS"
+      ],
+      "canonicalization_status": "EXTRACT_BEFORE_C3"
+    },
+    {
+      "pr": 92,
+      "title": "Bind Bybit Demo release evidence to one operational trust zone",
+      "base_branch": "agent/bybit-demo-same-account-gate",
+      "base_sha": "22fc150b14d52fa15007554b4d2bc4996b72fdc1",
+      "head_branch": "agent/bybit-demo-operational-zone-binding",
+      "head_sha": "8efc89e574bfd7e0edfec9fc3ff022e25f4cd809",
+      "head_verified_current": true,
+      "changed_file_count": 17,
+      "capability": "CROSS_DISPATCH_OPERATIONAL_ZONE_BINDING",
+      "target_work_package": "C1",
+      "preserve": [
+        "app/execution/bybit_demo_operational_zone_binding.py",
+        "app/execution/bybit_demo_operational_release_zone_binding.py",
+        ".github/workflows/bybit-demo-operational-zone-binding.yml",
+        "tools/probe_bybit_demo_operational_zone_binding.py"
+      ],
+      "safety_invariants": [
+        "HMAC_BOUND_OPERATIONAL_ZONE",
+        "SAME_DATABASE_TARGET_ACROSS_SOURCE_RUNS",
+        "SAME_DEMO_ACCOUNT_ACROSS_CREDENTIAL_BEARING_RUNS",
+        "NO_RAW_DSN_UID_KEY_OR_SECRET_SERIALIZATION",
+        "EVIDENCE_ONLY_NO_ORDER_WRITE"
+      ],
+      "canonicalization_status": "EXTRACT_AFTER_PR91_BEFORE_C3_C4"
+    },
+    {
+      "pr": 93,
+      "title": "Add immutable logical Bybit Demo database identity v124",
+      "base_branch": "agent/bybit-demo-operational-zone-binding",
+      "base_sha": "8efc89e574bfd7e0edfec9fc3ff022e25f4cd809",
+      "head_branch": "agent/bybit-demo-logical-db-identity-v124",
+      "head_sha": "c2e6b11b8dc4abc37ed6b2c180f11c73a000ca5b",
+      "head_verified_current": true,
+      "changed_file_count": 23,
+      "capability": "IMMUTABLE_LOGICAL_OPERATIONAL_DATABASE_IDENTITY",
+      "target_work_package": "C1",
+      "preserve": [
+        "migrations/v124/001_bybit_demo_operational_database_identity.sql",
+        "app/execution/bybit_demo_operational_database_identity.py",
+        "app/execution/bybit_demo_activation_readiness_v124.py",
+        "app/execution/bybit_demo_operational_release_logical_db_binding.py",
+        ".github/workflows/bybit-demo-logical-db-identity-v124.yml"
+      ],
+      "safety_invariants": [
+        "ONE_IMMUTABLE_LOGICAL_DATABASE_UUID",
+        "IDENTITY_SURVIVES_VALID_BACKUP_RESTORE_LINEAGE",
+        "INDEPENDENT_REINITIALIZATION_GETS_NEW_IDENTITY",
+        "UPDATE_DELETE_TRUNCATE_REJECTED",
+        "RAW_UUID_NOT_SERIALIZED",
+        "V124_IDENTITY_REQUIRED_BEFORE_CURRENT_READINESS"
+      ],
+      "canonicalization_status": "EXTRACT_AFTER_PR92_BEFORE_C3_C4"
+    }
+  ],
+  "capability_slice_order": [
+    {
+      "step": 1,
+      "name": "C2_PREREQUISITES_FROM_75_88",
+      "reason": "The one-shot entry layer depends on existing durable control/supervisor/ARM/session-risk/recovery infrastructure that must first be inventoried and canonicalized."
+    },
+    {
+      "step": 2,
+      "name": "C1_CURRENT_IDENTITY_AND_READINESS",
+      "source_prs": [91, 92, 93],
+      "reason": "Canonical runtime must use the downstream same-account, operational-zone and logical-database identity hardening before any order-capable client is composed."
+    },
+    {
+      "step": 3,
+      "name": "C3_PROTECTED_ONE_SHOT_ENTRY",
+      "source_prs": [89],
+      "reason": "Preserve the #89 entry semantics, but compose them against the current identity/readiness gates rather than replaying the older branch state verbatim."
+    },
+    {
+      "step": 4,
+      "name": "C4_EXACT_HEAD_EVIDENCE",
+      "source_prs": [90],
+      "reason": "Evidence assembly must be adapted to the final canonical source artifacts, including same-account, zone and logical database identity proofs."
+    }
+  ],
+  "next_required_audit": {
+    "scope": [75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88],
+    "purpose": "Identify the minimal C2 prerequisite set actually required by #89-#93 and distinguish superseded version layers from still-unique durable operational controls."
+  }
+}
