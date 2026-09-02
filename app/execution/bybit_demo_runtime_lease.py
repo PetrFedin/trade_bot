@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 _OWNER_TOKEN_LENGTH = 64
 _HEX = frozenset("0123456789abcdef")
 
