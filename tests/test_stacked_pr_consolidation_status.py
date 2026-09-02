@@ -5,6 +5,7 @@ from pathlib import Path
 STATUS_PATH = Path("STACKED_PR_CONSOLIDATION_STATUS.json")
 OPERATIONAL_AUDIT_PATH = Path("OPERATIONAL_PRESERVATION_AUDIT_89_93.json")
 PREREQUISITE_AUDIT_PATH = Path("OPERATIONAL_PREREQUISITE_AUDIT_75_88.json")
+MAIN_EQUIVALENCE_AUDIT_PATH = Path("MAIN_OPERATIONAL_EQUIVALENCE_AUDIT.json")
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -18,6 +19,10 @@ def load_operational_audit() -> dict:
 
 def load_prerequisite_audit() -> dict:
     return json.loads(PREREQUISITE_AUDIT_PATH.read_text(encoding="utf-8"))
+
+
+def load_main_equivalence_audit() -> dict:
+    return json.loads(MAIN_EQUIVALENCE_AUDIT_PATH.read_text(encoding="utf-8"))
 
 
 def test_consolidation_policy_is_fail_closed() -> None:
@@ -212,3 +217,34 @@ def test_prerequisite_capability_slices_keep_readiness_control_risk_and_entry_li
     assert audit["next_canonicalization_gate"] == (
         "BUILD_C2A_FOUNDATION_DIFF_FROM_CURRENT_MAIN_WITHOUT_RESEARCH_ANCESTRY"
     )
+
+
+def test_main_equivalence_audit_requires_bounded_c2a_extraction_without_order_activation() -> None:
+    audit = load_main_equivalence_audit()
+
+    assert audit["schema_version"] == "main-operational-equivalence-audit-v1"
+    assert SHA40.fullmatch(audit["canonical_main_sha"])
+    observed = audit["observed_main"]
+    assert observed["bybit_demo_execution_modules_present"] is False
+    assert observed["highest_versioned_root_migration"] == "v109"
+    assert observed["migrations_v119_v124_present"] is False
+
+    paths = audit["required_c2a_paths"]
+    assert len(paths) == 7
+    assert {row["source_pr"] for row in paths} == {76, 77}
+    assert all(row["main_equivalent"] == "MISSING" for row in paths)
+
+    semantic = audit["semantic_result"]
+    assert semantic["c2a_demo_specific_foundation_already_present"] is False
+    assert semantic["generic_main_durability_is_reusable"] is True
+    assert semantic["generic_main_durability_is_semantically_identical_to_c2a"] is False
+
+    decision = audit["extraction_decision"]
+    assert decision["c2a_extraction_required"] is True
+    assert decision["copy_whole_pr_branch_allowed"] is False
+    assert decision["research_ancestry_allowed"] is False
+    assert decision["order_write_activation_allowed"] is False
+    assert decision["strategy_change_allowed"] is False
+    assert decision["risk_limit_change_allowed"] is False
+    assert decision["target"] == "NEW_BOUNDED_C2A_PR_FROM_CURRENT_CANONICAL_MAIN"
+    assert audit["next_gate"] == "MERGE_C0_AUDIT_THEN_CREATE_BOUNDED_C2A_EXTRACTION_PR"
