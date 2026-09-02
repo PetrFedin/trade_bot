@@ -145,3 +145,4 @@ def test_database_constraints_reject_unsafe_lease_flags() -> None:
                 VALUES (%s, %s, 1, 1, false, true, now())""",
                 (LEASE_NAME, "d" * 64),
             )
+        connection.rollback()
