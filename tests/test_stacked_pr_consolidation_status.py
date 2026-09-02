@@ -3,11 +3,16 @@ import re
 from pathlib import Path
 
 STATUS_PATH = Path("STACKED_PR_CONSOLIDATION_STATUS.json")
+OPERATIONAL_AUDIT_PATH = Path("OPERATIONAL_PRESERVATION_AUDIT_89_93.json")
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 
 
 def load_status() -> dict:
     return json.loads(STATUS_PATH.read_text(encoding="utf-8"))
+
+
+def load_operational_audit() -> dict:
+    return json.loads(OPERATIONAL_AUDIT_PATH.read_text(encoding="utf-8"))
 
 
 def test_consolidation_policy_is_fail_closed() -> None:
@@ -90,3 +95,51 @@ def test_research_ranges_cannot_be_silently_promoted_into_operational_core() -> 
 
     assert ranges["R5"]["action"] == "DECOUPLE_BEFORE_CANONICALIZATION"
     assert ranges["R8"]["action"] == "DECOMPOSE_AND_PRESERVE"
+
+
+def test_pr_89_93_audit_uses_current_exact_chain_and_forbids_wholesale_replay() -> None:
+    audit = load_operational_audit()
+    conclusion = audit["conclusion"]
+
+    assert audit["schema_version"] == "operational-preservation-audit-89-93-v1"
+    assert audit["scope"] == [89, 90, 91, 92, 93]
+    assert conclusion["wholesale_merge_allowed"] is False
+    assert conclusion["wholesale_cherry_pick_allowed"] is False
+    assert conclusion["close_any_scoped_pr_allowed"] is False
+
+    chain = audit["chain"]
+    assert [row["pr"] for row in chain] == [89, 90, 91, 92, 93]
+    assert all(row["head_verified_current"] is True for row in chain)
+    assert all(SHA40.fullmatch(row["head_sha"]) for row in chain)
+    assert all(SHA40.fullmatch(row["base_sha"]) for row in chain)
+
+    by_pr = {row["pr"]: row for row in chain}
+    for previous, current in ((89, 90), (90, 91), (91, 92), (92, 93)):
+        assert by_pr[current]["base_sha"] == by_pr[previous]["head_sha"]
+
+    assert by_pr[89]["changed_file_count"] == 17
+    assert by_pr[90]["changed_file_count"] == 22
+    assert by_pr[91]["changed_file_count"] == 19
+    assert by_pr[92]["changed_file_count"] == 17
+    assert by_pr[93]["changed_file_count"] == 23
+
+
+def test_operational_canonicalization_is_capability_sliced_not_commit_order_replay() -> None:
+    audit = load_operational_audit()
+    slices = audit["capability_slice_order"]
+
+    assert [entry["step"] for entry in slices] == [1, 2, 3, 4]
+    assert slices[0]["name"] == "C2_PREREQUISITES_FROM_75_88"
+    assert slices[1]["name"] == "C1_CURRENT_IDENTITY_AND_READINESS"
+    assert slices[1]["source_prs"] == [91, 92, 93]
+    assert slices[2]["name"] == "C3_PROTECTED_ONE_SHOT_ENTRY"
+    assert slices[2]["source_prs"] == [89]
+    assert slices[3]["name"] == "C4_EXACT_HEAD_EVIDENCE"
+    assert slices[3]["source_prs"] == [90]
+
+    by_pr = {row["pr"]: row for row in audit["chain"]}
+    assert "AT_MOST_ONE_ENTRY_ATTEMPT" in by_pr[89]["safety_invariants"]
+    assert "NO_BLIND_RESUBMIT" in by_pr[89]["safety_invariants"]
+    assert "NO_MAINNET_WRITE_PATH" in by_pr[89]["safety_invariants"]
+    assert "NO_ORDER_CAPABLE_CLIENT_BEFORE_IDENTITY_PASS" in by_pr[91]["safety_invariants"]
+    assert "ONE_IMMUTABLE_LOGICAL_DATABASE_UUID" in by_pr[93]["safety_invariants"]
