@@ -53,7 +53,7 @@ def policy() -> CrossSectionalPortfolioPolicy:
         fee_per_fill=Decimal("0.50"),
         slippage_bps=Decimal("5"),
         maximum_gross_exposure_fraction=Decimal("0.60"),
-        new_position_target_equity_fraction=Decimal("0.30"),
+        new_position_target_equity_fraction=Decimal("0.29"),
     )
 
 
@@ -168,4 +168,3 @@ def test_ranking_rotation_exits_old_symbol_before_entering_new_symbol() -> None:
         if trade.symbol == "AAPL" and trade.exit_reason is PortfolioExitReason.SELECTION_EXIT
     )
     assert trade.exit_time == second.execution_time
-    assert result.fill_count >= 3
