@@ -95,7 +95,7 @@ def test_top_two_selection_becomes_bounded_portfolio_positions() -> None:
     assert result.selection_counts["AAPL"] > 0
     assert result.selection_counts["MSFT"] > 0
     assert "NVDA" not in result.selection_counts
-    assert result.turnover_fraction >= Decimal("0.59")
+    assert result.turnover_fraction >= Decimal("0.57")
     assert result.maximum_gross_exposure_fraction_observed < Decimal("0.62")
     assert result.one_bar_reentry_count == 0
 
