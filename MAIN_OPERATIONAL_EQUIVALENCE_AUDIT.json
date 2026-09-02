@@ -1,0 +1,94 @@
+{
+  "schema_version": "main-operational-equivalence-audit-v1",
+  "observed_at": "2026-09-02",
+  "canonical_main_sha": "6e0c2d08fd9281682e7e2a5771ed3a93ea7df8d9",
+  "purpose": "Prove whether the first operational capability slices from PRs #75-#93 already exist on canonical main before copying or recreating them.",
+  "observed_main": {
+    "execution_files": [
+      "app/execution/__init__.py",
+      "app/execution/alpaca_fill_backfill.py",
+      "app/execution/order_mutation_executor.py",
+      "app/execution/paper_executor.py",
+      "app/execution/trade_fills.py"
+    ],
+    "bybit_demo_execution_modules_present": false,
+    "highest_versioned_root_migration": "v109",
+    "migrations_v119_v124_present": false,
+    "stable_capabilities_to_reuse": [
+      "transactional OMS persistence",
+      "durable submit and mutation outboxes",
+      "append-only OMS events",
+      "at-most-once submit/cancel/replace mutation semantics",
+      "GET-only ambiguity/restart recovery",
+      "monotonic fill adoption",
+      "portfolio/accounting persistence and reconciliation",
+      "fail-closed release/security qualification"
+    ]
+  },
+  "required_c2a_paths": [
+    {
+      "path": "app/execution/bybit_demo_postgres_runtime_lease.py",
+      "source_pr": 76,
+      "main_equivalent": "MISSING"
+    },
+    {
+      "path": "app/execution/bybit_demo_postgres_excursion_store.py",
+      "source_pr": 76,
+      "main_equivalent": "MISSING"
+    },
+    {
+      "path": "migrations/v119/001_bybit_demo_durable_runtime.sql",
+      "source_pr": 76,
+      "main_equivalent": "MISSING"
+    },
+    {
+      "path": "app/execution/bybit_demo_postgres_approval_lineage_store.py",
+      "source_pr": 77,
+      "main_equivalent": "MISSING"
+    },
+    {
+      "path": "app/execution/bybit_demo_postgres_entry_provenance_store.py",
+      "source_pr": 77,
+      "main_equivalent": "MISSING"
+    },
+    {
+      "path": "app/execution/bybit_demo_postgres_terminal_evidence_store.py",
+      "source_pr": 77,
+      "main_equivalent": "MISSING"
+    },
+    {
+      "path": "migrations/v120/001_bybit_demo_durable_audit_lifecycle.sql",
+      "source_pr": 77,
+      "main_equivalent": "MISSING"
+    }
+  ],
+  "semantic_result": {
+    "c2a_demo_specific_foundation_already_present": false,
+    "generic_main_durability_is_reusable": true,
+    "generic_main_durability_is_semantically_identical_to_c2a": false,
+    "reason": "Stable main already has strong OMS/order-mutation durability, but it has no durable Bybit Demo single-writer lease, active-excursion checkpoint, or append-only approval/protected-entry/terminal-evidence stores. These are different operational control-state contracts and must not be faked by relabeling generic OMS tables."
+  },
+  "extraction_decision": {
+    "c2a_extraction_required": true,
+    "copy_whole_pr_branch_allowed": false,
+    "research_ancestry_allowed": false,
+    "order_write_activation_allowed": false,
+    "strategy_change_allowed": false,
+    "risk_limit_change_allowed": false,
+    "target": "NEW_BOUNDED_C2A_PR_FROM_CURRENT_CANONICAL_MAIN",
+    "implementation_rule": "Extract only the final v119/v120 durable operational state semantics and tests needed by later current controls; reuse canonical main OMS/persistence conventions where compatible and do not introduce later ARM, broker client, strategy, or order-write composition in C2A."
+  },
+  "c2a_acceptance_contract": [
+    "v119 singleton runtime lease is durable and has no TTL or automatic stale takeover",
+    "v119 active excursion checkpoint uses deterministic CAS/revision semantics",
+    "v120 approval authorization is append-only and has no order-submit capability",
+    "v120 protected-entry provenance is append-only and has no order-submit capability",
+    "v120 terminal evidence is append-only and diagnostics-only",
+    "database-level immutability/privilege controls are qualified on PostgreSQL 16",
+    "restart/concurrency/idempotency behavior is tested",
+    "full canonical regression remains green",
+    "live/mainnet flags remain fail-closed",
+    "no Bybit network call is required by the C2A qualification"
+  ],
+  "next_gate": "MERGE_C0_AUDIT_THEN_CREATE_BOUNDED_C2A_EXTRACTION_PR"
+}
