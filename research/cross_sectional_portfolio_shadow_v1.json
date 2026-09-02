@@ -26,9 +26,12 @@
   },
   "portfolio": {
     "maximum_gross_exposure_fraction": "0.60",
-    "new_position_target_equity_fraction": "0.30",
+    "new_position_target_equity_fraction": "0.29",
+    "target_gross_exposure_fraction": "0.58",
+    "gross_exposure_headroom_fraction": "0.02",
     "allow_leverage": false,
     "rebalance_existing_positions": false,
+    "exposure_cap_enforcement": "BLOCK_NEW_ENTRY_NO_FORCED_DELEVERAGING",
     "execute_selection_changes_at_next_open": true,
     "process_open_exits_before_new_entries": true
   },
@@ -44,10 +47,16 @@
   },
   "reentry_confirmation": {
     "minimum_consecutive_eligible_bars": 2,
+    "confirmation_basis": "SELECTED_TOP_K",
     "initial_entry_requires_confirmation": false,
     "reset_streak_on_ineligible_signal": true,
     "apply_after_any_exit": true
   },
+  "required_contract_scenarios": [
+    "TOP_K_BOUNDED_EXPOSURE",
+    "SYMBOL_SPECIFIC_INTRABAR_STOP_REENTRY_DELAY",
+    "NEXT_OPEN_SELECTION_ROTATION"
+  ],
   "required_metrics": [
     "total_return",
     "max_drawdown",
@@ -58,7 +67,14 @@
     "selection_counts",
     "realized_pnl_by_symbol",
     "intrabar_exit_counts",
-    "one_bar_reentry_count"
+    "one_bar_reentry_count",
+    "win_rate",
+    "profit_factor",
+    "average_maximum_favorable_excursion_fraction",
+    "average_maximum_adverse_excursion_fraction",
+    "average_mfe_capture_ratio",
+    "positive_mfe_trades",
+    "profit_preservation_rate"
   ],
   "promotion_blockers": [
     "SYNTHETIC_PORTFOLIO_CONTRACT_ONLY",
