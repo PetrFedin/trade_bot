@@ -1,0 +1,145 @@
+{
+  "schema_version": "c2a-dependency-closure-audit-v1",
+  "observed_at": "2026-09-02",
+  "source_heads": {
+    "pr76": "84b9965e5128562c49620c6164afe5f43ca343f2",
+    "pr77": "6d557dd4bdb555b68789db247b9a112b962e2481"
+  },
+  "finding": "The originally proposed C2A slice is not dependency-closed against canonical main. Several PostgreSQL adapters import earlier Bybit Demo trade-management or strategy-coupled domain modules that are absent on main. Wholesale extraction would therefore reintroduce hidden research/operational ancestry.",
+  "dependency_classification": [
+    {
+      "component": "app/execution/bybit_demo_runtime_lease.py",
+      "source": "pre-PR76 dependency",
+      "classification": "PURE_OPERATIONAL_CONTRACT",
+      "project_imports": [],
+      "first_slice_allowed": true,
+      "reason": "Lease dataclass/file semantics are independent of strategy, broker network, ranking, PnL and order submission."
+    },
+    {
+      "component": "app/execution/bybit_demo_postgres_runtime_lease.py",
+      "source_pr": 76,
+      "classification": "PURE_POSTGRES_OPERATIONAL_ADAPTER",
+      "project_imports": [
+        "app.execution.bybit_demo_runtime_lease.BybitDemoRuntimeLease"
+      ],
+      "first_slice_allowed": true,
+      "reason": "Implements singleton durable lease only; explicitly has order_writes_supported=false and no automatic stale takeover."
+    },
+    {
+      "component": "app/execution/bybit_demo_postgres_excursion_store.py",
+      "source_pr": 76,
+      "classification": "ACTIVE_TRADE_MANAGEMENT_DEPENDENCY",
+      "first_slice_allowed": false,
+      "imports": [
+        "app.execution.bybit_demo_excursion_store",
+        "app.execution.bybit_demo_excursion_tracker.BybitDemoTradeExcursionState"
+      ],
+      "transitive_strategy_dependencies": [
+        "app.strategy.crypto_perp.CryptoSide",
+        "app.strategy.crypto_perp.CryptoTradePlan"
+      ],
+      "decision": "DEFER_TO_C2C_CHECKPOINT_DOMAIN_EXTRACTION",
+      "reason": "Checkpoint persistence is required later, but its current typed state is coupled to active trade management and strategy plan types. It must not be smuggled into the first infrastructure slice."
+    },
+    {
+      "component": "app/execution/bybit_demo_postgres_approval_lineage_store.py",
+      "source_pr": 77,
+      "classification": "APPROVAL_DOMAIN_DEPENDENCY",
+      "first_slice_allowed": false,
+      "transitive_dependencies": [
+        "app.execution.bybit_demo_approval_lineage",
+        "app.execution.bybit_demo_operator_approval"
+      ],
+      "decision": "DEFER_UNTIL_C3A_APPROVAL_CONTRACT_IS_CANONICAL",
+      "reason": "The durable store is safe itself, but its typed authorization record/builder depends on operator-approval/review-row semantics that must be canonicalized independently first."
+    },
+    {
+      "component": "app/execution/bybit_demo_postgres_entry_provenance_store.py",
+      "source_pr": 77,
+      "classification": "STRATEGY_COUPLED_PROVENANCE_DEPENDENCY",
+      "first_slice_allowed": false,
+      "transitive_dependencies": [
+        "app.execution.bybit_demo_entry_provenance",
+        "app.execution.bybit_demo_ranked_fallback",
+        "app.execution.bybit_demo_strategy_selector",
+        "app.strategy.crypto_perp"
+      ],
+      "decision": "DEFER_TO_C3_C4_PROVENANCE_EXTRACTION",
+      "reason": "Current provenance object is built from strategy selection/fallback/cycle outputs and therefore is not a dependency-safe C2 foundation primitive."
+    },
+    {
+      "component": "app/execution/bybit_demo_postgres_terminal_evidence_store.py",
+      "source_pr": 77,
+      "classification": "TERMINAL_TRADE_EVIDENCE_DEPENDENCY",
+      "first_slice_allowed": false,
+      "transitive_dependencies": [
+        "app.execution.bybit_demo_profit_preservation_evidence",
+        "app.execution.bybit_demo_terminal_evidence_store"
+      ],
+      "decision": "DEFER_TO_C2C_C4_TERMINAL_EVIDENCE_EXTRACTION",
+      "reason": "Terminal evidence belongs after reconciled active-trade lifecycle/accounting contracts, not in the first lease-infrastructure slice."
+    }
+  ],
+  "historical_migrations": [
+    {
+      "path": "migrations/v119/001_bybit_demo_durable_runtime.sql",
+      "sha": "9a7f8d6eee89d10673b288e0e6a9bfe276494d8a",
+      "first_slice_allowed": true,
+      "note": "Must remain byte-identical if preserved as historical lineage. It creates both lease and active-excursion tables; first-slice code may use only the lease table while the checkpoint adapter remains deferred."
+    },
+    {
+      "path": "migrations/v120/001_bybit_demo_durable_audit_lifecycle.sql",
+      "sha": "b337ef19dc7da4a3fcbc0a11a8d6d7d85dff3b00",
+      "first_slice_allowed": false,
+      "note": "Defer until approval/provenance/terminal domain contracts are separated and issue #107 defines forward no-TRUNCATE/least-privilege hardening. Do not edit this frozen migration in place."
+    }
+  ],
+  "revised_first_executable_slice": {
+    "id": "C2A0",
+    "name": "STRATEGY_FREE_DURABLE_RUNTIME_LEASE_FOUNDATION",
+    "source_artifacts": [
+      "app/execution/bybit_demo_runtime_lease.py",
+      "app/execution/bybit_demo_postgres_runtime_lease.py",
+      "migrations/v119/001_bybit_demo_durable_runtime.sql"
+    ],
+    "source_tests_to_refactor": [
+      "tests/test_bybit_demo_postgres_runtime_state.py"
+    ],
+    "test_scope_rule": "Extract only runtime-lease tests from the mixed historical test module; do not pull excursion/strategy fixtures into C2A0.",
+    "canonical_test_dsn": "ASTRA_TEST_POSTGRES_DSN",
+    "forbidden": [
+      "BYBIT_NETWORK_CALL",
+      "ORDER_WRITE",
+      "ARM",
+      "OPERATOR_APPROVAL",
+      "STRATEGY_IMPORT",
+      "CRYPTO_TRADE_PLAN_IMPORT",
+      "EXCURSION_TRACKER_IMPORT",
+      "PROVENANCE_IMPORT",
+      "TERMINAL_PNL_IMPORT",
+      "RESEARCH_DATA_IMPORT",
+      "MAINNET_CAPABILITY"
+    ],
+    "required_behavior": [
+      "single writer across independent PostgreSQL store instances",
+      "no TTL or automatic stale takeover",
+      "inspect returns exact durable owner identity",
+      "wrong-owner release fails closed",
+      "exact-owner release succeeds",
+      "orphaned durable row blocks later acquire regardless of clock age",
+      "live_mainnet_order_routing_allowed=false",
+      "order_writes_supported=false",
+      "v119 migration applies deterministically on PostgreSQL 16",
+      "full canonical regression remains green"
+    ],
+    "status": "READY_FOR_BOUNDED_EXTRACTION_AFTER_C0_PR_MERGE"
+  },
+  "subsequent_dependency_gates": [
+    "CANONICALIZE_C3A_PURE_APPROVAL_AUTHORIZATION_CONTRACT_BEFORE_V120_APPROVAL_STORE",
+    "CANONICALIZE_ACTIVE_TRADE_CHECKPOINT_DOMAIN_WITHOUT_STRATEGY_PLAN_COUPLING_BEFORE_POSTGRES_EXCURSION_ADAPTER",
+    "REFACTOR_ENTRY_PROVENANCE_RECORD_AWAY_FROM_SELECTOR_FALLBACK_RUNTIME_TYPES_BEFORE_DURABLE_PROVENANCE_STORE",
+    "CANONICALIZE_RECONCILED_TERMINAL_EVIDENCE_CONTRACT_BEFORE_V120_TERMINAL_STORE",
+    "RESOLVE_ISSUE_107_NO_TRUNCATE_AND_RUNTIME_ROLE_LEAST_PRIVILEGE_BEFORE_CALLING_V120_CANONICAL_IMMUTABLE"
+  ],
+  "next_gate": "QUALIFY_AND_MERGE_PR_106_THEN_CREATE_C2A0_FROM_CANONICAL_MAIN"
+}

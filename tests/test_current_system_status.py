@@ -67,3 +67,26 @@ def test_current_system_status_keeps_verified_governance_gap_explicit() -> None:
     assert blockers["STRATEGY-EDGE"]["status"] == "FAIL"
     assert blockers["BYBIT-DEMO-ENTRY"]["status"] == "NOT_STARTED"
     assert blockers["EXACT-HEAD-OPERATIONAL-EVIDENCE"]["status"] == "NOT_STARTED"
+
+
+def test_current_system_status_keeps_stack_consolidation_fail_closed() -> None:
+    status = load_status()
+    consolidation = status["consolidation"]
+
+    assert consolidation["status"] == "IN_PROGRESS_FAIL_CLOSED"
+    assert consolidation["tracking_issue"] == 104
+    assert consolidation["machine_inventory"] == "STACKED_PR_CONSOLIDATION_STATUS.json"
+    assert consolidation["human_plan"] == "docs/STACKED_PR_CONSOLIDATION_MAP.md"
+    assert consolidation["blind_merge_allowed"] is False
+    assert consolidation["blind_close_allowed"] is False
+    assert consolidation["branch_deletion_allowed"] is False
+    assert consolidation["next_gate"] == "PER_PR_CURRENT_HEAD_AND_CHANGED_FILE_PRESERVATION_AUDIT"
+
+    blockers = {item["id"]: item for item in status["current_blockers"]}
+    blocker = blockers["P1-CONSOLIDATION"]
+    assert blocker["status"] == "IN_PROGRESS"
+    assert blocker["tracking_issue"] == 104
+    assert set(blocker["evidence"]) == {
+        "STACKED_PR_CONSOLIDATION_STATUS.json",
+        "docs/STACKED_PR_CONSOLIDATION_MAP.md",
+    }

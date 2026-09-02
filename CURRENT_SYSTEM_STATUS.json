@@ -40,6 +40,16 @@
     "strategy_promotion_allowed": false,
     "note": "The derivatives-context experiment still lacks an authoritative complete point-in-time acquisition/result and must remain isolated from operational release claims."
   },
+  "consolidation": {
+    "status": "IN_PROGRESS_FAIL_CLOSED",
+    "tracking_issue": 104,
+    "machine_inventory": "STACKED_PR_CONSOLIDATION_STATUS.json",
+    "human_plan": "docs/STACKED_PR_CONSOLIDATION_MAP.md",
+    "blind_merge_allowed": false,
+    "blind_close_allowed": false,
+    "branch_deletion_allowed": false,
+    "next_gate": "PER_PR_CURRENT_HEAD_AND_CHANGED_FILE_PRESERVATION_AUDIT"
+  },
   "strategy": {
     "status": "PROFITABILITY_NOT_PROVEN",
     "promotion_allowed": false,
@@ -80,8 +90,12 @@
       "id": "P1-CONSOLIDATION",
       "severity": "P1",
       "status": "IN_PROGRESS",
-      "reason": "The large stacked PR graph has not yet been consolidated into canonical core, isolated operational candidate and research lineage.",
-      "tracking_issue": 104
+      "reason": "The open stacked PR graph is classified fail-closed, but per-PR current-head/file-level preservation and canonical extraction are not complete.",
+      "tracking_issue": 104,
+      "evidence": [
+        "STACKED_PR_CONSOLIDATION_STATUS.json",
+        "docs/STACKED_PR_CONSOLIDATION_MAP.md"
+      ]
     },
     {
       "id": "STRATEGY-EDGE",
