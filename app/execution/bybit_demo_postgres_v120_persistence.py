@@ -17,9 +17,11 @@ from app.execution.bybit_demo_v120_persistence_records import (
 
 try:
     import psycopg
+    from psycopg import sql
     from psycopg.rows import dict_row
 except ImportError:  # pragma: no cover - optional dependency boundary
     psycopg = None
+    sql = None
     dict_row = None
 
 _APPROVAL_TABLE = "astra_bybit_demo_approved_entry_authorization_v120"
@@ -87,7 +89,7 @@ class _PostgresV120Store:
         self._dsn = dsn
 
     def _connect(self):
-        if psycopg is None or dict_row is None:
+        if psycopg is None or sql is None or dict_row is None:
             raise RuntimeError("PostgreSQL dependency is unavailable")
         return psycopg.connect(self._dsn, row_factory=dict_row, autocommit=False)
 
@@ -108,15 +110,17 @@ class PostgresBybitDemoApprovedEntryAuthorizationStoreV120(_PostgresV120Store):
             with connection.transaction():
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        f"""INSERT INTO {_APPROVAL_TABLE}
-                        (entry_order_link_id, approval_id, source_snapshot_id,
-                         source_evidence_rank, source_market_rank, record_sha256,
-                         canonical_record, outcome_free, order_submission_supported,
-                         realized_pnl_storage_allowed, live_mainnet_order_routing_allowed,
-                         created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s,
-                                true, false, false, false, now())
-                        ON CONFLICT (entry_order_link_id) DO NOTHING""",
+                        sql.SQL(
+                            """INSERT INTO {}
+                            (entry_order_link_id, approval_id, source_snapshot_id,
+                             source_evidence_rank, source_market_rank, record_sha256,
+                             canonical_record, outcome_free, order_submission_supported,
+                             realized_pnl_storage_allowed, live_mainnet_order_routing_allowed,
+                             created_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s,
+                                    true, false, false, false, now())
+                            ON CONFLICT (entry_order_link_id) DO NOTHING"""
+                        ).format(sql.Identifier(_APPROVAL_TABLE)),
                         (
                             authorization.expected_entry_order_link_id,
                             authorization.approval_id,
@@ -183,12 +187,14 @@ class PostgresBybitDemoEntryProvenanceStoreV120(_PostgresV120Store):
             with connection.transaction():
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        f"""INSERT INTO {_PROVENANCE_TABLE}
-                        (entry_order_link_id, record_sha256, canonical_record,
-                         outcome_free, realized_pnl_storage_allowed,
-                         live_mainnet_order_routing_allowed, created_at)
-                        VALUES (%s, %s, %s, true, false, false, now())
-                        ON CONFLICT (entry_order_link_id) DO NOTHING""",
+                        sql.SQL(
+                            """INSERT INTO {}
+                            (entry_order_link_id, record_sha256, canonical_record,
+                             outcome_free, realized_pnl_storage_allowed,
+                             live_mainnet_order_routing_allowed, created_at)
+                            VALUES (%s, %s, %s, true, false, false, now())
+                            ON CONFLICT (entry_order_link_id) DO NOTHING"""
+                        ).format(sql.Identifier(_PROVENANCE_TABLE)),
                         (provenance.entry_order_link_id, record_sha, canonical),
                     )
                     if cursor.rowcount == 1:
@@ -238,13 +244,15 @@ class PostgresBybitDemoTerminalEvidenceStoreV120(_PostgresV120Store):
             with connection.transaction():
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        f"""INSERT INTO {_TERMINAL_TABLE}
-                        (entry_order_link_id, checkpoint_revision, record_sha256,
-                         canonical_record, fully_reconciled_all_in, diagnostics_only,
-                         exit_threshold_retuning_allowed,
-                         live_mainnet_order_routing_allowed, created_at)
-                        VALUES (%s, %s, %s, %s, true, true, false, false, now())
-                        ON CONFLICT (entry_order_link_id) DO NOTHING""",
+                        sql.SQL(
+                            """INSERT INTO {}
+                            (entry_order_link_id, checkpoint_revision, record_sha256,
+                             canonical_record, fully_reconciled_all_in, diagnostics_only,
+                             exit_threshold_retuning_allowed,
+                             live_mainnet_order_routing_allowed, created_at)
+                            VALUES (%s, %s, %s, %s, true, true, false, false, now())
+                            ON CONFLICT (entry_order_link_id) DO NOTHING"""
+                        ).format(sql.Identifier(_TERMINAL_TABLE)),
                         (
                             terminal.entry_order_link_id,
                             terminal.checkpoint_revision,
@@ -289,12 +297,14 @@ class PostgresBybitDemoTerminalEvidenceStoreV120(_PostgresV120Store):
 
 def _select_approval(cursor, entry_order_link_id: str):
     cursor.execute(
-        f"""SELECT entry_order_link_id, approval_id, source_snapshot_id,
-                  source_evidence_rank, source_market_rank, record_sha256,
-                  canonical_record, outcome_free, order_submission_supported,
-                  realized_pnl_storage_allowed, live_mainnet_order_routing_allowed
-           FROM {_APPROVAL_TABLE}
-           WHERE entry_order_link_id=%s""",
+        sql.SQL(
+            """SELECT entry_order_link_id, approval_id, source_snapshot_id,
+                      source_evidence_rank, source_market_rank, record_sha256,
+                      canonical_record, outcome_free, order_submission_supported,
+                      realized_pnl_storage_allowed, live_mainnet_order_routing_allowed
+               FROM {}
+               WHERE entry_order_link_id=%s"""
+        ).format(sql.Identifier(_APPROVAL_TABLE)),
         (entry_order_link_id,),
     )
     row = cursor.fetchone()
@@ -305,11 +315,13 @@ def _select_approval(cursor, entry_order_link_id: str):
 
 def _select_provenance(cursor, entry_order_link_id: str):
     cursor.execute(
-        f"""SELECT entry_order_link_id, record_sha256, canonical_record,
-                  outcome_free, realized_pnl_storage_allowed,
-                  live_mainnet_order_routing_allowed
-           FROM {_PROVENANCE_TABLE}
-           WHERE entry_order_link_id=%s""",
+        sql.SQL(
+            """SELECT entry_order_link_id, record_sha256, canonical_record,
+                      outcome_free, realized_pnl_storage_allowed,
+                      live_mainnet_order_routing_allowed
+               FROM {}
+               WHERE entry_order_link_id=%s"""
+        ).format(sql.Identifier(_PROVENANCE_TABLE)),
         (entry_order_link_id,),
     )
     row = cursor.fetchone()
@@ -320,11 +332,13 @@ def _select_provenance(cursor, entry_order_link_id: str):
 
 def _select_terminal(cursor, entry_order_link_id: str):
     cursor.execute(
-        f"""SELECT entry_order_link_id, checkpoint_revision, record_sha256,
-                  canonical_record, fully_reconciled_all_in, diagnostics_only,
-                  exit_threshold_retuning_allowed, live_mainnet_order_routing_allowed
-           FROM {_TERMINAL_TABLE}
-           WHERE entry_order_link_id=%s""",
+        sql.SQL(
+            """SELECT entry_order_link_id, checkpoint_revision, record_sha256,
+                      canonical_record, fully_reconciled_all_in, diagnostics_only,
+                      exit_threshold_retuning_allowed, live_mainnet_order_routing_allowed
+               FROM {}
+               WHERE entry_order_link_id=%s"""
+        ).format(sql.Identifier(_TERMINAL_TABLE)),
         (entry_order_link_id,),
     )
     row = cursor.fetchone()
