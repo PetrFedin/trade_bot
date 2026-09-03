@@ -1,0 +1,19 @@
+name: c2a3-security-hash-probe
+
+on:
+  push:
+    branches: [feat/c2a3-v120-persistence-contracts]
+    paths:
+      - '.github/workflows/c2a3-security-hash-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Print canonical security SHA-256
+        run: sha256sum .github/workflows/canonical-security-regression.yml
