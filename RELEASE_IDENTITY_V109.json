@@ -15,7 +15,7 @@
     "app/runtime/postgres_remote_signer_repository_v109.py": "f6da097ab0b5539c9f94c31d6458e29b1ca3998abc1bff119052e970b9114a8d",
     "app/runtime/remote_signer_attestation_v109.py": "28c6c5b7dea742f02dfa3f7ec8b276f913973242af10f5f6ac57cf387b999ba9",
     "migrations/v109/001_remote_signer_attestation.sql": "01a445e7b76f3f7f7efbe6c1bca8dc122f9a0dfb5a43190688def9c80142f57c",
-    "pyproject.toml": "09c1518610d29766dd33b41c247a8c77747cc48d380c74a07020a62d19b4aa46",
+    "pyproject.toml": "172a26f04981c84657bea71b298ea8a57416bbfb2b2130fb838edcf8ca8ee6b4",
     "tests/test_postgres_fleet_deployment_integration_v105_v106.py": "62fdeb2beebdff53ddbb2a7fc820ce2fac7246f54cc952382f50055301992f13",
     "tests/test_postgres_remote_signer_repository_unit_v109.py": "a0f0b3d7eaf77e7191edeb24d7807982dabf01484dd89d6e7e258f1686d8f16b",
     "tests/test_postgres_remote_signer_repository_v109.py": "9f506b359948aef3f776b406a7cf20d4326479e47f29f642166321d7ff969d27",
