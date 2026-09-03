@@ -13,8 +13,10 @@ from app.execution.bybit_demo_postgres_runtime_role import (
 )
 
 psycopg = pytest.importorskip("psycopg")
-from psycopg import sql
-from psycopg.conninfo import conninfo_to_dict, make_conninfo
+sql = pytest.importorskip("psycopg.sql")
+conninfo = pytest.importorskip("psycopg.conninfo")
+conninfo_to_dict = conninfo.conninfo_to_dict
+make_conninfo = conninfo.make_conninfo
 
 DSN = os.environ.get("ASTRA_TEST_POSTGRES_DSN")
 if not DSN:
