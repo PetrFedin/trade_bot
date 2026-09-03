@@ -1,0 +1,43 @@
+name: c2a3-preservation-probe
+
+on:
+  push:
+    branches: [feat/c2a3-v120-persistence-contracts]
+    paths:
+      - '.github/workflows/c2a3-preservation-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  preservation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Print exact historical Git blobs and SHA-256 digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha='6d557dd4bdb555b68789db247b9a112b962e2481'
+          files=(
+            app/execution/bybit_demo_approval_lineage.py
+            app/execution/bybit_demo_approval_lineage_store.py
+            app/execution/bybit_demo_entry_provenance.py
+            app/execution/bybit_demo_entry_provenance_store.py
+            app/execution/bybit_demo_profit_preservation_evidence.py
+            app/execution/bybit_demo_terminal_evidence_store.py
+            app/execution/bybit_demo_postgres_approval_lineage_store.py
+            app/execution/bybit_demo_postgres_entry_provenance_store.py
+            app/execution/bybit_demo_postgres_terminal_evidence_store.py
+          )
+          git cat-file -e "${source_sha}^{commit}"
+          for path in "${files[@]}"; do
+            blob="$(git rev-parse "${source_sha}:${path}")"
+            sha256="$(git show "${source_sha}:${path}" | sha256sum | awk '{print $1}')"
+            printf '%s\tgit_blob=%s\tsha256=%s\n' "$path" "$blob" "$sha256"
+          done
