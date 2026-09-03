@@ -143,7 +143,9 @@ class PostgresBybitDemoApprovedEntryAuthorizationStoreV120(_PostgresV120Store):
                     if stored.record_sha256 != record_sha:
                         raise ValueError("approved entry authorization checksum mismatch")
                     if stored.authorization.approval_id != authorization.approval_id:
-                        raise RuntimeError("approved entry authorization approval identity conflict")
+                        raise RuntimeError(
+                            "approved entry authorization approval identity conflict"
+                        )
                     return BybitDemoApprovedEntryAuthorizationReceiptV120(
                         entry_order_link_id=authorization.expected_entry_order_link_id,
                         approval_id=authorization.approval_id,
