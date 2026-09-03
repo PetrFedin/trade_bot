@@ -176,6 +176,7 @@ def test_entry_round_trip_preserves_historical_decimal_and_list_encoding() -> No
     assert payload["expected_net_edge_usd"] == "2.50"
     assert payload["pre_entry_adjusted_quantity"] == "0.0009"
     assert payload["runner_admission_reasons"] == ["ADMITTED"]
+    assert payload["realized_pnl_used_for_selection"] is False
     assert payload["fallback_attempts"] == [
         {
             "modeled_entry_price": "3201.1",
@@ -186,7 +187,14 @@ def test_entry_round_trip_preserves_historical_decimal_and_list_encoding() -> No
             "symbol": "ETHUSDT",
         }
     ]
-    assert "realized_pnl" not in canonical.lower()
+    for forbidden in (
+        "realized_gross_pnl_usdt",
+        "all_in_net_pnl_usdt",
+        "future_mfe_r",
+        "future_mae_r",
+        "terminal_outcome",
+    ):
+        assert forbidden not in payload
     assert digest == canonical_sha256(canonical)
     assert decode_entry_provenance_v120(canonical) == entry
 
