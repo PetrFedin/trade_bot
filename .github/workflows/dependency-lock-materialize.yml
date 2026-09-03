@@ -2,7 +2,7 @@ name: dependency-lock-materialize
 
 on:
   push:
-    branches: [agent/schema108-paper-core-foundation]
+    branches: [fix/p0-pip-pysec-2026-3721]
     paths:
       - 'pyproject.toml'
       - '.github/workflows/dependency-lock-materialize.yml'
@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: agent/schema108-paper-core-foundation
+          ref: ${{ github.ref_name }}
           fetch-depth: 1
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -60,4 +60,4 @@ jobs:
             exit 0
           fi
           git commit -m 'Lock audited product dependencies'
-          git push origin HEAD:agent/schema108-paper-core-foundation
+          git push origin HEAD:${{ github.ref_name }}
