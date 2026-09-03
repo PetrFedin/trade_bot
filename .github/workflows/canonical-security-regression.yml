@@ -9,6 +9,8 @@ on:
       - app/execution/bybit_demo_postgres_runtime_lease.py
       - app/execution/bybit_demo_postgres_runtime_role.py
       - app/execution/bybit_demo_postgres_audit_role.py
+      - app/execution/bybit_demo_v120_persistence_records.py
+      - app/execution/bybit_demo_postgres_v120_persistence.py
       - app/platform_assets/v107/**
       - app/platform_assets/v108/**
       - app/platform_assets/v109/**
@@ -34,6 +36,8 @@ on:
       - app/execution/bybit_demo_postgres_runtime_lease.py
       - app/execution/bybit_demo_postgres_runtime_role.py
       - app/execution/bybit_demo_postgres_audit_role.py
+      - app/execution/bybit_demo_v120_persistence_records.py
+      - app/execution/bybit_demo_postgres_v120_persistence.py
       - app/platform_assets/v107/**
       - app/platform_assets/v108/**
       - app/platform_assets/v109/**
@@ -120,8 +124,9 @@ jobs:
 
       - name: Lint qualified security surface and run lineage regressions
         run: |
-          ruff check app/runtime/*_v109.py tools/*v109.py tools/platform_v108.py tools/architecture_audit_v108.py tools/product_identity.py app/execution/bybit_demo_postgres_runtime_lease.py app/execution/bybit_demo_postgres_runtime_role.py app/execution/bybit_demo_postgres_audit_role.py tests/*v109.py tests/test_product_identity.py tests/test_bybit_demo_postgres_runtime_lease_v119.py tests/test_bybit_demo_postgres_runtime_role_v119.py tests/test_bybit_demo_audit_hardening_v120.py tests/test_bybit_demo_postgres_audit_role_v120.py
-          pytest -q tests/*v107.py tests/*v108.py tests/*v109.py tests/test_product_identity.py tests/test_bybit_demo_postgres_runtime_lease_v119.py tests/test_bybit_demo_postgres_runtime_role_v119.py tests/test_bybit_demo_audit_hardening_v120.py tests/test_bybit_demo_postgres_audit_role_v120.py
+          ruff check app/runtime/*_v109.py tools/*v109.py tools/platform_v108.py tools/architecture_audit_v108.py tools/product_identity.py app/execution/bybit_demo_postgres_runtime_lease.py app/execution/bybit_demo_postgres_runtime_role.py app/execution/bybit_demo_postgres_audit_role.py app/execution/bybit_demo_v120_persistence_records.py app/execution/bybit_demo_postgres_v120_persistence.py tests/*v109.py tests/test_product_identity.py tests/test_bybit_demo_postgres_runtime_lease_v119.py tests/test_bybit_demo_postgres_runtime_role_v119.py tests/test_bybit_demo_audit_hardening_v120.py tests/test_bybit_demo_postgres_audit_role_v120.py tests/test_bybit_demo_v120_persistence_records.py tests/test_bybit_demo_postgres_v120_persistence.py
+          bandit -q -r app/execution/bybit_demo_v120_persistence_records.py app/execution/bybit_demo_postgres_v120_persistence.py
+          pytest -q tests/*v107.py tests/*v108.py tests/*v109.py tests/test_product_identity.py tests/test_bybit_demo_postgres_runtime_lease_v119.py tests/test_bybit_demo_postgres_runtime_role_v119.py tests/test_bybit_demo_audit_hardening_v120.py tests/test_bybit_demo_postgres_audit_role_v120.py tests/test_bybit_demo_v120_persistence_records.py tests/test_bybit_demo_postgres_v120_persistence.py
           pytest -q
 
       - name: Enforce branch-aware coverage floors
