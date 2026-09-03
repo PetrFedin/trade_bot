@@ -9,23 +9,37 @@
   },
   "canonical_main": {
     "branch": "main",
-    "last_qualified_sha": "fd04ad3403b7b840100006dbf1829273d9e5e4bb",
+    "last_qualified_sha": "319fb407f1b99ad76a25a04adb96b84c171b6275",
+    "qualification_subject": "C2A2 product/security merge SHA; subsequent status-only commits do not promote trading capability",
     "engineering_baseline_status": "PASS",
     "qualification": {
-      "canonical_security_regression_run_id": 33733873613,
-      "release_provenance_run_id": 33733873591,
-      "external_roundtrip_run_id": 33733873614,
-      "stable_runtime_import_boundary_run_id": 33733873647,
-      "product_composition_run_id": 33733873576,
-      "stable_core_quality_run_id": 33733873599,
-      "release_governance_run_id": 33733873612,
-      "full_regression_result": "1087 passed, 2 dedicated fleet-deployment skips",
+      "post_merge_workflows_completed": 11,
+      "post_merge_workflows_success": 11,
+      "canonical_security_regression_run_id": 33783216938,
+      "release_provenance_run_id": 33783216901,
+      "external_roundtrip_run_id": 33783216962,
+      "stable_runtime_import_boundary_run_id": 33783216985,
+      "product_composition_run_id": 33783216945,
+      "stable_core_quality_run_id": 33783216906,
+      "release_governance_run_id": 33783216921,
+      "canonical_deployment_regression_run_id": 33783216950,
+      "ci_action_supply_chain_policy_run_id": 33783216972,
+      "compatibility_release_audits_run_id": 33783217121,
+      "schema109_remote_signer_attestation_run_id": 33783216907,
+      "full_regression_result": "1099 passed, 2 dedicated fleet-deployment skips",
       "postgres_full_regression_enabled": true,
-      "security_migration_lineage": ["v107", "v108", "v109"],
-      "postgres_operational_foundation": ["v119 runtime lease", "v119 least-privilege runtime role"],
+      "postgres_version": "16",
+      "security_migration_lineage": ["v107", "v108", "v109", "v119", "v120/001", "v120/002"],
+      "postgres_operational_foundation": [
+        "v119 runtime lease",
+        "v119 least-privilege runtime role",
+        "v120 byte-preserved audit schema",
+        "v120 physical TRUNCATE hardening",
+        "v120 SELECT/INSERT-only runtime role"
+      ],
       "release_attestation": "SLSA_AND_SBOM_SIGNED_PASS"
     },
-    "note": "This proves the covered deterministic engineering, PostgreSQL runtime-role and release baseline on canonical main. It does not prove broker connectivity, Demo execution, strategy profitability, soak or live readiness."
+    "note": "This proves the covered deterministic engineering, PostgreSQL schema/security and release baseline on the C2A2 merge SHA. It does not prove broker connectivity, Demo execution, strategy profitability, soak or live readiness."
   },
   "canonical_operational_foundation": {
     "id": "C2A0",
@@ -64,25 +78,48 @@
     "demo_broker_proven": false,
     "production_or_live_promotion_allowed": false
   },
-  "c2a2_candidate": {
+  "canonical_append_only_audit": {
     "id": "C2A2",
     "component": "BYBIT_DEMO_APPEND_ONLY_AUDIT_V120",
-    "status": "IN_PROGRESS",
+    "status": "EXTRACTED_AND_QUALIFIED",
     "tracking_issue": 117,
     "pull_request": 118,
-    "base_sha": "fd04ad3403b7b840100006dbf1829273d9e5e4bb",
+    "pre_merge_head_sha": "8a7b71e0f286e17d9a79307fc643ed805bb1f5ae",
+    "merge_sha": "319fb407f1b99ad76a25a04adb96b84c171b6275",
     "frozen_v120_001_git_blob": "b337ef19dc7da4a3fcbc0a11a8d6d7d85dff3b00",
     "frozen_v120_001_sha256": "613a21fba9142f34141cb7d6c81938b175250fb4dbda9bd37726e5627df094cf",
     "historical_v120_001_modified": false,
-    "forward_truncate_hardening_required": true,
-    "runtime_table_privileges_target": ["INSERT", "SELECT"],
+    "forward_truncate_hardening": true,
+    "owner_update_delete_truncate_rejected": true,
+    "runtime_table_privileges": ["INSERT", "SELECT"],
+    "runtime_update_delete_truncate_ddl_allowed": false,
+    "typed_v120_persistence_promoted": false,
+    "postgresql_16_proven": true,
+    "pre_merge_exact_head_workflows_success": 11,
+    "post_merge_workflows_success": 11,
+    "post_merge_canonical_security_run_id": 33783216938,
+    "post_merge_release_provenance_run_id": 33783216901,
+    "strategy_dependency": false,
+    "broker_network_capability": false,
+    "order_write_capability": false,
+    "demo_broker_proven": false,
+    "production_or_live_promotion_allowed": false,
+    "note": "C2A2 proves a byte-preserved and physically hardened durable audit schema plus least-privilege runtime access. It is not broker, Demo, strategy-profitability or live evidence."
+  },
+  "c2a3_candidate": {
+    "id": "C2A3",
+    "component": "STRATEGY_FREE_V120_PERSISTENCE_RECORD_CONTRACTS",
+    "status": "IN_PROGRESS",
+    "tracking_issue": 119,
+    "source_pull_request": 77,
+    "source_sha": "6d557dd4bdb555b68789db247b9a112b962e2481",
+    "purpose": "Separate immutable persistence-safe v120 record contracts and adapters from historical strategy/broker/accounting builders before canonical extraction.",
     "typed_v120_persistence_promoted": false,
     "strategy_dependency_allowed": false,
     "broker_network_capability_allowed": false,
     "order_write_capability_allowed": false,
     "demo_broker_proven": false,
-    "production_or_live_promotion_allowed": false,
-    "note": "C2A2 is not a PASS until the final exact PR head and post-merge main SHA complete qualification."
+    "production_or_live_promotion_allowed": false
   },
   "operational_source_boundary": {
     "pull_request": 93,
@@ -108,10 +145,9 @@
     "blind_merge_allowed": false,
     "blind_close_allowed": false,
     "branch_deletion_allowed": false,
-    "completed_gate": "C2A1_V119_RUNTIME_ROLE_LEAST_PRIVILEGE",
-    "next_gate": "C2A2_V120_APPEND_ONLY_AUDIT_HARDENING",
-    "next_gate_issue": 117,
-    "next_gate_pr": 118,
+    "completed_gate": "C2A2_V120_APPEND_ONLY_AUDIT_HARDENING",
+    "next_gate": "C2A3_STRATEGY_FREE_V120_PERSISTENCE_RECORD_CONTRACTS",
+    "next_gate_issue": 119,
     "parent_database_security_issue": 107
   },
   "strategy": {
@@ -154,16 +190,23 @@
       "id": "P1-CONSOLIDATION",
       "severity": "P1",
       "status": "IN_PROGRESS",
-      "reason": "C2A0 and C2A1 are canonical, but the remaining operational stack is still being decomposed into bounded qualified units.",
-      "tracking_issue": 104
+      "reason": "C2A0, C2A1 and C2A2 are canonical, but later operational persistence/control layers still require bounded ancestry-free extraction.",
+      "tracking_issue": 104,
+      "next_gate_issue": 119
     },
     {
-      "id": "P1-APPEND-ONLY-TRUNCATE-HARDENING",
+      "id": "P1-V107-V109-APPEND-ONLY-TRUNCATE-HARDENING",
       "severity": "P1",
       "status": "IN_PROGRESS",
-      "reason": "C2A2 is qualifying byte-preserved v120/001 plus forward TRUNCATE hardening and exact SELECT/INSERT runtime privileges. Canonical v107-v109 event-table TRUNCATE hardening remains tracked separately.",
-      "tracking_issues": [117, 109],
-      "pull_request": 118
+      "reason": "C2A2 closes the v120 TRUNCATE gap. Canonical v107-v109 event-table physical TRUNCATE hardening remains tracked separately.",
+      "tracking_issue": 109
+    },
+    {
+      "id": "P1-C2A3-PERSISTENCE-CONTRACT-ISOLATION",
+      "severity": "P1",
+      "status": "IN_PROGRESS",
+      "reason": "Historical v120 typed stores still depend on strategy/broker/accounting builders and cannot be copied wholesale; strategy-free immutable persistence contracts must be extracted first.",
+      "tracking_issue": 119
     },
     {
       "id": "STRATEGY-EDGE",
