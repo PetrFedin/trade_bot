@@ -6,12 +6,17 @@ on:
     branches: [main]
     paths:
       - app/runtime/**
+      - app/execution/bybit_demo_postgres_runtime_lease.py
+      - app/execution/bybit_demo_postgres_runtime_role.py
+      - app/execution/bybit_demo_postgres_audit_role.py
       - app/platform_assets/v107/**
       - app/platform_assets/v108/**
       - app/platform_assets/v109/**
       - migrations/v107/**
       - migrations/v108/**
       - migrations/v109/**
+      - migrations/v119/**
+      - migrations/v120/**
       - tests/**
       - tools/**
       - RELEASE_IDENTITY_V10*.json
@@ -26,12 +31,17 @@ on:
     types: [opened, reopened, synchronize]
     paths:
       - app/runtime/**
+      - app/execution/bybit_demo_postgres_runtime_lease.py
+      - app/execution/bybit_demo_postgres_runtime_role.py
+      - app/execution/bybit_demo_postgres_audit_role.py
       - app/platform_assets/v107/**
       - app/platform_assets/v108/**
       - app/platform_assets/v109/**
       - migrations/v107/**
       - migrations/v108/**
       - migrations/v109/**
+      - migrations/v119/**
+      - migrations/v120/**
       - tests/**
       - tools/**
       - RELEASE_IDENTITY_V10*.json
@@ -98,6 +108,9 @@ jobs:
             migrations/v107/001_production_rollout_actuator.sql
             migrations/v108/001_asymmetric_signing_authority.sql
             migrations/v109/001_remote_signer_attestation.sql
+            migrations/v119/001_bybit_demo_durable_runtime.sql
+            migrations/v120/001_bybit_demo_durable_audit_lifecycle.sql
+            migrations/v120/002_bybit_demo_audit_truncate_hardening.sql
           )
           for pass in 1 2; do
             for migration in "${migrations[@]}"; do
@@ -105,10 +118,10 @@ jobs:
             done
           done
 
-      - name: Lint qualified Schema 109 surface and run lineage regressions
+      - name: Lint qualified security surface and run lineage regressions
         run: |
-          ruff check app/runtime/*_v109.py tools/*v109.py tools/platform_v108.py tools/architecture_audit_v108.py tools/product_identity.py tests/*v109.py tests/test_product_identity.py
-          pytest -q tests/*v107.py tests/*v108.py tests/*v109.py tests/test_product_identity.py
+          ruff check app/runtime/*_v109.py tools/*v109.py tools/platform_v108.py tools/architecture_audit_v108.py tools/product_identity.py app/execution/bybit_demo_postgres_runtime_lease.py app/execution/bybit_demo_postgres_runtime_role.py app/execution/bybit_demo_postgres_audit_role.py tests/*v109.py tests/test_product_identity.py tests/test_bybit_demo_postgres_runtime_lease_v119.py tests/test_bybit_demo_postgres_runtime_role_v119.py tests/test_bybit_demo_audit_hardening_v120.py tests/test_bybit_demo_postgres_audit_role_v120.py
+          pytest -q tests/*v107.py tests/*v108.py tests/*v109.py tests/test_product_identity.py tests/test_bybit_demo_postgres_runtime_lease_v119.py tests/test_bybit_demo_postgres_runtime_role_v119.py tests/test_bybit_demo_audit_hardening_v120.py tests/test_bybit_demo_postgres_audit_role_v120.py
           pytest -q
 
       - name: Enforce branch-aware coverage floors
@@ -180,6 +193,8 @@ jobs:
             v107_triggers integer; v107_events text[];
             v108_triggers integer; v108_events text[];
             v109_policy_fk integer; v109_triggers integer; v109_events text[];
+            v120_table text; v120_append_trigger text; v120_truncate_trigger text;
+            v120_append_count integer; v120_truncate_count integer;
           BEGIN
             IF NOT EXISTS (
               SELECT 1 FROM information_schema.columns
@@ -233,6 +248,51 @@ jobs:
                AND trigger_name='astra_remote_sign_event_append_only_v109';
             IF v109_triggers <> 1 OR v109_events <> ARRAY['DELETE','UPDATE']::text[]
             THEN RAISE EXCEPTION 'V109 append-only trigger mismatch'; END IF;
+
+            FOR v120_table, v120_append_trigger, v120_truncate_trigger IN
+              SELECT * FROM (VALUES
+                ('astra_bybit_demo_approved_entry_authorization_v120', 'astra_bybit_demo_approval_append_only_v120', 'astra_bybit_demo_approval_no_truncate_v120'),
+                ('astra_bybit_demo_entry_provenance_v120', 'astra_bybit_demo_provenance_append_only_v120', 'astra_bybit_demo_provenance_no_truncate_v120'),
+                ('astra_bybit_demo_terminal_evidence_v120', 'astra_bybit_demo_terminal_append_only_v120', 'astra_bybit_demo_terminal_no_truncate_v120')
+              ) AS required(table_name, append_trigger, truncate_trigger)
+            LOOP
+              SELECT count(*) INTO v120_append_count
+                FROM pg_trigger t
+                JOIN pg_class c ON c.oid=t.tgrelid
+                JOIN pg_namespace n ON n.oid=c.relnamespace
+                JOIN pg_proc p ON p.oid=t.tgfoid
+               WHERE n.nspname='public'
+                 AND c.relname=v120_table
+                 AND t.tgname=v120_append_trigger
+                 AND NOT t.tgisinternal
+                 AND t.tgenabled IN ('O','A')
+                 AND (t.tgtype & 8) = 8
+                 AND (t.tgtype & 16) = 16
+                 AND (t.tgtype & 2) = 2
+                 AND (t.tgtype & 1) = 1
+                 AND (t.tgtype & 32) = 0
+                 AND p.proname='astra_reject_bybit_demo_audit_mutation_v120';
+              IF v120_append_count <> 1
+              THEN RAISE EXCEPTION 'V120 append-only UPDATE/DELETE trigger mismatch on %', v120_table; END IF;
+
+              SELECT count(*) INTO v120_truncate_count
+                FROM pg_trigger t
+                JOIN pg_class c ON c.oid=t.tgrelid
+                JOIN pg_namespace n ON n.oid=c.relnamespace
+                JOIN pg_proc p ON p.oid=t.tgfoid
+               WHERE n.nspname='public'
+                 AND c.relname=v120_table
+                 AND t.tgname=v120_truncate_trigger
+                 AND NOT t.tgisinternal
+                 AND t.tgenabled IN ('O','A')
+                 AND (t.tgtype & 32) = 32
+                 AND (t.tgtype & 2) = 2
+                 AND (t.tgtype & 1) = 0
+                 AND (t.tgtype & 24) = 0
+                 AND p.proname='astra_reject_bybit_demo_audit_mutation_v120';
+              IF v120_truncate_count <> 1
+              THEN RAISE EXCEPTION 'V120 append-only TRUNCATE trigger mismatch on %', v120_table; END IF;
+            END LOOP;
           END
           $$;
           SQL

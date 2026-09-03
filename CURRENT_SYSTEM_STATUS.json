@@ -9,22 +9,23 @@
   },
   "canonical_main": {
     "branch": "main",
-    "last_qualified_sha": "e110a4c02f5bf9b9937ff3fbf7e942859be9050d",
+    "last_qualified_sha": "fd04ad3403b7b840100006dbf1829273d9e5e4bb",
     "engineering_baseline_status": "PASS",
     "qualification": {
-      "canonical_security_regression_run_id": 33731847837,
-      "release_provenance_run_id": 33731847749,
-      "external_roundtrip_run_id": 33731847806,
-      "stable_runtime_import_boundary_run_id": 33731847773,
-      "product_composition_run_id": 33731847986,
-      "stable_core_quality_run_id": 33731847745,
-      "release_governance_run_id": 33731847853,
-      "full_regression_result": "1078 passed, 2 dedicated fleet-deployment skips",
+      "canonical_security_regression_run_id": 33733873613,
+      "release_provenance_run_id": 33733873591,
+      "external_roundtrip_run_id": 33733873614,
+      "stable_runtime_import_boundary_run_id": 33733873647,
+      "product_composition_run_id": 33733873576,
+      "stable_core_quality_run_id": 33733873599,
+      "release_governance_run_id": 33733873612,
+      "full_regression_result": "1087 passed, 2 dedicated fleet-deployment skips",
       "postgres_full_regression_enabled": true,
       "security_migration_lineage": ["v107", "v108", "v109"],
+      "postgres_operational_foundation": ["v119 runtime lease", "v119 least-privilege runtime role"],
       "release_attestation": "SLSA_AND_SBOM_SIGNED_PASS"
     },
-    "note": "This proves the covered deterministic engineering and release baseline on canonical main. It does not prove broker connectivity, Demo execution, strategy profitability, soak or live readiness."
+    "note": "This proves the covered deterministic engineering, PostgreSQL runtime-role and release baseline on canonical main. It does not prove broker connectivity, Demo execution, strategy profitability, soak or live readiness."
   },
   "canonical_operational_foundation": {
     "id": "C2A0",
@@ -40,6 +41,48 @@
     "order_write_capability": false,
     "demo_broker_proven": false,
     "production_or_live_promotion_allowed": false
+  },
+  "canonical_database_security": {
+    "id": "C2A1",
+    "component": "BYBIT_DEMO_POSTGRES_RUNTIME_ROLE_V119",
+    "status": "EXTRACTED_AND_QUALIFIED",
+    "pull_request": 116,
+    "merge_sha": "fd04ad3403b7b840100006dbf1829273d9e5e4bb",
+    "runtime_role_separate_from_bootstrap": true,
+    "runtime_role_must_be_non_owner": true,
+    "runtime_database_create_allowed": false,
+    "runtime_public_schema_create_allowed": false,
+    "runtime_role_membership_allowed": false,
+    "lease_effective_privileges": ["DELETE", "INSERT", "SELECT"],
+    "excursion_effective_privileges": ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    "truncate_or_ddl_authority_allowed": false,
+    "postgresql_16_proven": true,
+    "canonical_security_run_id": 33733873613,
+    "strategy_dependency": false,
+    "broker_network_capability": false,
+    "order_write_capability": false,
+    "demo_broker_proven": false,
+    "production_or_live_promotion_allowed": false
+  },
+  "c2a2_candidate": {
+    "id": "C2A2",
+    "component": "BYBIT_DEMO_APPEND_ONLY_AUDIT_V120",
+    "status": "IN_PROGRESS",
+    "tracking_issue": 117,
+    "pull_request": 118,
+    "base_sha": "fd04ad3403b7b840100006dbf1829273d9e5e4bb",
+    "frozen_v120_001_git_blob": "b337ef19dc7da4a3fcbc0a11a8d6d7d85dff3b00",
+    "frozen_v120_001_sha256": "613a21fba9142f34141cb7d6c81938b175250fb4dbda9bd37726e5627df094cf",
+    "historical_v120_001_modified": false,
+    "forward_truncate_hardening_required": true,
+    "runtime_table_privileges_target": ["INSERT", "SELECT"],
+    "typed_v120_persistence_promoted": false,
+    "strategy_dependency_allowed": false,
+    "broker_network_capability_allowed": false,
+    "order_write_capability_allowed": false,
+    "demo_broker_proven": false,
+    "production_or_live_promotion_allowed": false,
+    "note": "C2A2 is not a PASS until the final exact PR head and post-merge main SHA complete qualification."
   },
   "operational_source_boundary": {
     "pull_request": 93,
@@ -65,9 +108,10 @@
     "blind_merge_allowed": false,
     "blind_close_allowed": false,
     "branch_deletion_allowed": false,
-    "completed_gate": "C2A0_STRATEGY_FREE_V119_RUNTIME_LEASE",
-    "next_gate": "C2A1_V119_RUNTIME_ROLE_LEAST_PRIVILEGE",
-    "next_gate_issue": 114,
+    "completed_gate": "C2A1_V119_RUNTIME_ROLE_LEAST_PRIVILEGE",
+    "next_gate": "C2A2_V120_APPEND_ONLY_AUDIT_HARDENING",
+    "next_gate_issue": 117,
+    "next_gate_pr": 118,
     "parent_database_security_issue": 107
   },
   "strategy": {
@@ -110,23 +154,16 @@
       "id": "P1-CONSOLIDATION",
       "severity": "P1",
       "status": "IN_PROGRESS",
-      "reason": "C2A0 is canonical, but the remaining operational stack is still being decomposed into bounded qualified units.",
+      "reason": "C2A0 and C2A1 are canonical, but the remaining operational stack is still being decomposed into bounded qualified units.",
       "tracking_issue": 104
-    },
-    {
-      "id": "P1-DATABASE-RUNTIME-ROLE",
-      "severity": "P1",
-      "status": "IN_PROGRESS",
-      "reason": "Canonical v119 still needs a production runtime role that is non-owner, least-privilege and unable to TRUNCATE/ALTER/DROP/create schema objects before later durable operational stores are promoted.",
-      "tracking_issue": 114,
-      "parent_issue": 107
     },
     {
       "id": "P1-APPEND-ONLY-TRUNCATE-HARDENING",
       "severity": "P1",
-      "status": "BLOCKED",
-      "reason": "Future v120 extraction remains blocked until append-only TRUNCATE/owner-role bypass is closed; canonical v107-v109 event-table TRUNCATE hardening is also tracked separately.",
-      "tracking_issues": [107, 109]
+      "status": "IN_PROGRESS",
+      "reason": "C2A2 is qualifying byte-preserved v120/001 plus forward TRUNCATE hardening and exact SELECT/INSERT runtime privileges. Canonical v107-v109 event-table TRUNCATE hardening remains tracked separately.",
+      "tracking_issues": [117, 109],
+      "pull_request": 118
     },
     {
       "id": "STRATEGY-EDGE",
