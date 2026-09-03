@@ -8,8 +8,10 @@ This is the **current** human-readable readiness authority. Historical detail th
 
 | Identity | Exact reference | Status | What is actually proven |
 |---|---|---|---|
-| Canonical main | `e110a4c02f5bf9b9937ff3fbf7e942859be9050d` | `ENGINEERING_BASELINE_PASS` | Current deterministic/security/PostgreSQL/release qualification is green; not broker/profit/live proof |
+| Canonical main | `fd04ad3403b7b840100006dbf1829273d9e5e4bb` | `ENGINEERING_BASELINE_PASS` | Current deterministic/security/PostgreSQL/release qualification is green; not broker/profit/live proof |
 | Canonical operational foundation | C2A0 / PR #113 | `EXTRACTED_AND_QUALIFIED` | Strategy-free v119 singleton runtime lease is canonical; no network/order capability |
+| Canonical PostgreSQL runtime-role boundary | C2A1 / PR #116 | `EXTRACTED_AND_QUALIFIED` | Long-running v119 runtime credential is non-owner and least-privilege; no TRUNCATE/DDL/schema-create authority |
+| C2A2 candidate | issue #117 / PR #118 | `IN_PROGRESS` | Byte-preserved v120 audit schema plus forward TRUNCATE hardening and SELECT/INSERT-only runtime contract are being qualified; not yet canonical main evidence |
 | Historical operational source boundary | PR #93 / `c2e6b11b8dc4abc37ed6b2c180f11c73a000ca5b` | `DECOMPOSITION_SOURCE_DEMO_UNPROVEN` | Preserves later operational controls for bounded extraction; not a release candidate |
 | Active research head | PR #100 / `918dbc57c0633c6dc549f1f036d2ae659b289b46` | `RESEARCH_ONLY` | Current derivatives-context research; no strategy-promotion authority |
 | Strategy profitability | frozen Bybit price-only evidence | `FAIL / NOT PROVEN` | 102 trades, 36 WIN / 11 BE / 55 LOSS, about `-176.67 USDT` on 1,000 USDT |
@@ -20,14 +22,14 @@ This is the **current** human-readable readiness authority. Historical detail th
 
 | Capability | Current state | Evidence / blocker | Score |
 |---|---|---|---:|
-| Architecture cohesion | STRONG CORE; CONSOLIDATION IN PROGRESS | Stable core plus first ancestry-free operational extraction C2A0; later stack still being decomposed | 8.1 |
-| Software correctness | STRONG PARTIAL / CURRENT BASELINE PASS | Canonical security full PostgreSQL regression `1078 passed / 2 dedicated fleet skips`; current release gates green | 8.5 |
+| Architecture cohesion | STRONG CORE; CONSOLIDATION IN PROGRESS | Stable core plus ancestry-free C2A0/C2A1 extraction; later stack still decomposed into bounded units | 8.2 |
+| Software correctness | STRONG PARTIAL / CURRENT BASELINE PASS | Canonical security full PostgreSQL regression `1087 passed / 2 dedicated fleet skips`; current release gates green | 8.6 |
 | Data integrity | PARTIAL | Strong validation/research contracts; authoritative current derivatives PIT acquisition incomplete | 6.5 |
 | Strategy profitability | FAIL / NOT PROVEN | Frozen Bybit replay negative; no positive untouched cost-adjusted OOS edge | 2.0 |
 | Risk management | STRONG DETERMINISTIC | Mature pre-trade/portfolio/fail-closed controls; production policy governance/real connected evidence still incomplete | 8.0 |
 | OMS / execution safety | STRONG DETERMINISTIC | Durable mutations, at-most-once safeguards, GET-first ambiguity recovery, fault campaigns | 8.5 |
 | C2A0 durable runtime authority | QUALIFIED INFRASTRUCTURE PRIMITIVE | v119 singleton lease, no TTL takeover, exact-owner release, no strategy/network/order capability | 8.0 |
-| Database runtime-role security | IN PROGRESS | C2A1/#114 must prove non-owner least privilege and no TRUNCATE/DDL for runtime role | 5.0 |
+| Database runtime-role security | C2A1 QUALIFIED; C2A2 IN PROGRESS | v119 runtime role is non-owner least-privilege; v120 append-only audit boundary is being hardened in #118 | 7.5 |
 | Real external integration | BLOCKED | No current credential-backed broker proof sufficient for release | 4.0 |
 | Demo execution | NOT PROVEN | Protected one-shot design exists historically; no canonical real Demo ENTRY evidence | 3.0 |
 | Exact-head operational evidence | NOT PROVEN | No real canonical INFRA->SESSION->SUPERVISOR->ARM->ENTRY->HALT->RECOVERY chain | 2.0 |
@@ -42,32 +44,30 @@ Scores are diagnostic only and cannot grant a gate.
 
 ## Current canonical-main evidence
 
-Signed canonical main: `e110a4c02f5bf9b9937ff3fbf7e942859be9050d`.
+Signed canonical main: `fd04ad3403b7b840100006dbf1829273d9e5e4bb`.
 
-- `canonical-security-regression` run `33731847837` — PASS.
+- `canonical-security-regression` run `33733873613` — PASS.
   - PostgreSQL 16 connected inside CI.
-  - V107->V109 migration lineage applied twice.
-  - focused lineage regression: `233 passed`.
-  - full PostgreSQL-aware suite: **1078 passed / 2 skipped**.
+  - full PostgreSQL-aware suite: **1087 passed / 2 skipped**.
   - the two skips are the distinct `ASTRA_TEST_FLEET_DEPLOYMENT_DSN` tests owned by the dedicated fleet deployment contour.
-  - branch-aware coverage: V107 `93.900804%`, V108 `98.253968%`, V109 `98.233216%`.
+  - v119 runtime-role tests prove permission-denied behavior for `TRUNCATE`, `ALTER TABLE`, `DROP TABLE`, `CREATE TABLE` and `CREATE SCHEMA` under the runtime credential.
   - architecture/static audits, stress, durable DB contracts and fail-closed live-state checks PASS.
-- `release-provenance` run `33731847749` — PASS.
+- `release-provenance` run `33733873591` — PASS.
   - lock freshness PASS;
   - strict dependency audit PASS;
   - full regression PASS;
   - wheel/sdist + release evidence PASS;
   - signed SLSA provenance PASS;
   - signed SBOM attestation PASS.
-- `schema99-external-paper-roundtrip` run `33731847806` — PASS.
-- `stable-runtime-import-boundary` run `33731847773` — PASS.
-- `product-composition` run `33731847986` — PASS.
-- `stable-core-quality` run `33731847745` — PASS.
-- `release-governance` run `33731847853` — PASS while correctly reporting branch protection as disabled.
+- `schema99-external-paper-roundtrip` run `33733873614` — PASS.
+- `stable-runtime-import-boundary` run `33733873647` — PASS.
+- `product-composition` run `33733873576` — PASS.
+- `stable-core-quality` run `33733873599` — PASS.
+- `release-governance` run `33733873612` — PASS while correctly reporting branch protection as disabled.
 
 ## C2A0 — completed canonical extraction
 
-PR #113 extracted exactly five audited blobs from historical PR #110 onto repaired canonical main without inheriting stacked research/operational ancestry:
+PR #113 extracted the audited v119 runtime-lease primitive onto canonical main without inheriting stacked research/operational ancestry:
 
 - pure v119 runtime-lease domain;
 - PostgreSQL lease adapter;
@@ -89,30 +89,47 @@ Proven invariants:
 - no strategy/research/network client imports;
 - no order submit/cancel/replace/protection capability.
 
-Not proven by C2A0:
+## C2A1 — completed PostgreSQL runtime-role hardening
 
-- broker connectivity;
-- ARM/approval;
-- Demo entry;
-- protection lifecycle;
-- exact-head broker evidence;
-- strategy edge;
-- production/live readiness.
+PR #116 separated bootstrap/migration authority from the long-running v119 Demo runtime credential.
 
-## Next canonical gate — C2A1 / #114
+Proven on PostgreSQL 16:
 
-Before later v120 durable approval/provenance/terminal stores are extracted, canonical v119 must run under a **non-owner least-privilege PostgreSQL role**.
+- runtime role is a distinct non-owner role;
+- no superuser / createdb / createrole / replication / bypass-RLS authority;
+- no role memberships;
+- no database `CREATE`;
+- `public` schema `USAGE` only, no schema `CREATE`;
+- runtime cannot own canonical v119 tables;
+- runtime lease privileges are exactly `SELECT, INSERT, DELETE`;
+- runtime excursion privileges are exactly `SELECT, INSERT, UPDATE, DELETE`;
+- no effective `TRUNCATE`, `REFERENCES`, `TRIGGER` or DDL authority;
+- read-only preflight binds the actual connected credential to the expected runtime role;
+- over-privilege fails closed and reconciliation removes direct privilege drift;
+- no strategy, broker network, order-write, ARM, approval, Demo activation or mainnet behavior was added.
 
-Required proof includes:
+C2A1 does **not** prove broker connectivity, Demo execution, strategy edge, exact-head operational evidence, soak or production readiness.
 
-- migration/bootstrap authority distinct from runtime authority;
-- runtime role not table/schema owner;
-- exact DML only;
-- no `TRUNCATE`;
-- no `ALTER`/`DROP` ownership path;
-- no schema `CREATE`;
-- fail-closed preflight on overprivilege;
-- canonical lease behavior unchanged under that role.
+## C2A2 — current bounded candidate
+
+Issue #117 / PR #118 is the next security-preserving extraction gate.
+
+The historical v120/001 migration is preserved byte-for-byte:
+
+- Git blob: `b337ef19dc7da4a3fcbc0a11a8d6d7d85dff3b00`;
+- SHA-256: `613a21fba9142f34141cb7d6c81938b175250fb4dbda9bd37726e5627df094cf`.
+
+C2A2 adds a **forward** migration rather than editing frozen v120/001. Required contract:
+
+- original UPDATE/DELETE append-only triggers remain unchanged;
+- all three v120 audit tables gain physical statement-level `BEFORE TRUNCATE` rejection;
+- long-running runtime role gets exactly `SELECT, INSERT` on each v120 audit table;
+- no runtime UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER/DDL/schema-create authority;
+- v119 C2A1 least-privilege contract remains unchanged;
+- canonical-security CI explicitly triggers on v119/v120 security files and applies their migrations in PostgreSQL 16;
+- typed v120 persistence adapters remain outside this gate until their pure domain dependency closure is separately audited.
+
+C2A2 remains `IN_PROGRESS` until the final exact PR head and post-merge canonical main are qualified. It is not broker or trading evidence.
 
 Parent security issue: #107. Canonical V107–V109 append-only TRUNCATE hardening is separately tracked by #109.
 
@@ -159,8 +176,7 @@ P0:
 - independent live approval / tiny-cap pilot — absent.
 
 P1:
-- C2A1 least-privilege runtime DB role — #114/#107;
-- v120 append-only TRUNCATE/owner-role hardening — #107;
+- C2A2 v120 append-only TRUNCATE/least-privilege hardening — #117/#118/#107;
 - V107–V109 append-only TRUNCATE hardening — #109;
 - authoritative derivatives PIT evidence;
 - connected Demo soak;
