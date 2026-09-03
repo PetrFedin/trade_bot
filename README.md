@@ -1,73 +1,78 @@
 # ASTRA Trade Bot
 
-ASTRA is a fail-closed trading-system platform with a mature deterministic execution/risk/OMS core and an intentionally separate strategy-research and external-broker qualification process. The repository must not be described as production-profitable until both the operational and profitability evidence gates are independently satisfied.
+ASTRA is a fail-closed trading-system platform. Its deterministic execution/risk/OMS core is materially stronger than its currently proven trading edge. The repository must not be described as production-profitable until operational, data, strategy, Demo, reliability, security, production and live-profitability gates are independently satisfied.
 
-## Current system identities
+## Current identities — 2026-09-03
 
-The current identities are intentionally separated:
+- **Canonical `main`:** `e110a4c02f5bf9b9937ff3fbf7e942859be9050d` — engineering/release baseline PASS for the covered deterministic surfaces.
+- **Canonical operational foundation:** C2A0 / PR #113 — strategy-free PostgreSQL v119 Demo runtime lease extracted and qualified on `main`; no broker network or order-write capability.
+- **Historical operational decomposition source:** PR #93 at `c2e6b11b8dc4abc37ed6b2c180f11c73a000ca5b`; it is not a release candidate and may not be merged wholesale.
+- **Active research head:** PR #100 at `918dbc57c0633c6dc549f1f036d2ae659b289b46`; research-only.
+- **Strategy:** `PROFITABILITY_NOT_PROVEN`; latest frozen Bybit price-only replay remains negative.
+- **Live/mainnet:** `FAIL_CLOSED`; external routing, live trading, mainnet entry and production release remain disabled.
+- **Governance:** `main` branch protection is still `VERIFIED_DISABLED` and tracked by #103.
 
-- **Canonical main:** `main`; last fully re-qualified engineering baseline observed on 2026-09-02 is `0bc1e309e1b268756023088b6e440db30cb4ddab`.
-- **Operational boundary candidate:** PR #93 at `c2e6b11b8dc4abc37ed6b2c180f11c73a000ca5b`; code-qualified, but a real protected Bybit Demo ENTRY and complete real-broker evidence chain are **not proven**.
-- **Active research head:** PR #100 at `918dbc57c0633c6dc549f1f036d2ae659b289b46`; research-only and not an operational release candidate.
-- **Strategy status:** `PROFITABILITY_NOT_PROVEN`. The latest frozen Bybit price-only replay is negative; incomplete derivatives-context research does not supersede that result.
-- **Live status:** `FAIL_CLOSED`; external order routing, live trading and mainnet entry remain disabled.
-- **Governance:** GitHub `main` branch protection is currently `VERIFIED_DISABLED` and is a release blocker.
+Machine-readable current status is `CURRENT_SYSTEM_STATUS.json`; human-readable evidence is `docs/E2E_MATRIX.md`.
 
-Machine-readable current-state details and blockers are in `CURRENT_SYSTEM_STATUS.json`. Human-readable capability evidence remains in `docs/E2E_MATRIX.md`.
+## What is canonical now
 
-## What exists now
-
-The canonical stable core contains:
+The stable core includes:
 
 - market-data models, validation and freshness controls;
-- deterministic strategy and research infrastructure with explicit no-lookahead qualification contracts;
-- pre-trade risk controls for exposure, concentration, liquidity, stale prices, spread/slippage, loss, drawdown, turnover and volatility;
-- immutable risk-decision evidence;
-- fee-aware portfolio accounting with realized/unrealized P&L and reconciliation;
-- transactional SQLite and PostgreSQL OMS/storage paths;
-- deterministic client IDs, durable submit/mutation outboxes and append-only events;
-- monotonic fill adoption, partial-fill handling and read-only ambiguity recovery;
-- at-most-once submit/cancel/replace safety controls;
-- broker-truth reconciliation and fail-closed recovery semantics;
-- security/release qualification, hash-locked dependencies, SBOM/provenance and signed attestations;
-- historical platform-control layers through V109, with later operational work still unmerged in the stacked PR lineage.
+- deterministic research infrastructure with explicit no-lookahead contracts;
+- pre-trade risk, immutable risk evidence and portfolio constraints;
+- fee-aware portfolio accounting and broker reconciliation;
+- transactional SQLite/PostgreSQL OMS and durable mutation state;
+- deterministic client IDs and at-most-once mutation safeguards;
+- monotonic/replay-safe fill adoption;
+- GET-first ambiguity/restart recovery;
+- release security, hash-locked dependencies, SBOM and signed provenance;
+- platform-control layers through V109;
+- **C2A0:** the extracted v119 PostgreSQL singleton runtime lease with no TTL/stale takeover, no strategy dependency and no broker/order surface.
 
-## Deterministic product chain
+The v119 migration is frozen at SHA-256 `c37a2f54cb3dd42d6732b3354988d7f73cc1d240916ccbcdcec3874933f9d52e`.
 
-```text
-market data
-  -> data quality / freshness
-  -> strategy target
-  -> portfolio intent / sizing
-  -> pre-trade risk
-  -> immutable risk evidence
-  -> durable OMS
-  -> durable submit / mutation state
-  -> broker acknowledgement / fills
-  -> portfolio accounting
-  -> broker-truth reconciliation
-  -> safety / readiness state
-```
+## Current qualification reference
 
-The deterministic engineering baseline was repaired and re-qualified on canonical `main` on 2026-09-02. The covered full regression runs with PostgreSQL enabled, applies the canonical V107->V109 security migration lineage, and preserves the fail-closed live state. This does **not** substitute for real broker, Demo, soak or profitability evidence.
+Signed canonical `main` `e110a4c02f5bf9b9937ff3fbf7e942859be9050d` has current evidence including:
 
-## External broker qualification
+- canonical security regression `33731847837` — PASS; PostgreSQL-aware full suite `1078 passed / 2 dedicated fleet-deployment skips`;
+- release provenance `33731847749` — PASS, including lock freshness, strict dependency audit, full regression, build/release evidence, signed SLSA provenance and signed SBOM attestation;
+- external roundtrip `33731847806` — PASS;
+- stable runtime import boundary `33731847773` — PASS;
+- product composition `33731847986` — PASS;
+- stable core quality `33731847745` — PASS;
+- release governance `33731847853` — PASS while correctly recording branch protection as disabled.
 
-External broker evidence is deliberately separated from mocked/deterministic CI.
+These are software/release proofs, not broker or profitability proofs.
 
-Alpaca Paper read-only workflows exist, but a workflow wrapper completing safely without credentials is not evidence of a successful broker connection. Credential-backed REST/WebSocket evidence must be present before Alpaca external integration is called qualified.
+## Current operational consolidation
 
-The later Bybit operational stack contains a protected one-shot Demo-entry design with fixed egress, existing ARM state, short-lived operator approval, immutable authorization/provenance, at-most-once ENTRY and mandatory post-attempt reconciliation. That path remains **Demo-unproven** until an actual protected operational execution succeeds on one exact qualified head.
+The historical #41–#100 stack is being decomposed rather than merged. C2A0 is the first completed canonical extraction. Old PR #110 was closed **without merge** after PR #113 reproduced the same five audited Git blobs on repaired `main`.
 
-## Strategy evidence
+The next bounded gate is **C2A1 / #114**: enforce a least-privilege, non-owner PostgreSQL runtime role for canonical v119. The runtime role must be unable to `TRUNCATE`, `ALTER`, `DROP` or create schema objects while retaining only the exact DML needed by the runtime lease/checkpoint APIs.
 
-Do not infer profitability from the strength of the execution platform.
+Future v120 approval/provenance/terminal-evidence extraction remains blocked by #107 until the append-only TRUNCATE/owner-role bypass is closed. Canonical V107–V109 append-only TRUNCATE hardening remains separately tracked in #109.
 
-The latest frozen Bybit price-only research replay records 102 trades (36 wins, 11 breakeven, 55 losses) and approximately `-176.67 USDT` on `1,000 USDT` reference equity. Therefore the current strategy status is `PROFITABILITY_NOT_PROVEN`; no strategy promotion is allowed from that evidence.
+## Trading research truth
 
-The derivatives-context research remains incomplete until authoritative point-in-time data are acquired and frozen without outcome-driven retuning.
+The latest frozen Bybit price-only evidence remains:
 
-## Safety state
+- 2,394 eligible signals;
+- 792 plan-eligible at 1,000 USDT reference equity;
+- 617 independent target/stop episodes;
+- 137 TARGET_FIRST / 471 STOP_FIRST / 9 NEITHER;
+- 102 shared-capital portfolio trades;
+- 36 WIN / 11 BE / 55 LOSS;
+- approximately `-176.67 USDT` net P&L on `1,000 USDT` reference equity.
+
+Therefore no positive cost-adjusted frozen OOS edge has been established. The incomplete derivatives-context experiment cannot supersede this result until authoritative point-in-time acquisition and a new frozen qualification are completed without outcome-driven retuning.
+
+## Demo and live boundary
+
+The later historical operational stack contains valuable protected one-shot Demo semantics — fixed egress, existing ARM, short-lived approval, immutable authorization/provenance, at-most-one ENTRY, mandatory reconciliation and reduce-only/protection recovery — but these controls are not yet fully canonicalized and no real protected Demo ENTRY is proven.
+
+No Demo/mainnet mutation should be attempted merely because C2A0 is green. A protected Demo entry remains blocked until the required strategy-promotion and canonical operational gates are satisfied.
 
 ```text
 external_order_routing_allowed = false
@@ -76,28 +81,28 @@ mainnet_entry_allowed = false
 production_release_allowed = false
 ```
 
-Unknown or unreconciled broker state must fail closed. Recovery must not create a replacement ENTRY. A real-money release is a separately governed decision and cannot be enabled by a generic configuration flag.
-
 ## Current primary blockers
 
-- server-side `main` branch protection / required-review enforcement is verified disabled — tracked in #103;
-- the large stacked PR graph is not yet consolidated into canonical core, operational candidate and isolated research — tracked in #104;
-- positive cost-adjusted frozen OOS edge is not proven;
-- authoritative point-in-time Bybit derivatives-context qualification is incomplete;
-- no protected real Bybit Demo ENTRY has been proven through the current operational path;
-- no complete real-broker `INFRA -> SESSION -> SUPERVISOR -> ARM -> ENTRY -> HALT -> RECOVERY` evidence chain exists on one exact head;
-- no multi-week connected Demo soak has been proven;
-- production KMS/HSM, workload identity, backup/restore and external audit evidence remains incomplete;
-- independent live approval and tiny-capital mainnet pilot evidence are absent.
+- P0: branch protection / required review enforcement disabled — #103;
+- P0: positive cost-adjusted strategy edge not proven;
+- P0: real protected Bybit Demo entry not proven;
+- P0: exact-head real-broker INFRA -> SESSION -> SUPERVISOR -> ARM -> ENTRY -> HALT -> RECOVERY chain absent;
+- P1: C2A1 v119 runtime-role least-privilege boundary — #114 / parent #107;
+- P1: v120 append-only TRUNCATE/owner-role hardening — #107;
+- P1: canonical V107–V109 append-only TRUNCATE hardening — #109;
+- P1: authoritative point-in-time derivatives evidence incomplete;
+- P1: connected multi-week Demo soak absent;
+- P1: production KMS/HSM, backup/restore, external audit and related environment evidence incomplete;
+- P0: independent live approval and tiny-capital mainnet pilot evidence absent.
 
 ## Source of truth
 
-Use these artifacts together:
+- `CURRENT_SYSTEM_STATUS.json` — current machine-readable status;
+- `STACKED_PR_CONSOLIDATION_STATUS.json` — current canonicalization status;
+- `docs/E2E_MATRIX.md` — current human-readable readiness matrix;
+- `docs/STACKED_PR_CONSOLIDATION_MAP.md` — current extraction plan;
+- `docs/archive/2026-09-02/` — preserved pre-C2A0 current-state/audit snapshots;
+- `docs/RELEASE_GOVERNANCE.md` and `docs/RELEASE_PROCESS.md` — release governance/qualification;
+- `LIVE_EXECUTION_STATUS_V109.json` — stable V109 production-authority flags.
 
-- `CURRENT_SYSTEM_STATUS.json` — current machine-readable identities, safety state and blockers;
-- `docs/E2E_MATRIX.md` — human-readable capability evidence and readiness claims;
-- `docs/RELEASE_GOVERNANCE.md` — release ownership and verified GitHub enforcement boundary;
-- `docs/RELEASE_PROCESS.md` — release qualification sequence;
-- `LIVE_EXECUTION_STATUS_V109.json` — current stable-main V109 production-authority flags.
-
-No README statement overrides the E2E matrix, machine-readable status, broker evidence, profitability evidence or fail-closed live flags.
+Historical evidence is preserved, but no historical PASS silently qualifies a later release head.

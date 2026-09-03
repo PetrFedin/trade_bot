@@ -1,311 +1,180 @@
 # Stacked PR Consolidation Map
 
-This document is the human-readable execution plan for issue #104. `STACKED_PR_CONSOLIDATION_STATUS.json` is the fail-closed machine contract.
+This document is the **current** human-readable extraction plan for issue #104. The full pre-C2A0 range inventory is preserved byte-for-byte at `docs/archive/2026-09-02/STACKED_PR_CONSOLIDATION_MAP_V1.md`; the matching machine snapshot is `docs/archive/2026-09-02/STACKED_PR_CONSOLIDATION_STATUS_V1.json`.
 
-## Why consolidation is mandatory
+## Current state — 2026-09-03
 
-The repository currently has a long open stack in which production-safety work and research work share ancestry. That ancestry is useful history, but it is not an acceptable production release structure.
+- canonical `main`: `e110a4c02f5bf9b9937ff3fbf7e942859be9050d`;
+- C2A0: **EXTRACTED_AND_QUALIFIED** through PR #113;
+- old PR #110: **CLOSED_NOT_MERGED**, superseded only after exact blob preservation and independent qualification;
+- historical operational decomposition source: PR #93 / `c2e6b11b8dc4abc37ed6b2c180f11c73a000ca5b`;
+- research head: PR #100 / `918dbc57c0633c6dc549f1f036d2ae659b289b46`, research-only;
+- next executable gate: C2A1 / issue #114;
+- v120 extraction remains blocked by #107;
+- canonical V107–V109 append-only TRUNCATE hardening remains tracked by #109;
+- no Demo, mainnet or strategy promotion has occurred.
 
-At the inventory boundary on 2026-09-02:
+## Consolidation invariants
 
-- canonical `main`: `6e0c2d08fd9281682e7e2a5771ed3a93ea7df8d9`;
-- current operational boundary candidate: PR #93, `c2e6b11b8dc4abc37ed6b2c180f11c73a000ca5b`;
-- current research head: PR #100, `918dbc57c0633c6dc549f1f036d2ae659b289b46`;
-- the old stable-main baseline before the P0 repair to PR #93 is approximately 1426 commits;
-- PR #93 to PR #100 is another 50 commits dominated by current strategy research.
+1. Never merge the historical #41–#100 stack as an ancestry bundle.
+2. Every operational extraction starts from current canonical `main`.
+3. Preserve unique code/migrations/tests/evidence before closing a source PR.
+4. Reuse exact Git blobs where semantics are already correct; do not recreate equivalent version layers.
+5. A historical qualified head is evidence for its own revision only.
+6. Research ancestry is not accepted merely because operational code is stacked on top of it.
+7. No extraction may change strategy/risk economics unless that change is separately scoped and validated.
+8. No C1/C2 infrastructure primitive can authorize an ENTRY.
+9. C3 must preserve PR #89 at-most-one/no-blind-resubmit semantics.
+10. C4 must preserve PR #90 exact-head evidence semantics.
+11. A completed deterministic extraction is not connected broker evidence.
+12. Profitability remains a separate gate.
 
-Therefore neither #93 nor #100 may be merged into `main` as an opaque ancestry bundle.
+## Completed: C2A0 — durable strategy-free runtime lease
 
-The required end-state is:
+PR #113 extracted exactly five audited blobs from historical PR #110 onto repaired canonical main:
 
-```text
-main
-  └─ canonical stable fail-closed core
-       ├─ extracted operational safety capabilities
-       ├─ extracted GET-only broker observability
-       └─ no accidental research promotion
+- `app/execution/bybit_demo_runtime_lease.py`;
+- `app/execution/bybit_demo_postgres_runtime_lease.py`;
+- `migrations/v119/001_bybit_demo_durable_runtime.sql`;
+- `tests/test_bybit_demo_runtime_lease.py`;
+- `tests/test_bybit_demo_postgres_runtime_lease_v119.py`.
 
-operational-candidate/*
-  └─ only the minimal remaining change needed for protected Demo proof
+The historical migration remains byte-identical with SHA-256:
 
-research/*
-  └─ datasets, diagnostics, hypotheses and frozen evidence
-```
+`c37a2f54cb3dd42d6732b3354988d7f73cc1d240916ccbcdcec3874933f9d52e`.
 
-## Non-negotiable preservation rules
+The replacement branch was based directly on repaired canonical main and inherited no research ancestry. Old PR #110 was closed only **after** #113 merged and post-merge current-main qualification passed.
 
-Before any stacked PR is merged, closed or its branch deleted, re-verify its current head and prove all of the following:
+C2A0 proves a single-writer durable lease primitive. It deliberately does not include the historical typed active-excursion adapter because that adapter reaches `CryptoTradePlan` strategy types.
 
-1. changed files have been inventoried;
-2. parent/base dependency has been re-verified;
-3. unique runtime code is preserved or explicitly superseded;
-4. unique migrations are preserved or explicitly superseded;
-5. unique tests/workflows are preserved or explicitly superseded;
-6. immutable evidence and research records are preserved or archived;
-7. a canonical target location is identified;
-8. qualification for the extracted unit is defined;
-9. no research-only parameter or conclusion is silently promoted into operational behavior.
+## Next: C2A1 — v119 runtime-role least privilege
 
-A later PR existing is not proof that an earlier PR is disposable.
+Issue #114 is the next bounded implementation unit under parent database-security issue #107.
 
-## Range classification
+Goal: canonical v119 must operate with a long-running runtime credential that is not the schema/table owner and cannot use ownership/DDL to bypass safety controls.
 
-### R1 — PR #41: frozen integration snapshot
+Required runtime-role contract:
 
-**Category:** `FROZEN_INTEGRATION_SNAPSHOT`
+- distinct from bootstrap/migration authority;
+- non-superuser;
+- no CREATEDB/CREATEROLE/BYPASSRLS privilege unless independently justified (none is currently justified);
+- schema `USAGE` only, no schema `CREATE`;
+- lease table: exact SELECT/INSERT/DELETE required by canonical lease API; no UPDATE/TRUNCATE;
+- active-excursion table: only the exact DML later proven necessary by the audited checkpoint CAS API;
+- no table ownership;
+- no `ALTER TABLE`, `DROP TABLE` or `TRUNCATE` through runtime credentials;
+- fail-closed privilege preflight before a future production composition treats the role as operationally ready.
 
-PR #41 explicitly declares itself an incubator/integration snapshot and not a production release unit. It must be treated as historical integration ancestry.
+The frozen v119/001 migration is not edited. Bootstrap authority and runtime authority must remain separate.
 
-Action:
+## v120 remains blocked
 
-- preserve immutable qualification/history;
-- identify any still-unique stable operational files;
-- never merge the entire snapshot simply to “catch main up”;
-- close only after all unique executable/evidence content is accounted for.
+Historical PR #77 contains valuable approval/provenance/terminal-evidence stores, but its v120 append-only tables were designed with UPDATE/DELETE triggers and do not by themselves close owner/TRUNCATE bypass.
 
-### R2 — PRs #43–#49: early operational core
+Therefore v120 canonicalization is prohibited until #107 produces and qualifies:
 
-**Category:** `OPERATIONAL_CORE_EARLY`
+- append-only TRUNCATE protection;
+- runtime non-owner role separation;
+- deterministic privilege preflight;
+- real PostgreSQL proof that runtime cannot bypass immutability.
 
-These PRs cover reusable production-safety concerns such as operator state, accounting/cash convergence, immutable entry recovery and crash/restart behavior.
+Do not solve this by editing the frozen v120/001 migration in place. Use a forward hardening layer or an explicit bootstrap/privilege policy with preserved historical lineage.
 
-Target: canonical operational core.
+## Remaining work packages
 
-File-level audit order:
+### C1 — canonical GET-only broker observability
 
-1. persistence/migrations;
-2. OMS/execution recovery;
-3. portfolio/accounting;
-4. supervisor/operator state;
-5. tests/fault campaigns;
-6. evidence/docs.
+Sources: historical R3/R7 (#50/#51/#53/#74).
 
-Extract in small units from current `main`; do not recreate old version layers if the same behavior can be expressed through the existing canonical interfaces.
+Target:
+- environment/account identity;
+- broker time/clock health;
+- read-only account/activity evidence;
+- no order create/amend/cancel surface;
+- no credential escalation.
 
-### R3 — PRs #50, #51, #53: mainnet read-only observability
+This should be canonicalized independently of C3 order authority.
 
-**Category:** `MAINNET_READONLY_OBSERVABILITY`
+### C2 — canonical durable operational control plane
 
-These PRs are valuable because they improve account identity, server-time/health and activity visibility without granting write authority.
+Status: **IN PROGRESS**.
 
-Target: canonical GET-only broker observability.
+- C2A0 complete: durable v119 lease;
+- C2A1 next: non-owner least-privilege v119 runtime role;
+- later slices: durable approvals/provenance, control-plane HALT/ARM, session-risk state, supervisor and controlled recovery — only after their DB/security prerequisites are qualified.
 
-Invariant: extraction must not create, expose or compose mainnet order-write capability.
+### C3 — canonical protected Demo entry composition
 
-### R4 — PRs #54–#67: research data and evidence
+Source semantics: PR #89.
 
-**Category:** `RESEARCH_DATA_AND_EVIDENCE`
+Do not start until C1/C2 foundations and the strategy-promotion prerequisites are satisfied.
 
-This range contains research/data work: dynamic universe, derivatives/funding history, evidence registries, prospective outcomes, replay/calibration and related analytical infrastructure.
-
-Target: isolated research lineage.
-
-Do not merge this range into the operational core as an ancestry bundle. Reusable point-in-time data-validation primitives may be promoted only through a separate bounded PR whose semantics are independent of a strategy outcome.
-
-### R5 — PR #68: operational bridge with research ancestry
-
-**Category:** `OPERATIONAL_BRIDGE_WITH_RESEARCH_ANCESTRY`
-
-The operator-approved Demo execution bridge is operationally important, but its branch ancestry includes research work.
-
-Target: extract the minimal approval/authorization/execution bridge onto canonical operational foundations.
-
-Required safety checks during extraction:
-
-- no ranking or research outcome automatically authorizes an order;
-- current production/Demo selector must independently agree;
-- explicit approval remains required;
-- no new mainnet write path;
-- no automatic ARM;
-- no automatic strategy promotion.
-
-### R6 — PRs #69–#73: prospective research evidence
-
-**Category:** `PROSPECTIVE_RESEARCH_EVIDENCE`
-
-Liquidation capture/context/calibration and materialized prospective evidence belong to research governance.
-
-Target: isolated research lineage.
-
-Preserve frozen evidence and acquisition semantics. Promote only generic point-in-time validation components when they can be proven strategy-agnostic.
-
-### R7 — PR #74: operational read-only context
-
-**Category:** `OPERATIONAL_READONLY_CONTEXT`
-
-Target: canonical GET-only broker observability.
-
-This should be reviewed together with R3 to avoid two competing read-only account/context stacks.
-
-### R8 — PRs #75–#93: Demo operational hardening
-
-**Category:** `DEMO_OPERATIONAL_HARDENING`
-
-This is the highest-value extraction range for the next production-capability milestone. It contains later durability, approval, provenance, supervisor, database identity, connectivity, recovery and protected one-shot Demo execution controls.
-
-PR #89 is the key protected one-shot operational composition. Its safety contract must be preserved exactly in substance:
-
+Must preserve:
 - protected fixed egress;
 - existing exact ARM state;
-- short-lived explicit operator approval;
-- immutable authorization/provenance;
-- `SUBMIT_STARTED` before broker mutation;
-- at-most-one ENTRY attempt;
-- no blind resubmit after ambiguity;
-- mandatory post-attempt reconciliation;
-- protection restoration or policy-authorized reduce-only recovery;
-- recovery cannot create another ENTRY;
-- sanitized evidence;
-- no new signal, strategy, ranking or risk rule in the operational bridge;
+- <=120s explicit approval;
+- immutable pre-submit authorization/provenance;
+- `SUBMIT_STARTED` before broker POST;
+- at most one risk-adding ENTRY attempt;
+- no blind retry after ambiguous mutation;
+- broker query/reconciliation before recovery decision;
+- protection restoration / policy-authorized reduce-only risk reduction only;
+- recovery cannot create a second ENTRY;
 - no auto-ARM;
+- no ranked fallback;
+- no strategy/risk-rule changes in the operational bridge;
 - no mainnet write path.
 
-PR #90 adds the exact-head evidence chain:
+A deterministic PASS here would still be `DEMO_UNPROVEN` until an explicit protected connected execution succeeds.
+
+### C4 — exact-head operational evidence
+
+Source semantics: PR #90.
+
+Required real evidence order:
 
 ```text
 INFRA_READY
-  -> SESSION_READY
-  -> SUPERVISOR_READY
-  -> ARM_PROVEN
-  -> DEMO_ENTRY_PROVEN
-  -> HALT_PROVEN
-  -> RECOVERY_DRILL_PROVEN
+-> SESSION_READY
+-> SUPERVISOR_READY
+-> ARM_PROVEN
+-> DEMO_ENTRY_PROVEN
+-> HALT_PROVEN
+-> RECOVERY_DRILL_PROVEN
 ```
 
-PRs after #90 add more persistence/identity/control hardening through #93.
+Every stage must bind to one exact canonical SHA and source artifact hashes. Missing, contradictory or mixed-head evidence fails closed.
 
-Target: decompose and preserve these controls in bounded canonicalization units. Do **not** merge #93 wholesale because its ancestry includes research work that is not independently promoted.
+### C5 — research lineage isolation
 
-Recommended extraction order for R8:
+Research remains independent from operational release authority. PR #100 is research-only and the latest frozen price-only result is negative. Derivatives context may become a new hypothesis/evidence set only after authoritative point-in-time acquisition and frozen validation.
 
-1. non-mutating environment/account/database identity and readiness;
-2. durable supervisor/control state and recovery;
-3. approval/authorization/provenance persistence;
-4. one-shot order-entry composition with existing OMS invariants;
-5. protection reconciliation/recovery;
-6. exact-head evidence materialization;
-7. protected workflow composition.
+## Security work that remains independent of C2A1
 
-Each extracted unit must qualify independently from current `main` before the next unit is accepted.
+Issue #109 tracks owner/TRUNCATE hardening for canonical V107–V109 append-only event tables. It remains a P1 production-security blocker even though the current deterministic security tests pass their existing UPDATE/DELETE immutability contract.
 
-### R9 — PRs #94–#100: current strategy research and diagnostics
+## Closure policy
 
-**Category:** `CURRENT_STRATEGY_RESEARCH_AND_DIAGNOSTICS`
+A source PR may be closed as superseded only after:
 
-This range is evidence, not a release candidate.
+1. exact current/source head and changed files were audited;
+2. unique executable/migration/evidence content is preserved or explicitly rejected with rationale;
+3. the replacement is based on current canonical main;
+4. replacement exact-head CI passes;
+5. replacement is merged;
+6. post-merge main qualification passes;
+7. source PR receives a traceability comment naming the replacement.
 
-It contains the current negative Bybit replay, falsification/OOS work, volatility-feedback diagnostics, target-before-stop analysis, immutable candidate trace and incomplete derivatives-context research.
+PR #110 is the first completed example of this rule. No other historical stack PR should be mass-closed because C2A0 exists.
 
-Current frozen price-only truth must be preserved:
+## What is explicitly not authorized
 
-- 102 trades;
-- 36 WIN / 11 BE / 55 LOSS;
-- approximately `-176.67 USDT` net on `1,000 USDT` reference equity;
-- profitability not proven;
-- no strategy promotion.
-
-PR #100 may produce a new frozen derivatives-context experiment only after authoritative point-in-time acquisition. It cannot rewrite the frozen negative result by post-hoc retuning.
-
-## Canonicalization work packages
-
-The stack should be reduced through bounded work packages rather than one mega-merge.
-
-### C0 — Inventory and proof of preservation
-
-No behavior change.
-
-For every PR:
-
-- current head SHA;
-- current base/head relationship;
-- changed file list;
-- migrations;
-- runtime modules;
-- tests/workflows;
-- immutable evidence;
-- downstream duplicate/supersession status.
-
-Only after C0 may an individual PR receive a proposed `PRESERVE / EXTRACT / SUPERSEDE / ARCHIVE / CLOSE` decision.
-
-### C1 — Canonical GET-only broker observability
-
-Combine the minimal non-mutating value from R3 and R7 against current `main`.
-
-Pass criteria:
-
-- no order-write construction;
-- no production credential escalation;
-- account/environment/time/health identity is explicit;
-- read-only failures fail closed for trading readiness;
-- tests prove write isolation.
-
-### C2 — Canonical durable operational control plane
-
-Extract reusable supervisor/operator/approval persistence from R2/R8.
-
-Pass criteria:
-
-- durable restart state;
-- HALT/PAUSE/READ_ONLY semantics preserved;
-- stale/contradictory state fails closed;
-- no broker mutation yet.
-
-### C3 — Canonical protected Demo entry composition
-
-Extract the minimal #89 semantics only after C1/C2 are qualified.
-
-Pass criteria:
-
-- exactly one allowed Demo ENTRY attempt;
-- pre-submit persistence and exact approval binding;
-- no automatic retry/second entry;
-- broker ambiguity resolved by GET/reconciliation;
-- no strategy/risk-rule changes;
-- no mainnet write path.
-
-A successful deterministic C3 is still `DEMO_UNPROVEN` until a protected connected execution is run.
-
-### C4 — Exact-head operational evidence
-
-Extract #90-style chain after the operational runtime is canonical.
-
-Pass criteria:
-
-- one exact release SHA;
-- ordered, non-overlapping evidence;
-- source hashes;
-- workflow identity;
-- real Demo evidence required for `DEMO_ENTRY_PROVEN`;
-- contradictory/missing evidence fails closed.
-
-### C5 — Research lineage isolation
-
-Retarget or rebuild the active research line from an explicitly research-safe base so it can evolve without dragging operational release ancestry.
-
-No research refactor may change the frozen outcome records.
-
-## What is explicitly not being done in this phase
-
-- no branch deletion;
-- no closure of #41–#100 based on range classification alone;
-- no bulk merge into `main`;
-- no strategy parameter change;
-- no leverage/capital/risk increase;
-- no Demo order;
-- no mainnet write;
-- no claim that #93 is production-ready;
-- no claim that #100 is profitable.
-
-## Next file-level audit order
-
-To maximize safety/value and minimize wasted archaeology, inspect in this order:
-
-1. #89–#93 — identify the minimal latest operational controls and direct dependencies;
-2. #75–#88 — trace what #89–#93 actually require versus what is superseded;
-3. #68 and #74 — isolate bridges/read-only context from research ancestry;
-4. #43–#53 — identify stable reusable operational primitives not already superseded;
-5. #94–#100 — preserve research evidence and identify clean research-only base requirements;
-6. #54–#73 — retain only data/research primitives not already superseded;
-7. #41 — final snapshot closure analysis after all unique content is accounted for.
-
-The immediate objective is not fewer PR numbers. The objective is one understandable, independently qualified production-capable code path with research kept separate and no loss of safety evidence.
+- bulk merge of #93;
+- strategy promotion from #94–#100;
+- Demo order submission;
+- mainnet order capability;
+- automatic ARM;
+- leverage/capital increase;
+- weakening risk controls;
+- calling C2A0 a production trading runtime;
+- claiming profitability.
