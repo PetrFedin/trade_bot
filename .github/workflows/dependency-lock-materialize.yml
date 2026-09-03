@@ -27,21 +27,43 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-      - name: Generate deterministic hash-locked dependency graph
+      - name: Generate selective pip-only hash-locked update
         run: |
-          python -m pip install --disable-pip-version-check 'pip-tools>=7.5,<8'
+          cp requirements.lock requirements.before.lock
+          python -m pip install --disable-pip-version-check 'pip-tools==7.6.0'
           python -m piptools compile \
             --resolver=backtracking \
             --generate-hashes \
             --allow-unsafe \
             --no-header \
             --strip-extras \
+            --upgrade-package pip \
             --extra test \
             --extra postgresql \
             --extra marketdata \
             --extra dev \
             pyproject.toml \
             --output-file requirements.lock
+      - name: Prove only pip pin changed
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          def pins(path: str) -> dict[str, str]:
+              result: dict[str, str] = {}
+              for line in Path(path).read_text(encoding='utf-8').splitlines():
+                  match = re.match(r'^([A-Za-z0-9_.-]+)==([^ \\]+)', line)
+                  if match:
+                      result[match.group(1).lower()] = match.group(2)
+              return result
+
+          before = pins('requirements.before.lock')
+          after = pins('requirements.lock')
+          assert set(before) == set(after), (set(before) ^ set(after))
+          changed = {name: (before[name], after[name]) for name in before if before[name] != after[name]}
+          assert changed == {'pip': ('26.1.2', '26.2.1')}, changed
+          PY
       - name: Verify lock installs exactly
         run: |
           python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
@@ -59,5 +81,5 @@ jobs:
             echo 'Dependency lock already current'
             exit 0
           fi
-          git commit -m 'Lock audited product dependencies'
+          git commit -m 'Lock fixed pip dependency'
           git push origin HEAD:${{ github.ref_name }}
