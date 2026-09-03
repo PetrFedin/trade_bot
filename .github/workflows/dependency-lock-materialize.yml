@@ -27,10 +27,10 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-      - name: Generate selective pip-only hash-locked update
+      - name: Generate selective compatibility lock update
         run: |
           cp requirements.lock requirements.before.lock
-          python -m pip install --disable-pip-version-check 'pip-tools==7.6.0'
+          python -m pip install --disable-pip-version-check 'pip-tools==7.6.1'
           python -m piptools compile \
             --resolver=backtracking \
             --generate-hashes \
@@ -38,13 +38,14 @@ jobs:
             --no-header \
             --strip-extras \
             --upgrade-package pip \
+            --upgrade-package pip-tools \
             --extra test \
             --extra postgresql \
             --extra marketdata \
             --extra dev \
             pyproject.toml \
             --output-file requirements.lock
-      - name: Prove only pip pin changed
+      - name: Prove only pip compatibility pins changed
         run: |
           python - <<'PY'
           import re
@@ -62,12 +63,31 @@ jobs:
           after = pins('requirements.lock')
           assert set(before) == set(after), (set(before) ^ set(after))
           changed = {name: (before[name], after[name]) for name in before if before[name] != after[name]}
-          assert changed == {'pip': ('26.1.2', '26.2.1')}, changed
+          assert changed == {
+              'pip': ('26.1.2', '26.2.1'),
+              'pip-tools': ('7.6.0', '7.6.1'),
+          }, changed
           PY
       - name: Verify lock installs exactly
         run: |
           python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
           python -m pip check
+      - name: Prove selective lock is stable
+        run: |
+          cp requirements.lock requirements.recompiled.lock
+          python -m piptools compile \
+            --resolver=backtracking \
+            --generate-hashes \
+            --allow-unsafe \
+            --no-header \
+            --strip-extras \
+            --extra test \
+            --extra postgresql \
+            --extra marketdata \
+            --extra dev \
+            pyproject.toml \
+            --output-file requirements.recompiled.lock
+          python -m tools.verify_lock_freshness requirements.lock requirements.recompiled.lock
       - name: Audit locked dependency graph
         run: pip-audit --strict -r requirements.lock
       - name: Regression under locked graph
@@ -81,5 +101,5 @@ jobs:
             echo 'Dependency lock already current'
             exit 0
           fi
-          git commit -m 'Lock fixed pip dependency'
+          git commit -m 'Lock fixed pip toolchain'
           git push origin HEAD:${{ github.ref_name }}
