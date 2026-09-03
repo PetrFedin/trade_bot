@@ -1,44 +1,61 @@
 {
-  "schema_version": "current-system-status-v1",
-  "observed_at": "2026-09-02",
+  "schema_version": "current-system-status-v2",
+  "observed_at": "2026-09-03",
   "authority": {
     "human_readable": "docs/E2E_MATRIX.md",
     "machine_readable": "CURRENT_SYSTEM_STATUS.json",
-    "rule": "Neither document can authorize Demo or live trading without the separately required external, operational, profitability and governance evidence."
+    "historical_snapshot_root": "docs/archive/2026-09-02",
+    "rule": "No documentation artifact can authorize Demo or live trading without the separately required profitability, broker, operational, governance and production evidence."
   },
   "canonical_main": {
     "branch": "main",
-    "last_qualified_sha": "0bc1e309e1b268756023088b6e440db30cb4ddab",
+    "last_qualified_sha": "e110a4c02f5bf9b9937ff3fbf7e942859be9050d",
     "engineering_baseline_status": "PASS",
     "qualification": {
-      "canonical_security_regression_run_id": 33653750562,
-      "order_lifecycle_fault_campaign_run_id": 33653750467,
-      "full_regression_result": "1044 passed, 2 dedicated fleet-deployment skips",
+      "canonical_security_regression_run_id": 33731847837,
+      "release_provenance_run_id": 33731847749,
+      "external_roundtrip_run_id": 33731847806,
+      "stable_runtime_import_boundary_run_id": 33731847773,
+      "product_composition_run_id": 33731847986,
+      "stable_core_quality_run_id": 33731847745,
+      "release_governance_run_id": 33731847853,
+      "full_regression_result": "1078 passed, 2 dedicated fleet-deployment skips",
       "postgres_full_regression_enabled": true,
-      "security_migration_lineage": [
-        "v107",
-        "v108",
-        "v109"
-      ]
+      "security_migration_lineage": ["v107", "v108", "v109"],
+      "release_attestation": "SLSA_AND_SBOM_SIGNED_PASS"
     },
-    "note": "This proves the covered deterministic engineering baseline on canonical main. It does not prove broker connectivity, Demo execution, strategy profitability or live readiness."
+    "note": "This proves the covered deterministic engineering and release baseline on canonical main. It does not prove broker connectivity, Demo execution, strategy profitability, soak or live readiness."
   },
-  "operational_candidate": {
+  "canonical_operational_foundation": {
+    "id": "C2A0",
+    "component": "BYBIT_DEMO_RUNTIME_LEASE_V119",
+    "status": "EXTRACTED_AND_QUALIFIED",
+    "source_preservation_pr": 110,
+    "replacement_pr": 113,
+    "merge_sha": "e110a4c02f5bf9b9937ff3fbf7e942859be9050d",
+    "frozen_migration_sha256": "c37a2f54cb3dd42d6732b3354988d7f73cc1d240916ccbcdcec3874933f9d52e",
+    "research_ancestry_inherited": false,
+    "strategy_dependency": false,
+    "broker_network_capability": false,
+    "order_write_capability": false,
+    "demo_broker_proven": false,
+    "production_or_live_promotion_allowed": false
+  },
+  "operational_source_boundary": {
     "pull_request": 93,
     "sha": "c2e6b11b8dc4abc37ed6b2c180f11c73a000ca5b",
-    "status": "CODE_QUALIFIED_DEMO_UNPROVEN",
-    "role": "CURRENT_OPERATIONAL_BOUNDARY_CANDIDATE_FOR_CONSOLIDATION",
+    "status": "HISTORICAL_DECOMPOSITION_SOURCE_DEMO_UNPROVEN",
+    "wholesale_merge_allowed": false,
     "real_protected_demo_entry_proven": false,
     "complete_real_broker_evidence_chain_proven": false,
-    "note": "This exact head is the latest identified operational-only boundary before the active strategy research lineage. It is not a production or live promotion."
+    "note": "PR #93 remains a preservation/decomposition source, not the canonical release candidate."
   },
   "research_head": {
     "pull_request": 100,
     "sha": "918dbc57c0633c6dc549f1f036d2ae659b289b46",
     "status": "RESEARCH_ONLY",
     "derivatives_context_evidence": "INCOMPLETE",
-    "strategy_promotion_allowed": false,
-    "note": "The derivatives-context experiment still lacks an authoritative complete point-in-time acquisition/result and must remain isolated from operational release claims."
+    "strategy_promotion_allowed": false
   },
   "consolidation": {
     "status": "IN_PROGRESS_FAIL_CLOSED",
@@ -48,7 +65,10 @@
     "blind_merge_allowed": false,
     "blind_close_allowed": false,
     "branch_deletion_allowed": false,
-    "next_gate": "PER_PR_CURRENT_HEAD_AND_CHANGED_FILE_PRESERVATION_AUDIT"
+    "completed_gate": "C2A0_STRATEGY_FREE_V119_RUNTIME_LEASE",
+    "next_gate": "C2A1_V119_RUNTIME_ROLE_LEAST_PRIVILEGE",
+    "next_gate_issue": 114,
+    "parent_database_security_issue": 107
   },
   "strategy": {
     "status": "PROFITABILITY_NOT_PROVEN",
@@ -62,7 +82,7 @@
       "net_pnl_usdt": "-176.67",
       "net_return_fraction_approx": "-0.1767"
     },
-    "interpretation": "The latest frozen price-only research evidence is negative. It must not be represented as profitable, and the incomplete derivatives-context work must not be used to overwrite that result without a new frozen point-in-time qualification."
+    "interpretation": "The latest frozen price-only evidence is negative. Incomplete derivatives-context research cannot supersede it without a new frozen point-in-time qualification."
   },
   "governance": {
     "main_branch_protection": "VERIFIED_DISABLED",
@@ -90,12 +110,23 @@
       "id": "P1-CONSOLIDATION",
       "severity": "P1",
       "status": "IN_PROGRESS",
-      "reason": "The open stacked PR graph is classified fail-closed, but per-PR current-head/file-level preservation and canonical extraction are not complete.",
-      "tracking_issue": 104,
-      "evidence": [
-        "STACKED_PR_CONSOLIDATION_STATUS.json",
-        "docs/STACKED_PR_CONSOLIDATION_MAP.md"
-      ]
+      "reason": "C2A0 is canonical, but the remaining operational stack is still being decomposed into bounded qualified units.",
+      "tracking_issue": 104
+    },
+    {
+      "id": "P1-DATABASE-RUNTIME-ROLE",
+      "severity": "P1",
+      "status": "IN_PROGRESS",
+      "reason": "Canonical v119 still needs a production runtime role that is non-owner, least-privilege and unable to TRUNCATE/ALTER/DROP/create schema objects before later durable operational stores are promoted.",
+      "tracking_issue": 114,
+      "parent_issue": 107
+    },
+    {
+      "id": "P1-APPEND-ONLY-TRUNCATE-HARDENING",
+      "severity": "P1",
+      "status": "BLOCKED",
+      "reason": "Future v120 extraction remains blocked until append-only TRUNCATE/owner-role bypass is closed; canonical v107-v109 event-table TRUNCATE hardening is also tracked separately.",
+      "tracking_issues": [107, 109]
     },
     {
       "id": "STRATEGY-EDGE",
@@ -113,13 +144,13 @@
       "id": "BYBIT-DEMO-ENTRY",
       "severity": "P0",
       "status": "NOT_STARTED",
-      "reason": "No real protected one-shot Bybit Demo ENTRY through the current operational path has been proven."
+      "reason": "No real protected one-shot Bybit Demo ENTRY through a canonical operational path has been proven."
     },
     {
       "id": "EXACT-HEAD-OPERATIONAL-EVIDENCE",
       "severity": "P0",
       "status": "NOT_STARTED",
-      "reason": "A complete real-broker INFRA->SESSION->SUPERVISOR->ARM->ENTRY->HALT->RECOVERY chain on one exact head is not proven."
+      "reason": "A complete real-broker INFRA->SESSION->SUPERVISOR->ARM->ENTRY->HALT->RECOVERY chain on one exact canonical head is not proven."
     },
     {
       "id": "CONNECTED-SOAK",

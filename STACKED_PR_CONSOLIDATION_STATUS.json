@@ -1,195 +1,139 @@
 {
-  "schema_version": "stacked-pr-consolidation-status-v1",
-  "observed_at": "2026-09-02",
-  "canonical_main_at_inventory_start": "6e0c2d08fd9281682e7e2a5771ed3a93ea7df8d9",
+  "schema_version": "stacked-pr-consolidation-status-v2",
+  "observed_at": "2026-09-03",
   "tracking_issue": 104,
+  "historical_inventory": {
+    "snapshot_date": "2026-09-02",
+    "machine_snapshot": "docs/archive/2026-09-02/STACKED_PR_CONSOLIDATION_STATUS_V1.json",
+    "human_snapshot": "docs/archive/2026-09-02/STACKED_PR_CONSOLIDATION_MAP_V1.md",
+    "rule": "Historical range classification and per-PR audit evidence remain preserved byte-for-byte and are not rewritten as current release evidence."
+  },
   "policy": {
     "blind_merge_allowed": false,
     "blind_close_allowed": false,
     "delete_branch_allowed": false,
     "production_activation_allowed": false,
     "strategy_promotion_allowed": false,
-    "required_before_merge_or_close": [
-      "CURRENT_HEAD_REVERIFIED",
-      "PARENT_DEPENDENCY_REVERIFIED",
-      "CHANGED_FILES_INVENTORIED",
-      "UNIQUE_RUNTIME_CODE_PRESERVED_OR_SUPERSEDED",
-      "UNIQUE_MIGRATIONS_PRESERVED_OR_SUPERSEDED",
-      "UNIQUE_TESTS_AND_WORKFLOWS_PRESERVED_OR_SUPERSEDED",
-      "IMMUTABLE_EVIDENCE_AND_DOCS_PRESERVED_OR_ARCHIVED",
-      "TARGET_CANONICAL_LOCATION_IDENTIFIED",
-      "QUALIFICATION_PLAN_IDENTIFIED"
+    "research_ancestry_allowed_in_operational_extraction": false,
+    "required_before_operational_merge": [
+      "SOURCE_CAPABILITY_AUDITED",
+      "MINIMAL_DEPENDENCY_CLOSURE_IDENTIFIED",
+      "CANONICAL_MAIN_BASE_USED",
+      "UNIQUE_MIGRATIONS_PRESERVED",
+      "EXACT_HEAD_QUALIFICATION_PASS",
+      "NO_RESEARCH_PROMOTION",
+      "NO_NEW_ORDER_CAPABILITY_UNLESS_EXPLICITLY_SCOPED"
     ]
   },
   "current_boundaries": {
     "canonical_main": {
-      "sha": "6e0c2d08fd9281682e7e2a5771ed3a93ea7df8d9",
-      "status": "STABLE_FAIL_CLOSED"
+      "sha": "e110a4c02f5bf9b9937ff3fbf7e942859be9050d",
+      "status": "STABLE_FAIL_CLOSED_WITH_C2A0_FOUNDATION"
     },
-    "operational_boundary_candidate": {
+    "operational_source_boundary": {
       "pull_request": 93,
       "sha": "c2e6b11b8dc4abc37ed6b2c180f11c73a000ca5b",
-      "status": "CODE_QUALIFIED_DEMO_UNPROVEN",
-      "merge_decision": "PROHIBITED_PENDING_DECOMPOSITION"
+      "status": "HISTORICAL_DECOMPOSITION_SOURCE_DEMO_UNPROVEN",
+      "wholesale_merge_allowed": false
     },
     "research_head": {
       "pull_request": 100,
       "sha": "918dbc57c0633c6dc549f1f036d2ae659b289b46",
       "status": "RESEARCH_ONLY",
-      "merge_decision": "PROHIBITED_PENDING_RESEARCH_ISOLATION"
+      "merge_into_operational_core_allowed": false
     }
   },
-  "ranges": [
+  "completed_canonical_extractions": [
     {
-      "id": "R1",
-      "pull_requests": [41],
-      "category": "FROZEN_INTEGRATION_SNAPSHOT",
-      "preservation_priority": "HIGH",
-      "target": "ARCHIVE_AND_EXTRACT_UNIQUE_CORE",
-      "action": "PRESERVE_PENDING_FILE_AUDIT",
-      "reason": "PR #41 explicitly declares itself a frozen incubator snapshot and not a production release unit."
-    },
-    {
-      "id": "R2",
-      "pull_requests": [43, 44, 45, 46, 47, 48, 49],
-      "category": "OPERATIONAL_CORE_EARLY",
-      "preservation_priority": "CRITICAL",
-      "target": "CANONICAL_OPERATIONAL_CORE",
-      "action": "PRESERVE_PENDING_FILE_AUDIT",
-      "reason": "Operator state, accounting, cash reconciliation, immutable entry recovery, crash recovery and terminal accounting form reusable production safety infrastructure."
-    },
-    {
-      "id": "R3",
-      "pull_requests": [50, 51, 53],
-      "category": "MAINNET_READONLY_OBSERVABILITY",
-      "preservation_priority": "HIGH",
-      "target": "CANONICAL_READONLY_BROKER_OBSERVABILITY",
-      "action": "PRESERVE_PENDING_FILE_AUDIT",
-      "reason": "GET-only account identity, clock/health and activity evidence are operational support surfaces and must remain isolated from order-write authority."
-    },
-    {
-      "id": "R4",
-      "pull_requests": [54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67],
-      "category": "RESEARCH_DATA_AND_EVIDENCE",
-      "preservation_priority": "HIGH",
-      "target": "ISOLATED_RESEARCH_LINEAGE",
-      "action": "DO_NOT_MERGE_INTO_OPERATIONAL_CORE_AS_A_STACK",
-      "reason": "Dynamic universe, derivatives history, funding reconstruction, registries, prospective outcomes, full-period replay and calibration are research/data infrastructure rather than execution authority."
-    },
-    {
-      "id": "R5",
-      "pull_requests": [68],
-      "category": "OPERATIONAL_BRIDGE_WITH_RESEARCH_ANCESTRY",
-      "preservation_priority": "CRITICAL",
-      "target": "EXTRACT_MINIMAL_DEMO_APPROVAL_BRIDGE",
-      "action": "DECOUPLE_BEFORE_CANONICALIZATION",
-      "reason": "Operator-approved Demo entry is operationally important but is stacked on the research lineage and therefore cannot be promoted by merging ancestry wholesale."
-    },
-    {
-      "id": "R6",
-      "pull_requests": [69, 70, 71, 72, 73],
-      "category": "PROSPECTIVE_RESEARCH_EVIDENCE",
-      "preservation_priority": "HIGH",
-      "target": "ISOLATED_RESEARCH_LINEAGE",
-      "action": "DO_NOT_MERGE_INTO_OPERATIONAL_CORE_AS_A_STACK",
-      "reason": "Liquidation capture/context/calibration and prospective evidence materialization are forward research evidence, not production execution policy."
-    },
-    {
-      "id": "R7",
-      "pull_requests": [74],
-      "category": "OPERATIONAL_READONLY_CONTEXT",
-      "preservation_priority": "HIGH",
-      "target": "CANONICAL_READONLY_BROKER_OBSERVABILITY",
-      "action": "EXTRACT_AFTER_FILE_AUDIT",
-      "reason": "Operationalizes the already GET-only mainnet account context and must remain write-isolated."
-    },
-    {
-      "id": "R8",
-      "pull_requests": [75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93],
-      "category": "DEMO_OPERATIONAL_HARDENING",
-      "preservation_priority": "CRITICAL",
-      "target": "CANONICAL_OPERATIONAL_CORE",
-      "action": "DECOMPOSE_AND_PRESERVE",
-      "reason": "Approval/provenance, PostgreSQL durability, connected read-only preflight, v121-v124 controls, persistent supervisor, recovery, one-shot entry and exact-head evidence contain critical safety controls but inherit earlier research ancestry."
-    },
-    {
-      "id": "R9",
-      "pull_requests": [94, 95, 96, 97, 98, 99, 100],
-      "category": "CURRENT_STRATEGY_RESEARCH_AND_DIAGNOSTICS",
-      "preservation_priority": "CRITICAL_EVIDENCE",
-      "target": "ISOLATED_RESEARCH_LINEAGE",
-      "action": "PRESERVE_EVIDENCE_DO_NOT_PROMOTE",
-      "reason": "These PRs contain the current negative Bybit strategy evidence, OOS/falsification machinery, volatility-feedback diagnostics, first-touch analysis, candidate trace and incomplete derivatives-context experiment."
+      "id": "C2A0",
+      "name": "STRATEGY_FREE_BYBIT_DEMO_RUNTIME_LEASE_V119",
+      "source_preservation_pr": 110,
+      "replacement_pr": 113,
+      "merge_sha": "e110a4c02f5bf9b9937ff3fbf7e942859be9050d",
+      "status": "EXTRACTED_AND_QUALIFIED",
+      "preservation_method": "EXACT_FIVE_GIT_BLOBS",
+      "frozen_migration_sha256": "c37a2f54cb3dd42d6732b3354988d7f73cc1d240916ccbcdcec3874933f9d52e",
+      "research_ancestry_inherited": false,
+      "strategy_dependency": false,
+      "network_or_order_capability": false,
+      "demo_proven": false,
+      "qualification": {
+        "canonical_security_regression_run_id": 33731847837,
+        "release_provenance_run_id": 33731847749,
+        "external_roundtrip_run_id": 33731847806,
+        "full_postgres_regression": "1078 passed, 2 dedicated fleet-deployment skips"
+      }
     }
   ],
-  "open_stack_prs": [
-    {"pr": 41, "category": "FROZEN_INTEGRATION_SNAPSHOT", "action": "PRESERVE_PENDING_FILE_AUDIT"},
-    {"pr": 43, "category": "OPERATIONAL_CORE_EARLY", "action": "PRESERVE_PENDING_FILE_AUDIT"},
-    {"pr": 44, "category": "OPERATIONAL_CORE_EARLY", "action": "PRESERVE_PENDING_FILE_AUDIT"},
-    {"pr": 45, "category": "OPERATIONAL_CORE_EARLY", "action": "PRESERVE_PENDING_FILE_AUDIT"},
-    {"pr": 46, "category": "OPERATIONAL_CORE_EARLY", "action": "PRESERVE_PENDING_FILE_AUDIT"},
-    {"pr": 47, "category": "OPERATIONAL_CORE_EARLY", "action": "PRESERVE_PENDING_FILE_AUDIT"},
-    {"pr": 48, "category": "OPERATIONAL_CORE_EARLY", "action": "PRESERVE_PENDING_FILE_AUDIT"},
-    {"pr": 49, "category": "OPERATIONAL_CORE_EARLY", "action": "PRESERVE_PENDING_FILE_AUDIT"},
-    {"pr": 50, "category": "MAINNET_READONLY_OBSERVABILITY", "action": "PRESERVE_PENDING_FILE_AUDIT"},
-    {"pr": 51, "category": "MAINNET_READONLY_OBSERVABILITY", "action": "PRESERVE_PENDING_FILE_AUDIT"},
-    {"pr": 53, "category": "MAINNET_READONLY_OBSERVABILITY", "action": "PRESERVE_PENDING_FILE_AUDIT"},
-    {"pr": 54, "category": "RESEARCH_DATA_AND_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 55, "category": "RESEARCH_DATA_AND_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 56, "category": "RESEARCH_DATA_AND_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 57, "category": "RESEARCH_DATA_AND_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 58, "category": "RESEARCH_DATA_AND_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 59, "category": "RESEARCH_DATA_AND_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 60, "category": "RESEARCH_DATA_AND_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 61, "category": "RESEARCH_DATA_AND_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 62, "category": "RESEARCH_DATA_AND_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 63, "category": "RESEARCH_DATA_AND_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 64, "category": "RESEARCH_DATA_AND_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 65, "category": "RESEARCH_DATA_AND_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 66, "category": "RESEARCH_DATA_AND_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 67, "category": "RESEARCH_DATA_AND_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 68, "category": "OPERATIONAL_BRIDGE_WITH_RESEARCH_ANCESTRY", "action": "DECOUPLE_BEFORE_CANONICALIZATION"},
-    {"pr": 69, "category": "PROSPECTIVE_RESEARCH_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 70, "category": "PROSPECTIVE_RESEARCH_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 71, "category": "PROSPECTIVE_RESEARCH_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 72, "category": "PROSPECTIVE_RESEARCH_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 73, "category": "PROSPECTIVE_RESEARCH_EVIDENCE", "action": "ISOLATE_RESEARCH"},
-    {"pr": 74, "category": "OPERATIONAL_READONLY_CONTEXT", "action": "EXTRACT_AFTER_FILE_AUDIT"},
-    {"pr": 75, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 76, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 77, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 78, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 79, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 80, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 81, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 82, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 83, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 84, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 85, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 86, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 87, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 88, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 89, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE", "known_qualified_head": "fe124d84c490055e2fbe5e711ab2c61f37d0611a"},
-    {"pr": 90, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 91, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE"},
-    {"pr": 92, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE", "known_qualified_head": "8efc89e574bfd7e0edfec9fc3ff022e25f4cd809"},
-    {"pr": 93, "category": "DEMO_OPERATIONAL_HARDENING", "action": "DECOMPOSE_AND_PRESERVE", "current_head_verified": "c2e6b11b8dc4abc37ed6b2c180f11c73a000ca5b"},
-    {"pr": 94, "category": "CURRENT_STRATEGY_RESEARCH_AND_DIAGNOSTICS", "action": "PRESERVE_EVIDENCE_DO_NOT_PROMOTE"},
-    {"pr": 95, "category": "CURRENT_STRATEGY_RESEARCH_AND_DIAGNOSTICS", "action": "PRESERVE_EVIDENCE_DO_NOT_PROMOTE"},
-    {"pr": 96, "category": "CURRENT_STRATEGY_RESEARCH_AND_DIAGNOSTICS", "action": "PRESERVE_EVIDENCE_DO_NOT_PROMOTE", "known_qualified_head": "eb72a18c99e3d1229d7b7ee3d67efe4555f04386"},
-    {"pr": 97, "category": "CURRENT_STRATEGY_RESEARCH_AND_DIAGNOSTICS", "action": "PRESERVE_EVIDENCE_DO_NOT_PROMOTE"},
-    {"pr": 98, "category": "CURRENT_STRATEGY_RESEARCH_AND_DIAGNOSTICS", "action": "PRESERVE_EVIDENCE_DO_NOT_PROMOTE", "known_qualified_head": "263933cb8a067a59aa13267e889f72bc926dcbbe"},
-    {"pr": 99, "category": "CURRENT_STRATEGY_RESEARCH_AND_DIAGNOSTICS", "action": "PRESERVE_EVIDENCE_DO_NOT_PROMOTE"},
-    {"pr": 100, "category": "CURRENT_STRATEGY_RESEARCH_AND_DIAGNOSTICS", "action": "PRESERVE_EVIDENCE_DO_NOT_PROMOTE", "current_head_verified": "918dbc57c0633c6dc549f1f036d2ae659b289b46"}
+  "supersession_records": [
+    {
+      "pull_request": 110,
+      "state": "CLOSED_NOT_MERGED",
+      "superseded_by": 113,
+      "reason": "The same five audited Git blobs were extracted onto repaired canonical main without inheriting the old branch ancestry."
+    }
   ],
-  "closure_rule": "No open stack PR may be closed or its branch deleted based only on this range classification. A per-PR current-head and changed-file preservation record must exist first.",
-  "merge_rule": "No operational PR may be merged as an ancestry bundle while it contains research ancestry that has not been explicitly accepted into canonical main.",
-  "next_required_analysis": [
-    "REVERIFY_CURRENT_HEADS_FOR_ALL_OPEN_STACK_PRS",
-    "INVENTORY_CHANGED_FILES_AND_MIGRATIONS_PER_RANGE",
-    "IDENTIFY_MINIMAL_OPERATIONAL_PRESERVATION_SET",
-    "IDENTIFY_RESEARCH_ONLY_FILES_PRESENT_IN_OPERATIONAL_BOUNDARY",
-    "DEFINE_CHERRY_PICK_OR_REBASE_UNITS_FROM_CANONICAL_MAIN",
-    "QUALIFY_EACH_CANONICALIZED_UNIT_ON_ONE_EXACT_HEAD"
+  "current_gate": {
+    "id": "C2A1",
+    "issue": 114,
+    "parent_security_issue": 107,
+    "status": "IN_PROGRESS",
+    "goal": "V119_RUNTIME_ROLE_LEAST_PRIVILEGE_AND_NON_OWNER_ENFORCEMENT",
+    "required_before_v120_extraction": true,
+    "runtime_order_capability_allowed": false,
+    "broker_network_capability_allowed": false
+  },
+  "blocked_follow_on": [
+    {
+      "id": "V120_DURABLE_AUDIT_STORES",
+      "source_pr": 77,
+      "status": "BLOCKED",
+      "reason": "Do not canonicalize until runtime-role ownership separation and append-only TRUNCATE protection are explicitly qualified under issue #107."
+    },
+    {
+      "id": "CANONICAL_V107_V109_APPEND_ONLY_TRUNCATE_HARDENING",
+      "status": "P1_OPEN",
+      "tracking_issue": 109
+    }
+  ],
+  "remaining_work_packages": [
+    {
+      "id": "C1",
+      "name": "CANONICAL_GET_ONLY_BROKER_OBSERVABILITY",
+      "status": "NOT_STARTED",
+      "sources": "historical R3/R7"
+    },
+    {
+      "id": "C2",
+      "name": "CANONICAL_DURABLE_OPERATIONAL_CONTROL_PLANE",
+      "status": "IN_PROGRESS",
+      "completed": ["C2A0"],
+      "next": "C2A1"
+    },
+    {
+      "id": "C3",
+      "name": "CANONICAL_PROTECTED_DEMO_ENTRY_COMPOSITION",
+      "status": "BLOCKED_ON_C1_C2_AND_STRATEGY_PROMOTION_GATE",
+      "source_semantics": "PR_89"
+    },
+    {
+      "id": "C4",
+      "name": "EXACT_HEAD_OPERATIONAL_EVIDENCE",
+      "status": "BLOCKED_ON_CANONICAL_OPERATIONAL_RUNTIME_AND_REAL_DEMO_EVIDENCE",
+      "source_semantics": "PR_90"
+    },
+    {
+      "id": "C5",
+      "name": "RESEARCH_LINEAGE_ISOLATION",
+      "status": "IN_PROGRESS_FAIL_CLOSED",
+      "research_head_pr": 100
+    }
+  ],
+  "next_required_actions": [
+    "IMPLEMENT_AND_QUALIFY_C2A1_ISSUE_114",
+    "KEEP_V120_EXTRACTION_BLOCKED_UNTIL_ISSUE_107_SECURITY_CONTRACT_PASS",
+    "CONTINUE_PER_CAPABILITY_EXTRACTION_FROM_CANONICAL_MAIN",
+    "PRESERVE_RESEARCH_HEAD_AS_RESEARCH_ONLY",
+    "DO_NOT_ATTEMPT_PROTECTED_DEMO_ENTRY_BEFORE_STRATEGY_PROMOTION_GATE_PASS"
   ]
 }
