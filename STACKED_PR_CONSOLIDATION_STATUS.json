@@ -1,6 +1,6 @@
 {
   "schema_version": "stacked-pr-consolidation-status-v2",
-  "observed_at": "2026-09-03",
+  "observed_at": "2026-09-05",
   "tracking_issue": 104,
   "historical_inventory": {
     "snapshot_date": "2026-09-02",
@@ -21,14 +21,18 @@
       "CANONICAL_MAIN_BASE_USED",
       "UNIQUE_MIGRATIONS_PRESERVED",
       "EXACT_HEAD_QUALIFICATION_PASS",
+      "POST_MERGE_MAIN_QUALIFICATION_PASS",
       "NO_RESEARCH_PROMOTION",
       "NO_NEW_ORDER_CAPABILITY_UNLESS_EXPLICITLY_SCOPED"
     ]
   },
   "current_boundaries": {
     "canonical_main": {
-      "sha": "e110a4c02f5bf9b9937ff3fbf7e942859be9050d",
-      "status": "STABLE_FAIL_CLOSED_WITH_C2A0_FOUNDATION"
+      "sha": "090f34b11a877ce24f8a15a74b296e287aae3918",
+      "status": "STABLE_FAIL_CLOSED_WITH_C2A0_C2A3_FOUNDATION",
+      "broker_proven": false,
+      "demo_entry_proven": false,
+      "strategy_profitability_proven": false
     },
     "operational_source_boundary": {
       "pull_request": 93,
@@ -56,12 +60,50 @@
       "research_ancestry_inherited": false,
       "strategy_dependency": false,
       "network_or_order_capability": false,
+      "demo_proven": false
+    },
+    {
+      "id": "C2A1",
+      "name": "V119_RUNTIME_ROLE_LEAST_PRIVILEGE_NON_OWNER",
+      "replacement_pr": 116,
+      "merge_sha": "fd04ad3403b7b840100006dbf1829273d9e5e4bb",
+      "status": "EXTRACTED_AND_QUALIFIED",
+      "runtime_role_non_owner": true,
+      "runtime_ddl_allowed": false,
+      "network_or_order_capability": false,
+      "demo_proven": false
+    },
+    {
+      "id": "C2A2",
+      "name": "V120_APPEND_ONLY_AUDIT_SCHEMA_SECURITY",
+      "replacement_pr": 118,
+      "merge_sha": "319fb407f1b99ad76a25a04adb96b84c171b6275",
+      "status": "EXTRACTED_AND_QUALIFIED",
+      "frozen_v120_001_git_blob": "b337ef19dc7da4a3fcbc0a11a8d6d7d85dff3b00",
+      "frozen_v120_001_sha256": "613a21fba9142f34141cb7d6c81938b175250fb4dbda9bd37726e5627df094cf",
+      "runtime_table_privileges": ["INSERT", "SELECT"],
+      "network_or_order_capability": false,
+      "demo_proven": false
+    },
+    {
+      "id": "C2A3",
+      "name": "STRATEGY_FREE_V120_TYPED_PERSISTENCE",
+      "source_pr": 77,
+      "replacement_pr": 121,
+      "pre_merge_head_sha": "f623bea57f0d9e27136658262d85c0579db270d3",
+      "merge_sha": "090f34b11a877ce24f8a15a74b296e287aae3918",
+      "status": "EXTRACTED_AND_QUALIFIED",
+      "strategy_dependency": false,
+      "broker_network_capability": false,
+      "market_data_dependency": false,
+      "order_write_capability": false,
       "demo_proven": false,
       "qualification": {
-        "canonical_security_regression_run_id": 33731847837,
-        "release_provenance_run_id": 33731847749,
-        "external_roundtrip_run_id": 33731847806,
-        "full_postgres_regression": "1078 passed, 2 dedicated fleet-deployment skips"
+        "pre_merge_workflows_success": 10,
+        "post_merge_workflows_success": 11,
+        "canonical_security_regression_run_id": 33988217105,
+        "release_provenance_run_id": 33988217099,
+        "full_postgres_regression": "1112 passed, 2 dedicated fleet-deployment skips"
       }
     }
   ],
@@ -74,26 +116,32 @@
     }
   ],
   "current_gate": {
-    "id": "C2A1",
-    "issue": 114,
-    "parent_security_issue": 107,
+    "id": "C2A4",
+    "issue": 122,
     "status": "IN_PROGRESS",
-    "goal": "V119_RUNTIME_ROLE_LEAST_PRIVILEGE_AND_NON_OWNER_ENFORCEMENT",
-    "required_before_v120_extraction": true,
+    "goal": "STRATEGY_FREE_V119_ACTIVE_EXCURSION_CHECKPOINT_CAS_PERSISTENCE",
+    "source_pr": 76,
+    "source_sha": "84b9965e5128562c49620c6164afe5f43ca343f2",
     "runtime_order_capability_allowed": false,
-    "broker_network_capability_allowed": false
+    "broker_network_capability_allowed": false,
+    "market_data_dependency_allowed": false,
+    "runtime_migration_authority_allowed": false
   },
   "blocked_follow_on": [
-    {
-      "id": "V120_DURABLE_AUDIT_STORES",
-      "source_pr": 77,
-      "status": "BLOCKED",
-      "reason": "Do not canonicalize until runtime-role ownership separation and append-only TRUNCATE protection are explicitly qualified under issue #107."
-    },
     {
       "id": "CANONICAL_V107_V109_APPEND_ONLY_TRUNCATE_HARDENING",
       "status": "P1_OPEN",
       "tracking_issue": 109
+    },
+    {
+      "id": "PROTECTED_DEMO_ENTRY",
+      "status": "BLOCKED_ON_C1_C2_AND_STRATEGY_PROMOTION_GATE",
+      "source_semantics": "PR_89"
+    },
+    {
+      "id": "EXACT_HEAD_OPERATIONAL_EVIDENCE",
+      "status": "BLOCKED_ON_CANONICAL_OPERATIONAL_RUNTIME_AND_REAL_DEMO_EVIDENCE",
+      "source_semantics": "PR_90"
     }
   ],
   "remaining_work_packages": [
@@ -107,8 +155,8 @@
       "id": "C2",
       "name": "CANONICAL_DURABLE_OPERATIONAL_CONTROL_PLANE",
       "status": "IN_PROGRESS",
-      "completed": ["C2A0"],
-      "next": "C2A1"
+      "completed": ["C2A0", "C2A1", "C2A2", "C2A3"],
+      "next": "C2A4"
     },
     {
       "id": "C3",
@@ -130,10 +178,10 @@
     }
   ],
   "next_required_actions": [
-    "IMPLEMENT_AND_QUALIFY_C2A1_ISSUE_114",
-    "KEEP_V120_EXTRACTION_BLOCKED_UNTIL_ISSUE_107_SECURITY_CONTRACT_PASS",
+    "AUDIT_AND_IMPLEMENT_C2A4_ISSUE_122",
     "CONTINUE_PER_CAPABILITY_EXTRACTION_FROM_CANONICAL_MAIN",
+    "KEEP_HISTORICAL_TRACKER_BUILDERS_OUT_OF_PERSISTENCE_CORE",
     "PRESERVE_RESEARCH_HEAD_AS_RESEARCH_ONLY",
-    "DO_NOT_ATTEMPT_PROTECTED_DEMO_ENTRY_BEFORE_STRATEGY_PROMOTION_GATE_PASS"
+    "KEEP_DEMO_ENTRY_BLOCKED_UNTIL_STRATEGY_AND_OPERATIONAL_PREREQUISITES_PASS"
   ]
 }
