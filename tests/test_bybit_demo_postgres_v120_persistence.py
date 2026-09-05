@@ -198,7 +198,9 @@ def runtime_role() -> RuntimeRoleFixture:
     _drop_role(role)
 
 
-def test_stores_have_no_migration_or_order_write_capability(runtime_role: RuntimeRoleFixture) -> None:
+def test_stores_have_no_migration_or_order_write_capability(
+    runtime_role: RuntimeRoleFixture,
+) -> None:
     stores = (
         PostgresBybitDemoApprovedEntryAuthorizationStoreV120(runtime_role.runtime_dsn),
         PostgresBybitDemoEntryProvenanceStoreV120(runtime_role.runtime_dsn),
