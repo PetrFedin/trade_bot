@@ -14,15 +14,16 @@ def test_current_system_status_is_current_fail_closed_and_not_profitable() -> No
     status = load_status()
 
     assert status["schema_version"] == "current-system-status-v2"
-    assert status["observed_at"] == "2026-09-03"
+    assert status["observed_at"] == "2026-09-05"
 
     main = status["canonical_main"]
-    assert main["last_qualified_sha"] == "319fb407f1b99ad76a25a04adb96b84c171b6275"
+    assert main["last_qualified_sha"] == "090f34b11a877ce24f8a15a74b296e287aae3918"
     assert main["engineering_baseline_status"] == "PASS"
     assert main["qualification"]["post_merge_workflows_completed"] == 11
     assert main["qualification"]["post_merge_workflows_success"] == 11
+    assert main["qualification"]["focused_security_regression_result"] == "271 passed"
     assert main["qualification"]["full_regression_result"] == (
-        "1099 passed, 2 dedicated fleet-deployment skips"
+        "1112 passed, 2 dedicated fleet-deployment skips"
     )
     assert main["qualification"]["postgres_full_regression_enabled"] is True
     assert main["qualification"]["postgres_version"] == "16"
@@ -92,7 +93,7 @@ def test_c2a1_remains_qualified_on_its_historical_merge_sha() -> None:
     assert c2a1["production_or_live_promotion_allowed"] is False
 
 
-def test_c2a2_is_exactly_qualified_append_only_schema_security() -> None:
+def test_c2a2_remains_qualified_historical_append_only_schema_security() -> None:
     status = load_status()
     c2a2 = status["canonical_append_only_audit"]
 
@@ -100,8 +101,8 @@ def test_c2a2_is_exactly_qualified_append_only_schema_security() -> None:
     assert c2a2["status"] == "EXTRACTED_AND_QUALIFIED"
     assert c2a2["tracking_issue"] == 117
     assert c2a2["pull_request"] == 118
-    assert c2a2["pre_merge_head_sha"] == "8a7b71e0f286e17d9a79307fc643ed805bb1f5ae"
-    assert c2a2["merge_sha"] == status["canonical_main"]["last_qualified_sha"]
+    assert c2a2["merge_sha"] == "319fb407f1b99ad76a25a04adb96b84c171b6275"
+    assert c2a2["merge_sha"] != status["canonical_main"]["last_qualified_sha"]
     assert c2a2["frozen_v120_001_git_blob"] == "b337ef19dc7da4a3fcbc0a11a8d6d7d85dff3b00"
     assert c2a2["frozen_v120_001_sha256"] == (
         "613a21fba9142f34141cb7d6c81938b175250fb4dbda9bd37726e5627df094cf"
@@ -111,15 +112,38 @@ def test_c2a2_is_exactly_qualified_append_only_schema_security() -> None:
     assert c2a2["owner_update_delete_truncate_rejected"] is True
     assert c2a2["runtime_table_privileges"] == ["INSERT", "SELECT"]
     assert c2a2["runtime_update_delete_truncate_ddl_allowed"] is False
-    assert c2a2["typed_v120_persistence_promoted"] is False
     assert c2a2["postgresql_16_proven"] is True
-    assert c2a2["pre_merge_exact_head_workflows_success"] == 11
-    assert c2a2["post_merge_workflows_success"] == 11
     assert c2a2["strategy_dependency"] is False
     assert c2a2["broker_network_capability"] is False
     assert c2a2["order_write_capability"] is False
     assert c2a2["demo_broker_proven"] is False
     assert c2a2["production_or_live_promotion_allowed"] is False
+
+
+def test_c2a3_is_qualified_strategy_free_v120_typed_persistence() -> None:
+    status = load_status()
+    c2a3 = status["canonical_v120_persistence"]
+
+    assert c2a3["id"] == "C2A3"
+    assert c2a3["status"] == "EXTRACTED_AND_QUALIFIED"
+    assert c2a3["tracking_issue"] == 119
+    assert c2a3["replacement_pull_request"] == 121
+    assert c2a3["pre_merge_head_sha"] == "f623bea57f0d9e27136658262d85c0579db270d3"
+    assert c2a3["merge_sha"] == status["canonical_main"]["last_qualified_sha"]
+    assert c2a3["typed_v120_persistence_promoted"] is True
+    assert c2a3["immutable_record_contracts"] is True
+    assert c2a3["runtime_table_privileges"] == ["INSERT", "SELECT"]
+    assert c2a3["runtime_migration_authority_allowed"] is False
+    assert c2a3["postgresql_16_proven"] is True
+    assert c2a3["pre_merge_exact_head_workflows_success"] == 10
+    assert c2a3["post_merge_workflows_success"] == 11
+    assert c2a3["strategy_dependency"] is False
+    assert c2a3["broker_network_capability"] is False
+    assert c2a3["market_data_dependency"] is False
+    assert c2a3["order_write_capability"] is False
+    assert c2a3["arm_halt_capability"] is False
+    assert c2a3["demo_broker_proven"] is False
+    assert c2a3["production_or_live_promotion_allowed"] is False
 
 
 def test_historical_operational_source_and_research_head_are_not_promoted() -> None:
@@ -141,7 +165,7 @@ def test_historical_operational_source_and_research_head_are_not_promoted() -> N
     assert research["strategy_promotion_allowed"] is False
 
 
-def test_current_consolidation_gate_is_c2a3_and_remains_fail_closed() -> None:
+def test_current_consolidation_gate_is_c2a4_and_remains_fail_closed() -> None:
     status = load_status()
     consolidation = status["consolidation"]
 
@@ -150,27 +174,31 @@ def test_current_consolidation_gate_is_c2a3_and_remains_fail_closed() -> None:
     assert consolidation["blind_merge_allowed"] is False
     assert consolidation["blind_close_allowed"] is False
     assert consolidation["branch_deletion_allowed"] is False
-    assert consolidation["completed_gate"] == "C2A2_V120_APPEND_ONLY_AUDIT_HARDENING"
-    assert consolidation["next_gate"] == "C2A3_STRATEGY_FREE_V120_PERSISTENCE_RECORD_CONTRACTS"
-    assert consolidation["next_gate_issue"] == 119
-    assert consolidation["parent_database_security_issue"] == 107
+    assert consolidation["completed_gate"] == (
+        "C2A3_STRATEGY_FREE_V120_PERSISTENCE_RECORD_CONTRACTS"
+    )
+    assert consolidation["next_gate"] == (
+        "C2A4_STRATEGY_FREE_V119_ACTIVE_EXCURSION_CAS_PERSISTENCE"
+    )
+    assert consolidation["next_gate_issue"] == 122
+    assert consolidation["completed_database_security_issue"] == 107
 
-    candidate = status["c2a3_candidate"]
+    candidate = status["c2a4_candidate"]
     assert candidate["status"] == "IN_PROGRESS"
-    assert candidate["tracking_issue"] == 119
-    assert candidate["source_pull_request"] == 77
+    assert candidate["tracking_issue"] == 122
+    assert candidate["source_pull_request"] == 76
     assert SHA40.fullmatch(candidate["source_sha"])
-    assert candidate["typed_v120_persistence_promoted"] is False
     assert candidate["strategy_dependency_allowed"] is False
     assert candidate["broker_network_capability_allowed"] is False
+    assert candidate["market_data_dependency_allowed"] is False
     assert candidate["order_write_capability_allowed"] is False
+    assert candidate["runtime_migration_authority_allowed"] is False
     assert candidate["production_or_live_promotion_allowed"] is False
 
     blockers = {item["id"]: item for item in status["current_blockers"]}
-    assert "P1-DATABASE-RUNTIME-ROLE" not in blockers
-    assert "P1-APPEND-ONLY-TRUNCATE-HARDENING" not in blockers
+    assert "P1-C2A3-PERSISTENCE-CONTRACT-ISOLATION" not in blockers
     assert blockers["P1-V107-V109-APPEND-ONLY-TRUNCATE-HARDENING"]["tracking_issue"] == 109
-    assert blockers["P1-C2A3-PERSISTENCE-CONTRACT-ISOLATION"]["tracking_issue"] == 119
+    assert blockers["P1-C2A4-ACTIVE-EXCURSION-CAS-ISOLATION"]["tracking_issue"] == 122
 
 
 def test_governance_gap_remains_explicit() -> None:
