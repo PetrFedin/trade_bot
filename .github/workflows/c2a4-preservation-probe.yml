@@ -1,0 +1,41 @@
+name: c2a4-preservation-probe
+
+on:
+  push:
+    branches:
+      - chore/c2a4-preservation-probe
+
+permissions:
+  contents: read
+
+jobs:
+  hash-source:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout probe branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 1
+
+      - name: Hash historical C2A4 source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha=84b9965e5128562c49620c6164afe5f43ca343f2
+          git fetch --no-tags --depth=1 origin "$source_sha"
+          files=(
+            app/execution/bybit_demo_postgres_excursion_store.py
+            app/execution/bybit_demo_excursion_store.py
+            app/execution/bybit_demo_excursion_tracker.py
+            tests/test_bybit_demo_postgres_runtime_state.py
+          )
+          for path in "${files[@]}"; do
+            out="$RUNNER_TEMP/$(basename "$path")"
+            git show "$source_sha:$path" > "$out"
+            echo "FILE=$path"
+            echo "GIT_BLOB=$(git rev-parse "$source_sha:$path")"
+            echo "SHA256=$(sha256sum "$out" | cut -d ' ' -f 1)"
+            echo "IMPORTS_BEGIN"
+            grep -E '^(from app\.|import app\.)' "$out" || true
+            echo "IMPORTS_END"
+          done
