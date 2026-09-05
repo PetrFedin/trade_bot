@@ -169,7 +169,10 @@ def excursion_revision_v119(
     state: BybitDemoExcursionStateV119 | dict[str, Any],
 ) -> str:
     validate_demo_order_link_v119(entry_order_link_id)
-    payload = encode_excursion_state_v119(state) if isinstance(state, BybitDemoExcursionStateV119) else state
+    if isinstance(state, BybitDemoExcursionStateV119):
+        payload = encode_excursion_state_v119(state)
+    else:
+        payload = state
     decoded = decode_excursion_state_v119(payload)
     canonical_payload = encode_excursion_state_v119(decoded)
     canonical = canonical_json_v119(
