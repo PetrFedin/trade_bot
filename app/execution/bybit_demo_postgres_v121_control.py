@@ -102,7 +102,10 @@ class PostgresBybitDemoControlJournalReaderV121:
                     cursor.execute("SET TRANSACTION READ ONLY")
                     readiness = _journal_readiness(cursor)
                     if readiness is not None:
-                        raise RuntimeError(f"Bybit Demo v121 control journal is not ready:{readiness}")
+                        raise RuntimeError(
+                            "Bybit Demo v121 control journal is not ready:"
+                            f"{readiness}"
+                        )
                     row = cursor.execute(_SELECT_LATEST_SQL).fetchone()
         return None if row is None else BybitDemoControlEventV121.from_db_row(row)
 
@@ -120,7 +123,10 @@ class PostgresBybitDemoControlJournalReaderV121:
                     cursor.execute("SET TRANSACTION READ ONLY")
                     readiness = _journal_readiness(cursor)
                     if readiness is not None:
-                        raise RuntimeError(f"Bybit Demo v121 control journal is not ready:{readiness}")
+                        raise RuntimeError(
+                            "Bybit Demo v121 control journal is not ready:"
+                            f"{readiness}"
+                        )
                     row = cursor.execute(_SELECT_EVENT_SQL, (event_id,)).fetchone()
         if row is None:
             raise FileNotFoundError("Bybit Demo v121 control event does not exist")
