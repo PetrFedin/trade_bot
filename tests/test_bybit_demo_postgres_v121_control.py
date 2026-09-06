@@ -271,6 +271,9 @@ def test_tampered_arm_row_fails_rehydration_and_decision_halts(
     observed_at = _NOW + timedelta(seconds=9)
     created_at = _NOW + timedelta(seconds=10)
     armed_until = created_at + timedelta(seconds=120)
+    tampered_event_id = hashlib.sha256(
+        f"c2b0-tamper:{uuid.uuid4().hex}".encode("utf-8")
+    ).hexdigest()
     with psycopg.connect(DSN, autocommit=True) as connection:
         connection.execute(
             """INSERT INTO astra_bybit_demo_control_event_v121(
@@ -283,7 +286,7 @@ def test_tampered_arm_row_fails_rehydration_and_decision_halts(
                'READY_FOR_MANUAL_OPERATOR_APPROVAL',%s,%s,%s,%s,%s,
                true,false,false)""",
             (
-                "b" * 64,
+                tampered_event_id,
                 f"tamper-{uuid.uuid4().hex}",
                 "tampered preflight hash",
                 "a" * 64,
