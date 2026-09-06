@@ -1,0 +1,21 @@
+name: c2a4-release-identity-probe
+
+on:
+  push:
+    branches:
+      - feat/c2a4-v119-excursion-cas
+
+permissions:
+  contents: read
+
+jobs:
+  hash-workflow:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Hash canonical security workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum .github/workflows/canonical-security-regression.yml
