@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import uuid
 from dataclasses import dataclass
@@ -38,9 +39,48 @@ if not DSN:
 _MIGRATION_001 = Path("migrations/v121/001_bybit_demo_control_plane.sql")
 _MIGRATION_002 = Path("migrations/v121/002_bybit_demo_control_truncate_hardening.sql")
 _FROZEN_001_SHA256 = "a03a738d7036c59338ef2ebe085a28a266fd0b440d97ca8e3fae59379efe8e21"
-_CANONICAL_PREFLIGHT = (
-    '{"account":"demo","schema":"CONNECTED_PREFLIGHT_V1",'
-    '"status":"READY_FOR_MANUAL_OPERATOR_APPROVAL"}'
+_PREFLIGHT_PAYLOAD = {
+    "schema": "BYBIT_DEMO_CONNECTED_PREFLIGHT_V1",
+    "status": "READY_FOR_MANUAL_OPERATOR_APPROVAL",
+    "passed": True,
+    "reasons": [],
+    "account": {
+        "margin_mode": "REGULAR_MARGIN",
+        "unified_margin_status": 1,
+        "positive_equity": True,
+        "positive_available_balance": True,
+        "usdt_wallet_visible": True,
+        "open_position_count": 0,
+        "open_position_symbols": [],
+        "open_order_count": 0,
+        "open_order_symbols": [],
+    },
+    "credential": {
+        "read_only_api_key_verified": True,
+        "ip_binding_present": True,
+    },
+    "durable_state": {
+        "active_checkpoint_present": False,
+        "active_checkpoint_symbol": None,
+        "runtime_lease_present": False,
+        "required_relations_present": True,
+        "append_only_triggers_present": True,
+        "approval_record_count": 0,
+        "provenance_record_count": 0,
+        "terminal_record_count": 0,
+    },
+    "demo_host_verified": True,
+    "credentials_verified_by_authenticated_reads": True,
+    "preflight_only": True,
+    "trade_actionable": False,
+    "order_writes_supported": False,
+    "live_mainnet_order_routing_allowed": False,
+}
+_CANONICAL_PREFLIGHT = json.dumps(
+    _PREFLIGHT_PAYLOAD,
+    sort_keys=True,
+    separators=(",", ":"),
+    ensure_ascii=True,
 )
 _NOW = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
 
@@ -231,6 +271,59 @@ def test_reader_writer_cannot_mutate_or_use_ddl(control_roles: ControlRoleFixtur
         ):
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 connection.execute(statement)
+
+
+def test_wrong_schema_same_named_trigger_fails_closed(
+    control_roles: ControlRoleFixture,
+) -> None:
+    shadow_schema = f"c2b0_shadow_{uuid.uuid4().hex[:10]}"
+    try:
+        with psycopg.connect(DSN, autocommit=True) as connection:
+            connection.execute(
+                sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(shadow_schema))
+            )
+            connection.execute(
+                sql.SQL(
+                    """CREATE FUNCTION {}.astra_reject_bybit_demo_control_mutation_v121()
+                       RETURNS trigger LANGUAGE plpgsql AS $$
+                       BEGIN
+                           RETURN NULL;
+                       END;
+                       $$"""
+                ).format(sql.Identifier(shadow_schema))
+            )
+            connection.execute(
+                """DROP TRIGGER astra_bybit_demo_control_no_truncate_v121
+                   ON astra_bybit_demo_control_event_v121"""
+            )
+            connection.execute(
+                sql.SQL(
+                    """CREATE TRIGGER astra_bybit_demo_control_no_truncate_v121
+                       BEFORE TRUNCATE ON astra_bybit_demo_control_event_v121
+                       FOR EACH STATEMENT EXECUTE FUNCTION
+                       {}.astra_reject_bybit_demo_control_mutation_v121()"""
+                ).format(sql.Identifier(shadow_schema))
+            )
+
+        reader = PostgresBybitDemoControlJournalReaderV121(control_roles.reader_dsn)
+        decision = reader.read_decision(now=_NOW + timedelta(seconds=3))
+        assert decision.mode is BybitDemoControlModeV121.HALTED
+        assert decision.new_entry_allowed is False
+        assert decision.reasons == ("DEMO_CONTROL_TRUNCATE_TRIGGER_NOT_READY",)
+
+        with pytest.raises(ValueError, match="TRUNCATE hardening trigger is not ready"):
+            PostgresBybitDemoControlJournalRolePolicyV121(DSN).inspect(
+                reader_role=control_roles.reader_role,
+                writer_role=control_roles.writer_role,
+            )
+    finally:
+        with psycopg.connect(DSN, autocommit=True) as connection:
+            connection.execute(_MIGRATION_002.read_text(encoding="utf-8"))
+            connection.execute(
+                sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(
+                    sql.Identifier(shadow_schema)
+                )
+            )
 
 
 def test_owner_update_delete_and_truncate_are_physically_rejected(v121_schema: None) -> None:
