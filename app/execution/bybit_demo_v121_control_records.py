@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Any, Mapping
+from typing import Any
 
 _READY_STATUS = "READY_FOR_MANUAL_OPERATOR_APPROVAL"
 _MAX_ARM_TTL = timedelta(minutes=5)
@@ -173,7 +174,12 @@ class BybitDemoControlEventV121:
             raise ValueError("Bybit Demo v121 control operator metadata is invalid")
         if not isinstance(row["created_at"], datetime):
             raise ValueError("Bybit Demo v121 control created_at is invalid")
-        for key in ("immutable_record", "order_submission_supported", "live_mainnet_order_routing_allowed"):
+        safety_keys = (
+            "immutable_record",
+            "order_submission_supported",
+            "live_mainnet_order_routing_allowed",
+        )
+        for key in safety_keys:
             if not isinstance(row[key], bool):
                 raise ValueError(f"Bybit Demo v121 control {key} marker is invalid")
         return cls(
