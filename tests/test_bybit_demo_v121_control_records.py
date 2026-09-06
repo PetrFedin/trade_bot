@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -15,10 +17,53 @@ from app.execution.bybit_demo_v121_control_records import (
 )
 
 _NOW = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
-_CANONICAL_PREFLIGHT = (
-    '{"account":"demo","schema":"CONNECTED_PREFLIGHT_V1",'
-    '"status":"READY_FOR_MANUAL_OPERATOR_APPROVAL"}'
+_PREFLIGHT_PAYLOAD = {
+    "schema": "BYBIT_DEMO_CONNECTED_PREFLIGHT_V1",
+    "status": "READY_FOR_MANUAL_OPERATOR_APPROVAL",
+    "passed": True,
+    "reasons": [],
+    "account": {
+        "margin_mode": "REGULAR_MARGIN",
+        "unified_margin_status": 1,
+        "positive_equity": True,
+        "positive_available_balance": True,
+        "usdt_wallet_visible": True,
+        "open_position_count": 0,
+        "open_position_symbols": [],
+        "open_order_count": 0,
+        "open_order_symbols": [],
+    },
+    "credential": {
+        "read_only_api_key_verified": True,
+        "ip_binding_present": True,
+    },
+    "durable_state": {
+        "active_checkpoint_present": False,
+        "active_checkpoint_symbol": None,
+        "runtime_lease_present": False,
+        "required_relations_present": True,
+        "append_only_triggers_present": True,
+        "approval_record_count": 0,
+        "provenance_record_count": 0,
+        "terminal_record_count": 0,
+    },
+    "demo_host_verified": True,
+    "credentials_verified_by_authenticated_reads": True,
+    "preflight_only": True,
+    "trade_actionable": False,
+    "order_writes_supported": False,
+    "live_mainnet_order_routing_allowed": False,
+}
+_CANONICAL_PREFLIGHT = json.dumps(
+    _PREFLIGHT_PAYLOAD,
+    sort_keys=True,
+    separators=(",", ":"),
+    ensure_ascii=True,
 )
+
+
+def _canonical(payload: dict[str, object]) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
 def test_arm_event_preserves_historical_canonical_event_id_formula() -> None:
@@ -33,10 +78,10 @@ def test_arm_event_preserves_historical_canonical_event_id_formula() -> None:
 
     assert event.event_kind is BybitDemoControlEventKindV121.ARM_NEW_ENTRIES
     assert event.preflight_record_sha256 == (
-        "91f491774d39b1f299c1260082fc09ba67af26c214be240aa0e0bf79e2f5b744"
+        "eee67955e50e92a5b1106a233fe82a0b32a3f58fb43e62391fd685130f0239f5"
     )
     assert event.event_id == (
-        "ecf36caeede9e8f070f61cda391e2dfaa5507253e2e2996f858e3b92eca0195f"
+        "fcaa651bc694631fc7911d444018538e6b8454ae9c3270296ca6993f8e212495"
     )
     assert event.armed_until == _NOW + timedelta(seconds=120)
     assert event.order_submission_supported is False
@@ -59,10 +104,7 @@ def test_halt_event_preserves_historical_canonical_event_id_formula() -> None:
 
 
 def test_arm_rejects_noncanonical_or_tampered_evidence() -> None:
-    noncanonical = (
-        '{"status":"READY_FOR_MANUAL_OPERATOR_APPROVAL", '
-        '"schema":"CONNECTED_PREFLIGHT_V1","account":"demo"}'
-    )
+    noncanonical = json.dumps(_PREFLIGHT_PAYLOAD, sort_keys=False)
     with pytest.raises(ValueError, match="not canonical"):
         create_arm_control_event_v121(
             operator_id="operator-1",
@@ -81,6 +123,61 @@ def test_arm_rejects_noncanonical_or_tampered_evidence() -> None:
     )
     with pytest.raises(ValueError, match="audit hash mismatch"):
         replace(event, preflight_record_sha256="a" * 64)
+
+
+def test_arm_neutral_evidence_preserves_historical_safety_invariants() -> None:
+    with pytest.raises(ValueError, match="keys are invalid"):
+        create_arm_control_event_v121(
+            operator_id="operator-1",
+            reason="manual demo approval",
+            preflight_canonical_record="{}",
+            now=_NOW,
+            preflight_observed_at=_NOW,
+        )
+
+    no_equity = copy.deepcopy(_PREFLIGHT_PAYLOAD)
+    no_equity["account"]["positive_equity"] = False
+    with pytest.raises(ValueError, match="positive Demo capital"):
+        create_arm_control_event_v121(
+            operator_id="operator-1",
+            reason="manual demo approval",
+            preflight_canonical_record=_canonical(no_equity),
+            now=_NOW,
+            preflight_observed_at=_NOW,
+        )
+
+    writable_key = copy.deepcopy(_PREFLIGHT_PAYLOAD)
+    writable_key["credential"]["read_only_api_key_verified"] = False
+    with pytest.raises(ValueError, match="read-only key"):
+        create_arm_control_event_v121(
+            operator_id="operator-1",
+            reason="manual demo approval",
+            preflight_canonical_record=_canonical(writable_key),
+            now=_NOW,
+            preflight_observed_at=_NOW,
+        )
+
+    busy_runtime = copy.deepcopy(_PREFLIGHT_PAYLOAD)
+    busy_runtime["durable_state"]["runtime_lease_present"] = True
+    with pytest.raises(ValueError, match="idle durable runtime"):
+        create_arm_control_event_v121(
+            operator_id="operator-1",
+            reason="manual demo approval",
+            preflight_canonical_record=_canonical(busy_runtime),
+            now=_NOW,
+            preflight_observed_at=_NOW,
+        )
+
+    order_capable = copy.deepcopy(_PREFLIGHT_PAYLOAD)
+    order_capable["order_writes_supported"] = True
+    with pytest.raises(ValueError, match="order-writing preflight"):
+        create_arm_control_event_v121(
+            operator_id="operator-1",
+            reason="manual demo approval",
+            preflight_canonical_record=_canonical(order_capable),
+            now=_NOW,
+            preflight_observed_at=_NOW,
+        )
 
 
 def test_arm_ttl_age_future_skew_and_text_bounds_fail_closed() -> None:
