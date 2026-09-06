@@ -9,9 +9,55 @@ from enum import StrEnum
 from typing import Any
 
 _READY_STATUS = "READY_FOR_MANUAL_OPERATOR_APPROVAL"
+_PREFLIGHT_SCHEMA = "BYBIT_DEMO_CONNECTED_PREFLIGHT_V1"
 _MAX_ARM_TTL = timedelta(minutes=5)
 _MAX_PREFLIGHT_AGE = timedelta(seconds=30)
 _MAX_FUTURE_CLOCK_SKEW = timedelta(seconds=5)
+_PREFLIGHT_TOP_LEVEL_KEYS = frozenset(
+    {
+        "schema",
+        "status",
+        "passed",
+        "reasons",
+        "account",
+        "credential",
+        "durable_state",
+        "demo_host_verified",
+        "credentials_verified_by_authenticated_reads",
+        "preflight_only",
+        "trade_actionable",
+        "order_writes_supported",
+        "live_mainnet_order_routing_allowed",
+    }
+)
+_PREFLIGHT_ACCOUNT_KEYS = frozenset(
+    {
+        "margin_mode",
+        "unified_margin_status",
+        "positive_equity",
+        "positive_available_balance",
+        "usdt_wallet_visible",
+        "open_position_count",
+        "open_position_symbols",
+        "open_order_count",
+        "open_order_symbols",
+    }
+)
+_PREFLIGHT_CREDENTIAL_KEYS = frozenset(
+    {"read_only_api_key_verified", "ip_binding_present"}
+)
+_PREFLIGHT_DURABLE_KEYS = frozenset(
+    {
+        "active_checkpoint_present",
+        "active_checkpoint_symbol",
+        "runtime_lease_present",
+        "required_relations_present",
+        "append_only_triggers_present",
+        "approval_record_count",
+        "provenance_record_count",
+        "terminal_record_count",
+    }
+)
 
 
 class BybitDemoControlEventKindV121(StrEnum):
@@ -75,9 +121,7 @@ class BybitDemoControlEventV121:
             raise ValueError("Bybit Demo v121 ARM preflight SHA-256 is invalid")
         if not isinstance(self.preflight_canonical_record, str):
             raise ValueError("Bybit Demo v121 ARM canonical preflight is missing")
-        canonical = canonicalize_control_evidence_v121(self.preflight_canonical_record)
-        if canonical != self.preflight_canonical_record:
-            raise ValueError("Bybit Demo v121 ARM preflight JSON is not canonical")
+        canonical = validate_arm_preflight_evidence_v121(self.preflight_canonical_record)
         if _sha256_text(canonical) != self.preflight_record_sha256:
             raise ValueError("Bybit Demo v121 ARM preflight audit hash mismatch")
         if self.preflight_observed_at is None or self.armed_until is None:
@@ -262,9 +306,7 @@ def create_arm_control_event_v121(
     if observed_at > created_at:
         observed_at = created_at
 
-    canonical = canonicalize_control_evidence_v121(preflight_canonical_record)
-    if canonical != preflight_canonical_record:
-        raise ValueError("Bybit Demo v121 preflight JSON is not canonical")
+    canonical = validate_arm_preflight_evidence_v121(preflight_canonical_record)
     preflight_sha = _sha256_text(canonical)
     armed_until = created_at + ttl
     identity = {
@@ -387,6 +429,123 @@ def canonicalize_control_evidence_v121(value: str) -> str:
     return _canonical_json(decoded)
 
 
+def validate_arm_preflight_evidence_v121(value: str) -> str:
+    canonical = canonicalize_control_evidence_v121(value)
+    if canonical != value:
+        raise ValueError("Bybit Demo v121 ARM preflight JSON is not canonical")
+    decoded = json.loads(canonical)
+    _require_exact_object_keys(
+        decoded,
+        _PREFLIGHT_TOP_LEVEL_KEYS,
+        "preflight evidence",
+    )
+    if decoded["schema"] != _PREFLIGHT_SCHEMA:
+        raise ValueError("Bybit Demo v121 ARM preflight schema is invalid")
+    if decoded["status"] != _READY_STATUS or decoded["passed"] is not True:
+        raise ValueError("Bybit Demo v121 ARM requires clean connected preflight")
+    reasons = decoded["reasons"]
+    if not isinstance(reasons, list) or reasons or any(not isinstance(item, str) for item in reasons):
+        raise ValueError("Bybit Demo v121 ARM rejected preflight reasons")
+
+    account = _require_exact_object(
+        decoded["account"],
+        _PREFLIGHT_ACCOUNT_KEYS,
+        "preflight account",
+    )
+    margin_mode = account["margin_mode"]
+    if not isinstance(margin_mode, str) or not margin_mode.strip():
+        raise ValueError("Bybit Demo v121 ARM preflight margin mode is invalid")
+    _require_nonnegative_int(account["unified_margin_status"], "unified margin status")
+    positive_equity = _require_bool(account["positive_equity"], "positive equity")
+    positive_balance = _require_bool(
+        account["positive_available_balance"],
+        "positive available balance",
+    )
+    _require_bool(account["usdt_wallet_visible"], "USDT wallet visibility")
+    open_positions = _require_nonnegative_int(
+        account["open_position_count"],
+        "open position count",
+    )
+    position_symbols = _require_string_list(
+        account["open_position_symbols"],
+        "open position symbols",
+    )
+    open_orders = _require_nonnegative_int(account["open_order_count"], "open order count")
+    order_symbols = _require_string_list(
+        account["open_order_symbols"],
+        "open order symbols",
+    )
+    if not positive_equity or not positive_balance:
+        raise ValueError("Bybit Demo v121 ARM requires positive Demo capital")
+    if open_positions != 0 or position_symbols:
+        raise ValueError("Bybit Demo v121 ARM requires flat exchange position state")
+    if open_orders != 0 or order_symbols:
+        raise ValueError("Bybit Demo v121 ARM requires no open exchange orders")
+
+    credential = _require_exact_object(
+        decoded["credential"],
+        _PREFLIGHT_CREDENTIAL_KEYS,
+        "preflight credential",
+    )
+    if not _require_bool(
+        credential["read_only_api_key_verified"],
+        "read-only API key verification",
+    ):
+        raise ValueError("Bybit Demo v121 ARM requires verified read-only key")
+    _require_bool(credential["ip_binding_present"], "API key IP binding")
+
+    durable = _require_exact_object(
+        decoded["durable_state"],
+        _PREFLIGHT_DURABLE_KEYS,
+        "preflight durable state",
+    )
+    active_checkpoint = _require_bool(
+        durable["active_checkpoint_present"],
+        "active checkpoint presence",
+    )
+    active_symbol = durable["active_checkpoint_symbol"]
+    if active_symbol is not None and not isinstance(active_symbol, str):
+        raise ValueError("Bybit Demo v121 ARM active checkpoint symbol is invalid")
+    runtime_lease = _require_bool(
+        durable["runtime_lease_present"],
+        "runtime lease presence",
+    )
+    relations_ready = _require_bool(
+        durable["required_relations_present"],
+        "required relation readiness",
+    )
+    triggers_ready = _require_bool(
+        durable["append_only_triggers_present"],
+        "append-only trigger readiness",
+    )
+    for key in ("approval_record_count", "provenance_record_count", "terminal_record_count"):
+        _require_nonnegative_int(durable[key], key.replace("_", " "))
+    if active_checkpoint or active_symbol is not None or runtime_lease:
+        raise ValueError("Bybit Demo v121 ARM requires idle durable runtime")
+    if not relations_ready or not triggers_ready:
+        raise ValueError("Bybit Demo v121 ARM requires verified v119/v120 schema")
+
+    if not _require_bool(decoded["demo_host_verified"], "Demo host verification"):
+        raise ValueError("Bybit Demo v121 ARM requires verified Demo host")
+    if not _require_bool(
+        decoded["credentials_verified_by_authenticated_reads"],
+        "authenticated credential verification",
+    ):
+        raise ValueError("Bybit Demo v121 ARM requires authenticated read verification")
+    if not _require_bool(decoded["preflight_only"], "preflight-only marker"):
+        raise ValueError("Bybit Demo v121 ARM requires preflight-only evidence")
+    if _require_bool(decoded["trade_actionable"], "trade-actionable marker"):
+        raise ValueError("Bybit Demo v121 ARM rejected actionable preflight")
+    if _require_bool(decoded["order_writes_supported"], "order-write marker"):
+        raise ValueError("Bybit Demo v121 ARM rejected order-writing preflight")
+    if _require_bool(
+        decoded["live_mainnet_order_routing_allowed"],
+        "live/mainnet routing marker",
+    ):
+        raise ValueError("Bybit Demo v121 ARM rejected mainnet-capable preflight")
+    return canonical
+
+
 def _halted_decision(
     reason: str,
     *,
@@ -437,12 +596,42 @@ def _optional_isoformat(value: datetime | None) -> str | None:
     return None if value is None else value.isoformat()
 
 
+def _require_exact_object(value: object, keys: frozenset[str], label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"Bybit Demo v121 ARM {label} is invalid")
+    _require_exact_object_keys(value, keys, label)
+    return value
+
+
+def _require_exact_object_keys(value: Mapping[str, object], keys: frozenset[str], label: str) -> None:
+    if set(value) != keys:
+        raise ValueError(f"Bybit Demo v121 ARM {label} keys are invalid")
+
+
+def _require_bool(value: object, label: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"Bybit Demo v121 ARM {label} is invalid")
+    return value
+
+
+def _require_nonnegative_int(value: object, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"Bybit Demo v121 ARM {label} is invalid")
+    return value
+
+
+def _require_string_list(value: object, label: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ValueError(f"Bybit Demo v121 ARM {label} is invalid")
+    return tuple(value)
+
+
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
 def _sha256_text(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return hashlib.sha256(value.encode()).hexdigest()
 
 
 def _sha256_json(value: Any) -> str:
@@ -465,4 +654,5 @@ __all__ = [
     "create_arm_control_event_v121",
     "create_halt_control_event_v121",
     "decision_from_control_event_v121",
+    "validate_arm_preflight_evidence_v121",
 ]
