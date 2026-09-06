@@ -1,0 +1,38 @@
+name: c2b0-preservation-probe
+
+on:
+  push:
+    branches:
+      - feat/c2b0-v121-control-journal
+
+permissions:
+  contents: read
+
+jobs:
+  preserve:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout current branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: current
+      - name: Checkout historical PR 80 head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: f40d9dee0baadd254a6fe7425b117be709088f9d
+          path: historical
+      - name: Record exact historical blobs and SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in \
+            migrations/v121/001_bybit_demo_control_plane.sql \
+            app/execution/bybit_demo_control_plane.py \
+            tests/test_bybit_demo_control_plane.py \
+            tests/test_bybit_demo_control_plane_postgres.py; do
+            echo "PATH $path"
+            printf 'GIT_BLOB '
+            git -C historical hash-object "$path"
+            printf 'SHA256 '
+            sha256sum "historical/$path" | awk '{print $1}'
+          done
