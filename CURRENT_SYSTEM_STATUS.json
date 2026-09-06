@@ -1,6 +1,6 @@
 {
   "schema_version": "current-system-status-v2",
-  "observed_at": "2026-09-05",
+  "observed_at": "2026-09-06",
   "authority": {
     "human_readable": "docs/E2E_MATRIX.md",
     "machine_readable": "CURRENT_SYSTEM_STATUS.json",
@@ -9,31 +9,23 @@
   },
   "canonical_main": {
     "branch": "main",
-    "last_qualified_sha": "090f34b11a877ce24f8a15a74b296e287aae3918",
-    "qualification_subject": "C2A3 strategy-free v120 persistence merge SHA; this is infrastructure/persistence qualification only and does not promote trading capability",
+    "last_qualified_sha": "043fc3003b055dc1e953854798627048d3f26960",
+    "qualification_subject": "C2A4 strategy-free v119 active-excursion checkpoint/CAS persistence merge SHA; this is infrastructure/persistence qualification only and does not promote trading capability",
     "engineering_baseline_status": "PASS",
     "qualification": {
       "post_merge_workflows_completed": 11,
       "post_merge_workflows_success": 11,
-      "canonical_security_regression_run_id": 33988217105,
-      "release_provenance_run_id": 33988217099,
-      "external_roundtrip_run_id": 33988217077,
-      "stable_runtime_import_boundary_run_id": 33988217118,
-      "product_composition_run_id": 33988217110,
-      "stable_core_quality_run_id": 33988217080,
-      "release_governance_run_id": 33988217102,
-      "canonical_deployment_regression_run_id": 33988217134,
-      "ci_action_supply_chain_policy_run_id": 33988217100,
-      "compatibility_release_audits_run_id": 33988217089,
-      "schema109_remote_signer_attestation_run_id": 33988217103,
-      "focused_security_regression_result": "271 passed",
-      "full_regression_result": "1112 passed, 2 dedicated fleet-deployment skips",
+      "canonical_security_regression_run_id": 34039454929,
+      "release_provenance_run_id": 34039454985,
+      "focused_security_regression_result": "282 passed",
+      "full_regression_result": "1124 passed, 2 dedicated fleet-deployment skips",
       "postgres_full_regression_enabled": true,
       "postgres_version": "16",
       "security_migration_lineage": ["v107", "v108", "v109", "v119", "v120/001", "v120/002"],
       "postgres_operational_foundation": [
         "v119 runtime lease",
         "v119 least-privilege runtime role",
+        "v119 strategy-free active-excursion checkpoint/CAS persistence",
         "v120 byte-preserved audit schema",
         "v120 physical TRUNCATE hardening",
         "v120 SELECT/INSERT-only audit-table runtime role",
@@ -41,7 +33,7 @@
       ],
       "release_attestation": "SLSA_AND_SBOM_SIGNED_PASS"
     },
-    "note": "This proves the covered deterministic engineering, PostgreSQL schema/security, strategy-free v120 persistence and release baseline on the C2A3 merge SHA. It does not prove broker connectivity, Demo execution, strategy profitability, soak or live readiness."
+    "note": "This proves the covered deterministic engineering, PostgreSQL schema/security, strategy-free v119/v120 persistence and release baseline on the C2A4 merge SHA. It does not prove broker connectivity, Demo execution, strategy profitability, soak or live readiness."
   },
   "canonical_operational_foundation": {
     "id": "C2A0",
@@ -131,18 +123,54 @@
     "production_or_live_promotion_allowed": false,
     "note": "C2A3 canonicalizes immutable persistence-safe v120 typed records and SELECT/INSERT PostgreSQL adapters only. Historical trading-derived builders remain excluded."
   },
-  "c2a4_candidate": {
+  "canonical_v119_excursion_persistence": {
     "id": "C2A4",
     "component": "STRATEGY_FREE_V119_ACTIVE_EXCURSION_CAS_PERSISTENCE",
-    "status": "IN_PROGRESS",
+    "status": "EXTRACTED_AND_QUALIFIED",
     "tracking_issue": 122,
     "source_pull_request": 76,
     "source_sha": "84b9965e5128562c49620c6164afe5f43ca343f2",
-    "purpose": "Extract only neutral active-excursion checkpoint state and PostgreSQL compare-and-swap persistence from historical v119 code while excluding strategy, broker, market-data and monitor builders.",
+    "replacement_pull_request": 124,
+    "pre_merge_head_sha": "00a0deffa954c70e44fb70483556746363228535",
+    "merge_sha": "043fc3003b055dc1e953854798627048d3f26960",
+    "neutral_immutable_record_contract": true,
+    "deterministic_revision_sha256": true,
+    "postgres_runtime_role_reused": true,
+    "runtime_table_privileges": ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    "runtime_migration_authority_allowed": false,
+    "postgresql_16_proven": true,
+    "pre_merge_exact_head_workflows_success": 10,
+    "post_merge_workflows_success": 11,
+    "post_merge_canonical_security_run_id": 34039454929,
+    "post_merge_release_provenance_run_id": 34039454985,
+    "focused_security_regression_result": "282 passed",
+    "full_regression_result": "1124 passed, 2 dedicated fleet-deployment skips",
+    "runtime_truncate_alter_drop_rejected": true,
+    "strategy_dependency": false,
+    "broker_network_capability": false,
+    "market_data_dependency": false,
+    "order_write_capability": false,
+    "arm_halt_capability": false,
+    "demo_broker_proven": false,
+    "production_or_live_promotion_allowed": false,
+    "note": "C2A4 canonicalizes only neutral active-excursion state and singleton initialize/load/CAS-save/CAS-clear PostgreSQL persistence. Historical tracker, broker, market-data and strategy builders remain excluded."
+  },
+  "c2b0_candidate": {
+    "id": "C2B0",
+    "component": "STRATEGY_FREE_V121_ARM_HALT_JOURNAL_AND_FAIL_CLOSED_CONTROL_STATE",
+    "status": "PLANNED_AUDIT_IN_PROGRESS",
+    "tracking_issue": 128,
+    "primary_source_pull_request": 80,
+    "primary_source_sha": "f40d9dee0baadd254a6fe7425b117be709088f9d",
+    "hardening_source_pull_request": 88,
+    "hardening_source_sha": "d40e3e9b6740896cd5317c01eb9f482cb238b53f",
+    "frozen_v121_001_git_blob": "cae1dd432050f235b94d230b2e46c862d38b58c6",
+    "goal": "Preserve v121 ARM/HALT journal and tamper-evident fail-closed control-state semantics while excluding connected preflight acquisition, broker/order guard, session start, v122 risk and v123 lease recovery.",
+    "connected_preflight_dependency_allowed": false,
     "strategy_dependency_allowed": false,
     "broker_network_capability_allowed": false,
-    "market_data_dependency_allowed": false,
     "order_write_capability_allowed": false,
+    "automatic_arm_allowed": false,
     "runtime_migration_authority_allowed": false,
     "demo_broker_proven": false,
     "production_or_live_promotion_allowed": false
@@ -171,9 +199,9 @@
     "blind_merge_allowed": false,
     "blind_close_allowed": false,
     "branch_deletion_allowed": false,
-    "completed_gate": "C2A3_STRATEGY_FREE_V120_PERSISTENCE_RECORD_CONTRACTS",
-    "next_gate": "C2A4_STRATEGY_FREE_V119_ACTIVE_EXCURSION_CAS_PERSISTENCE",
-    "next_gate_issue": 122,
+    "completed_gate": "C2A4_STRATEGY_FREE_V119_ACTIVE_EXCURSION_CAS_PERSISTENCE",
+    "next_gate": "C2B0_STRATEGY_FREE_V121_ARM_HALT_JOURNAL_AND_FAIL_CLOSED_CONTROL_STATE",
+    "next_gate_issue": 128,
     "completed_database_security_issue": 107
   },
   "strategy": {
@@ -216,9 +244,16 @@
       "id": "P1-CONSOLIDATION",
       "severity": "P1",
       "status": "IN_PROGRESS",
-      "reason": "C2A0 through C2A3 are canonical, but the v119 active-excursion CAS primitive and later operational control layers still require bounded ancestry-free extraction.",
+      "reason": "C2A0 through C2A4 are canonical, but v121 control state, v122 session risk and later supervisor/recovery layers still require bounded ancestry-free extraction.",
       "tracking_issue": 104,
-      "next_gate_issue": 122
+      "next_gate_issue": 128
+    },
+    {
+      "id": "P1-C2B0-V121-CONTROL-STATE",
+      "severity": "P1",
+      "status": "IN_PROGRESS",
+      "reason": "Historical v121 ARM/HALT control state is mixed with connected-preflight and order-client guard code; only a neutral tamper-evident journal/evaluator may be extracted first.",
+      "tracking_issue": 128
     },
     {
       "id": "P1-V107-V109-APPEND-ONLY-TRUNCATE-HARDENING",
@@ -226,13 +261,6 @@
       "status": "IN_PROGRESS",
       "reason": "C2A2 closes the v120 TRUNCATE gap. Canonical v107-v109 event-table physical TRUNCATE hardening remains tracked separately.",
       "tracking_issue": 109
-    },
-    {
-      "id": "P1-C2A4-ACTIVE-EXCURSION-CAS-ISOLATION",
-      "severity": "P1",
-      "status": "IN_PROGRESS",
-      "reason": "Historical v119 active-excursion persistence is coupled to strategy, broker, market-data and trade-monitor types; only a neutral checkpoint/CAS layer may be extracted.",
-      "tracking_issue": 122
     },
     {
       "id": "STRATEGY-EDGE",
