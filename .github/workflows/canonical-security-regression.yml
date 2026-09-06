@@ -319,6 +319,7 @@ jobs:
               JOIN pg_class c ON c.oid=t.tgrelid
               JOIN pg_namespace n ON n.oid=c.relnamespace
               JOIN pg_proc p ON p.oid=t.tgfoid
+              JOIN pg_namespace pn ON pn.oid=p.pronamespace
              WHERE n.nspname='public'
                AND c.relname='astra_bybit_demo_control_event_v121'
                AND t.tgname='astra_bybit_demo_control_append_only_v121'
@@ -329,6 +330,7 @@ jobs:
                AND (t.tgtype & 2) = 2
                AND (t.tgtype & 1) = 1
                AND (t.tgtype & 32) = 0
+               AND pn.nspname='public'
                AND p.proname='astra_reject_bybit_demo_control_mutation_v121';
             IF v121_append_count <> 1
             THEN RAISE EXCEPTION 'V121 append-only UPDATE/DELETE trigger mismatch'; END IF;
@@ -338,6 +340,7 @@ jobs:
               JOIN pg_class c ON c.oid=t.tgrelid
               JOIN pg_namespace n ON n.oid=c.relnamespace
               JOIN pg_proc p ON p.oid=t.tgfoid
+              JOIN pg_namespace pn ON pn.oid=p.pronamespace
              WHERE n.nspname='public'
                AND c.relname='astra_bybit_demo_control_event_v121'
                AND t.tgname='astra_bybit_demo_control_no_truncate_v121'
@@ -347,6 +350,7 @@ jobs:
                AND (t.tgtype & 2) = 2
                AND (t.tgtype & 1) = 0
                AND (t.tgtype & 24) = 0
+               AND pn.nspname='public'
                AND p.proname='astra_reject_bybit_demo_control_mutation_v121';
             IF v121_truncate_count <> 1
             THEN RAISE EXCEPTION 'V121 append-only TRUNCATE trigger mismatch'; END IF;
