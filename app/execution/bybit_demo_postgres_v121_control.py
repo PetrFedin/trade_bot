@@ -194,11 +194,13 @@ def _journal_readiness(cursor: Any) -> str | None:
                JOIN pg_class c ON c.oid=t.tgrelid
                JOIN pg_namespace n ON n.oid=c.relnamespace
                JOIN pg_proc p ON p.oid=t.tgfoid
+               JOIN pg_namespace pn ON pn.oid=p.pronamespace
                WHERE n.nspname='public'
                  AND c.relname=%s
                  AND t.tgname=%s
                  AND NOT t.tgisinternal
                  AND t.tgenabled IN ('O','A')
+                 AND pn.nspname='public'
                  AND p.proname=%s
                  AND ((%s AND (t.tgtype & 32)=32 AND (t.tgtype & 1)=0)
                       OR (NOT %s AND (t.tgtype & 8)=8 AND (t.tgtype & 16)=16
