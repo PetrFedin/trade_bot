@@ -21,10 +21,34 @@ _TABLE = "astra_bybit_demo_control_event_v121"
 _APPEND_TRIGGER = "astra_bybit_demo_control_append_only_v121"
 _TRUNCATE_TRIGGER = "astra_bybit_demo_control_no_truncate_v121"
 _MUTATION_FUNCTION = "astra_reject_bybit_demo_control_mutation_v121"
-_SELECT_COLUMNS = """event_id, event_kind, operator_id, reason,
+_SELECT_LATEST_SQL = """SELECT event_id, event_kind, operator_id, reason,
 preflight_status, preflight_record_sha256, preflight_canonical_record,
 preflight_observed_at, armed_until, created_at,
-immutable_record, order_submission_supported, live_mainnet_order_routing_allowed"""
+immutable_record, order_submission_supported, live_mainnet_order_routing_allowed
+FROM astra_bybit_demo_control_event_v121
+ORDER BY event_seq DESC
+LIMIT 1"""
+_SELECT_EVENT_SQL = """SELECT event_id, event_kind, operator_id, reason,
+preflight_status, preflight_record_sha256, preflight_canonical_record,
+preflight_observed_at, armed_until, created_at,
+immutable_record, order_submission_supported, live_mainnet_order_routing_allowed
+FROM astra_bybit_demo_control_event_v121
+WHERE event_id=%s"""
+_INSERT_EVENT_SQL = """INSERT INTO astra_bybit_demo_control_event_v121(
+event_id,
+event_kind,
+operator_id,
+reason,
+preflight_status,
+preflight_record_sha256,
+preflight_canonical_record,
+preflight_observed_at,
+armed_until,
+created_at,
+immutable_record,
+order_submission_supported,
+live_mainnet_order_routing_allowed
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
 
 
 class PostgresBybitDemoControlJournalReaderV121:
@@ -57,12 +81,7 @@ class PostgresBybitDemoControlJournalReaderV121:
                     readiness = _journal_readiness(cursor)
                     if readiness is not None:
                         return _halted(readiness)
-                    row = cursor.execute(
-                        f"""SELECT {_SELECT_COLUMNS}
-                            FROM {_TABLE}
-                            ORDER BY event_seq DESC
-                            LIMIT 1"""
-                    ).fetchone()
+                    row = cursor.execute(_SELECT_LATEST_SQL).fetchone()
         if row is None:
             return decision_from_control_event_v121(None, now=now)
         try:
@@ -84,12 +103,7 @@ class PostgresBybitDemoControlJournalReaderV121:
                     readiness = _journal_readiness(cursor)
                     if readiness is not None:
                         raise RuntimeError(f"Bybit Demo v121 control journal is not ready:{readiness}")
-                    row = cursor.execute(
-                        f"""SELECT {_SELECT_COLUMNS}
-                            FROM {_TABLE}
-                            ORDER BY event_seq DESC
-                            LIMIT 1"""
-                    ).fetchone()
+                    row = cursor.execute(_SELECT_LATEST_SQL).fetchone()
         return None if row is None else BybitDemoControlEventV121.from_db_row(row)
 
     def load_event(self, *, event_id: str) -> BybitDemoControlEventV121:
@@ -107,12 +121,7 @@ class PostgresBybitDemoControlJournalReaderV121:
                     readiness = _journal_readiness(cursor)
                     if readiness is not None:
                         raise RuntimeError(f"Bybit Demo v121 control journal is not ready:{readiness}")
-                    row = cursor.execute(
-                        f"""SELECT {_SELECT_COLUMNS}
-                            FROM {_TABLE}
-                            WHERE event_id=%s""",
-                        (event_id,),
-                    ).fetchone()
+                    row = cursor.execute(_SELECT_EVENT_SQL, (event_id,)).fetchone()
         if row is None:
             raise FileNotFoundError("Bybit Demo v121 control event does not exist")
         return BybitDemoControlEventV121.from_db_row(row)
@@ -139,34 +148,24 @@ class PostgresBybitDemoControlJournalWriterV121:
         if not isinstance(event, BybitDemoControlEventV121):
             raise TypeError("Bybit Demo v121 control writer requires a typed control event")
         _require_postgres_dependency()
-        with psycopg.connect(self._dsn, autocommit=False) as connection:
+        with psycopg.connect(
+            self._dsn,
+            row_factory=dict_row,
+            autocommit=False,
+        ) as connection:
             with connection.transaction():
-                readiness = _journal_readiness(connection.cursor())
-                if readiness is not None:
-                    raise RuntimeError(f"Bybit Demo v121 control journal is not ready:{readiness}")
-                try:
-                    connection.execute(
-                        f"""INSERT INTO {_TABLE}(
-                            event_id,
-                            event_kind,
-                            operator_id,
-                            reason,
-                            preflight_status,
-                            preflight_record_sha256,
-                            preflight_canonical_record,
-                            preflight_observed_at,
-                            armed_until,
-                            created_at,
-                            immutable_record,
-                            order_submission_supported,
-                            live_mainnet_order_routing_allowed
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                        event.to_db_values(),
-                    )
-                except psycopg.errors.UniqueViolation as exc:
-                    raise FileExistsError(
-                        "Bybit Demo v121 control event already exists"
-                    ) from exc
+                with connection.cursor() as cursor:
+                    readiness = _journal_readiness(cursor)
+                    if readiness is not None:
+                        raise RuntimeError(
+                            f"Bybit Demo v121 control journal is not ready:{readiness}"
+                        )
+                    try:
+                        cursor.execute(_INSERT_EVENT_SQL, event.to_db_values())
+                    except psycopg.errors.UniqueViolation as exc:
+                        raise FileExistsError(
+                            "Bybit Demo v121 control event already exists"
+                        ) from exc
         return event
 
 
