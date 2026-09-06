@@ -1,0 +1,123 @@
+name: c2b0-focused-order-debug-v2
+
+on:
+  push:
+    branches:
+      - probe/c2b0-focused-order-debug
+
+permissions:
+  contents: read
+
+jobs:
+  locate-contamination:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra-ci
+          POSTGRES_DB: astra
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ASTRA_TEST_POSTGRES_DSN: postgresql://astra:astra-ci@127.0.0.1:5432/astra
+      PGPASSWORD: astra-ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install exact qualification environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check ".[test,postgresql,dev]"
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+      - name: Apply canonical migrations twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          migrations=(
+            migrations/v107/001_production_rollout_actuator.sql
+            migrations/v108/001_asymmetric_signing_authority.sql
+            migrations/v109/001_remote_signer_attestation.sql
+            migrations/v119/001_bybit_demo_durable_runtime.sql
+            migrations/v120/001_bybit_demo_durable_audit_lifecycle.sql
+            migrations/v120/002_bybit_demo_audit_truncate_hardening.sql
+            migrations/v121/001_bybit_demo_control_plane.sql
+            migrations/v121/002_bybit_demo_control_truncate_hardening.sql
+          )
+          for pass in 1 2; do
+            for migration in "${migrations[@]}"; do
+              psql -h 127.0.0.1 -p 5432 -U astra -d astra -v ON_ERROR_STOP=1 -f "$migration"
+            done
+          done
+      - name: Generate post-test hash detector
+        shell: bash
+        run: |
+          cat > c2b0_probe_plugin.py <<'PY'
+          import hashlib
+          import pytest
+          import app.execution.bybit_demo_v121_control_records as records
+
+          VALUE = (
+              '{"account":"demo","schema":"CONNECTED_PREFLIGHT_V1",'
+              '"status":"READY_FOR_MANUAL_OPERATOR_APPROVAL"}'
+          )
+          EXPECTED = "91f491774d39b1f299c1260082fc09ba67af26c214be240aa0e0bf79e2f5b744"
+
+          def snapshot(label):
+              canonical = records.canonicalize_control_evidence_v121(VALUE)
+              direct = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+              internal = records._sha256_text(canonical)
+              if direct != EXPECTED or internal != EXPECTED:
+                  print(
+                      "C2B0_CONTAMINATION",
+                      label,
+                      "direct=", direct,
+                      "internal=", internal,
+                      "hashlib_sha256=", repr(hashlib.sha256),
+                      "records_hashlib_sha256=", repr(records.hashlib.sha256),
+                      "sha256_text=", repr(records._sha256_text),
+                      flush=True,
+                  )
+                  raise RuntimeError(
+                      f"C2B0 hash contamination at {label}: direct={direct} internal={internal}"
+                  )
+
+          def pytest_sessionstart(session):
+              snapshot("SESSION_START")
+
+          def pytest_collection_finish(session):
+              snapshot("COLLECTION_FINISH")
+
+          @pytest.hookimpl(hookwrapper=True, trylast=True)
+          def pytest_runtest_teardown(item, nextitem):
+              yield
+              snapshot("AFTER:" + item.nodeid)
+          PY
+      - name: Run exact focused suite in one process
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$PWD" pytest -q -s -p c2b0_probe_plugin \
+            tests/*v107.py tests/*v108.py tests/*v109.py \
+            tests/test_product_identity.py \
+            tests/test_bybit_demo_postgres_runtime_lease_v119.py \
+            tests/test_bybit_demo_postgres_runtime_role_v119.py \
+            tests/test_bybit_demo_v119_excursion_records.py \
+            tests/test_bybit_demo_postgres_v119_excursion.py \
+            tests/test_bybit_demo_audit_hardening_v120.py \
+            tests/test_bybit_demo_postgres_audit_role_v120.py \
+            tests/test_bybit_demo_v120_persistence_records.py \
+            tests/test_bybit_demo_postgres_v120_persistence.py \
+            tests/test_bybit_demo_v121_control_records.py \
+            tests/test_bybit_demo_postgres_v121_control.py
