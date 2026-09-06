@@ -13,6 +13,9 @@ on:
       - app/execution/bybit_demo_postgres_v119_excursion.py
       - app/execution/bybit_demo_v120_persistence_records.py
       - app/execution/bybit_demo_postgres_v120_persistence.py
+      - app/execution/bybit_demo_v121_control_records.py
+      - app/execution/bybit_demo_postgres_v121_control.py
+      - app/execution/bybit_demo_postgres_v121_control_role.py
       - app/platform_assets/v107/**
       - app/platform_assets/v108/**
       - app/platform_assets/v109/**
@@ -21,6 +24,7 @@ on:
       - migrations/v109/**
       - migrations/v119/**
       - migrations/v120/**
+      - migrations/v121/**
       - tests/**
       - tools/**
       - RELEASE_IDENTITY_V10*.json
@@ -42,6 +46,9 @@ on:
       - app/execution/bybit_demo_postgres_v119_excursion.py
       - app/execution/bybit_demo_v120_persistence_records.py
       - app/execution/bybit_demo_postgres_v120_persistence.py
+      - app/execution/bybit_demo_v121_control_records.py
+      - app/execution/bybit_demo_postgres_v121_control.py
+      - app/execution/bybit_demo_postgres_v121_control_role.py
       - app/platform_assets/v107/**
       - app/platform_assets/v108/**
       - app/platform_assets/v109/**
@@ -50,6 +57,7 @@ on:
       - migrations/v109/**
       - migrations/v119/**
       - migrations/v120/**
+      - migrations/v121/**
       - tests/**
       - tools/**
       - RELEASE_IDENTITY_V10*.json
@@ -119,6 +127,8 @@ jobs:
             migrations/v119/001_bybit_demo_durable_runtime.sql
             migrations/v120/001_bybit_demo_durable_audit_lifecycle.sql
             migrations/v120/002_bybit_demo_audit_truncate_hardening.sql
+            migrations/v121/001_bybit_demo_control_plane.sql
+            migrations/v121/002_bybit_demo_control_truncate_hardening.sql
           )
           for pass in 1 2; do
             for migration in "${migrations[@]}"; do
@@ -128,9 +138,9 @@ jobs:
 
       - name: Lint qualified security surface and run lineage regressions
         run: |
-          ruff check app/runtime/*_v109.py tools/*v109.py tools/platform_v108.py tools/architecture_audit_v108.py tools/product_identity.py app/execution/bybit_demo_postgres_runtime_lease.py app/execution/bybit_demo_postgres_runtime_role.py app/execution/bybit_demo_postgres_audit_role.py app/execution/bybit_demo_v119_excursion_records.py app/execution/bybit_demo_postgres_v119_excursion.py app/execution/bybit_demo_v120_persistence_records.py app/execution/bybit_demo_postgres_v120_persistence.py tests/*v109.py tests/test_product_identity.py tests/test_bybit_demo_postgres_runtime_lease_v119.py tests/test_bybit_demo_postgres_runtime_role_v119.py tests/test_bybit_demo_v119_excursion_records.py tests/test_bybit_demo_postgres_v119_excursion.py tests/test_bybit_demo_audit_hardening_v120.py tests/test_bybit_demo_postgres_audit_role_v120.py tests/test_bybit_demo_v120_persistence_records.py tests/test_bybit_demo_postgres_v120_persistence.py
-          bandit -q -r app/execution/bybit_demo_v119_excursion_records.py app/execution/bybit_demo_postgres_v119_excursion.py app/execution/bybit_demo_v120_persistence_records.py app/execution/bybit_demo_postgres_v120_persistence.py
-          pytest -q tests/*v107.py tests/*v108.py tests/*v109.py tests/test_product_identity.py tests/test_bybit_demo_postgres_runtime_lease_v119.py tests/test_bybit_demo_postgres_runtime_role_v119.py tests/test_bybit_demo_v119_excursion_records.py tests/test_bybit_demo_postgres_v119_excursion.py tests/test_bybit_demo_audit_hardening_v120.py tests/test_bybit_demo_postgres_audit_role_v120.py tests/test_bybit_demo_v120_persistence_records.py tests/test_bybit_demo_postgres_v120_persistence.py
+          ruff check app/runtime/*_v109.py tools/*v109.py tools/platform_v108.py tools/architecture_audit_v108.py tools/product_identity.py app/execution/bybit_demo_postgres_runtime_lease.py app/execution/bybit_demo_postgres_runtime_role.py app/execution/bybit_demo_postgres_audit_role.py app/execution/bybit_demo_v119_excursion_records.py app/execution/bybit_demo_postgres_v119_excursion.py app/execution/bybit_demo_v120_persistence_records.py app/execution/bybit_demo_postgres_v120_persistence.py app/execution/bybit_demo_v121_control_records.py app/execution/bybit_demo_postgres_v121_control.py app/execution/bybit_demo_postgres_v121_control_role.py tests/*v109.py tests/test_product_identity.py tests/test_bybit_demo_postgres_runtime_lease_v119.py tests/test_bybit_demo_postgres_runtime_role_v119.py tests/test_bybit_demo_v119_excursion_records.py tests/test_bybit_demo_postgres_v119_excursion.py tests/test_bybit_demo_audit_hardening_v120.py tests/test_bybit_demo_postgres_audit_role_v120.py tests/test_bybit_demo_v120_persistence_records.py tests/test_bybit_demo_postgres_v120_persistence.py tests/test_bybit_demo_v121_control_records.py tests/test_bybit_demo_postgres_v121_control.py
+          bandit -q -r app/execution/bybit_demo_v119_excursion_records.py app/execution/bybit_demo_postgres_v119_excursion.py app/execution/bybit_demo_v120_persistence_records.py app/execution/bybit_demo_postgres_v120_persistence.py app/execution/bybit_demo_v121_control_records.py app/execution/bybit_demo_postgres_v121_control.py app/execution/bybit_demo_postgres_v121_control_role.py
+          pytest -q tests/*v107.py tests/*v108.py tests/*v109.py tests/test_product_identity.py tests/test_bybit_demo_postgres_runtime_lease_v119.py tests/test_bybit_demo_postgres_runtime_role_v119.py tests/test_bybit_demo_v119_excursion_records.py tests/test_bybit_demo_postgres_v119_excursion.py tests/test_bybit_demo_audit_hardening_v120.py tests/test_bybit_demo_postgres_audit_role_v120.py tests/test_bybit_demo_v120_persistence_records.py tests/test_bybit_demo_postgres_v120_persistence.py tests/test_bybit_demo_v121_control_records.py tests/test_bybit_demo_postgres_v121_control.py
           pytest -q
 
       - name: Enforce branch-aware coverage floors
@@ -204,6 +214,7 @@ jobs:
             v109_policy_fk integer; v109_triggers integer; v109_events text[];
             v120_table text; v120_append_trigger text; v120_truncate_trigger text;
             v120_append_count integer; v120_truncate_count integer;
+            v121_append_count integer; v121_truncate_count integer;
           BEGIN
             IF NOT EXISTS (
               SELECT 1 FROM information_schema.columns
@@ -302,6 +313,43 @@ jobs:
               IF v120_truncate_count <> 1
               THEN RAISE EXCEPTION 'V120 append-only TRUNCATE trigger mismatch on %', v120_table; END IF;
             END LOOP;
+
+            SELECT count(*) INTO v121_append_count
+              FROM pg_trigger t
+              JOIN pg_class c ON c.oid=t.tgrelid
+              JOIN pg_namespace n ON n.oid=c.relnamespace
+              JOIN pg_proc p ON p.oid=t.tgfoid
+             WHERE n.nspname='public'
+               AND c.relname='astra_bybit_demo_control_event_v121'
+               AND t.tgname='astra_bybit_demo_control_append_only_v121'
+               AND NOT t.tgisinternal
+               AND t.tgenabled IN ('O','A')
+               AND (t.tgtype & 8) = 8
+               AND (t.tgtype & 16) = 16
+               AND (t.tgtype & 2) = 2
+               AND (t.tgtype & 1) = 1
+               AND (t.tgtype & 32) = 0
+               AND p.proname='astra_reject_bybit_demo_control_mutation_v121';
+            IF v121_append_count <> 1
+            THEN RAISE EXCEPTION 'V121 append-only UPDATE/DELETE trigger mismatch'; END IF;
+
+            SELECT count(*) INTO v121_truncate_count
+              FROM pg_trigger t
+              JOIN pg_class c ON c.oid=t.tgrelid
+              JOIN pg_namespace n ON n.oid=c.relnamespace
+              JOIN pg_proc p ON p.oid=t.tgfoid
+             WHERE n.nspname='public'
+               AND c.relname='astra_bybit_demo_control_event_v121'
+               AND t.tgname='astra_bybit_demo_control_no_truncate_v121'
+               AND NOT t.tgisinternal
+               AND t.tgenabled IN ('O','A')
+               AND (t.tgtype & 32) = 32
+               AND (t.tgtype & 2) = 2
+               AND (t.tgtype & 1) = 0
+               AND (t.tgtype & 24) = 0
+               AND p.proname='astra_reject_bybit_demo_control_mutation_v121';
+            IF v121_truncate_count <> 1
+            THEN RAISE EXCEPTION 'V121 append-only TRUNCATE trigger mismatch'; END IF;
           END
           $$;
           SQL
