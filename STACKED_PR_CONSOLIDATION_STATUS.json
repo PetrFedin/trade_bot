@@ -1,6 +1,6 @@
 {
   "schema_version": "stacked-pr-consolidation-status-v2",
-  "observed_at": "2026-09-05",
+  "observed_at": "2026-09-06",
   "tracking_issue": 104,
   "historical_inventory": {
     "snapshot_date": "2026-09-02",
@@ -28,8 +28,8 @@
   },
   "current_boundaries": {
     "canonical_main": {
-      "sha": "090f34b11a877ce24f8a15a74b296e287aae3918",
-      "status": "STABLE_FAIL_CLOSED_WITH_C2A0_C2A3_FOUNDATION",
+      "sha": "043fc3003b055dc1e953854798627048d3f26960",
+      "status": "STABLE_FAIL_CLOSED_WITH_C2A0_C2A4_FOUNDATION",
       "broker_proven": false,
       "demo_entry_proven": false,
       "strategy_profitability_proven": false
@@ -105,6 +105,29 @@
         "release_provenance_run_id": 33988217099,
         "full_postgres_regression": "1112 passed, 2 dedicated fleet-deployment skips"
       }
+    },
+    {
+      "id": "C2A4",
+      "name": "STRATEGY_FREE_V119_ACTIVE_EXCURSION_CAS_PERSISTENCE",
+      "source_pr": 76,
+      "replacement_pr": 124,
+      "pre_merge_head_sha": "00a0deffa954c70e44fb70483556746363228535",
+      "merge_sha": "043fc3003b055dc1e953854798627048d3f26960",
+      "status": "EXTRACTED_AND_QUALIFIED",
+      "strategy_dependency": false,
+      "broker_network_capability": false,
+      "market_data_dependency": false,
+      "order_write_capability": false,
+      "runtime_migration_authority_allowed": false,
+      "demo_proven": false,
+      "qualification": {
+        "pre_merge_workflows_success": 10,
+        "post_merge_workflows_success": 11,
+        "canonical_security_regression_run_id": 34039454929,
+        "release_provenance_run_id": 34039454985,
+        "focused_security_regression": "282 passed",
+        "full_postgres_regression": "1124 passed, 2 dedicated fleet-deployment skips"
+      }
     }
   ],
   "supersession_records": [
@@ -116,15 +139,20 @@
     }
   ],
   "current_gate": {
-    "id": "C2A4",
-    "issue": 122,
-    "status": "IN_PROGRESS",
-    "goal": "STRATEGY_FREE_V119_ACTIVE_EXCURSION_CHECKPOINT_CAS_PERSISTENCE",
-    "source_pr": 76,
-    "source_sha": "84b9965e5128562c49620c6164afe5f43ca343f2",
+    "id": "C2B0",
+    "issue": 128,
+    "status": "AUDIT_IN_PROGRESS",
+    "goal": "STRATEGY_FREE_V121_ARM_HALT_JOURNAL_AND_FAIL_CLOSED_CONTROL_STATE",
+    "source_pr": 80,
+    "source_sha": "f40d9dee0baadd254a6fe7425b117be709088f9d",
+    "hardening_source_pr": 88,
+    "hardening_source_sha": "d40e3e9b6740896cd5317c01eb9f482cb238b53f",
+    "frozen_v121_001_git_blob": "cae1dd432050f235b94d230b2e46c862d38b58c6",
     "runtime_order_capability_allowed": false,
     "broker_network_capability_allowed": false,
-    "market_data_dependency_allowed": false,
+    "connected_preflight_dependency_allowed": false,
+    "strategy_dependency_allowed": false,
+    "automatic_arm_allowed": false,
     "runtime_migration_authority_allowed": false
   },
   "blocked_follow_on": [
@@ -155,8 +183,8 @@
       "id": "C2",
       "name": "CANONICAL_DURABLE_OPERATIONAL_CONTROL_PLANE",
       "status": "IN_PROGRESS",
-      "completed": ["C2A0", "C2A1", "C2A2", "C2A3"],
-      "next": "C2A4"
+      "completed": ["C2A0", "C2A1", "C2A2", "C2A3", "C2A4"],
+      "next": "C2B0"
     },
     {
       "id": "C3",
@@ -178,9 +206,10 @@
     }
   ],
   "next_required_actions": [
-    "AUDIT_AND_IMPLEMENT_C2A4_ISSUE_122",
-    "CONTINUE_PER_CAPABILITY_EXTRACTION_FROM_CANONICAL_MAIN",
-    "KEEP_HISTORICAL_TRACKER_BUILDERS_OUT_OF_PERSISTENCE_CORE",
+    "COMPLETE_C2B0_PRESERVATION_AND_DEPENDENCY_AUDIT_ISSUE_128",
+    "MEASURE_AND_FREEZE_V121_001_SHA256_WITHOUT_REWRITING_HISTORY",
+    "EXTRACT_ONLY_STRATEGY_BROKER_ORDER_FREE_V121_CONTROL_STATE_FROM_CURRENT_MAIN",
+    "KEEP_CONNECTED_PREFLIGHT_AND_ORDER_GUARD_OUTSIDE_C2B0",
     "PRESERVE_RESEARCH_HEAD_AS_RESEARCH_ONLY",
     "KEEP_DEMO_ENTRY_BLOCKED_UNTIL_STRATEGY_AND_OPERATIONAL_PREREQUISITES_PASS"
   ]
