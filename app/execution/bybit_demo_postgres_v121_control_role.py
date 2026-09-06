@@ -314,13 +314,15 @@ def _trigger_ready(cursor, *, name: str, truncate: bool) -> bool:
            JOIN pg_class c ON c.oid=t.tgrelid
            JOIN pg_namespace n ON n.oid=c.relnamespace
            JOIN pg_proc p ON p.oid=t.tgfoid
+           JOIN pg_namespace pn ON pn.oid=p.pronamespace
            WHERE n.nspname=%s AND c.relname=%s AND t.tgname=%s
              AND NOT t.tgisinternal AND t.tgenabled IN ('O','A')
+             AND pn.nspname=%s
              AND p.proname=%s
              AND ((%s AND (t.tgtype & 32)=32 AND (t.tgtype & 1)=0)
                   OR (NOT %s AND (t.tgtype & 8)=8 AND (t.tgtype & 16)=16
                       AND (t.tgtype & 1)=1))""",
-        (_SCHEMA, _TABLE, name, _MUTATION_FUNCTION, truncate, truncate),
+        (_SCHEMA, _TABLE, name, _SCHEMA, _MUTATION_FUNCTION, truncate, truncate),
     ).fetchone()
     return row is not None and row["trigger_count"] == 1
 
