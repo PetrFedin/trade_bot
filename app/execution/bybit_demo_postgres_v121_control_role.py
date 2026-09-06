@@ -319,6 +319,7 @@ def _trigger_ready(cursor, *, name: str, truncate: bool) -> bool:
              AND NOT t.tgisinternal AND t.tgenabled IN ('O','A')
              AND pn.nspname=%s
              AND p.proname=%s
+             AND (t.tgtype & 2)=2
              AND ((%s AND (t.tgtype & 32)=32 AND (t.tgtype & 1)=0)
                   OR (NOT %s AND (t.tgtype & 8)=8 AND (t.tgtype & 16)=16
                       AND (t.tgtype & 1)=1))""",
