@@ -1,0 +1,67 @@
+name: c2b0-installed-import-debug
+
+on:
+  push:
+    branches:
+      - probe/c2b0-installed-import-debug
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce-installed-import:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact probe head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install qualification dependencies exactly like canonical security
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check ".[test,postgresql,dev]"
+          python -m pip check
+      - name: Print installed import provenance and fixture values
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import importlib.metadata
+          import inspect
+          import sys
+          from datetime import UTC, datetime, timedelta
+          import app.execution.bybit_demo_v121_control_records as records
+
+          value = (
+              '{"account":"demo","schema":"CONNECTED_PREFLIGHT_V1",'
+              '"status":"READY_FOR_MANUAL_OPERATOR_APPROVAL"}'
+          )
+          now = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+          canonical = records.canonicalize_control_evidence_v121(value)
+          arm = records.create_arm_control_event_v121(
+              operator_id="operator-1",
+              reason="manual demo approval",
+              preflight_canonical_record=value,
+              now=now,
+              preflight_observed_at=now - timedelta(seconds=10),
+              ttl_seconds=120,
+          )
+          print("CWD_IMPORT_FILE", records.__file__)
+          print("MODULE_SOURCE_SHA", hashlib.sha256(inspect.getsource(records).encode("utf-8")).hexdigest())
+          print("SYS_PATH_0", sys.path[0])
+          print("DIST_VERSION", importlib.metadata.version("astra-trade-bot"))
+          print("CANONICAL_REPR", repr(canonical))
+          print("DIRECT_SHA", hashlib.sha256(canonical.encode("utf-8")).hexdigest())
+          print("ARM_PREFLIGHT_SHA", arm.preflight_record_sha256)
+          print("ARM_EVENT_ID", arm.event_id)
+          PY
+          python -m pip show -f astra-trade-bot
+      - name: Run exact failing test file
+        shell: bash
+        run: |
+          set -euo pipefail
+          pytest -vv -s tests/test_bybit_demo_v121_control_records.py
