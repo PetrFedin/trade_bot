@@ -272,7 +272,7 @@ def test_tampered_arm_row_fails_rehydration_and_decision_halts(
     created_at = _NOW + timedelta(seconds=10)
     armed_until = created_at + timedelta(seconds=120)
     tampered_event_id = hashlib.sha256(
-        f"c2b0-tamper:{uuid.uuid4().hex}".encode("utf-8")
+        f"c2b0-tamper:{uuid.uuid4().hex}".encode()
     ).hexdigest()
     with psycopg.connect(DSN, autocommit=True) as connection:
         connection.execute(
