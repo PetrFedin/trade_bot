@@ -444,7 +444,12 @@ def validate_arm_preflight_evidence_v121(value: str) -> str:
     if decoded["status"] != _READY_STATUS or decoded["passed"] is not True:
         raise ValueError("Bybit Demo v121 ARM requires clean connected preflight")
     reasons = decoded["reasons"]
-    if not isinstance(reasons, list) or reasons or any(not isinstance(item, str) for item in reasons):
+    invalid_reasons = (
+        not isinstance(reasons, list)
+        or bool(reasons)
+        or any(not isinstance(item, str) for item in reasons)
+    )
+    if invalid_reasons:
         raise ValueError("Bybit Demo v121 ARM rejected preflight reasons")
 
     account = _require_exact_object(
@@ -596,14 +601,22 @@ def _optional_isoformat(value: datetime | None) -> str | None:
     return None if value is None else value.isoformat()
 
 
-def _require_exact_object(value: object, keys: frozenset[str], label: str) -> dict[str, Any]:
+def _require_exact_object(
+    value: object,
+    keys: frozenset[str],
+    label: str,
+) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"Bybit Demo v121 ARM {label} is invalid")
     _require_exact_object_keys(value, keys, label)
     return value
 
 
-def _require_exact_object_keys(value: Mapping[str, object], keys: frozenset[str], label: str) -> None:
+def _require_exact_object_keys(
+    value: Mapping[str, object],
+    keys: frozenset[str],
+    label: str,
+) -> None:
     if set(value) != keys:
         raise ValueError(f"Bybit Demo v121 ARM {label} keys are invalid")
 
