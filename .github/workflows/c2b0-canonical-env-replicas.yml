@@ -1,0 +1,130 @@
+name: c2b0-canonical-env-replicas
+
+on:
+  push:
+    branches:
+      - probe/c2b0-canonical-env-replicas
+
+permissions:
+  contents: read
+
+jobs:
+  exact-canonical-focused-replica:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [1, 2, 3]
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra-ci
+          POSTGRES_DB: astra
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ASTRA_TEST_POSTGRES_DSN: postgresql://astra:astra-ci@127.0.0.1:5432/astra
+      PGPASSWORD: astra-ci
+    steps:
+      - name: Checkout exact probe head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12 with pip cache
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install exact qualification dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "replica=${{ matrix.replica }}"
+          uname -a
+          python --version
+          python -m pip --version
+          python -m pip cache dir
+          python -m pip install --disable-pip-version-check ".[test,postgresql,dev]"
+          python -m pip check
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+
+      - name: Apply exact canonical migration lineage twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp migrations/v107/001_production_rollout_actuator.sql app/platform_assets/v107/migrations/001_production_rollout_actuator.sql
+          cmp migrations/v108/001_asymmetric_signing_authority.sql app/platform_assets/v108/migrations/001_asymmetric_signing_authority.sql
+          cmp migrations/v109/001_remote_signer_attestation.sql app/platform_assets/v109/migrations/001_remote_signer_attestation.sql
+          migrations=(
+            migrations/v107/001_production_rollout_actuator.sql
+            migrations/v108/001_asymmetric_signing_authority.sql
+            migrations/v109/001_remote_signer_attestation.sql
+            migrations/v119/001_bybit_demo_durable_runtime.sql
+            migrations/v120/001_bybit_demo_durable_audit_lifecycle.sql
+            migrations/v120/002_bybit_demo_audit_truncate_hardening.sql
+            migrations/v121/001_bybit_demo_control_plane.sql
+            migrations/v121/002_bybit_demo_control_truncate_hardening.sql
+          )
+          for pass in 1 2; do
+            for migration in "${migrations[@]}"; do
+              psql -h 127.0.0.1 -p 5432 -U astra -d astra -v ON_ERROR_STOP=1 -f "$migration"
+            done
+          done
+
+      - name: Run exact Ruff and Bandit commands
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruff check app/runtime/*_v109.py tools/*v109.py tools/platform_v108.py tools/architecture_audit_v108.py tools/product_identity.py app/execution/bybit_demo_postgres_runtime_lease.py app/execution/bybit_demo_postgres_runtime_role.py app/execution/bybit_demo_postgres_audit_role.py app/execution/bybit_demo_v119_excursion_records.py app/execution/bybit_demo_postgres_v119_excursion.py app/execution/bybit_demo_v120_persistence_records.py app/execution/bybit_demo_postgres_v120_persistence.py app/execution/bybit_demo_v121_control_records.py app/execution/bybit_demo_postgres_v121_control.py app/execution/bybit_demo_postgres_v121_control_role.py tests/*v109.py tests/test_product_identity.py tests/test_bybit_demo_postgres_runtime_lease_v119.py tests/test_bybit_demo_postgres_runtime_role_v119.py tests/test_bybit_demo_v119_excursion_records.py tests/test_bybit_demo_postgres_v119_excursion.py tests/test_bybit_demo_audit_hardening_v120.py tests/test_bybit_demo_postgres_audit_role_v120.py tests/test_bybit_demo_v120_persistence_records.py tests/test_bybit_demo_postgres_v120_persistence.py tests/test_bybit_demo_v121_control_records.py tests/test_bybit_demo_postgres_v121_control.py
+          bandit -q -r app/execution/bybit_demo_v119_excursion_records.py app/execution/bybit_demo_postgres_v119_excursion.py app/execution/bybit_demo_v120_persistence_records.py app/execution/bybit_demo_postgres_v120_persistence.py app/execution/bybit_demo_v121_control_records.py app/execution/bybit_demo_postgres_v121_control.py app/execution/bybit_demo_postgres_v121_control_role.py
+
+      - name: Print exact C2B0 pre-pytest provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import inspect
+          import os
+          import app.execution.bybit_demo_v121_control_records as records
+
+          value = (
+              '{"account":"demo","schema":"CONNECTED_PREFLIGHT_V1",'
+              '"status":"READY_FOR_MANUAL_OPERATOR_APPROVAL"}'
+          )
+          canonical = records.canonicalize_control_evidence_v121(value)
+          print("CWD", os.getcwd())
+          print("MODULE_FILE", records.__file__)
+          print("MODULE_SOURCE_SHA", hashlib.sha256(inspect.getsource(records).encode("utf-8")).hexdigest())
+          print("CANONICAL_REPR", repr(canonical))
+          print("DIRECT_SHA", hashlib.sha256(canonical.encode("utf-8")).hexdigest())
+          print("INTERNAL_SHA", records._sha256_text(canonical))
+          PY
+
+      - name: Run exact canonical focused pytest command
+        shell: bash
+        run: |
+          set -euo pipefail
+          pytest -q \
+            tests/*v107.py tests/*v108.py tests/*v109.py \
+            tests/test_product_identity.py \
+            tests/test_bybit_demo_postgres_runtime_lease_v119.py \
+            tests/test_bybit_demo_postgres_runtime_role_v119.py \
+            tests/test_bybit_demo_v119_excursion_records.py \
+            tests/test_bybit_demo_postgres_v119_excursion.py \
+            tests/test_bybit_demo_audit_hardening_v120.py \
+            tests/test_bybit_demo_postgres_audit_role_v120.py \
+            tests/test_bybit_demo_v120_persistence_records.py \
+            tests/test_bybit_demo_postgres_v120_persistence.py \
+            tests/test_bybit_demo_v121_control_records.py \
+            tests/test_bybit_demo_postgres_v121_control.py
