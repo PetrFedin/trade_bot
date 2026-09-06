@@ -4,41 +4,43 @@ This is the **current** human-readable readiness authority. Historical detail th
 
 `CURRENT_SYSTEM_STATUS.json` is the companion machine-readable status. Neither file authorizes Demo or live trading.
 
-## Current system identities — observed 2026-09-05
+## Current system identities — observed 2026-09-06
 
 | Identity | Exact reference | Status | What is actually proven |
 |---|---|---|---|
-| Qualified product/security main | `090f34b11a877ce24f8a15a74b296e287aae3918` | `ENGINEERING_BASELINE_PASS` | C2A3 merge SHA completed 11/11 post-merge workflows successfully; PostgreSQL/security/release qualification is green; not broker/profit/live proof |
+| Qualified product/security main | `043fc3003b055dc1e953854798627048d3f26960` | `ENGINEERING_BASELINE_PASS` | C2A4 merge SHA completed 11/11 post-merge workflows successfully; PostgreSQL/security/release qualification is green; not broker/profit/live proof |
 | Canonical operational foundation | C2A0 / PR #113 | `EXTRACTED_AND_QUALIFIED` | Strategy-free v119 singleton runtime lease is canonical; no network/order capability |
 | Canonical PostgreSQL runtime-role boundary | C2A1 / PR #116 | `EXTRACTED_AND_QUALIFIED` | Long-running v119 runtime credential is non-owner and least-privilege; no TRUNCATE/DDL/schema-create authority |
 | Canonical v120 append-only audit boundary | C2A2 / PR #118 | `EXTRACTED_AND_QUALIFIED` | Frozen v120/001 is byte-preserved; forward physical TRUNCATE rejection and SELECT/INSERT-only runtime access are proven on PostgreSQL 16 |
 | Canonical v120 typed persistence | C2A3 / PR #121 | `EXTRACTED_AND_QUALIFIED` | Immutable strategy-free authorization/provenance/terminal records and SELECT/INSERT PostgreSQL adapters are canonical; historical trading-derived builders remain excluded |
-| Current consolidation candidate | C2A4 / issue #122 | `IN_PROGRESS` | Extract neutral v119 active-excursion checkpoint/CAS persistence without strategy, broker, market-data or monitor ancestry |
+| Canonical v119 active-excursion persistence | C2A4 / PR #124 | `EXTRACTED_AND_QUALIFIED` | Neutral immutable excursion state plus singleton initialize/load/CAS-save/CAS-clear is canonical under the non-owner v119 runtime role; no strategy/broker/market-data/order capability |
+| Current consolidation candidate | C2B0 / issue #128 | `AUDIT_IN_PROGRESS` | Canonicalize only the v121 ARM/HALT append-only journal and fail-closed control-state evaluator, excluding connected preflight and order-client guard |
 | Historical operational source boundary | PR #93 / `c2e6b11b8dc4abc37ed6b2c180f11c73a000ca5b` | `DECOMPOSITION_SOURCE_DEMO_UNPROVEN` | Preserves later operational controls for bounded extraction; not a release candidate |
 | Active research head | PR #100 / `918dbc57c0633c6dc549f1f036d2ae659b289b46` | `RESEARCH_ONLY` | Derivatives-context research remains incomplete and has no strategy-promotion authority |
 | Strategy profitability | frozen Bybit price-only evidence | `FAIL / NOT PROVEN` | 102 trades, 36 WIN / 11 BE / 55 LOSS, about `-176.67 USDT` on 1,000 USDT |
 | GitHub governance | current server state | `VERIFIED_DISABLED` | `main` protection / required-status enforcement disabled; #103 |
 | Live/mainnet | canonical fail-closed flags | `FAIL_CLOSED` | External routing, live trading and mainnet entry disabled |
 
-`090f34b1...` is the exact C2A3 product/security evidence subject. Subsequent documentation-only commits do not by themselves promote trading capability and must not be confused with broker or strategy qualification.
+`043fc300...` is the exact current C2A4 product/security evidence subject. Documentation-only commits after it do not by themselves promote trading capability and must not be confused with broker, strategy or operational qualification.
 
 ## Current capability matrix
 
 | Capability | Current state | Evidence / blocker |
 |---|---|---|
-| Architecture cohesion | STRONG CORE; CONSOLIDATION IN PROGRESS | C2A0–C2A3 ancestry-free foundations are canonical; active-excursion/control/session/supervisor layers remain bounded extraction work |
-| Software correctness | STRONG PARTIAL / CURRENT BASELINE PASS | C2A3 PostgreSQL-aware full regression: `1112 passed / 2 dedicated fleet skips`; post-merge release gates green |
-| Data integrity | PARTIAL | Strong validation/research contracts; authoritative derivatives PIT acquisition incomplete |
+| Architecture cohesion | STRONG CORE; CONSOLIDATION IN PROGRESS | C2A0–C2A4 ancestry-free foundations are canonical; v121 control, v122 session-risk and supervisor/recovery layers remain bounded extraction work |
+| Software correctness | STRONG PARTIAL / CURRENT BASELINE PASS | C2A4 PostgreSQL-aware full regression: `1124 passed / 2 dedicated fleet skips`; all 11 post-merge release gates green |
+| Data integrity | PARTIAL | Strong deterministic validation/research contracts; authoritative derivatives PIT acquisition incomplete |
 | Strategy profitability | FAIL / NOT PROVEN | Frozen Bybit replay negative; no positive untouched cost-adjusted OOS edge |
 | Risk management | STRONG DETERMINISTIC | Mature deterministic pre-trade/portfolio controls; real connected and production governance evidence still incomplete |
-| OMS / execution safety | STRONG DETERMINISTIC | Durable mutations, at-most-once safeguards, GET-first ambiguity recovery and fault campaigns exist |
-| Database runtime security | C2A1–C2A3 QUALIFIED | v119 non-owner role, v120 append-only TRUNCATE hardening and strategy-free typed audit persistence proven on PostgreSQL 16 |
-| Active-excursion persistence | C2A4 IN PROGRESS | Historical CAS semantics are useful, but the old state/builders are coupled to strategy/broker/market-data types |
+| OMS / execution safety | STRONG DETERMINISTIC | Durable mutations, at-most-once safeguards, GET-first ambiguity recovery and fault campaigns exist historically/canonically where extracted |
+| Database runtime security | C2A1–C2A4 QUALIFIED | v119 non-owner role, v120 append-only TRUNCATE hardening, typed audit persistence and v119 excursion CAS are proven on PostgreSQL 16 |
+| Active-excursion persistence | QUALIFIED | C2A4 proves deterministic state/revision integrity, stale/cross-entry/tamper rejection and non-owner CAS operations |
+| v121 ARM/HALT control state | C2B0 AUDIT IN PROGRESS | Historical pure persistence/evaluator semantics are useful, but old module also imports connected-preflight DTOs and an order client |
 | Real external integration | BLOCKED | No current credential-backed broker proof sufficient for release |
 | Demo execution | NOT PROVEN | Protected one-shot design exists historically; no canonical real Demo ENTRY evidence |
 | Exact-head operational evidence | NOT PROVEN | No real canonical INFRA→SESSION→SUPERVISOR→ARM→ENTRY→HALT→RECOVERY chain |
 | Reliability / soak | NOT PROVEN CONNECTED | Deterministic fault evidence exists; multi-week connected Demo soak absent |
-| Supply-chain / release provenance | PASS FOR C2A3 MERGE SHA | Strict lock audit, build/release evidence, signed SLSA and SBOM on `090f34b1...` |
+| Supply-chain / release provenance | PASS FOR C2A4 MERGE SHA | Strict lock audit, build/release evidence, signed SLSA and SBOM on `043fc300...` |
 | GitHub governance | BLOCKED | `main` protection verified disabled |
 | Production infrastructure | PARTIAL / EXTERNAL EVIDENCE MISSING | KMS/HSM, backup/restore, external audit and target-environment proof incomplete |
 | Live trading readiness | BLOCKED | Strategy, Demo, exact-head evidence, soak, governance and production external proof incomplete |
@@ -46,43 +48,45 @@ This is the **current** human-readable readiness authority. Historical detail th
 
 The matrix is diagnostic only; no row can grant a release gate by itself.
 
-## C2A3 canonical-main evidence
+## C2A4 canonical-main evidence
 
-Exact C2A3 merge SHA: `090f34b11a877ce24f8a15a74b296e287aae3918`.
+Exact C2A4 pre-merge qualified head:
 
-All **11/11** applicable post-merge push workflows completed with `success`; commit check-runs were 12/12 success because `release-provenance` has separate qualify and attest jobs. No failed, cancelled or skipped check-run conclusion was present on the exact merge SHA.
+`00a0deffa954c70e44fb70483556746363228535`.
 
-Key evidence:
+Exact C2A4 merge / post-merge main SHA:
 
-- `canonical-security-regression` run `33988217105` — PASS on PostgreSQL 16.
-  - v107 → v108 → v109 → v119 → v120/001 → v120/002 migration lineage applied twice.
-  - C2A3 Ruff and Bandit checks PASS.
-  - focused security/persistence suite: **271 passed**.
-  - full PostgreSQL-aware suite: **1112 passed / 2 skipped**.
-  - the two skips are the distinct fleet-deployment tests requiring `ASTRA_TEST_FLEET_DEPLOYMENT_DSN`.
-  - branch-aware coverage floors PASS: V107 93.900804%, V108 98.253968%, V109 98.233216%.
-  - durable database contracts, stress, frozen release lineage and fail-closed production-state checks PASS.
-- `release-provenance` run `33988217099` — PASS.
-  - exact hash-locked dependency graph and lock freshness PASS;
-  - dependency audit and full regression PASS;
-  - wheel/sdist and release evidence PASS;
-  - signed SLSA provenance PASS;
-  - signed SBOM attestation PASS.
-- `canonical-deployment-regression` run `33988217134` — PASS.
-- `stable-runtime-import-boundary` run `33988217118` — PASS.
-- `schema99-external-paper-roundtrip` run `33988217077` — PASS.
-- `product-composition` run `33988217110` — PASS.
-- `stable-core-quality` run `33988217080` — PASS.
-- `release-governance` run `33988217102` — PASS while correctly preserving the branch-protection blocker.
-- `ci-action-supply-chain-policy` run `33988217100` — PASS.
-- `compatibility-release-audits` run `33988217089` — PASS.
-- `schema109-remote-signer-attestation` run `33988217103` — PASS.
+`043fc3003b055dc1e953854798627048d3f26960`.
+
+Pre-merge: **10/10** applicable PR workflows succeeded on the unchanged exact head.
+
+Post-merge: **11/11** push workflows succeeded on the exact merge SHA.
+
+Key post-merge evidence:
+
+- `canonical-security-regression` run `34039454929` — PASS on PostgreSQL 16.15.
+  - security migration lineage through v119/v120 applied twice successfully;
+  - C2A4 Ruff and Bandit qualification passed;
+  - focused security/persistence suite: **282 passed**;
+  - full PostgreSQL-aware suite: **1124 passed / 2 skipped**;
+  - both skips are dedicated fleet-deployment tests requiring `ASTRA_TEST_FLEET_DEPLOYMENT_DSN`;
+  - runtime-role attempts to `TRUNCATE`, `ALTER TABLE` and `DROP TABLE` `astra_bybit_demo_active_excursion_v119` were rejected;
+  - durable database contracts, release-lineage and fail-closed production-state checks passed.
+- `release-provenance` run `34039454985` — PASS.
+  - exact hash-locked dependency graph and dependency audit passed;
+  - full regression and package build passed;
+  - signed SLSA build provenance passed;
+  - signed SBOM attestation passed.
+
+This is deterministic engineering and database-security evidence, not connected broker evidence.
 
 ## Completed C2A foundation
 
 ### C2A0 — durable strategy-free runtime lease
 
-PR #113 canonicalized the byte-preserved v119 singleton runtime lease. It proves single-writer ownership, exact-owner release, no TTL/stale takeover and no strategy/network/order capability. Frozen migration SHA-256:
+PR #113 canonicalized the byte-preserved v119 singleton runtime lease. It proves single-writer ownership, exact-owner release, no TTL/stale takeover and no strategy/network/order capability.
+
+Frozen migration SHA-256:
 
 `c37a2f54cb3dd42d6732b3354988d7f73cc1d240916ccbcdcec3874933f9d52e`.
 
@@ -101,45 +105,99 @@ Frozen v120/001 evidence:
 
 ### C2A3 — strategy-free v120 typed persistence
 
-Issue #119 / PR #121 is completed and post-merge qualified.
+Issue #119 / PR #121 canonicalized immutable persistence-safe approved-entry authorization, outcome-free entry provenance and reconciled terminal-evidence records plus SELECT/INSERT PostgreSQL adapters. Historical strategy selector builders, crypto strategy types, broker/market-data clients and order/ARM/mainnet capability remain excluded.
+
+### C2A4 — strategy-free v119 active-excursion CAS persistence
+
+Issue #122 / PR #124 is completed and post-merge qualified.
 
 Canonicalized:
 
-- immutable approved-entry authorization record contract;
-- immutable outcome-free entry-provenance record contract;
-- immutable fully reconciled terminal diagnostic record contract;
-- deterministic canonical JSON and SHA-256 validation;
-- exact-key/unknown-field fail-closed decoding;
-- PostgreSQL SELECT/INSERT stores running through the existing C2A2 runtime-role boundary;
-- idempotent re-insert and exact identity conflict detection;
-- tamper/checksum and safety-marker validation.
+- neutral immutable `LONG|SHORT` active-excursion persistence state;
+- deterministic canonical JSON and historical-compatible SHA-256 revision;
+- singleton `ACTIVE` checkpoint identity;
+- initialize/load/CAS-save/CAS-clear behavior;
+- stale-revision, cross-entry, unknown-field, non-finite numeric and tamper rejection;
+- existing C2A1 non-owner runtime role with exact SELECT/INSERT/UPDATE/DELETE privilege surface;
+- explicit absence of runtime migration, broker/network, market-data, strategy, ARM/HALT, order and mainnet capability.
 
-Explicitly not canonicalized in C2A3:
+C2A4 therefore proves a durable persistence primitive, **not** a market-observing excursion tracker and not a trading path.
 
-- strategy selector builders;
-- crypto strategy types;
-- broker/market-data clients;
-- cycle/fallback decision logic;
-- post-trade behavior that could influence future entries;
-- order submission, ARM/HALT or mainnet capability.
+## Current gate: C2B0 — v121 ARM/HALT journal and fail-closed control state
 
-C2A3 therefore proves persistence infrastructure, **not** a broker-qualified execution path.
+Issue #128 is the next bounded executable unit.
 
-## C2A4 — current bounded extraction gate
+Historical source PR #80 head:
 
-Issue #122 is now the next C2A unit.
+`f40d9dee0baadd254a6fe7425b117be709088f9d`.
 
-Historical PR #76 contains a valuable v119 active-excursion checkpoint/CAS store, but the old supporting files mix persistence with `CryptoSide`, `CryptoTradePlan`, broker position/monitor types and Bybit market-data quote types. Wholesale copy is prohibited.
+Integrity hardening source PR #88 head:
 
-C2A4 must extract only:
+`d40e3e9b6740896cd5317c01eb9f482cb238b53f`.
 
-1. a neutral immutable active-excursion persistence record;
-2. deterministic canonical encoding and checkpoint revision;
-3. PostgreSQL singleton initialize/load/CAS-save/CAS-clear behavior;
-4. stale-revision and cross-entry rejection;
-5. the already-qualified C2A1 least-privilege DML boundary.
+Verified preservation fact: `migrations/v121/001_bybit_demo_control_plane.sql` has the same Git blob in PR #80 and PR #88:
 
-It must not import strategy, broker, market-data or monitor builders; must expose no `migrate()`/DDL path; and must remain incapable of order mutation, ARM/HALT, Demo activation or mainnet routing.
+`cae1dd432050f235b94d230b2e46c862d38b58c6`.
+
+PR #88 did not rewrite that migration; it added a forward statement-level no-TRUNCATE guard. C2B0 must preserve the frozen v121 bytes and reproduce the hardening as a separate auditable forward layer.
+
+The historical Python module cannot be copied wholesale because it imports:
+
+- `BybitDemoOrderRequest`;
+- connected-preflight result/status DTOs;
+- `ControlPlaneGuardedBybitDemoClient`, whose `place_market_order()` delegates to broker mutation after an ARM check.
+
+C2B0 may extract only:
+
+1. immutable neutral ARM/HALT event records;
+2. deterministic event and preflight-payload SHA-256 validation;
+3. append/read PostgreSQL journal behavior;
+4. a read-only fail-closed decision evaluator;
+5. short-lived ARM timing constraints and expired/malformed/default-HALT semantics;
+6. row-level UPDATE/DELETE immutability plus forward physical no-TRUNCATE hardening;
+7. least-privilege non-owner database access.
+
+Explicitly excluded from C2B0: connected preflight acquisition, fixed-egress readiness, order-client guard, actual order mutation, session-start, v122 session risk, v123 lease recovery, automatic ARM, strategy/risk-economics changes and mainnet.
+
+## Work after C2B0
+
+### C2B1+ — remaining control/session-risk durability
+
+Historical sources #84/#85/#86 retain separate semantics that must not be folded blindly into C2B0:
+
+- v122 immutable opening equity and monotonic high-water session-risk ledger;
+- one-time flat/HALTED connected session initialization;
+- terminal evidence → risk commit → exact checkpoint ACK ordering.
+
+These require their own dependency/security boundaries, especially because PR #85 uses fixed-egress read-only Bybit evidence.
+
+### C2C — active-trade supervision and controlled recovery
+
+Historical sources #87/#88. Recovery exists to return the system to a known safe state; it cannot create a second ENTRY, auto-ARM or silently erase active excursion/session-risk truth.
+
+### C1 — canonical GET-only broker identity/readiness
+
+Historical sources include #78/#81/#82 and later final readiness forms. Target is environment/account identity, server-time/clock health, read-only account/activity evidence and protected fixed egress, with no order create/amend/cancel surface.
+
+### C3 — canonical protected Demo entry composition
+
+Source semantics: PR #89. Do not start until canonical C1/C2 foundations **and** strategy-promotion prerequisites pass. It must preserve at-most-one ENTRY attempt, no blind mutation retry, exact authorization/provenance, reconciliation-first ambiguity handling, reduce-only/protection recovery and no second ENTRY from recovery.
+
+### C4 — exact-head operational evidence
+
+Source semantics: PR #90. Required real evidence order remains:
+
+```text
+INFRA_READY
+→ SESSION_READY
+→ SUPERVISOR_READY
+→ ARM_PROVEN
+→ DEMO_ENTRY_PROVEN
+→ HALT_PROVEN
+→ RECOVERY_DRILL_PROVEN
+```
+
+Every stage must bind to one exact canonical SHA and artifact hashes.
 
 ## Strategy evidence remains negative
 
@@ -154,25 +212,7 @@ Current frozen Bybit price-only facts:
 - 36 WIN / 11 BE / 55 LOSS;
 - net approximately `-176.67 USDT` on 1,000 USDT reference equity.
 
-This does not support strategy promotion. The derivatives-context experiment remains incomplete until authoritative point-in-time acquisition and a newly frozen validation protocol are completed.
-
-## Operational release boundary
-
-Historical PR #89 remains a design source only. A future canonical operational bridge must preserve fixed egress, existing ARM, short-lived explicit approval, immutable authorization/provenance, `SUBMIT_STARTED` before broker mutation, at most one risk-adding ENTRY attempt, no blind resubmit, mandatory reconciliation, protection/reduce-only recovery, no second ENTRY from recovery, no auto-ARM and no mainnet write path.
-
-Historical PR #90 defines the future evidence order:
-
-```text
-INFRA_READY
-→ SESSION_READY
-→ SUPERVISOR_READY
-→ ARM_PROVEN
-→ DEMO_ENTRY_PROVEN
-→ HALT_PROVEN
-→ RECOVERY_DRILL_PROVEN
-```
-
-Neither historical design is current real-broker evidence.
+This does not support strategy promotion. Incomplete derivatives-context research cannot supersede it without authoritative point-in-time acquisition and a new frozen validation protocol.
 
 ## Current formal blockers
 
@@ -186,7 +226,7 @@ Neither historical design is current real-broker evidence.
 
 ### P1
 
-- C2A4 strategy-free active-excursion CAS isolation — #122;
+- C2B0 v121 control-state isolation — #128;
 - V107–V109 append-only TRUNCATE hardening — #109;
 - authoritative derivatives PIT evidence;
 - connected Demo soak;
