@@ -1,0 +1,55 @@
+name: c2b0-runtime-fixture-debug
+
+on:
+  push:
+    branches:
+      - probe/c2b0-runtime-fixture-debug
+
+permissions:
+  contents: read
+
+jobs:
+  debug-fixture:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact probe head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Print actual v121 fixture values
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          from datetime import UTC, datetime, timedelta
+          from app.execution.bybit_demo_v121_control_records import (
+              canonicalize_control_evidence_v121,
+              create_arm_control_event_v121,
+              create_halt_control_event_v121,
+          )
+
+          now = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+          value = (
+              '{"account":"demo","schema":"CONNECTED_PREFLIGHT_V1",'
+              '"status":"READY_FOR_MANUAL_OPERATOR_APPROVAL"}'
+          )
+          canonical = canonicalize_control_evidence_v121(value)
+          print("INPUT_REPR", repr(value))
+          print("CANONICAL_REPR", repr(canonical))
+          print("DIRECT_SHA", hashlib.sha256(canonical.encode("utf-8")).hexdigest())
+          arm = create_arm_control_event_v121(
+              operator_id="operator-1",
+              reason="manual demo approval",
+              preflight_canonical_record=value,
+              now=now,
+              preflight_observed_at=now - timedelta(seconds=10),
+              ttl_seconds=120,
+          )
+          halt = create_halt_control_event_v121(
+              operator_id="operator-1",
+              reason="manual halt",
+              now=now,
+          )
+          print("ARM_PREFLIGHT_SHA", arm.preflight_record_sha256)
+          print("ARM_EVENT_ID", arm.event_id)
+          print("HALT_EVENT_ID", halt.event_id)
+          PY
