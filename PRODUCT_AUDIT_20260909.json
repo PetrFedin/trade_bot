@@ -1,0 +1,127 @@
+{
+  "schema_version": "full-product-acceptance-audit-v1",
+  "observed_at": "2026-09-09",
+  "repository": "PetrFedin/trade_bot",
+  "audit_subject_sha": "ff684ab85b92151c215c7d5cc85bfc527fecb5eb",
+  "audit_branch": "audit/product-acceptance-20260909",
+  "overall_product_status": "NOT_PRODUCT_READY",
+  "component_engineering_status": "MATERIALLY_QUALIFIED_FOR_COVERED_SURFACES",
+  "production_release_allowed": false,
+  "demo_activation_allowed": false,
+  "live_trading_allowed": false,
+  "mainnet_entry_allowed": false,
+  "strategy_promotion_allowed": false,
+  "truth_boundary": "A green component or release workflow does not substitute for integrated product acceptance, connected broker evidence, Demo qualification, strategy profitability, soak, governance or production evidence.",
+  "evidence": {
+    "canonical_main": "ff684ab85b92151c215c7d5cc85bfc527fecb5eb",
+    "canonical_security_run": 34056249717,
+    "canonical_security_postgres": "16.15",
+    "canonical_security_focused": "298 passed",
+    "canonical_security_full": "1138 passed, 2 dedicated fleet-deployment skips",
+    "canonical_deployment_run": 34056249729,
+    "release_provenance_run": 34056249725,
+    "release_artifact_id": 9996047662,
+    "release_inputs_digest": "sha256:361f1aff12d5d7661a3783be879fb02ee21b16c89c1af613e7e178e714b912d4",
+    "fresh_selected_local_regression": "715 passed across 55 selected test modules",
+    "fresh_acceptance_suite": "17 cases: 13 failed, 4 passed; reproduced in three final repetitions",
+    "fresh_acceptance_environment": "Python 3.13.5 / pytest 9.0.2 / SQLite + in-process broker doubles; not the release lock",
+    "fresh_postgres_acceptance_run": false,
+    "fresh_connected_broker_acceptance_run": false,
+    "real_order_mutation_performed": false,
+    "production_database_mutated": false
+  },
+  "canonical_product_shape": {
+    "paper_runtime": "LongOnlyMomentumStrategy + PreTradeRiskEngine + durable OMS/mutations + portfolio + optional fill accounting + readiness evaluator",
+    "paper_broker_family": "Alpaca Paper / in-process test broker boundaries",
+    "canonical_bybit_main": "strategy-free v119-v121 persistence/control slices only",
+    "canonical_bybit_end_to_end_composition_present": false,
+    "launchable_canonical_trading_service_entrypoint_present": false,
+    "bybit_operational_capability_location": "historical stacked PRs #75-#93; decomposition source only, not canonical release",
+    "research_capability_location": "historical stacked PRs #54-#100; research-only and not canonical execution authority"
+  },
+  "reproduced_findings": [
+    {"id":"F01","priority":"P0","area":"OMS_EXECUTION","summary":"Non-exclusive idempotent submit transition allows two workers to call external submit for the same outbox intent.","observed":"2 outbound broker-double submit invocations","required":"exactly one worker receives external-mutation capability; loser reconciles only"},
+    {"id":"F02","priority":"P1","area":"ORDER_MUTATION","summary":"The same non-exclusive start pattern permits duplicate cancel/replace broker calls.","observed":"2 cancel / 2 replace invocations in race scenarios","required":"exclusive mutation claim plus ambiguity-safe reconciliation"},
+    {"id":"F03","priority":"P0","area":"PORTFOLIO_RISK","summary":"Pending orders do not reserve cash or effective exposure.","observed":"3 x 102 = 306 queued against cash/notional cap 110","required":"durable reservations included in every new-risk admission"},
+    {"id":"F04","priority":"P1","area":"MARKET_DATA_CLOCK","summary":"Implicit historical decision time can make old market data appear fresh when the operational caller omits an explicit clock context.","required":"explicit replay clock versus operational wall/server clock contract; operational paths must never infer freshness from the data timestamp itself"},
+    {"id":"F05","priority":"P0","area":"FINAL_DISPATCH_GATE","summary":"A failed planning/readiness state does not durably revoke dispatch of an already outboxed risk-increasing order in the canonical paper composition.","required":"durable HALT/KILL/readiness gate immediately before every risk-increasing external mutation"},
+    {"id":"F06","priority":"P1","area":"RISK_LINEAGE","summary":"PaperOrderLifecycle accepts an approved RiskDecision without cryptographic/typed binding to the exact intent economics.","required":"approval identity bound to intent id + canonical economics + revision"},
+    {"id":"F07","priority":"P0","area":"REPLACE_RISK","summary":"Risk-increasing replace is not re-admitted against current limits before broker mutation.","observed":"replace target 100000 reaches broker double with configured cap 110","required":"recompute reserved/current exposure and re-admit every risk-increasing amendment"},
+    {"id":"F08","priority":"P1","area":"MULTISYMBOL_VALUATION","summary":"Planning a second symbol can fail because canonical pipeline supplies a price map only for the target symbol while existing portfolio positions require valuation.","required":"authoritative fresh valuation context for every held/reserved symbol"},
+    {"id":"F09","priority":"P2","area":"CONFIG_VALIDATION","summary":"ProductConfig accepts target_quantity=0 while LongOnlyMomentumStrategy construction rejects it.","required":"one contract: validate > 0 before composition"},
+    {"id":"F10","priority":"P0","area":"FILL_ACCOUNTING","summary":"A factual broker fill can be durably appended before runtime projection fails, leaving OMS/runtime/durable portfolio views divergent and replay-unrecoverable under the same assumptions.","required":"immutable execution inbox plus restart-safe accounting projection/saga; factual broker executions may never be discarded to satisfy the internal model"},
+    {"id":"F11","priority":"P1","area":"ACCOUNT_GENESIS","summary":"The same persisted portfolio event history can be replayed with a different arbitrary opening_cash value.","required":"immutable account/session genesis or explicit cash-flow ledger bound to history identity"},
+    {"id":"F12","priority":"P0","area":"STREAM_TRUST","summary":"A rejected unauthenticated trade-update digest enters stream dedup before semantic authorization; exact replay can bypass stream validation while the outer raw-frame fill parser accounts it.","required":"only validated/authenticated frames acquire dedup provenance; accounting must require authoritative accepted-stream provenance"}
+  ],
+  "release_packaging_findings": [
+    {
+      "id":"PKG01",
+      "priority":"P1",
+      "summary":"Qualified wheel/sdist do not contain canonical root migrations v119/v120/v121 although current Bybit PostgreSQL modules and tests depend on them.",
+      "observed_sql_in_sdist":"only app/platform_assets v105-v109 (5 SQL files)",
+      "fresh_pristine_sdist_targeted_test":"16 passed, 2 failed, 2 skipped; both failures are FileNotFoundError for migrations/v120/001_bybit_demo_durable_audit_lifecycle.sql",
+      "required":"release artifact self-contained for every schema/bootstrap asset used by the released code"
+    }
+  ],
+  "end_to_end_matrix": {
+    "market_data_to_signal":"PARTIAL_CANONICAL_PAPER; BYBIT_RESEARCH_NONCANONICAL",
+    "signal_to_risk":"PARTIAL; exact intent binding gap F06",
+    "risk_to_order":"FAIL_PRODUCT_ACCEPTANCE; F01/F03/F05",
+    "order_replace_cancel":"FAIL_PRODUCT_ACCEPTANCE; F02/F07",
+    "broker_event_to_accounting":"FAIL_PRODUCT_ACCEPTANCE; F10/F12",
+    "restart_recovery":"STRONG_COMPONENT_COVERAGE; integrated product acceptance incomplete",
+    "multisymbol_portfolio":"FAIL_PRODUCT_ACCEPTANCE; F03/F08",
+    "bybit_demo_connected_entry":"NOT_PROVEN",
+    "bybit_demo_supervision_recovery":"HISTORICAL_CODE_QUALIFIED_ONLY; NOT_CANONICAL_AND_NOT_REAL_CONNECTED_PROVEN",
+    "strategy_profitability":"FAIL; PROFITABILITY_NOT_PROVEN",
+    "connected_soak":"NOT_PROVEN",
+    "production_deployment":"BLOCKED",
+    "live_mainnet":"FAIL_CLOSED"
+  },
+  "priority_backlog": {
+    "P0":[
+      "Fix F12 validated-stream provenance before accounting",
+      "Fix F10 durable factual execution -> accounting projection convergence",
+      "Fix F01 exclusive external submit claims and crash-safe reconciliation",
+      "Add F03 durable pending exposure/cash reservations",
+      "Bind F05 durable HALT/readiness at final risk-increasing mutation boundary",
+      "Re-admit F07 risk-increasing replaces",
+      "Create one canonical Bybit end-to-end product composition only after above invariants and remaining C2/C1/C3 slices qualify",
+      "Keep strategy promotion blocked until a positive frozen cost-adjusted OOS edge is independently proven",
+      "Enable and independently verify server-side main protection (#103)"
+    ],
+    "P1":[
+      "Fix F02 mutation claims",
+      "Fix F04 explicit clock/freshness boundary",
+      "Fix F06 exact risk-decision lineage",
+      "Fix F08 whole-portfolio valuation context",
+      "Fix F11 immutable genesis/cash-flow identity",
+      "Fix PKG01 release migration packaging and pristine-install qualification",
+      "Complete C2B1/C2B2/C2B3/C2C/C1A/C1B/C3A bounded canonicalization",
+      "Integrate metrics/structured traces/alerts/dashboard with actual runtime gates",
+      "Harden v107-v109 append-only TRUNCATE boundary (#109)",
+      "Prove backup/restore, production identity/secrets, and connected multi-week Demo soak"
+    ],
+    "P2":["Fix F09 zero target quantity validation", "Retire stale/duplicate open PRs only after preservation decisions from #104"]
+  },
+  "required_product_acceptance_sequence": [
+    "P0 core safety invariants F12/F10/F01/F03/F05/F07",
+    "P1 core semantic and packaging gaps",
+    "bounded Bybit canonicalization through final v124/readiness/supervisor/recovery/approval composition",
+    "one exact-SHA canonical product service with reproducible install/bootstrap/deploy/rollback",
+    "real protected Bybit Demo read-only readiness",
+    "real operator-approved Demo entry and strict exact-head evidence chain",
+    "connected soak and fault campaign",
+    "positive frozen cost-adjusted OOS strategy evidence",
+    "server-side governance + production security/DR/observability",
+    "separate independently approved tiny-capital live pilot"
+  ],
+  "tracking": {
+    "product_acceptance_issue": 132,
+    "main_protection_issue": 103,
+    "consolidation_issue": 104,
+    "append_only_hardening_issue": 109,
+    "next_persistence_slice_issue": 130,
+    "stale_status_sync_pr": 131
+  }
+}
