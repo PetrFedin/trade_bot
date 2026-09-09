@@ -1,717 +1,746 @@
-# ТЗ — критерии приёмки ASTRA / trade_bot как полноценного продукта
+# ТЗ — приёмка ASTRA / trade_bot как полноценного production trading product
 
-Дата фиксации: 2026-09-09  
-Базовый SHA аудита: `ff684ab85b92151c215c7d5cc85bfc527fecb5eb`  
+Дата: 2026-09-09  
+Базовый exact SHA аудита: `ff684ab85b92151c215c7d5cc85bfc527fecb5eb`  
 Статус базовой версии: **NOT_PRODUCT_READY**
 
-## 1. Цель
+## 1. Назначение
 
-Цель проекта — не наличие большого количества модулей, тестов, исторических PR или исследовательских функций, а **один канонический, воспроизводимый, безопасный и доказуемо работающий торговый продукт**.
+ТЗ фиксирует не список функций, а **обязательную сквозную архитектуру и Definition of Done** для продукта, который должен автономно и безопасно пройти путь от рыночных данных до сверенного финансового результата и восстановления после сбоя.
 
-Продукт считается готовым только тогда, когда одна exact версия кода, одна зафиксированная конфигурация и одна доказательная release identity проходят полный жизненный цикл:
+Целевая цепочка:
 
 ```text
-источник данных
--> нормализация / point-in-time identity
--> quality / freshness / clock validation
--> сигнал
--> immutable strategy release identity
--> план сделки
+provider/exchange data
+-> point-in-time / operational identity
+-> normalization + quality + clock validation
+-> finalized market snapshot/bar
+-> immutable strategy release
+-> signal/target
+-> fresh InstrumentSpec + executable normalization
 -> whole-portfolio valuation
--> session + portfolio risk
--> pending-risk reservation
--> exact risk authorization
--> OMS intent identity
+-> operational/session risk
+-> pending reservation
+-> immutable RiskAuthorization
+-> OMS intent
 -> durable outbox
--> exclusive external-mutation claim
--> final readiness/HALT interlock
--> единственная внешняя мутация
--> broker response validation / uncertainty
--> durable execution fact
--> partial/full fill accounting projection
--> position protection / supervision
--> close / reduce-only recovery
--> fees / funding / all-in PnL
+-> exclusive mutation claim
+-> final account/readiness/HALT/spec recheck
+-> one external mutation
+-> broker response validation / UNCERTAIN
+-> immutable execution fact
+-> financial activity recovery
+-> accounting projection
+-> position protection/supervision
+-> close/reduce-only recovery
 -> broker/account reconciliation
 -> terminal evidence
 -> restart/recovery parity
--> готовность к следующей операции
+-> next decision allowed
 ```
 
-Ни один этап не считается пройденным только потому, что соответствующий класс, файл, unit test или исторически зелёный PR существует.
+Любой отсутствующий или неизвестный обязательный state для **нового риска** означает fail-closed.
 
-## 2. Базовые принципы приёмки
+## 2. Принципы
 
-1. **Один канонический продукт.** Historical stacked PR и research branches — источники семантики/доказательств, но не части релиза сами по себе.
-2. **Одна доказательная identity.** Candidate head, synthetic PR merge, post-merge main и release artifact identities фиксируются отдельно и честно.
-3. **Fail-closed.** Unknown/missing/stale/contradictory state не превращается в healthy default для нового риска.
-4. **Broker execution fact выше внутренней модели.** Реальный execution нельзя удалить или игнорировать из-за ошибки accounting projection.
-5. **At-most-once = право на внешний POST.** Идемпотентная запись состояния недостаточна; external mutation capability получает только один владелец.
-6. **No blind mutation retry.** Ambiguous submit/amend/cancel сначала разрешается GET/read/reconcile.
-7. **Risk-increasing change = new admission.** Quantity/price/notional/margin increase требует повторного risk approval.
-8. **Pending risk — first-class state.** Open/pending/outbox/reserved exposure участвует в risk truth.
-9. **Technical ID защищает economics.** Same ID с другим payload/economics = conflict, а не idempotent success.
-10. **Readiness проверяется в последней точке перед риском.** Старый plan/readiness не авторизует будущий POST.
-11. **Historical/replay и operational modes физически различаются.** Replay clock нельзя случайно использовать как live freshness clock.
-12. **Demo не равно production.** Paper/Demo qualification не доказывает mainnet.
-13. **Engineering readiness не равно profitability.** Без отдельного frozen positive cost-adjusted OOS evidence стратегия не продвигается.
-14. **Recovery не создаёт новую позицию.** Recovery может protect/reduce/flatten/reconcile existing exposure, но не replacement ENTRY.
-15. **Installed artifact должен быть самодостаточен.** Production runtime не зависит от Git checkout/current working directory для SQL/config/schema assets.
+1. **Один canonical product.** Historical/research branches не являются частями production runtime автоматически.
+2. **One exact identity.** Code SHA, config, strategy, data, instrument specs, account/credential generation и release artifact должны иметь доказуемые identities.
+3. **Broker truth не удаляется внутренней ошибкой.** Execution/financial activity сначала сохраняется как факт, потом проектируется.
+4. **At-most-once относится к внешнему mutation right.** Идемпотентная запись сама по себе не предотвращает два POST.
+5. **Pending risk входит в exposure.** Outbox/open/partial/unprojected состояние резервирует risk capacity.
+6. **Risk оценивает executable economics.** Сначала tick/lot/min-notional normalization, затем admission.
+7. **Unknown operational state = reject.** Никаких optimistic zero/default для включённого risk control.
+8. **No blind mutation retry.** Неопределённая мутация разрешается чтением/reconciliation.
+9. **Readiness является final interlock.** Старый approval/outbox не переживает новый HALT/readiness/account/spec mismatch.
+10. **Recovery не создаёт replacement ENTRY.** Только protect/reduce/flatten/reconcile existing exposure.
+11. **Research, Demo, production и profitability — независимые qualification domains.**
+12. **Installed artifact самодостаточен.** Runtime-required SQL/config/schema не зависят от Git checkout/CWD.
+13. **DR доказан восстановлением, а не декларацией.**
 
-## 3. Каноническая архитектура и обязательные acceptance contracts
+## 3. Data architecture
 
-### 3.1 Data acquisition, качество и время
+### 3.1 Historical / research data
 
-Обязательные данные/состояния:
+Qualification dataset обязан фиксировать:
 
-- source event/exchange timestamp;
-- received timestamp;
-- decision timestamp;
-- local monotonic/wall clock;
-- exchange/server time where available;
-- explicit mode: `REPLAY` / `OPERATIONAL`;
-- freshness SLA;
-- gap/duplicate/out-of-order/future detection;
-- point-in-time source manifest;
-- source outage/unavailable status.
+- provider/feed;
+- requested symbols и point-in-time entity mapping;
+- `asof`/effective identity date где API поддерживает;
+- universe membership на момент исследования;
+- raw/adjusted corporate-action policy;
+- time zone/session/calendar;
+- request parameters/page identities;
+- acquisition timestamp;
+- immutable manifest/hash;
+- train/validation/OOS/holdout boundaries.
 
-Operational path обязан использовать **validated data snapshot/token**, который невозможно получить при failed quality gate.
+Для corporate actions разрешены только coherent modes:
 
-Не допускается:
+**A. RAW + explicit actions** — raw bars + split/dividend/etc. events применяются к cash/positions ровно один раз.
 
-- вызывать strategy на stale/gapped/future/non-monotonic data и затем отдельно игнорировать failed validator;
-- считать historical data свежими относительно их собственного последнего timestamp;
-- падать uncaught exception на уже определённом invalid input вместо fail-closed result;
-- подставлять future values/zeros вместо unavailable source state.
+**B. ADJUSTED analytical series** — adjustment policy frozen; та же action не применяется повторно как cash/share event.
 
-Acceptance:
+Re-fetch frozen dataset на другую дату либо reproduces exact identity, либо создаёт explicit data-drift failure/new dataset identity.
 
-- stale/gap/jump/future/duplicate/non-monotonic/mixed-symbol/invalid timestamp scenarios => no risk-increasing intent;
-- malformed final bar => deterministic `ready=false`, а не naive/aware `TypeError`;
-- replay остается deterministic, но явно не выдаёт historical freshness за operational readiness.
+Связанный blocker: F27 / #147.
 
-Связанные findings: F04, F14, F16 / #136.
+### 3.2 Operational realtime data
 
-### 3.2 Strategy/research и promotion
+Продукт обязан сам владеть runtime path:
 
-Research artifact обязан иметь immutable identity:
+```text
+source event
+-> normalized event
+-> finalized bar/snapshot
+-> continuity/freshness
+-> durable watermark
+-> exactly-one decision
+```
 
-- Git SHA / strategy code hash;
-- config/parameters;
+Обязательные поля:
+
+- provider/venue/environment;
+- instrument identity;
+- source/exchange timestamp;
+- receive timestamp;
+- interval/bar boundaries;
+- final/closed flag;
+- OHLCV/quote values согласно strategy contract;
+- source sequence/message id где доступно;
+- canonical hash/revision.
+
+Runtime должен иметь:
+
+- subscription acknowledgement;
+- heartbeat/silence detection;
+- duplicate/out-of-order handling;
+- reconnect;
+- GET-only gap repair;
+- market/session/calendar handling;
+- durable last-finalized/last-decided watermark;
+- multi-symbol completeness rule;
+- one-decision-per-final-bar guarantee.
+
+In-progress/stale/future/gapped data не могут создавать new-risk intent.
+
+Связанные blockers: F04/F14/F16/F22 / #136/#142.
+
+## 4. Strategy and promotion
+
+### 4.1 Immutable strategy release
+
+Runtime candidate содержит:
+
+- exact code SHA/hash;
+- strategy/config parameters;
 - universe;
-- dataset/source manifest;
-- train/validation/OOS/holdout boundaries;
+- dataset manifest;
 - cost model;
-- decision/intrabar assumptions;
-- qualification policy version.
+- research policy version;
+- qualification metrics;
+- independent approval identity.
 
-`qualified=true` запрещён без non-vacuous evidence. Минимум:
+### 4.2 Non-vacuous qualification
 
-- `total_trades >= policy minimum`;
-- `active_oos_windows >= policy minimum`;
-- достаточные regimes/time periods;
-- достаточная cross-symbol/sample coverage;
-- fees/spread/slippage;
-- funding/borrow where applicable;
-- positive frozen net OOS criterion;
-- drawdown/tail criterion;
-- concentration/sensitivity checks;
-- point-in-time/no-lookahead proof;
-- final untouched holdout policy.
+`qualified=true` запрещён при:
 
-`0 trades`, `0 active windows` или insufficient sample => explicit FAIL reason.
+- zero trades;
+- zero active OOS windows;
+- insufficient regimes/sample;
+- missing required fee/spread/slippage/funding/borrow model;
+- missing point-in-time proof;
+- reused/non-independent holdout;
+- unacceptable concentration/sensitivity/tail risk.
 
-Promotion path:
+Promotion states:
 
 ```text
 RESEARCH
 -> QUALIFIED_RESEARCH
--> independently approved immutable strategy release
 -> DEMO_CANDIDATE
 -> DEMO_PROVEN
 -> LIVE_CANDIDATE
 ```
 
-Runtime не должен hardcode validation strategy и одновременно считать её promoted strategy.
+Engineering CI не меняет strategy promotion state.
 
-Текущее frozen Bybit price-only evidence остаётся отрицательным; статус **`PROFITABILITY_NOT_PROVEN`** сохраняется.
+Текущий статус остаётся `PROFITABILITY_NOT_PROVEN`.
 
-Связанный finding: F15 / #139.
+Связанный blocker: F15 / #139.
 
-### 3.3 Whole-portfolio valuation
+## 5. InstrumentSpec and executable economics
 
-До любого нового risk admission должен существовать authoritative valuation snapshot для:
+Перед каждым ordinary ENTRY/amend требуется fresh immutable `InstrumentSpec`:
 
-- всех held positions;
-- all acknowledged/open orders;
-- pending/outbox reservations;
-- partially filled residuals;
-- execution facts not yet projected;
+- venue/environment/category;
+- symbol/instrument id;
+- trading status;
+- base/quote/settle identity;
+- min/max price;
+- tick size;
+- min/max quantity;
+- quantity step;
+- minimum notional;
+- leverage min/max/step where applicable;
+- margin/position-mode support;
+- observed/source timestamp;
+- canonical revision/hash.
+
+Desired order нормализуется детерминированно. Rounding не имеет права увеличивать риск незаметно.
+
+RiskAuthorization связывается именно с **normalized executable economics + InstrumentSpec revision**.
+
+Spec stale/revision change перед dispatch => block/re-admit.
+
+Для derivatives reduce-only/position mode/position side/size проверяются отдельно так, чтобы recovery не мог открыть opposite exposure.
+
+Связанный blocker: F23 / #143.
+
+## 6. Portfolio/account financial truth
+
+### 6.1 Immutable genesis
+
+Opening cash/equity фиксируются immutable session/account genesis:
+
+- account/session identity;
+- currency;
+- opening cash/equity;
+- source evidence;
+- timestamp;
+- revision.
+
+Изменения капитала после genesis — explicit cash-flow activities, а не новый constructor argument.
+
+### 6.2 Whole-portfolio valuation
+
+До нового risk admission нужны fresh prices для:
+
+- held positions;
+- open broker orders;
+- pending reservations;
+- partial residuals;
+- unprojected executions;
 - recovery-only exposure.
 
-Каждый required symbol получает fresh valid price с timestamp/source identity.
+Неоценимая exposure => new risk blocked.
 
-Если хотя бы одна существующая exposure не может быть оценена — новый risk блокируется.
+### 6.3 Broker financial activities
 
-Связанный finding: F08.
+Durable financial activity inbox содержит:
 
-### 3.4 Operational risk context
+- activity id/type/subtype;
+- account identity;
+- cash amount;
+- symbol/qty where applicable;
+- booked timestamp;
+- source cursor/page identity;
+- canonical payload hash;
+- projection status.
 
-Для `OPERATIONAL` режима отсутствуют optimistic defaults.
+Поддерживаются все financially relevant activity types выбранного broker scope: executions/fees, deposits/withdrawals, dividends/adjustments/withholding, interest и иные признанные cash-impacting events.
 
-Каждый enabled risk limit должен явно объявлять required observations. Примеры:
+Unknown cash-impacting activity => quarantine/HALT new risk.
 
-- `market_open` / session status;
+Backfill cursor restart-safe и допускает overlap только при conflict-aware event identity.
+
+Known `CASH_MISMATCH` блокирует new risk.
+
+Связанные blockers: F08/F11/F21 / #141.
+
+## 7. Operational risk
+
+Для каждого enabled limit формально объявляются required measured inputs.
+
+Типовые inputs:
+
+- market open/session status;
 - halt state;
 - cash/equity;
-- portfolio positions;
-- reserved exposure;
-- ADTV/liquidity;
+- positions;
+- pending/reserved exposure;
+- liquidity/ADTV;
 - spread/slippage;
+- volatility;
 - sector/classification;
-- realized/annualized volatility;
-- session/daily PnL;
-- drawdown/high-water;
+- PnL/high-water/drawdown;
 - turnover;
-- margin/liquidation data for derivatives.
+- margin/liquidation context.
 
-Если limit включён, а required observation неизвестно, результат = explicit fail-closed reason (`*_UNKNOWN`), а не пропуск проверки.
+В `OPERATIONAL` mode missing required observation => stable explicit `*_UNKNOWN` rejection.
 
-Связанный finding: F13 / #136.
+Никакие implicit `market_open=True`, `halted=False`, zero spread, zero slippage, zero loss/drawdown не разрешены как незаметные defaults.
 
-### 3.5 Pending-risk reservation
+Связанный blocker: F13 / #136.
 
-Перед созданием risk-increasing outbox должен атомарно появиться durable reservation.
+## 8. Reservations and RiskAuthorization
 
-Reservation содержит минимум:
+### 8.1 Reservation
+
+Перед risk-increasing outbox атомарно создаётся durable reservation:
 
 - intent identity;
-- symbol/side;
-- quantity;
-- reference/limit economics;
+- instrument/spec revision;
+- side/qty/price economics;
 - reserved cash/notional/margin;
 - risk revision;
 - lifecycle state.
 
-Admission использует:
+Admission считает:
 
 ```text
 positions
 + open broker orders
-+ local pending/outbox reservations
-+ unprojected execution exposure
++ pending/outbox reservations
++ unprojected executions
++ recovery-only exposure
 ```
 
-Reservation освобождается/изменяется только после доказанного fill/cancel/reject/reconciliation outcome.
+Reservation release/update допускается только после доказанного broker truth.
 
-Несколько заявок, каждая из которых отдельно проходит limit, но вместе превышают limit, должны блокироваться.
+### 8.2 Exact authorization
 
-Связанный finding: F03.
-
-### 3.6 Exact risk authorization
-
-Нельзя передавать lower lifecycle просто `approved=True`.
-
-`RiskAuthorization` должен быть immutable и содержать:
+`RiskAuthorization` содержит:
 
 - decision id;
-- exact intent id;
-- canonical economics hash/revision;
-- risk policy identity;
-- measured context identity;
-- approval timestamp/expiry where applicable;
+- exact intent/economics hash;
+- policy revision;
+- measured context revision;
+- InstrumentSpec revision;
+- account/session identity;
+- timestamp/expiry;
 - immutable evidence hash.
 
-OMS/outbox не принимают approval для другого intent/economics.
+Lower execution layer не принимает голый `approved=True`.
 
-Связанный finding: F06.
+Связанные blockers: F03/F06/F07.
 
-### 3.7 OMS intent identity и conflict-aware idempotency
+## 9. OMS, idempotency and mutation rights
 
-`intent_id` = immutable economic identity.
+### 9.1 Conflict-aware identity
 
-Identical replay разрешён только если совпадают declared identity fields, как минимум:
+Same technical id:
 
+- identical canonical payload => idempotent replay;
+- different economics/payload/target/broker identity => conflict.
+
+`intent_id` является immutable economic identity. Divergent replay => `INTENT_ID_CONFLICT`.
+
+### 9.2 Exclusive external mutation claim
+
+Submit/amend/cancel lifecycle:
+
+```text
+READY
+-> EXCLUSIVE_CLAIM(owner/fence)
+-> FINAL_INTERLOCK
+-> MUTATION_STARTED
+-> exactly one external call by winner
+-> broker truth | UNCERTAIN
+-> GET/reconcile
+```
+
+Loser никогда не получает POST capability.
+
+Тестируются:
+
+- multiprocess race;
+- crash before/after claim;
+- crash before/after network call;
+- broker success + lost response;
+- stale owner/recovery;
+- no blind mutation retry.
+
+Связанные blockers: F01/F02/F20 / #138.
+
+## 10. Broker/account/environment identity
+
+Canonical `BrokerIdentity` связывает:
+
+- broker/venue;
+- environment;
+- expected account/UID privacy-safe identity;
+- account type/currency/settle domain;
+- credential purpose;
+- credential fingerprint/generation;
+- endpoint identity;
+- release SHA;
+- verified timestamp/expiry.
+
+Read-only startup preflight проверяет account/environment/permissions/credential generation.
+
+Session/ARM/approval ссылаются на exact BrokerIdentity revision.
+
+Credential/account/release change инвалидирует old new-risk authority.
+
+Final dispatch повторно проверяет same account/environment/credential generation.
+
+Raw secrets не сохраняются.
+
+Concrete F26 bounded repair PR #146 добавляет account fingerprint в external Paper readonly evidence и mismatch block до mutation, но полный F25 остаётся открытым.
+
+Связанный blocker: F25/F26 / #145/#146.
+
+## 11. Broker response and order lineage
+
+Submit response сверяется с exact authorization:
+
+- client id;
+- broker order id;
 - symbol;
 - side;
 - quantity;
-- reference/limit price contract;
-- strategy release identity;
-- created/decision identity where part of canonical intent.
-
-Same `intent_id` + different economics => deterministic `INTENT_ID_CONFLICT`.
-
-То же правило применяется к event ids:
-
-- identical event id + identical canonical payload = idempotent replay;
-- identical event id + different payload/target/broker identity = conflict.
-
-Reference implementation principle — conflict-aware strict portfolio store.
-
-Связанный finding: F20 / #138.
-
-### 3.8 External mutation claim
-
-Risk-increasing submit lifecycle должен содержать отдельный exclusive claim:
-
-```text
-INTENT
--> RISK_APPROVED
--> RESERVED
--> OUTBOXED
--> EXCLUSIVE_CLAIM(owner/fence)
--> FINAL_READINESS_CHECK
--> SUBMIT_STARTED
--> external POST exactly once by claim owner
--> broker truth | UNCERTAIN
--> reconciliation
-```
-
-Требования:
-
-- SQLite and PostgreSQL atomic semantics;
-- multiprocess races;
-- only winner receives mutation capability;
-- loser cannot POST and goes read/reconcile only;
-- crash before/after claim;
-- crash before/after POST;
-- crash after broker success/lost response;
-- no TTL-based unsafe takeover without audited recovery.
-
-Cancel/replace используют аналогичный winner-only contract.
-
-Связанные findings: F01, F02.
-
-### 3.9 Final readiness/HALT interlock
-
-Immediately before every risk-increasing external call система обязана заново проверить authoritative current state:
-
-- durable HALT/ARM;
-- current readiness;
-- market-data validity;
-- broker connectivity;
-- accounting convergence;
-- reservation ownership;
-- session risk;
-- authorization validity;
-- current runtime/release identity.
-
-Этот recheck находится в той же доверенной mutation boundary, что и exclusive claim.
-
-Старый outbox/approval не имеет права обходить новый HALT/readiness failure.
-
-Risk-reducing protect/flatten/recovery путь остаётся отдельно разрешаемым по policy.
-
-Связанный finding: F05 / #140.
-
-### 3.10 Submit response identity / broker economics
-
-Broker response до adoption сверяется с exact authorized request:
-
-- client order id;
-- broker order id shape/identity;
-- symbol;
-- side;
-- order quantity;
-- price/order economics;
+- price/economics;
 - status;
 - filled quantity;
 - broker timestamp.
 
-Если venue нормализует tick/price, tolerance/rounding contract должен быть explicit, frozen and tested.
+Material mismatch => `UNCERTAIN`/quarantine, а не ACK success.
 
-Material divergence => `UNCERTAIN`/quarantine/reconciliation, не ACK success.
+Legitimate venue rounding допускается только согласно frozen normalization contract.
 
-Связанный finding: F17 / #138.
+Первичный broker order identity immutable либо имеет explicit `replaces/replaced_by` chain, доказанную exact mutation evidence.
 
-### 3.11 Broker order replacement lineage
+Связанные blockers: F17/F18 / #138.
 
-После первоначального ACK primary broker order identity нельзя silently overwrite.
+## 12. Execution facts and accounting convergence
 
-Допустимые модели:
+Все execution channels — submit response, WebSocket, GET/backfill — сходятся в один immutable execution inbox.
 
-1. immutable primary broker id + append-only successor lineage; либо
-2. explicit `replaces/replaced_by` chain.
+Flow:
 
-Новый broker order id принимается только при exact successful replace mutation evidence.
+```text
+validated execution
+-> durable execution fact
+-> projection PENDING
+-> cash/position/fee/funding projection
+-> durable projection receipt
+-> OMS cumulative convergence
+-> broker/account reconciliation
+-> PROJECTED
+```
 
-Fill/backfill mapping должен уметь однозначно сопоставлять legitimate original/successor identities.
+Projection failure:
 
-Связанный finding: F18 / #138.
+- факт сохраняется;
+- new risk blocked;
+- restart replay deterministic;
+- никакого удаления execution ради внутреннего invariant.
 
-### 3.12 Broker event / WebSocket trust
+Immediate `PARTIALLY_FILLED/FILLED` submit response не может оставить OMS ahead of portfolio и позволить следующий ENTRY.
 
-External execution event проходит:
+Связанные blockers: F10/F19/F21 / #135/#138/#141.
+
+## 13. Broker-event trust
+
+External event accounting authority требует:
 
 - authenticated stream/listening state;
 - schema validation;
 - parser agreement;
-- client/broker order identity;
-- symbol/side/order qty checks;
-- monotonic cumulative fill/time;
-- validated dedup provenance;
-- durable execution inbox append.
+- account/order identity;
+- monotonic/correction-aware broker contract;
+- validated provenance;
+- durable execution/activity fact.
 
-Rejected/untrusted digest не может стать trusted только потому, что он присутствует в low-level seen-set.
+Rejected/untrusted digest не может стать trusted из-за presence in low-level dedup set.
 
-Valid duplicate должен иметь один economic effect.
+PR #134 — bounded F12 repair; он не доказывает весь broker-event subsystem.
 
-PR #134 ремонтирует bounded F12 accounting-authority bypass, но не считается полной квалификацией всего stream subsystem.
+## 14. Authoritative runtime readiness and final dispatch
 
-Связанный finding: F12.
+Runtime `OperationalSnapshot` собирается только из actual state:
 
-### 3.13 Immutable execution facts и accounting projection
-
-Должны быть разделены:
-
-1. **broker execution fact**;
-2. **accounting projection state**;
-3. **OMS cumulative adoption**;
-4. **readiness/convergence state**.
-
-Target flow:
-
-```text
-validated execution
--> durable immutable execution inbox
--> accounting projection PENDING
--> apply idempotent cash/position/fees/funding
--> durable projection receipt/checkpoint
--> OMS cumulative convergence
--> reconciliation
--> PROJECTED
-```
-
-При projection failure:
-
-- execution fact сохраняется;
-- status = `PENDING/QUARANTINED`;
-- new risk blocked;
-- restart deterministic replay resumes projection;
-- adverse execution не удаляется ради прохождения internal invariant.
-
-Связанные findings: F10 / #135, #138.
-
-### 3.14 Immediate fills in submit response
-
-Если submit response уже содержит `PARTIALLY_FILLED` или `FILLED`, он обязан создать тот же durable execution/accounting path, что WebSocket/GET backfill.
-
-Недопустимо состояние:
-
-```text
-OMS = FILLED
-portfolio = old position
-next strategy cycle = allowed
-```
-
-До convergence следующий risk-increasing plan/dispatch заблокирован.
-
-Связанный finding: F19 / #138.
-
-### 3.15 Account/session genesis
-
-Opening cash/equity не может быть arbitrary replay argument для уже существующей history.
-
-Нужен immutable genesis:
-
-- account/session identity;
-- opening cash/equity;
-- currency;
-- created timestamp;
-- source/evidence identity;
-- ledger revision.
-
-Изменение капитала после genesis — explicit cash-flow event, а не новый constructor argument.
-
-Связанный finding: F11.
-
-### 3.16 Restart/recovery
-
-После restart exact durable state обязан восстановить:
-
-- OMS;
-- mutation claims/state;
-- broker execution facts;
-- accounting projection checkpoints;
-- portfolio positions/cash;
+- realtime data freshness/continuity;
+- feed/stream status;
+- fresh InstrumentSpec;
+- broker/account identity/status;
+- OMS uncertain/reconciling states;
 - reservations;
-- session risk/high-water;
-- HALT/ARM state;
-- active-trade checkpoint;
-- terminal evidence.
+- execution/accounting lag;
+- financial activity watermark;
+- whole-portfolio valuation;
+- session risk;
+- HALT/ARM;
+- DB/storage health;
+- release identity;
+- backup freshness.
 
-Unknown/mismatch => no new exposure.
+Final interlock непосредственно перед risk-increasing external mutation требует clean current snapshot.
 
-Recovery не создаёт replacement entry.
+Risk-reducing recovery имеет отдельный ограниченный policy.
 
-### 3.17 Bybit Demo operational plane
+Связанный blocker: F05/F25 / #140.
 
-Canonical product должен bounded-способом объединить required semantics без wholesale merge historical stack:
+## 15. Product service and observability
 
-- v119 runtime lease + active checkpoint;
-- v120 approval/provenance/terminal evidence;
-- v121 ARM/HALT;
-- v122 restart-safe session risk;
-- one-time session start;
-- terminal evidence -> risk commit -> checkpoint ACK;
-- persistent supervisor;
-- v123 audited lease recovery;
-- connected read-only account/position/order preflight;
-- dedicated write-key metadata proof;
-- fixed-egress protected zone;
-- same-account / operational-zone identity;
-- v124 logical DB identity/bootstrap/readiness;
-- exact-symbol short-lived operator approval;
-- canonical protected Demo ENTRY;
-- verified protection/reduce-only recovery;
-- exact release evidence chain.
+Полноценный продукт имеет официальный long-running runtime/operator surface:
 
-До устранения P0 product acceptance gaps реальный новый Demo ENTRY не выполняется только ради проверки кода.
-
-### 3.18 Runtime application / observability
-
-Полноценный продукт имеет один supported long-running service/operator interface, а не только library builders.
-
-Обязательные surfaces:
-
-- config validation;
 - version/release identity;
+- config validation;
 - DB verify/bootstrap;
 - startup preflight;
-- runtime status;
+- live-data service;
+- worker/scheduler;
 - health/readiness/liveness;
-- graceful shutdown;
 - reconciliation/recovery commands;
-- structured logs with correlation ids;
-- metrics;
-- alerts;
-- runbooks;
-- deployment/service definition;
-- rollback;
-- backup/restore.
-
-Authoritative `OperationalSnapshot` собирается из actual runtime state, а не hand-built optimistic values.
-
-Минимальные metrics/alerts:
-
-- market data age/quality;
-- stream state/silence/reconnect;
-- broker latency/errors/rate limits;
-- queue depth / oldest outbox age;
-- reservation exposure;
-- uncertain/reconciling/manual age;
-- execution fact -> projection lag;
-- broker/local mismatch;
-- positions/equity/PnL/drawdown;
-- HALT/ARM/session state;
-- protection state;
-- DB/storage health;
+- graceful shutdown;
+- structured logs/correlation ids;
+- metrics/alerts;
+- deployment definition;
+- rollback/runbooks;
 - backup/restore status.
 
-Связанный issue: #140.
+Минимальные alerts:
 
-### 3.19 Release package
+- stale feed/gap;
+- stream disconnect;
+- broker error/rate-limit storm;
+- pending queue age;
+- reservation anomaly;
+- execution/accounting lag;
+- broker/local mismatch;
+- cash/equity mismatch;
+- unknown activity/instrument spec;
+- HALT/session loss/drawdown;
+- orphan exposure/lease;
+- backup/restore failure.
 
-Installed artifact содержит всё runtime-required:
+Связанный blocker: #140.
 
-- Python code;
-- all SQL migrations;
+## 16. Installed release
+
+Wheel/container должны содержать:
+
+- Python runtime;
+- all required SQL migrations;
 - schema/config resources;
 - safe templates;
-- version/commit/resource digests;
+- version/SHA/resource digests;
 - bootstrap/readiness tooling;
 - release manifest/SBOM/provenance.
 
-Runtime resources загружаются через immutable package-resource mechanism, а не CWD/repository root.
+Runtime resource loading не зависит от CWD/Git root.
 
-Release acceptance выполняется из clean environment:
+Clean-install qualification:
 
 1. install exact wheel;
-2. repository source отсутствует из `PYTHONPATH`;
-3. verify identity/resources;
-4. bootstrap/verify empty PostgreSQL через packaged resources;
-5. local/offline self-test;
+2. remove source checkout from `PYTHONPATH`;
+3. verify resource digests;
+4. bootstrap/verify isolated PostgreSQL from packaged assets;
+5. build local/offline product;
 6. restart parity;
-7. build supported operator service;
-8. prove no broker network is needed for installation qualification;
-9. verify artifact resource hashes.
+7. start supported operator/service surface;
+8. no broker network needed for install qualification.
 
-Связанный issue: #137.
+Связанный blocker: #137.
 
-### 3.20 Security/governance
+## 17. Real disaster recovery
 
-Обязательны:
+V106 evidence schema должна наполняться **реальным** backup/restore drill:
 
-- protected `main`;
-- PR required;
-- required checks;
-- stale approval dismissal;
-- no force push/delete;
-- CODEOWNERS/review ownership execution/risk/migrations;
-- protected production environment;
-- independent live approval;
-- non-owner least-privilege runtime DB roles;
-- no UPDATE/DELETE/TRUNCATE bypass append-only evidence;
-- workload identity/KMS/HSM or equivalent production secret architecture;
-- rotation/revocation drill;
-- dependency/action pinning and audit.
+```text
+representative durable state
+-> actual encrypted backup
+-> isolated restore
+-> schema/resource/release verification
+-> event/table cryptographic comparison
+-> application replay
+-> restored HALTED/RECONCILIATION_REQUIRED
+```
 
-Текущие blockers: #103, #109.
+Backup set включает OMS, mutations, risk, portfolio/genesis, executions, activities, reservations, watermarks, v119-v123 control/session state и DB/release identity.
 
-### 3.21 Reliability / fault campaign
+Измеряются реальные RPO/RTO.
+
+Связанный blocker: F24 / #144.
+
+## 18. Canonical Bybit operational product
+
+До protected Demo ENTRY в `main` должны быть bounded-способом собраны:
+
+- v119 runtime lease/checkpoint;
+- v120 approval/provenance/terminal evidence;
+- v121 ARM/HALT;
+- v122 session risk;
+- one-time session start;
+- terminal evidence -> risk commit -> checkpoint ACK;
+- active-trade supervisor;
+- v123 lease recovery;
+- connected read-only account/position/order preflight;
+- trading-key metadata proof;
+- fixed-egress trust zone;
+- v124 DB identity/bootstrap/readiness;
+- exact-symbol operator approval;
+- InstrumentSpec normalization;
+- account/credential identity binding;
+- protected ENTRY;
+- protection/reduce-only recovery.
+
+Historical stacked PR не заменяет canonical product composition.
+
+## 19. Reliability / fault campaign
 
 Обязательные scenarios:
 
-- multi-worker submit/cancel/replace races;
-- process kill at every mutation phase;
+- submit/cancel/replace races;
+- process kill at each mutation stage;
 - DB disconnect/restart;
-- WebSocket disconnect/reconnect/out-of-order/duplicate;
+- feed/WebSocket reconnect/out-of-order/duplicate;
 - REST timeout/429/5xx;
 - broker success + lost response;
 - immediate/partial fills;
-- accounting crash after execution fact append;
-- projection success + OMS crash;
+- projection crash after execution append;
+- unknown financial activity;
+- broker cash mismatch;
+- stale/change InstrumentSpec;
+- wrong account/credential generation;
 - cancel/replace collision;
-- stale data/clock skew;
-- broker identity/economics mismatch;
 - missing protection;
 - orphan lease;
 - backup/restore/failover.
 
-Hard acceptance:
+Hard outcomes:
 
 - zero unintended duplicate ENTRY;
-- zero silent exposure increase after unknown state;
+- zero silent risk increase under unknown state;
+- zero lost factual execution/activity;
 - zero unresolved orphan exposure at release gate;
-- every uncertain mutation converges through reads/reconciliation;
-- every factual execution remains durable;
-- no new risk while accounting/valuation/readiness is unknown;
+- uncertain mutations converge through reads/reconciliation;
 - recovery never creates replacement entry.
 
-### 3.22 Connected Demo soak
+## 20. Connected Demo and soak
 
-После first protected Demo chain нужен connected soak, который включает:
+После deterministic/PostgreSQL product PASS требуется one-exact-SHA connected evidence:
 
-- no-signal periods;
-- blocked signals;
-- approved trades;
-- partial/normal fills where naturally produced;
-- reconnects;
-- process restarts;
-- DB reconnect/maintenance;
-- HALT/recovery drill;
-- backup/restore drill;
-- prolonged SLO telemetry.
+```text
+INFRA_READY
+-> ACCOUNT/IDENTITY_READY
+-> DATA_READY
+-> INSTRUMENT_READY
+-> SESSION_READY
+-> SUPERVISOR_READY
+-> ARM_PROVEN
+-> DEMO_ENTRY_PROVEN
+-> ACCOUNTING_RECONCILED
+-> HALT_PROVEN
+-> RECOVERY_DRILL_PROVEN
+```
 
-Исторические/local tests не заменяют connected soak evidence.
+Затем connected soak покрывает market/stream reconnects, process restarts, DB reconnect, partial fills, ambiguous mutations, reconciliation mismatch, protection, HALT/recovery и backup/restore.
 
-### 3.23 Live gate
+## 21. Security/governance
 
-Mainnet ENTRY запрещён, пока отдельно не PASS:
+До production:
 
-- full product acceptance;
-- positive frozen strategy evidence;
-- protected connected Demo chain;
-- soak/fault recovery;
-- governance;
-- production security;
-- DR/backup/restore;
-- observability/alerts/runbooks;
-- independent live approver.
+- protected `main`;
+- PR/review/required checks;
+- stale approval dismissal;
+- no force push/delete;
+- CODEOWNERS execution/risk/migrations;
+- protected production environment;
+- independent live approver;
+- least-privilege non-owner DB roles;
+- append-only physical hardening;
+- workload identity/KMS/HSM or equivalent;
+- credential rotation/revocation drill;
+- dependency/action provenance.
 
-Первый live шаг — отдельный tiny-capital pilot с hard notional/drawdown limits и без automatic scaling.
+Current blockers: #103, #109.
 
-## 4. Обязательная E2E-матрица
+## 22. Обязательная E2E matrix
 
-| Сценарий | Ожидаемый результат |
+| Сценарий | Required result |
 |---|---|
-| Valid live-like data | quality PASS -> signal/risk path доступен |
-| Stale/gapped/future/invalid data | no risk-increasing intent |
-| Enabled risk limit + missing required observation | explicit fail-closed `*_UNKNOWN` |
-| Zero-trade research | strategy qualification FAIL |
-| Normal order | one external submit, verified broker identity, eventual accounting convergence |
-| Two workers same submit | max one external POST |
-| Two workers cancel/replace | max one external mutation |
-| Lost broker response | no retry POST; GET/reconcile only |
-| Pending risk exceeds cap | subsequent reservation/admission blocked |
+| Frozen historical request | explicit point-in-time identity; reproducible dataset or drift failure |
+| In-progress bar | no decision |
+| Stale/gapped/future bar | no new-risk intent |
+| Duplicate finalized bar | max one decision |
+| Feed reconnect with gap | GET repair then resume or HALT |
+| Enabled risk limit + missing input | explicit rejection |
+| Existing exposure without fresh valuation | new risk blocked |
+| Pending reservations exceed cap | subsequent admission blocked |
+| Off-tick/off-step order | normalized safely before risk or rejected |
+| Stale instrument spec | no new risk |
+| Same intent id + changed economics | conflict |
+| Two workers same submit | max one POST |
 | Risk-increasing replace | new admission required |
-| HALT after approval, before submit | no risk-increasing broker POST |
-| Broker ACK economics differ materially | UNCERTAIN/quarantine, not success |
-| Broker order id changes without replace lineage | conflict/quarantine |
-| Same intent id, same economics | idempotent replay |
-| Same intent id, changed economics | `INTENT_ID_CONFLICT` |
-| Immediate FILLED submit response | durable execution fact + projection before next new risk |
+| HALT after approval | no risk-increasing POST |
+| Wrong account/credential generation | no POST |
+| Broker ACK economic mismatch | UNCERTAIN/quarantine |
+| Immediate FILLED submit | execution fact + projection before next risk |
 | Unauthenticated WS fill | no accounting effect |
-| Valid duplicate fill | exactly one economic effect |
-| Accounting projection failure | execution fact durable, new risk blocked, restart recovery deterministic |
-| Existing position in another symbol | whole-portfolio valuation succeeds with fresh prices or blocks new risk |
-| Restart same history/genesis | same cash/positions/session revisions |
-| Restart with different opening capital | rejected absent explicit cash-flow/genesis change |
-| Clean wheel install | packaged SQL/resources/bootstrap/status/self-test available without Git checkout |
-| Runtime health degraded after outbox | final interlock blocks new risk |
-| PostgreSQL/process/stream fault campaign | convergence fail-closed |
-| Bybit exact-head Demo chain | one exact identity proves INFRA -> SESSION -> SUPERVISOR -> ARM -> ENTRY -> HALT -> RECOVERY |
+| Projection crash | fact durable, restart recovery, new risk blocked |
+| Broker CASH_MISMATCH | no new risk |
+| Unknown cash-impacting activity | quarantine/HALT |
+| Restart | same durable economic/session state |
+| Clean wheel install | packaged SQL/resources/service available without checkout |
+| Backup/restore | exact semantic state restored; app starts HALTED |
+| Connected Demo chain | one exact identity proves complete chain |
 
-## 5. Текущие обязательные blockers и ownership
+## 23. Backlog ownership
 
 ### P0
 
-- #132 parent product acceptance;
-- #134 bounded F12 repair (draft until qualification contract resolved);
-- #135 F10 execution facts/accounting projection;
-- #136 data/risk fail-closed gate;
-- #137 self-contained installed release;
-- #138 execution/OMS economic identity + immediate-fill convergence;
-- #140 runtime snapshot/telemetry/final dispatch;
-- F01/F02 winner-only mutation claim;
-- F03 reservation ledger;
-- F06 exact authorization binding;
-- F07 amendment re-admission;
-- #103 server-side main protection.
+- #132 — parent product acceptance;
+- #134 — F12 bounded repair;
+- #135 — execution facts/projection;
+- #136 — data/risk fail-closed;
+- #137 — self-contained release;
+- #138 — execution/OMS economic identity;
+- #140 — runtime snapshot/final dispatch/telemetry;
+- #141 — broker financial activities/cash truth;
+- #142 — live market data/scheduler;
+- #143 — InstrumentSpec normalization;
+- #144 — real backup/restore;
+- #145 — broker/account/credential identity;
+- #146 — bounded F26 repair;
+- F01/F02/F03/F06/F07;
+- #103 — branch protection.
 
 ### P1
 
-- F04 clock modes;
-- F08 whole-portfolio valuation;
-- F11 immutable genesis;
-- #139 strategy qualification/promotion;
-- #109 append-only physical hardening;
-- exact-head/synthetic-merge evidence identity clarity;
-- remaining bounded Bybit C2B/C2C/C1/C3 canonicalization;
+- F04/F08/F11;
+- #139 — strategy qualification/promotion;
+- #147 — point-in-time research;
+- #109 — append-only physical hardening;
+- remaining C2B/C2C/C1/C3 canonicalization;
 - connected soak;
-- production DR/security/observability evidence.
+- production security/DR evidence.
 
 ### P2
 
-- F09 positive target quantity config validation;
-- stale/duplicate stacked PR retirement only after #104 preservation decisions.
+- F09;
+- release/User-Agent identity drift;
+- stale stacked PR retirement after preservation decisions.
 
-## 6. Definition of Done
+## 24. Definition of Done
 
-`PRODUCT_READY = PASS` разрешён только если одновременно:
+`PRODUCT_READY = PASS` только если одновременно:
 
-1. F01-F20 закрыты согласно required safe behavior либо formally superseded более сильным доказанным контрактом.
-2. Все P0 acceptance tests PASS на SQLite/PostgreSQL, а race/crash cases — multiprocess/fault tests.
-3. Data quality и operational risk context являются обязательным fail-closed path.
-4. Pending reservations входят в portfolio/risk truth.
-5. Exact risk authorization cryptographically/immutably связана с intent economics.
-6. External mutation rights exclusive и crash-safe.
-7. Broker response/identity lineage conflict-aware.
-8. Execution facts immutable; accounting projection restart-safe; immediate/stream/backfill fills сходятся в одну truth.
-9. Whole-portfolio valuation и account genesis deterministic.
-10. Strategy promotion non-vacuous, frozen and evidence-bound.
-11. Canonical Bybit runtime собран в `main`, а не только historical PR.
-12. One supported product service/operator surface существует.
-13. Installed wheel/container self-contained и clean-install qualified.
-14. Authoritative runtime readiness/HALT привязаны к final dispatch.
-15. Structured telemetry/alerts/runbooks/backup/restore qualified.
-16. One exact release identity проходит full deterministic/PostgreSQL/security/release acceptance.
-17. Real protected connected Demo chain PASS.
-18. Connected soak PASS.
-19. Positive frozen cost-adjusted OOS strategy evidence PASS отдельно от engineering CI.
-20. Server-side governance/security/DR PASS.
-21. Live остаётся отдельным independently approved gate.
+1. F01-F27 закрыты либо superseded доказанным stronger contract.
+2. P0 race/crash scenarios PASS на PostgreSQL/multiprocess fault campaign.
+3. Historical and operational data identities complete.
+4. Live data/finalization/scheduler canonical.
+5. Fresh InstrumentSpec precedes risk.
+6. Operational risk missing inputs fail closed.
+7. Reservations входят в exposure.
+8. Exact RiskAuthorization bound to executable economics/account/spec.
+9. External mutation right exclusive.
+10. Broker response/order identity conflict-aware.
+11. Execution and account financial activities immutable.
+12. Accounting restart-safe and convergent.
+13. Broker cash/equity/reconciliation authoritative for new risk.
+14. Broker account/environment/credential generation bound to session/final dispatch.
+15. Runtime readiness/HALT final interlock mandatory.
+16. Installed release self-contained.
+17. Product service/telemetry/alerts/runbooks complete.
+18. Real backup/restore drill PASS.
+19. Canonical Bybit runtime assembled in `main`.
+20. One exact release passes full deterministic/PostgreSQL/security/fault product gate.
+21. Protected connected Demo chain PASS.
+22. Connected soak PASS.
+23. Separate positive frozen cost-adjusted OOS strategy evidence PASS.
+24. Server-side governance/security/DR PASS.
+25. Independent live approval remains separate gate.
 
-До выполнения этих условий корректное утверждение о проекте:
-
-> **Сильная инженерная торговая платформа с существенными квалифицированными компонентами; полноценный production trading product ещё не доказан. Live/mainnet правильно остаётся FAIL_CLOSED.**
+До этого состояние live/mainnet остаётся **FAIL_CLOSED**.
