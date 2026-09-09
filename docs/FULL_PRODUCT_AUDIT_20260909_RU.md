@@ -2,383 +2,513 @@
 
 Дата: 2026-09-09  
 Объект: `PetrFedin/trade_bot`  
-Exact SHA: `ff684ab85b92151c215c7d5cc85bfc527fecb5eb`  
-Статус: **NOT_PRODUCT_READY**
+Базовый exact SHA: `ff684ab85b92151c215c7d5cc85bfc527fecb5eb`  
+Статус приёмки: **NOT_PRODUCT_READY**
 
-## 1. Итог
+## 1. Итоговый вывод
 
-Проект нельзя честно назвать законченным production trading product.
+ASTRA уже содержит сильную инженерную платформу, но на текущем каноническом `main` ещё не является одним законченным production trading product.
 
-При этом нельзя и обесценивать уже сделанное: в репозитории есть сильный инженерный фундамент — durable OMS, PostgreSQL/SQLite persistence, mutation/reconciliation semantics, fail-closed проверки, release provenance/SBOM, значительный набор fault/security tests, Bybit Demo operational semantics в историческом стеке и серьёзный research-контур.
+Это не вывод по количеству файлов или незавершённых задач. Он основан на трёх одновременно подтверждённых фактах:
 
-Главная проблема в другом: **качество отдельных компонентов заметно выше качества их текущей канонической сборки как одного продукта**.
+1. **Компонентный фундамент действительно сильный.** На текущем `main` есть durable OMS, SQLite/PostgreSQL persistence, append-only evidence, mutation/reconciliation logic, risk evidence, release provenance/SBOM, substantial fault/security tests и качественно извлечённые strategy-free Bybit v119-v121 persistence/control slices.
+2. **Свежая сквозная приёмка воспроизводит межмодульные нарушения безопасности и целостности**, которые не опровергаются зелёным component CI. Аудит расширен с F01-F12 до F01-F20.
+3. **Канонический продукт пока не соединяет research, data quality, risk, execution, accounting, operations и Bybit operational plane в один обязательный runtime path.** Полная Bybit session/supervisor/recovery/readiness/approval composition ещё находится в historical stacked source, а не в одном релизном продукте.
 
-На текущем `main` одновременно верны две вещи:
+Ключевая формула аудита:
 
-1. покрытые deterministic/PostgreSQL/release поверхности имеют реальное зелёное CI-доказательство;
-2. свежая сквозная product-acceptance проверка воспроизводит критические межмодульные дефекты, а полноценная Bybit operational composition вообще ещё не канонизирована.
+> `component engineering quality != integrated product readiness`
 
-Следовательно, зелёный CI нельзя использовать как утверждение «приложение полноценно работает».
+Поэтому корректное позиционирование на сегодня: **advanced fail-closed trading-system engineering platform с сильными квалифицированными компонентами, но ещё не завершённый production trading product**.
 
 ## 2. Что проверено
 
-### 2.1 Канонический GitHub state
+### 2.1 GitHub и source-of-truth
 
-Проверено:
+Проверено состояние канонического репозитория и активного backlog:
+
 - `main = ff684ab85b92151c215c7d5cc85bfc527fecb5eb`;
-- `main` не защищён server-side;
-- C2B0 уже слит в `main`;
-- PR #131, который должен синхронизировать status/docs после C2B0, остаётся открытым;
-- issue #130 описывает следующий C2B1 v122 persistence slice;
-- issue #109 по физическому TRUNCATE hardening v107-v109 открыт;
-- issue #104 по консолидации огромного stacked graph открыт;
-- создан новый product acceptance blocker #132.
+- C2B0 уже в `main`;
+- PR #131 с прежней status-sync логикой остаётся открытым и сам по себе уже недостаточен после fresh product audit;
+- issue #130 описывает C2B1 v122 persistence slice;
+- #103 — server-side `main` protection;
+- #104 — stacked-PR consolidation;
+- #109 — physical TRUNCATE/runtime ownership hardening v107-v109;
+- #132 — parent product-acceptance blocker;
+- #135 — F10 durable broker execution facts/accounting projection;
+- #136 — market-data + operational risk fail-closed admission;
+- #137 — self-contained installed release;
+- #138 — immutable execution/OMS economic identity + convergence;
+- #139 — strategy qualification/promotion contract;
+- #140 — authoritative runtime health/telemetry/final dispatch service.
 
 ### 2.2 Официальное CI-доказательство текущего main
 
 Для exact `ff684...` подтверждено существующее post-merge evidence:
-- canonical security PostgreSQL 16.15;
-- focused regression: **298 passed**;
-- full regression: **1138 passed, 2 dedicated fleet-deployment skips**;
-- отдельный canonical deployment workflow для fleet boundary — success;
-- release provenance — success;
-- signed SLSA/SBOM evidence присутствует в release flow.
 
-Это реальное доказательство качества соответствующих компонентов. Оно не доказывает соединённый брокер, end-to-end trading product или прибыльность.
+- canonical security run `34056249717`;
+- PostgreSQL `16.15`;
+- focused security regression: **298 passed**;
+- full regression: **1138 passed, 2 skipped**;
+- два skip относятся к отдельной fleet-deployment границе; canonical deployment run `34056249729` — success;
+- release provenance run `34056249725` — success;
+- release artifact id `9996047662`;
+- release input digest `sha256:361f1aff12d5d7661a3783be879fb02ee21b16c89c1af613e7e178e714b912d4`;
+- signed SLSA/SBOM присутствуют в trusted release flow.
 
-### 2.3 Fresh product acceptance
+Это реальное доказательство качества соответствующих deterministic/PostgreSQL/release surfaces. Оно **не является** доказательством connected broker, Demo ENTRY, полного runtime, soak, production или прибыльности.
 
-На релизном source artifact текущего main выполнен дополнительный приёмочный прогон:
-- 55 выбранных существующих test modules: **715 passed**;
-- отдельный adversarial product-acceptance набор: **17 cases = 13 failed + 4 passed**;
-- финальный результат воспроизведён три раза;
-- без реальной биржевой мутации;
-- SQLite + in-process broker doubles;
-- это не новый PostgreSQL qualification и не connected broker evidence.
+### 2.3 Fresh local product acceptance
 
-### 2.4 Release artifact
+На exact release source artifact версии `7.39.0` дополнительно выполнена сквозная проверка:
 
-Проверены wheel/sdist из release provenance run `34056249725`.
+- 55 выбранных existing test modules: **715 passed**;
+- исходный adversarial acceptance набор: **17 cases = 13 failed + 4 passed**;
+- этот результат воспроизведён в трёх финальных повторениях;
+- дополнительный F13-F17 adversarial набор: **5 нарушений из 5**, повторён **3/3**;
+- F19 immediate-fill convergence и F20 intent identity воспроизведены отдельно;
+- Python 3.13.5 / pytest 9.0.2 / SQLite + in-process broker doubles;
+- это не новый PostgreSQL qualification и не connected broker evidence;
+- реальных биржевых order mutations аудит не выполнял.
 
-Установочная поверхность содержит Python-код и platform SQL v105-v109, но не содержит canonical root migrations v119/v120/v121, хотя текущие Bybit persistence модули и тесты на них ссылаются.
+### 2.4 Полнота source/package поверхности
 
-Fresh pristine-sdist targeted run:
-- **16 passed**;
-- **2 failed**;
-- **2 skipped**;
-- оба FAIL — отсутствие `migrations/v120/001_bybit_demo_durable_audit_lifecycle.sql`.
+Из exact sdist проверены все поставляемые application domains. Структура substantial:
 
-Это означает: квалифицированный artifact пока не является самодостаточной установочной единицей для текущей Bybit persistence lineage.
+- application;
+- domain;
+- marketdata;
+- strategy;
+- risk;
+- OMS;
+- portfolio/accounting;
+- execution;
+- observability;
+- runtime/platform layers.
 
-### 2.5 Архитектура main
+Полное Python-дерево sdist компилируется без syntax errors. Direct test-import density высокая: проблема проекта не в том, что тестов мало. Основные ошибки находятся **на стыках локально зелёных компонентов**.
 
-Canonical `ProductRuntime` сейчас собирает:
-- `LongOnlyMomentumStrategy`;
-- `PreTradeRiskEngine`;
-- risk admission/journal;
-- durable OMS + mutations;
-- portfolio;
-- paper lifecycle/reconciler;
-- optional fill accounting;
-- `OperationalReadinessEvaluator`.
+### 2.5 Release artifact как устанавливаемый продукт
 
-Это сильная paper-oriented library composition.
+Exact wheel/sdist не являются самодостаточными для всех объявленных runtime paths:
 
-В текущем main Bybit слой состоит в основном из strategy-free v119-v121 persistence/control contracts. Полный Bybit broker/client/session/supervisor/recovery/approval service находится в историческом stacked operational source, а не в каноническом продукте.
+- core PostgreSQL stores по умолчанию ссылаются на `migrations/product/001..004`, которых нет в wheel/sdist;
+- canonical Bybit v119-v121 Python persistence/control modules поставляются без root migrations v119/v120/v121;
+- source distribution содержит тесты, импортирующие отсутствующие `tests.conftest` / `tests.helpers_v108`;
+- release flow доказывает build/hash/SBOM/provenance, но не выполняет clean install built wheel -> packaged schema resources -> DB verify/bootstrap -> offline product self-test;
+- установленная CLI-поверхность в основном состоит из engineering/audit/platform commands, а не одного официального product/operator interface.
 
-## 3. Критические воспроизведённые дефекты
+Это зафиксировано в #137.
 
-### P0 / F01 — duplicate external submit under concurrency
+## 3. Что работает качественно и должно быть сохранено
 
-Текущий idempotent transition в `SUBMIT_STARTED` не является эксклюзивным claim.
+Нельзя смешивать product FAIL с отрицанием сильных частей проекта. Хорошо реализованы и/или хорошо доказаны:
 
-Два worker могут:
-1. прочитать один OUTBOXED intent;
-2. оба вызвать одинаковый idempotent transition;
-3. второй получает уже существующее `SUBMIT_STARTED` состояние;
-4. оба продолжают к broker call.
+- deterministic identities и substantial OMS state machine;
+- SQLite/PostgreSQL durability;
+- GET-first ambiguity recovery в последовательном single-worker сценарии;
+- risk evidence journal;
+- conflict-aware strict portfolio events;
+- append-only evidence patterns;
+- v119 runtime lease / active excursion CAS;
+- v120 audit persistence и hardening;
+- v121 control journal / least-privilege roles;
+- release action pinning, dependency security, lock/provenance/SBOM;
+- негативные safety flags для live/mainnet;
+- исторически разработанные Bybit fixed-egress, ARM/HALT, session-risk, supervisor и recovery semantics;
+- research discipline: отрицательный retrospective result не объявлен прибыльной стратегией.
 
-В тестовом broker-double наблюдалось **2 outbound submit invocations**.
+Положительные local controls подтвердили:
 
-Это не доказательство двух биржевых ордеров, но это нарушение at-most-once external mutation contract.
-
-**Что нужно:** отдельный transactional claim, который возвращает `CLAIMED` только одному worker. Все остальные — GET/reconcile only. Claim должен иметь crash recovery semantics.
-
-### P1 / F02 — duplicate cancel/replace under concurrency
-
-Аналогичный дефект присутствует в mutation lifecycle: одинаковый start event не даёт одному worker эксклюзивное право на broker mutation.
-
-**Что нужно:** тот же winner-only mutation claim для cancel/replace.
-
-### P0 / F03 — pending orders do not reserve capital/exposure
-
-Risk admission считает текущие позиции/капитал, но не durable pending/outbox exposure.
-
-В воспроизводимом сценарии три заявки по 102 каждая проходят против cash/notional cap 110, т.е. queued risk = 306.
-
-**Что нужно:** durable reservation ledger, включаемый в every new-risk admission; release/adjust on fill/cancel/reject/reconcile.
-
-### P1 / F04 — implicit clock can classify historical data as fresh
-
-Когда operational caller не передаёт явный risk/clock context, pipeline может использовать timestamp решения самой historical bar как reference time.
-
-Для replay это допустимый контракт. Для real-time path это опасная двусмысленность.
-
-**Что нужно:** разные typed modes `REPLAY_CLOCK` и `OPERATIONAL_CLOCK`; operational entry нельзя собирать без exchange/server/wall clock freshness context.
-
-### P0 / F05 — readiness/HALT is not a final dispatch capability
-
-В canonical paper composition readiness evaluator существует отдельно от внешней mutation boundary. Уже outboxed order не получает durable revoke/final guard только из-за того, что новая planning attempt blocked.
-
-**Что нужно:** durable HALT/KILL/readiness capability, повторно проверяемая непосредственно перед risk-increasing external call. Risk-reducing recovery при этом должна оставаться доступной.
-
-### P1 / F06 — approved RiskDecision is not bound to exact order intent
-
-Нижний `PaperOrderLifecycle` принимает `RiskDecision` как approved/not approved без exact identity связи с intent economics.
-
-Верхний planner обычно генерирует корректную пару, но lower boundary нельзя считать безопасным самостоятельно.
-
-**Что нужно:** `RiskAuthorization` с `intent_id`, canonical economics hash/revision, decision id и immutable evidence identity.
-
-### P0 / F07 — replace can increase risk without new admission
-
-Replace path валидирует order semantics, но не пересчитывает current + reserved exposure против новых economics.
-
-В acceptance case replace на 100000 дошёл до broker-double при configured cap 110.
-
-**Что нужно:** every risk-increasing amend проходит новый admission; risk-decreasing amend может иметь упрощённый путь.
-
-### P1 / F08 — multisymbol portfolio valuation incomplete
-
-Pipeline формирует price map только для symbol нового target. Если уже есть позиция по другому symbol, gross-notional valuation требует цену для неё и может падать.
-
-**Что нужно:** отдельный portfolio valuation snapshot по всем positions + reservations с freshness contract.
-
-### P2 / F09 — config invariant split
-
-`ProductConfig.validate()` принимает `target_quantity=0`, а strategy constructor требует положительное значение.
-
-**Что нужно:** один контракт > 0 на config boundary.
-
-### P0 / F10 — factual fill and accounting projection can diverge
-
-Fill accounting может:
-1. записать durable portfolio event;
-2. затем не применить runtime ledger из-за cash/fee invariant;
-3. не довести OMS к тому же состоянию;
-4. получить историю, которую следующий replay не может корректно спроецировать.
-
-Нельзя исправлять это простым отказом от фактического broker fill.
-
-**Правильный дизайн:** immutable broker execution inbox -> accounting projection state machine -> OMS/accounting reconciliation. Если projection invalid, factual fill остаётся durable, система блокирует новый риск и входит в recoverable `ACCOUNTING_PENDING`/quarantine.
-
-### P1 / F11 — opening cash is not part of immutable portfolio identity
-
-Persisted event history может быть replayed с другим произвольным `opening_cash` argument.
-
-**Что нужно:** immutable session/account genesis record и explicit cash-flow events. History identity обязана включать genesis.
-
-### P0 / F12 — unauthenticated stream frame can gain trusted dedup provenance
-
-`AlpacaPaperTradeUpdateStream.ingest` добавляет digest в seen-set до полной авторизации/semantic validation. Outer processor затем независимо парсит raw fill.
-
-Результат воспроизводимого сценария:
-- первое unauthenticated событие rejected/quarantined, но digest сохранён;
-- exact replay воспринимается stream как duplicate и возвращает `None`;
-- outer exact-fill parser продолжает accounting;
-- stream остаётся quarantined, а portfolio position меняется.
-
-**Что нужно:** digest становится trusted only after successful stream semantic validation. При этом retry после downstream accounting failure должен оставаться возможным, поэтому требуется explicit validated-frame provenance, а не простое «не обрабатывать duplicates».
-
-## 4. Что работает качественно
-
-Следующие области нельзя считать дефектными только потому, что весь продукт ещё не готов:
-
-- deterministic client/order identities;
-- значительная часть OMS durability;
-- append-only persistence;
-- PostgreSQL least-privilege work v119-v121;
-- active-excursion CAS;
-- ambiguity handling в последовательном single-worker сценарии;
-- release action pinning / dependency/security controls;
-- signed release provenance/SBOM;
-- существующие negative safety constraints для live/mainnet;
-- исторически разработанные Bybit fixed-egress / ARM/HALT / session risk / supervisor / recovery semantics;
-- research discipline: retrospective evidence не выдаётся за live edge.
-
-Fresh positive control cases подтвердили:
 - normal plan -> submit -> fill -> duplicate -> restart;
 - sequential ambiguous-submit GET recovery;
-- explicitly stale RiskContext rejection;
+- explicitly stale `RiskContext` rejection;
 - disabled broker blocks submit.
 
-## 5. End-to-end оценка
+Эти свойства нужно **сохранить**, а не переписывать ради упрощения.
 
-| Контур | Статус | Комментарий |
+## 4. Воспроизведённые product findings F01-F20
+
+### 4.1 P0 — обязательные блокеры
+
+| ID | Контур | Подтверждённый дефект | Требуемое исправление |
+|---|---|---|---|
+| F01 | external submit | два worker могут оба получить фактически допустимый `SUBMIT_STARTED` и оба вызвать broker submit | transactional winner-only claim; loser имеет только GET/reconcile capability |
+| F03 | pending risk | pending/outbox заявки не резервируют cash/notional; 3 x 102 прошли против лимита 110 | durable reservation ledger, участвующий во всех новых admissions |
+| F05 | final dispatch | readiness/HALT не являются обязательным last-mile gate для уже outboxed order | повторная authoritative проверка HALT/readiness непосредственно перед risk-increasing POST |
+| F07 | replace risk | replace на 100000 достиг broker-double при лимите 110 | every risk-increasing amend получает новый risk admission |
+| F10 | accounting | factual fill может опередить runtime projection и оставить divergent state | immutable execution inbox -> projection state machine -> OMS/accounting convergence |
+| F12 | stream trust | rejected unauthenticated frame может через stream dedup приобрести accounting path | только validated/authenticated stream provenance даёт accounting authority |
+| F13 | risk context | включённые operational limits могут молча не проверяться из-за missing optional observations | operational context fail-closed: missing required observation = explicit rejection |
+| F16 | signal data gate | `validate_bar_series()` может отвергнуть данные, но canonical pipeline всё равно создаёт approved BUY | validated operational data snapshot обязателен до strategy/risk |
+| F17 | broker ACK | broker response с materially different order economics может быть принят как ACK | strict response/economics validation; вне разрешённого venue normalization -> UNCERTAIN |
+| F19 | immediate fill | submit может вернуть FILLED, OMS станет FILLED, portfolio останется 0 и следующий цикл одобрит второй BUY | submit fills обязаны идти через ту же durable execution/accounting convergence цепочку; new risk блокируется до convergence |
+| F20 | intent identity | повтор того же `intent_id` с другими qty/price может считаться idempotent success | `intent_id` = immutable economic identity; divergent replay -> `INTENT_ID_CONFLICT` |
+
+### 4.2 P1 — обязательные semantic/operational разрывы
+
+| ID | Контур | Подтверждённый дефект | Требуемое исправление |
+|---|---|---|---|
+| F02 | cancel/replace | concurrency race даёт 2 cancel / 2 replace broker calls | winner-only external-mutation claim для amendments |
+| F04 | clock | historical bar time может использоваться как implicit freshness clock | typed `REPLAY_CLOCK` vs `OPERATIONAL_CLOCK` |
+| F06 | risk lineage | lower lifecycle принимает `approved=True` без exact binding к intent economics | immutable `RiskAuthorization` с intent/economics/decision revision |
+| F08 | multisymbol | planning второго symbol не имеет price context для уже удерживаемого symbol | authoritative whole-portfolio valuation snapshot |
+| F11 | account genesis | один и тот же event history можно replay с другим opening cash | immutable session/account genesis + explicit cash-flow events |
+| F14 | data validation | naive timestamp последнего invalid bar может вызвать TypeError вместо `ready=false` | quality gate всегда возвращает deterministic fail-closed evidence |
+| F15 | qualification | walk-forward может дать `qualified=true` при 0 trades / 0 active windows | non-vacuous minimum trades/windows/regimes/sample/cost/OOS policy |
+| F18 | broker lineage | reconciliation может заменить `broker-A` на `broker-B` без explicit replace lineage | immutable primary broker ID либо доказанная `replaces/replaced_by` цепочка |
+
+### 4.3 P2
+
+- **F09:** `ProductConfig` принимает `target_quantity=0`, а strategy construction отклоняет. Требуется один positive-quantity contract на config boundary.
+
+## 5. Разбор ключевых P0 глубже
+
+### F01/F02 — idempotency не равна exclusive mutation authority
+
+Текущее поведение защищает durable event/state от очевидного дубля, но внешний POST требует более сильного свойства.
+
+Нужен lifecycle:
+
+```text
+OUTBOXED / MUTATION_REQUESTED
+-> EXCLUSIVE_CLAIM(owner, generation/fence)
+-> SUBMIT_STARTED / MUTATION_STARTED
+-> one external call by claim owner only
+-> broker truth | UNCERTAIN
+-> GET/reconcile
+```
+
+Второй worker никогда не должен получать право на POST только потому, что видит тот же idempotent transition.
+
+### F03 — pending risk должен быть first-class state
+
+Экспозиция продукта = не только filled positions. Для каждого admission должны учитываться:
+
+```text
+broker positions
++ acknowledged/open orders
++ outbox/pending reservations
++ partially filled residuals
++ execution facts not yet projected
++ recovery-only exposure
+```
+
+Reservation release возможен только после доказанного fill/cancel/reject/reconciliation result.
+
+### F05/F13/F16 — fail-closed должен быть обязательным path, а не библиотечной опцией
+
+В репозитории существуют хорошие validators и evaluator, но caller может обойти их или передать неполный optimistic context.
+
+Production operational path должен использовать typed authoritative input, в котором:
+
+- enabled risk limit объявляет обязательные measured inputs;
+- unknown ADTV/equity/volatility/sector/spread/slippage/session loss и др. не превращаются в zero/healthy defaults;
+- invalid/stale/gapped/future data не доходят до strategy;
+- current readiness/HALT перечитываются в final dispatch transaction/claim boundary.
+
+Это #136 + #140.
+
+### F10/F19 — broker execution fact и accounting projection должны быть разделены
+
+Главное правило:
+
+> факт исполнения брокера нельзя удалить, проигнорировать или переписать только потому, что внутренняя модель не смогла его применить.
+
+Целевая схема:
+
+```text
+validated broker execution
+-> immutable execution inbox
+-> idempotent accounting projection
+-> projection receipt/checkpoint
+-> OMS cumulative truth convergence
+-> broker/account reconciliation
+```
+
+Если projection не применился:
+
+```text
+execution fact = durable
+projection = PENDING/QUARANTINED
+new risk = BLOCKED
+recovery = deterministic replay/reconcile
+```
+
+F19 показывает, что этот gate нужен не только для websocket fill. Он обязателен уже при **immediate fill в submit response**.
+
+### F17/F18/F20 — технический ID должен защищать экономическую идентичность
+
+Три разных дефекта имеют один корень: повтор/сопоставление часто проверяет технический ID слабее, чем economics.
+
+Production contract должен запрещать silent drift:
+
+- same `intent_id` + changed economics -> conflict;
+- same event id + changed payload/target/broker identity -> conflict;
+- established broker order id + new broker order id -> conflict, если нет exact replace lineage;
+- broker ACK с другой экономикой -> uncertainty/reconciliation, а не success.
+
+Reference pattern уже есть в `StrictPortfolioEventStore`: identical replay = idempotent; divergent replay = conflict. Этот принцип надо распространить на OMS/execution boundaries.
+
+## 6. Strategy/research readiness
+
+### 6.1 Текущий runtime не является promoted strategy runtime
+
+Canonical `ProductRuntime` hardcodes `LongOnlyMomentumStrategy`.
+
+Сам этот класс документирован как deterministic validation strategy для paper E2E vertical slice и явно не представлен как profitable strategy.
+
+Одновременно repository содержит richer research-only components, включая regime-aware и cross-sectional logic. Но отсутствует обязательный механизм:
+
+```text
+frozen dataset/source manifest
++ frozen strategy code/config
++ frozen cost model
++ OOS/holdout evidence
+-> qualification manifest
+-> independent approval
+-> immutable runtime strategy release identity
+```
+
+### 6.2 F15
+
+Свежий adversarial test получил:
+
+- `qualified=True`;
+- `total_trades=0`;
+- `active_windows=0`;
+- `reasons=()`;
+- `mean_oos_return=0`.
+
+Это не доказывает, что текущая стратегия плохая; это доказывает, что **сам qualification contract допускает vacuous PASS**.
+
+Требуется #139.
+
+### 6.3 Текущая profitability truth
+
+Отрицательное frozen Bybit price-only evidence сохраняется без изменений:
+
+- 2,394 eligible signals;
+- 792 plan eligible;
+- 617 first-touch episodes;
+- TARGET_FIRST 137 / STOP_FIRST 471 / NEITHER 9;
+- portfolio replay 102 trades;
+- 36 WIN / 11 BE / 55 LOSS;
+- приблизительно `-176.67 USDT` на `1000 USDT` reference equity.
+
+Следовательно статус остаётся **`PROFITABILITY_NOT_PROVEN`**. Engineering work не может заменить этот gate.
+
+## 7. Release/installability
+
+### 7.1 Что уже хорошо
+
+- wheel/sdist build;
+- hash-locked dependencies;
+- dependency/security checks;
+- release manifest;
+- SBOM;
+- signed provenance/attestation flow.
+
+### 7.2 Что не позволяет назвать artifact законченным продуктом
+
+1. `build_postgres_product(..., migrate=True)` использует `migrations/product/001..004`, отсутствующие в exact wheel/sdist.
+2. Current Bybit v119-v121 modules также не получают corresponding root migration resources внутри installed package.
+3. Resource loading опирается на repository-relative paths вместо immutable package resources.
+4. Нет clean-installed-wheel qualification без repository source path.
+5. Нет одного supported product/operator CLI/service surface.
+6. sdist test surface не самовоспроизводим из-за omitted helper files.
+
+Целевой fix: #137.
+
+## 8. Observability / runtime operations / DR
+
+`OperationalReadinessEvaluator` сам по себе качественный deterministic evaluator. Но evaluator не является production control без authoritative state assembler и binding к dispatch.
+
+Подтверждённые разрывы:
+
+- `app/observability` не образует complete telemetry/service layer;
+- нет одного authoritative assembler, который собирает actual market-data/stream/broker/OMS/reconciliation/accounting/session/control state;
+- нет обязательного final interlock на каждом risk-increasing external mutation;
+- нет единой product surface structured logs/metrics/alerts;
+- нет завершённого long-running service/process lifecycle;
+- backup/restore не квалифицирован как единый product gate;
+- `.github/workflows/operational-readiness.yml` на push привязан к historical branch `agent/schema108-paper-core-foundation`, а не canonical `main`.
+
+Целевой fix: #140.
+
+## 9. Bybit canonicalization
+
+Current `main` содержит strategy-free v119-v121 persistence/control slices, а не полный connected Bybit runtime.
+
+Чтобы получить канонический operational product, нужно bounded extraction/integration оставшихся semantics, без wholesale merge historical stack:
+
+- v122 restart-safe session risk;
+- one-time session start;
+- terminal evidence -> risk commit -> checkpoint ACK;
+- persistent active-trade supervisor;
+- v123 audited lease recovery;
+- read-only connected preflight;
+- dedicated trading-key metadata proof;
+- fixed-egress/operational-zone binding;
+- v124 logical DB identity/bootstrap/readiness;
+- exact-symbol approval lineage;
+- canonical protected Demo ENTRY path;
+- protection/reduce-only recovery.
+
+Но **C2B1 и последующие extraction slices не отменяют product findings F01-F20**. Они могут продолжаться только как честно ограниченная инфраструктурная работа, без заявления, что приложение уже готово.
+
+## 10. End-to-end матрица
+
+| Контур | Статус | Основные причины |
 |---|---|---|
-| Market data validation | PARTIAL PASS | базовые contracts сильные; operational clock split не завершён |
-| Signal generation | COMPONENT PASS | paper/research реализация есть |
-| Strategy profitability | FAIL | frozen Bybit evidence отрицательное |
-| Risk admission | PARTIAL FAIL | reservations, exact authorization, replace re-admission |
-| OMS persistence | STRONG COMPONENT PASS | но claim semantics не защищают внешний POST |
-| Submit E2E | FAIL | F01/F05 |
-| Cancel/replace E2E | FAIL | F02/F07 |
-| Fill ingestion | FAIL | F12 |
-| Accounting convergence | FAIL | F10/F11 |
-| Multisymbol portfolio | FAIL | F03/F08 |
-| Restart/recovery components | STRONG | integrated product acceptance не завершён |
-| Canonical Bybit connected product | NOT PRESENT | только часть slices в main |
-| Historical Bybit operational code | CODE-QUALIFIED SOURCE | не canonical, не connected-evidence PASS |
-| Release artifact | PARTIAL FAIL | PKG01 migrations missing |
-| Observability | PARTIAL | evaluator/logging pieces есть, runtime metrics/alert gate неполный |
-| Deployment/DR | PARTIAL/UNPROVEN | release provenance есть; production restore/soak absent |
-| Governance | FAIL | main protection disabled |
-| Demo | NOT PROVEN | no real canonical protected entry |
-| Live | FAIL-CLOSED | правильно заблокирован |
+| Data acquisition/validation -> signal | FAIL PRODUCT ACCEPTANCE | F14/F16; operational clock/context |
+| Signal generation library | COMPONENT PASS | deterministic paper/research implementation |
+| Strategy qualification/promotion | FAIL | F15; immutable promotion path отсутствует |
+| Strategy profitability | FAIL | frozen negative evidence |
+| Risk admission | FAIL | F03/F06/F07/F13 |
+| Whole-portfolio valuation | FAIL | F03/F08/F11 |
+| OMS durability | STRONG COMPONENT / PRODUCT FAIL | F01/F20 |
+| Submit | FAIL | F01/F05/F17/F19 |
+| Cancel/replace | FAIL | F02/F07/F18 |
+| Stream trust | FAIL | F12; PR #134 repairs only one bounded bypass |
+| Execution -> accounting | FAIL | F10/F19 |
+| Restart/recovery components | STRONG COMPONENT | integrated convergence/service incomplete |
+| Observability/runtime interlock | FAIL | #140 |
+| Release/installability | FAIL | #137 |
+| Canonical connected Bybit runtime | NOT PRESENT YET | extraction incomplete |
+| Real protected Demo ENTRY | NOT PROVEN | no canonical connected chain |
+| Connected soak | NOT PROVEN | absent |
+| Backup/restore DR | NOT PROVEN AS PRODUCT GATE | incomplete |
+| Server governance | FAIL | #103 |
+| Live/mainnet | FAIL-CLOSED | correct current safety state |
 
-## 6. Расхождение с заявленной целью «не demo/MVP»
+## 11. PR #134 — оценка F12 fix
 
-Сейчас проект больше похож на **advanced trading-system engineering platform + incubator**, чем на единый продукт.
+PR #134 меняет только:
 
-Причины:
-- canonical main не содержит полного Bybit runtime;
-- историческая реализация размазана по десяткам stacked PR;
-- research и operational semantics физически существуют, но не образуют один release unit;
-- нет одного официального service entrypoint для торгового приложения;
-- `build_postgres_product`/`PaperCycleService` фактически являются library/test composition;
-- readiness не является последним mutation gate;
-- release artifact не содержит часть migrations;
-- alerting/dashboard/production run loop/DR evidence не образуют один завершённый operational contract;
-- connected Demo chain и soak отсутствуют.
+- `app/application/trade_updates.py`;
+- focused provenance tests.
 
-Поэтому правильная цель следующего этапа — не добавлять ещё функции, а **свести имеющиеся функции в один канонический путь и закрыть выявленные межмодульные инварианты**.
+В нём correctly введён processor-level rule: accounting duplicate разрешён только если exact raw-frame digest ранее получил validated stream provenance после parser agreement.
 
-## 7. Приоритет исправлений
+Applicable PR integration workflows: **6/6 SUCCESS**:
 
-### Wave P0-A — доверие к внешним фактам
+- stable-core-quality;
+- stable-runtime-import-boundary;
+- trading-core-e2e;
+- product-composition;
+- schema99-external-paper-roundtrip;
+- canonical-security-regression.
 
-1. F12 stream trust/provenance.
-2. F10 execution inbox + accounting projection convergence.
+Canonical-security на PR integration сообщал:
 
-Пока эти два пункта не закрыты, broker event boundary нельзя считать надёжным.
+- **298 passed** focused;
+- **1141 passed, 2 skipped** full.
 
-### Wave P0-B — единственность внешней мутации
+Но PR остаётся draft правильно по двум причинам:
 
-3. F01 exclusive submit claim.
-4. F02 mutation claim.
-5. multiprocess/PostgreSQL/crash-after-claim campaign.
+1. текущие PR workflows фактически тестируют GitHub synthetic merge `refs/pull/134/merge`, а run metadata показывает branch head; literal exact-head proof нужно фиксировать отдельно, если это обязательный policy gate;
+2. PR закрывает **accounting-authority bypass portion of F12**, но не делает весь legacy stream dedup boundary durable/authoritative.
 
-### Wave P0-C — portfolio risk before broker
+Следовательно #134 полезен и bounded, но не является основанием объявлять broker-event subsystem полностью завершённым.
 
-6. F03 durable reservations.
-7. F05 durable final HALT/readiness gate.
-8. F06 exact risk lineage.
-9. F07 risk-increasing amendment re-admission.
-10. F08 whole-portfolio valuation.
+## 12. Что должно быть изменено, чтобы продукт перестал быть demo/MVP-like composition
 
-### Wave P1-D — financial identity/release integrity
+### P0-A — факты, identity и accounting
 
-11. F11 immutable account/session genesis.
-12. F09 config invariant.
-13. PKG01 package v119-v124 migrations/assets into installed release.
-14. pristine artifact bootstrap/test.
+1. Завершить F12 fix.
+2. Реализовать #135/#138 durable execution facts + projection convergence.
+3. Закрыть F17/F18/F20 immutable economic identities.
+4. Immediate fill, stream fill и GET/backfill fill должны сходиться в одну execution truth.
 
-### Wave P1-E — canonical Bybit product
+### P0-B — mutation authority и risk reservations
 
-Только после P0-A/B/C:
-- C2B1 v122 persistence;
-- C2B2 one-time session start;
-- C2B3 terminal evidence -> risk -> checkpoint;
-- C2C supervisor/recovery;
-- C1A connected identity/fixed-egress;
-- C1B v124 final bootstrap/readiness;
-- C3A approval lineage;
-- one official composition/service.
+5. Winner-only external mutation claims для submit/cancel/replace.
+6. Durable pending reservations.
+7. Exact `RiskAuthorization` binding.
+8. Re-admit risk-increasing replacements.
 
-Не переносить исторические PR wholesale. Извлекать bounded semantics и тесты на текущий main.
+### P0-C — data/risk/readiness fail-closed
 
-### Wave P1-F — production operation
+9. #136 mandatory market-data gate + complete operational risk context.
+10. #140 authoritative runtime snapshot + final dispatch interlock.
+11. Unknown/missing operational state не имеет optimistic defaults.
 
-- integrated metrics/tracing/alerts;
-- runbook-linked alert policies;
-- backup/restore drill;
-- production identity/secrets/KMS;
-- protected main;
-- exact-head connected Demo chain;
-- multi-week soak;
-- fault campaign.
+### P0-D — installable product
 
-### Separate alpha track
+12. #137 packaged migrations/resources.
+13. One supported CLI/service entrypoint.
+14. Clean-wheel install/bootstrap/self-test CI.
+15. Exact resource identity в release evidence.
 
-Стратегия развивается независимо. Нельзя разрешать инженерную готовность компенсировать отрицательное математическое ожидание.
+### P1 — semantic/product completeness
 
-## 8. Документация и source-of-truth
+16. F04 explicit clock modes.
+17. F08 full valuation snapshot.
+18. F11 immutable account/session genesis.
+19. #139 strategy qualification/promotion identity.
+20. Structured telemetry/alerts/runbooks/DR.
+21. #109 physical append-only hardening.
 
-Текущие документы не полностью синхронны:
-- `main` фактически уже на C2B0 `ff684...`;
-- `CURRENT_SYSTEM_STATUS.json` в main всё ещё описывает C2A4/C2B0-in-progress;
-- README ещё старее;
-- PR #131 пытается исправить только C2B0/C2B1 status, но был создан до свежего product acceptance #132.
+### Canonical Bybit completion
 
-Следовательно PR #131 **нельзя считать достаточной финальной синхронизацией**. После утверждения product audit он должен быть либо обновлён с новым blocker/status contract, либо заменён новым status-only PR.
+22. Продолжить bounded C2B1/C2B2/C2B3/C2C/C1A/C1B/C3A.
+23. Собрать один canonical service path.
+24. Выполнить PostgreSQL fault campaign на exact product SHA.
+25. Только затем переходить к protected connected Demo evidence.
 
-## 9. Что доказано
+## 13. Definition of Done
 
-Доказано:
-- текущий main exact SHA известен;
-- covered engineering/security/release CI на нём реально зелёное;
-- main protection реально disabled;
-- стратегия по frozen price-only evidence отрицательная;
-- canonical Bybit full runtime в main отсутствует;
-- релизный package не содержит текущие root migrations;
-- свежие cross-module acceptance counterexamples воспроизводятся;
-- новый P0 blocker #132 необходим.
+Статус `PRODUCT_READY` разрешён только когда одновременно выполнено:
 
-## 10. Что НЕ доказано
+- все P0 product acceptance properties PASS;
+- критические race/crash cases покрыты multiprocess/PostgreSQL tests;
+- data quality и operational risk context обязательны и fail-closed;
+- pending reservations входят в risk truth;
+- broker executions имеют immutable durable source of truth;
+- accounting projection restart-safe и convergent;
+- exact intent/order/execution identities conflict-aware;
+- authoritative runtime readiness/HALT встроены в final dispatch;
+- installed artifact самодостаточен;
+- canonical Bybit runtime собран в `main`;
+- one exact SHA проходит full deterministic/PostgreSQL/security/release product qualification;
+- real protected Demo chain PASS;
+- connected soak PASS;
+- production backup/restore/security/observability PASS;
+- positive frozen cost-adjusted OOS strategy evidence существует отдельно;
+- server-side governance PASS;
+- independent live approval всё ещё остаётся отдельным gate.
 
-Не доказано:
-- что любой из F01-F12 привёл к фактическому ущербу на реальной бирже;
-- что реальный Bybit Demo account сейчас подключён;
-- что protected fixed-egress environment существует и operationally qualified на текущем main;
-- что реальный Demo ENTRY был выполнен;
-- что full exact-head broker chain PASS;
-- что connected soak PASS;
-- что production restore/KMS/alerts PASS;
-- что стратегия прибыльна;
-- что mainnet готов.
+До этого момента `live/mainnet` должен оставаться **FAIL_CLOSED**.
 
-## 11. Финальный вердикт
+## 14. Приоритетная зависимость работ
 
-### Инженерная платформа
+```text
+F12 / F10 / F19 / F20 / F17 / F18
+        ↓
+F01 / F02 / F03
+        ↓
+F06 / F07
+        ↓
+F13 / F14 / F16 + F05/#140
+        ↓
+F04 / F08 / F09 / F11
+        ↓
+#137 installable release + #140 service/telemetry/DR
+        ↓
+remaining bounded Bybit canonicalization
+        ↓
+exact-SHA PostgreSQL/fault product qualification
+        ↓
+protected connected Demo chain
+        ↓
+connected soak
+        ↓
+separate positive frozen strategy qualification (#139)
+        ↓
+production governance/security/DR
+        ↓
+separately approved tiny-capital live pilot
+```
 
-**Сильная.** Архитектурная зрелость выше типичного MVP: есть durable state, fail-closed мышление, evidence lineage и серьёзная release/security дисциплина.
-
-### Текущий канонический продукт
-
-**Не завершён.** Главный deficit — не количество функций, а несколько критических межмодульных контрактов и отсутствие единой канонической Bybit composition.
-
-### Demo
-
-**Не доказано.** Код исторического operational stack не равен реальному connected Demo proof.
-
-### Production
-
-**Нет.** P0/P1 acceptance, governance, connected evidence, soak и DR не закрыты.
-
-### Profitability
-
-**Нет.** Frozen evidence отрицательное; статус `PROFITABILITY_NOT_PROVEN` должен оставаться.
-
-## 12. Следующая точка разработки
-
-Следующий кодовый PR должен быть не C2B1 и не новый feature. Самая опасная текущая граница — **F12 validated stream provenance -> accounting**.
-
-Рекомендуемый bounded change:
-1. сделать trusted dedup только после полного protocol/state validation;
-2. сохранить возможность retry validated frame после downstream accounting failure;
-3. запретить outer accounting для frame, не имеющего accepted-stream provenance;
-4. добавить unauthenticated duplicate, authorized duplicate, downstream-failure replay, out-of-order and quarantine recovery tests;
-5. прогнать full regression;
-6. только после merge перейти к F10 execution inbox/accounting convergence.
-
-Именно такой порядок уменьшает реальный operational risk быстрее, чем дальнейшее наращивание исторической feature stack.
+Это порядок, который превращает уже сильную инженерную базу в **единый, воспроизводимый и доказуемо работающий продукт**, а не просто увеличивает число функций и тестов.
