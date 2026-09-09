@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-import json
-import threading
 
 from app.execution.trade_fills import (
     FillAccountingResult,
@@ -16,7 +17,6 @@ from app.runtime.alpaca_paper_adapter_v100 import (
     AlpacaTradeUpdateStreamV100,
     TradeUpdateV100,
 )
-from app.runtime.platform_common_v90 import sha256_digest
 
 
 class UnmappedBrokerOrderError(LookupError):
@@ -102,4 +102,7 @@ class PaperTradeUpdateProcessor:
             raise ValueError("TRADE_UPDATE_VALIDATED_DIGEST_RECONSTRUCTION_FAILED") from exc
         if not isinstance(document, Mapping):
             raise ValueError("TRADE_UPDATE_VALIDATED_DIGEST_RECONSTRUCTION_FAILED")
-        return sha256_digest(document)
+        canonical = json.dumps(
+            document, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
