@@ -11,6 +11,7 @@ from app.runtime.alpaca_external_probe_v101 import (
     UrllibTransport,
     WebsocketsConnector,
 )
+from app.runtime.platform_common_v90 import sha256_digest
 
 UTC = timezone.utc
 
@@ -37,6 +38,7 @@ def main() -> int:
         "provider": "alpaca",
         "environment": "paper",
         "account_status": account.status,
+        "account_fingerprint": sha256_digest({"account_id": account.account_id})[:16],
         "account_currency": account.currency,
         "trading_blocked": account.trading_blocked,
         "open_order_count": len(orders),
