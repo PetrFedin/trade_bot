@@ -16,6 +16,27 @@ from app.runtime.platform_common_v90 import sha256_digest
 UTC = timezone.utc
 
 
+def build_report(*, account: object, orders: object, stream: object) -> dict[str, object]:
+    return {
+        "provider": "alpaca",
+        "environment": "paper",
+        "account_status": account.status,
+        "account_fingerprint": sha256_digest({"account_id": account.account_id})[:16],
+        "account_currency": account.currency,
+        "trading_blocked": account.trading_blocked,
+        "open_order_count": len(orders),
+        "stream_authenticated": stream.authenticated,
+        "stream_listening": stream.listening,
+        "credential_fingerprint": stream.credential_fingerprint,
+        "rest_endpoint": stream.rest_endpoint,
+        "stream_endpoint": stream.stream_endpoint,
+        "reasons": list(stream.reasons),
+        "paper_order_writes_enabled": False,
+        "external_order_routing_allowed": False,
+        "live_trading_allowed": False,
+    }
+
+
 def main() -> int:
     credentials = Credentials.from_environment()
     generation = int(os.environ.get("ASTRA_EXTERNAL_PROBE_GENERATION", "1"))
@@ -34,29 +55,16 @@ def main() -> int:
         timeout_seconds=10.0,
     )
     account, orders, stream = probe.run(now=datetime.now(UTC))
-    report = {
-        "provider": "alpaca",
-        "environment": "paper",
-        "account_status": account.status,
-        "account_fingerprint": sha256_digest({"account_id": account.account_id})[:16],
-        "account_currency": account.currency,
-        "trading_blocked": account.trading_blocked,
-        "open_order_count": len(orders),
-        "stream_authenticated": stream.authenticated,
-        "stream_listening": stream.listening,
-        "credential_fingerprint": stream.credential_fingerprint,
-        "rest_endpoint": stream.rest_endpoint,
-        "stream_endpoint": stream.stream_endpoint,
-        "reasons": list(stream.reasons),
-        "paper_order_writes_enabled": False,
-        "external_order_routing_allowed": False,
-        "live_trading_allowed": False,
-    }
+    report = build_report(account=account, orders=orders, stream=stream)
     print(json.dumps(report, sort_keys=True))
     if account.status.upper() != "ACTIVE":
         return 2
-    if stream.reasons or not stream.authenticated or not stream.listening:
+    if account.currency.upper() != "USD":
         return 3
+    if account.trading_blocked:
+        return 4
+    if stream.reasons or not stream.authenticated or not stream.listening:
+        return 5
     return 0
 
 
