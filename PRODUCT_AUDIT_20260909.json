@@ -42,7 +42,7 @@
   "reproduced_findings": [
     {"id":"F01","priority":"P0","area":"OMS_EXECUTION","summary":"Non-exclusive idempotent submit transition allows two workers to call external submit for the same outbox intent.","observed":"2 outbound broker-double submit invocations","required":"exactly one worker receives external-mutation capability; loser reconciles only"},
     {"id":"F02","priority":"P1","area":"ORDER_MUTATION","summary":"The same non-exclusive start pattern permits duplicate cancel/replace broker calls.","observed":"2 cancel / 2 replace invocations in race scenarios","required":"exclusive mutation claim plus ambiguity-safe reconciliation"},
-    {"id":"F03","priority":"P0","area":"PORTFOLIO_RISK","summary":"Pending orders do not reserve cash or effective exposure.","observed":"3 x 102 = 306 queued against cash/notional cap 110","required":"durable reservations included in every new-risk admission"},
+    {"id":"F03","priority":"P0","area":"PORTFOLIO_RISK","summary":"Pending orders do not reserve cash or effective target exposure.","observed":"3 x 102 = 306 queued against cash/notional cap 110","required":"durable reservations included in every new-risk admission"},
     {"id":"F04","priority":"P1","area":"MARKET_DATA_CLOCK","summary":"Implicit historical decision time can make old market data appear fresh when the operational caller omits an explicit clock context.","required":"explicit replay clock versus operational wall/server clock contract; operational paths must never infer freshness from the data timestamp itself"},
     {"id":"F05","priority":"P0","area":"FINAL_DISPATCH_GATE","summary":"A failed planning/readiness state does not durably revoke dispatch of an already outboxed risk-increasing order in the canonical paper composition.","required":"durable HALT/KILL/readiness gate immediately before every risk-increasing external mutation"},
     {"id":"F06","priority":"P1","area":"RISK_LINEAGE","summary":"PaperOrderLifecycle accepts an approved RiskDecision without cryptographic/typed binding to the exact intent economics.","required":"approval identity bound to intent id + canonical economics + revision"},
@@ -50,7 +50,7 @@
     {"id":"F08","priority":"P1","area":"MULTISYMBOL_VALUATION","summary":"Planning a second symbol can fail because canonical pipeline supplies a price map only for the target symbol while existing portfolio positions require valuation.","required":"authoritative fresh valuation context for every held/reserved symbol"},
     {"id":"F09","priority":"P2","area":"CONFIG_VALIDATION","summary":"ProductConfig accepts target_quantity=0 while LongOnlyMomentumStrategy construction rejects it.","required":"one contract: validate > 0 before composition"},
     {"id":"F10","priority":"P0","area":"FILL_ACCOUNTING","summary":"A factual broker fill can be durably appended before runtime projection fails, leaving OMS/runtime/durable portfolio views divergent and replay-unrecoverable under the same assumptions.","required":"immutable execution inbox plus restart-safe accounting projection/saga; factual broker executions may never be discarded to satisfy the internal model"},
-    {"id":"F11","priority":"P1","area":"ACCOUNT_GENESIS","summary":"The same persisted portfolio event history can be replayed with a different arbitrary opening_cash value.","required":"immutable account/session genesis or explicit cash-flow ledger bound to history identity"},
+    {"id":"F11","priority":"P1","area":"ACCOUNT_GENESIS","summary":"The same persisted portfolio history can be replayed with a different arbitrary opening_cash value.","required":"immutable account/session genesis or explicit cash-flow ledger bound to history identity"},
     {"id":"F12","priority":"P0","area":"STREAM_TRUST","summary":"A rejected unauthenticated trade-update digest enters stream dedup before semantic authorization; exact replay can bypass stream validation while the outer raw-frame fill parser accounts it.","required":"only validated/authenticated frames acquire dedup provenance; accounting must require authoritative accepted-stream provenance"}
   ],
   "release_packaging_findings": [
@@ -61,6 +61,19 @@
       "observed_sql_in_sdist":"only app/platform_assets v105-v109 (5 SQL files)",
       "fresh_pristine_sdist_targeted_test":"16 passed, 2 failed, 2 skipped; both failures are FileNotFoundError for migrations/v120/001_bybit_demo_durable_audit_lifecycle.sql",
       "required":"release artifact self-contained for every schema/bootstrap asset used by the released code"
+    }
+  ],
+  "qualification_findings": [
+    {
+      "id":"CIQ01",
+      "priority":"P1",
+      "summary":"Pull-request workflows report the PR branch head SHA in run metadata while actions/checkout tests refs/pull/<n>/merge, so existing wording can overstate synthetic-merge integration evidence as literal exact-head checkout evidence.",
+      "observed_on_pr":134,
+      "branch_head":"35a39c621e1956eec06916b6805b485ce83d695c",
+      "base_sha":"ff684ab85b92151c215c7d5cc85bfc527fecb5eb",
+      "tested_synthetic_merge":"bd5800aa450ca61ab0f5f02a747a721c0bce1ab8",
+      "applicable_pr_workflows":"6/6 SUCCESS on the exact base+head merge integration",
+      "required":"record candidate head and tested checkout identity separately; if literal exact-head is a policy requirement, explicitly checkout github.event.pull_request.head.sha or run a dedicated exact-head qualification mechanism"
     }
   ],
   "end_to_end_matrix": {
@@ -97,6 +110,7 @@
       "Fix F08 whole-portfolio valuation context",
       "Fix F11 immutable genesis/cash-flow identity",
       "Fix PKG01 release migration packaging and pristine-install qualification",
+      "Fix CIQ01 qualification identity wording/mechanism",
       "Complete C2B1/C2B2/C2B3/C2C/C1A/C1B/C3A bounded canonicalization",
       "Integrate metrics/structured traces/alerts/dashboard with actual runtime gates",
       "Harden v107-v109 append-only TRUNCATE boundary (#109)",
@@ -106,7 +120,7 @@
   },
   "required_product_acceptance_sequence": [
     "P0 core safety invariants F12/F10/F01/F03/F05/F07",
-    "P1 core semantic and packaging gaps",
+    "P1 core semantic, packaging and qualification-identity gaps",
     "bounded Bybit canonicalization through final v124/readiness/supervisor/recovery/approval composition",
     "one exact-SHA canonical product service with reproducible install/bootstrap/deploy/rollback",
     "real protected Bybit Demo read-only readiness",
@@ -118,6 +132,8 @@
   ],
   "tracking": {
     "product_acceptance_issue": 132,
+    "product_acceptance_audit_pr": 133,
+    "f12_repair_pr": 134,
     "main_protection_issue": 103,
     "consolidation_issue": 104,
     "append_only_hardening_issue": 109,
