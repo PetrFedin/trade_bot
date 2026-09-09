@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -12,6 +13,7 @@ from app.runtime.paper_broker_contract_v99 import (
     BrokerOrder,
     BrokerOrderStatus,
 )
+from app.runtime.platform_common_v90 import sha256_digest
 from tools.external_paper_mutation_drill import (
     CONFIRMATION_PHRASE,
     MutationDrillError,
@@ -115,6 +117,8 @@ def readonly_report() -> dict[str, object]:
         "provider": "alpaca",
         "environment": "paper",
         "account_status": "ACTIVE",
+        "account_currency": "USD",
+        "account_fingerprint": sha256_digest({"account_id": "paper-account"})[:16],
         "trading_blocked": False,
         "stream_authenticated": True,
         "stream_listening": True,
@@ -170,6 +174,7 @@ def test_readonly_evidence_must_be_active_authenticated_and_clean(tmp_path: Path
     path = tmp_path / "readonly.json"
     path.write_text(
         '{"provider":"alpaca","environment":"paper","account_status":"ACTIVE",'
+        '"account_currency":"USD","account_fingerprint":"b2d442800dadfae2",'
         '"trading_blocked":false,"stream_authenticated":true,'
         '"stream_listening":true,"reasons":[],"paper_order_writes_enabled":false,'
         '"external_order_routing_allowed":false,"live_trading_allowed":false}',
@@ -179,6 +184,7 @@ def test_readonly_evidence_must_be_active_authenticated_and_clean(tmp_path: Path
 
     path.write_text(
         '{"provider":"alpaca","environment":"paper","account_status":"ACTIVE",'
+        '"account_currency":"USD","account_fingerprint":"b2d442800dadfae2",'
         '"trading_blocked":false,"stream_authenticated":false,'
         '"stream_listening":true,"reasons":[],"paper_order_writes_enabled":false,'
         '"external_order_routing_allowed":false,"live_trading_allowed":false}',
@@ -186,6 +192,31 @@ def test_readonly_evidence_must_be_active_authenticated_and_clean(tmp_path: Path
     )
     with pytest.raises(MutationDrillError, match="READONLY_STREAM_NOT_AUTHENTICATED"):
         load_readonly_evidence(path)
+
+
+def test_readonly_evidence_requires_account_fingerprint(tmp_path: Path) -> None:
+    report = readonly_report()
+    report.pop("account_fingerprint")
+    path = tmp_path / "readonly.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    with pytest.raises(MutationDrillError, match="READONLY_ACCOUNT_FINGERPRINT_MISSING"):
+        load_readonly_evidence(path)
+
+
+def test_readonly_account_mismatch_blocks_before_any_mutation(tmp_path: Path) -> None:
+    broker = FakeBroker()
+    broker.account = replace(broker.account, account_id="different-paper-account")
+
+    with pytest.raises(MutationDrillError, match="READONLY_MUTATION_ACCOUNT_MISMATCH"):
+        execute_drill(
+            broker=broker,
+            inputs=valid_inputs(),
+            readonly_evidence=readonly_report(),
+            output_directory=tmp_path,
+            now=NOW,
+        )
+
+    assert (broker.submit_calls, broker.replace_calls, broker.cancel_calls) == (0, 0, 0)
 
 
 def test_clean_drill_is_bounded_submit_replace_cancel_with_no_residual(tmp_path: Path) -> None:
