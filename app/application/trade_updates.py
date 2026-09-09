@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -44,6 +48,8 @@ class PaperTradeUpdateProcessor:
         self.stream = stream
         self.oms = oms
         self.fill_accounting = fill_accounting
+        self._validated_fill_digests: set[str] = set()
+        self._provenance_lock = threading.RLock()
 
     def process(
         self,
@@ -67,6 +73,13 @@ class PaperTradeUpdateProcessor:
                 raise ValueError("TRADE_UPDATE_BROKER_ORDER_ID_DIVERGENCE")
             if stream_update.order.filled_quantity != exact_fill.cumulative_quantity:
                 raise ValueError("TRADE_UPDATE_CUMULATIVE_FILL_DIVERGENCE")
+            with self._provenance_lock:
+                self._validated_fill_digests.add(stream_update.digest)
+        else:
+            digest = self._frame_digest(raw_frame)
+            with self._provenance_lock:
+                if digest not in self._validated_fill_digests:
+                    raise ValueError("TRADE_UPDATE_FILL_WITHOUT_VALIDATED_STREAM_PROVENANCE")
 
         record = self.oms.get_by_client_order_id(exact_fill.client_order_id)
         if record is None:
@@ -78,3 +91,18 @@ class PaperTradeUpdateProcessor:
     def _assert_parser_agreement(update: TradeUpdateV100, client_order_id: str) -> None:
         if update.order.client_order_id != client_order_id:
             raise ValueError("TRADE_UPDATE_CLIENT_ORDER_ID_DIVERGENCE")
+
+    @staticmethod
+    def _frame_digest(raw_frame: bytes | str) -> str:
+        try:
+            document = json.loads(
+                raw_frame.decode("utf-8") if isinstance(raw_frame, bytes) else raw_frame
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("TRADE_UPDATE_VALIDATED_DIGEST_RECONSTRUCTION_FAILED") from exc
+        if not isinstance(document, Mapping):
+            raise ValueError("TRADE_UPDATE_VALIDATED_DIGEST_RECONSTRUCTION_FAILED")
+        canonical = json.dumps(
+            document, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
