@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,6 +23,7 @@ from tools.external_paper_mutation_drill import (
     inputs_from_environment,
     load_readonly_evidence,
 )
+from tools.external_paper_readonly import build_report
 
 NOW = datetime(2026, 8, 11, 12, 0, tzinfo=UTC)
 
@@ -128,6 +130,33 @@ def readonly_report() -> dict[str, object]:
         "external_order_routing_allowed": False,
         "live_trading_allowed": False,
     }
+
+
+def test_readonly_report_binds_privacy_safe_account_identity() -> None:
+    report = build_report(
+        account=SimpleNamespace(
+            account_id="paper-account",
+            status="ACTIVE",
+            currency="USD",
+            trading_blocked=False,
+        ),
+        orders=(),
+        stream=SimpleNamespace(
+            authenticated=True,
+            listening=True,
+            credential_fingerprint="credential-fingerprint",
+            rest_endpoint="https://paper-api.alpaca.markets",
+            stream_endpoint="wss://paper-api.alpaca.markets/stream",
+            reasons=(),
+        ),
+    )
+
+    assert report["account_fingerprint"] == sha256_digest(
+        {"account_id": "paper-account"}
+    )[:16]
+    assert "account_id" not in report
+    assert report["account_currency"] == "USD"
+    assert report["trading_blocked"] is False
 
 
 def test_manual_inputs_require_exact_confirmation_and_less_marketable_replace() -> None:
