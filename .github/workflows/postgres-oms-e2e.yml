@@ -2,20 +2,24 @@ name: postgres-oms-e2e
 
 on:
   push:
-    branches: [agent/schema108-paper-core-foundation]
+    branches: [main]
     paths:
       - 'app/oms/**'
       - 'app/application/order_lifecycle.py'
+      - 'app/execution/execution_facts.py'
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
+      - 'tests/test_postgres_execution_facts.py'
       - 'pyproject.toml'
       - '.github/workflows/postgres-oms-e2e.yml'
   pull_request:
     paths:
       - 'app/oms/**'
       - 'app/application/order_lifecycle.py'
+      - 'app/execution/execution_facts.py'
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
+      - 'tests/test_postgres_execution_facts.py'
       - 'pyproject.toml'
       - '.github/workflows/postgres-oms-e2e.yml'
 
@@ -58,7 +62,9 @@ jobs:
           python -m pip check
       - name: PostgreSQL durable OMS E2E
         run: pytest -q tests/test_postgres_oms_e2e.py
+      - name: PostgreSQL execution facts E2E
+        run: pytest -q tests/test_postgres_execution_facts.py
       - name: SQLite OMS parity regression
         run: pytest -q tests/test_durable_oms_e2e.py
-      - name: Compile OMS boundary
-        run: python -m compileall -q app/oms app/application
+      - name: Compile OMS and execution fact boundaries
+        run: python -m compileall -q app/oms app/application app/execution/execution_facts.py
