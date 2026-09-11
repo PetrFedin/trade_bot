@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Protocol
 
 from app.domain.trading import Fill, Side
+from app.execution.execution_facts import ExecutionFact, ExecutionFactStore
 from app.oms.protocols import OmsStore
 from app.oms.store import OrderRecord, OrderState
 from app.portfolio.ledger import PortfolioLedger
@@ -190,12 +191,13 @@ def parse_alpaca_trade_fill(raw_frame: bytes | str) -> ExactBrokerFill | None:
 
 
 class PaperTradeFillAccounting:
-    """Apply exact broker fill events to durable portfolio state and OMS quantity.
+    """Persist broker execution truth before projecting it into portfolio accounting.
 
-    Portfolio persistence happens first. Its event id is a source-independent economic
-    fingerprint, so websocket delivery and account-activity recovery converge on the
-    same durable fill. When a runtime ledger is supplied, a newly persisted event is
-    applied to that same replayed ledger exactly once.
+    Exact broker fills are first recorded in a durable, conflict-aware execution inbox.
+    OMS cumulative broker truth is then advanced. Portfolio accounting is a projection of
+    that immutable fact. If projection fails, the fact remains durable and is quarantined;
+    canonical planning is expected to stay fail-closed while unresolved execution facts
+    exist. Recovery can retry the projection idempotently after restart.
     """
 
     _DIRECT_STATES = frozenset(
@@ -221,11 +223,17 @@ class PaperTradeFillAccounting:
         *,
         oms: OmsStore,
         portfolio: PortfolioStore,
+        execution_facts: ExecutionFactStore,
+        opening_cash: Decimal,
         fee_provider: PaperFillFeeProvider,
         runtime_ledger: PortfolioLedger | None = None,
     ) -> None:
+        if not opening_cash.is_finite() or opening_cash < 0:
+            raise ValueError("opening_cash must be finite and non-negative")
         self.oms = oms
         self.portfolio = portfolio
+        self.execution_facts = execution_facts
+        self.opening_cash = opening_cash
         self.fee_provider = fee_provider
         self.runtime_ledger = runtime_ledger
 
@@ -235,56 +243,125 @@ class PaperTradeFillAccounting:
         if record is None:
             raise KeyError(intent_id)
         self._validate_identity(record, broker_fill)
+        fee = self.fee_provider.fee_for(broker_fill)
+        if not fee.is_finite() or fee < 0:
+            raise ValueError("fill fee must be finite and non-negative")
+
+        fact = ExecutionFact(
+            execution_fact_id=canonical_broker_fill_id(broker_fill),
+            intent_id=intent_id,
+            broker_order_id=broker_fill.broker_order_id,
+            client_order_id=broker_fill.client_order_id,
+            symbol=broker_fill.symbol,
+            side=broker_fill.side,
+            order_quantity=broker_fill.order_quantity,
+            cumulative_quantity=broker_fill.cumulative_quantity,
+            quantity=broker_fill.quantity,
+            price=broker_fill.price,
+            fee=fee,
+            occurred_at=broker_fill.occurred_at,
+        )
+        self.execution_facts.append(fact, source_execution_id=broker_fill.execution_id)
+        try:
+            return self._project_fact(fact)
+        except Exception as exc:
+            self.execution_facts.mark_quarantined(
+                fact.execution_fact_id,
+                reason=self._projection_reason(exc),
+                occurred_at=broker_fill.occurred_at,
+            )
+            raise
+
+    def recover_unresolved(self) -> tuple[FillAccountingResult, ...]:
+        """Retry durable execution projections without needing the original stream frame."""
+
+        results: list[FillAccountingResult] = []
+        for stored in self.execution_facts.unresolved():
+            try:
+                results.append(self._project_fact(stored.fact))
+            except Exception as exc:
+                self.execution_facts.mark_quarantined(
+                    stored.fact.execution_fact_id,
+                    reason=self._projection_reason(exc),
+                    occurred_at=stored.fact.occurred_at,
+                )
+        return tuple(results)
+
+    def _project_fact(self, fact: ExecutionFact) -> FillAccountingResult:
+        fact.validate()
+        record = self.oms.get(fact.intent_id)
+        if record is None:
+            raise KeyError(fact.intent_id)
+        self._validate_fact_identity(record, fact)
 
         if record.state is OrderState.SUBMIT_STARTED:
             record = self.oms.transition(
-                intent_id,
+                fact.intent_id,
                 OrderState.ACKNOWLEDGED,
-                event_id=f"fill-ack:{broker_fill.execution_id}",
-                occurred_at=broker_fill.occurred_at,
-                broker_order_id=broker_fill.broker_order_id,
+                event_id=f"fill-ack:{fact.execution_fact_id}",
+                occurred_at=fact.occurred_at,
+                broker_order_id=fact.broker_order_id,
             )
         elif record.state not in self._DIRECT_STATES | self._LATE_EVENT_STATES:
             raise ValueError(f"FILL_NOT_ADMISSIBLE:{record.state.value}")
 
         if (
             record.state in self._LATE_EVENT_STATES
-            and broker_fill.cumulative_quantity > record.filled_quantity
+            and fact.cumulative_quantity > record.filled_quantity
         ):
             raise ValueError(f"FILL_REQUIRES_RECONCILIATION:{record.state.value}")
 
-        fee = self.fee_provider.fee_for(broker_fill)
-        if not fee.is_finite() or fee < 0:
-            raise ValueError("fill fee must be finite and non-negative")
-        domain_fill = Fill(
-            fill_id=canonical_broker_fill_id(broker_fill),
-            order_intent_id=intent_id,
-            symbol=broker_fill.symbol,
-            side=broker_fill.side,
-            quantity=broker_fill.quantity,
-            price=broker_fill.price,
-            fee=fee,
-            occurred_at=broker_fill.occurred_at,
-        )
-        appended = self.portfolio.append_fill(domain_fill)
-        if appended and self.runtime_ledger is not None:
-            self.runtime_ledger.apply_fill(domain_fill)
-
-        advanced = broker_fill.cumulative_quantity > record.filled_quantity
+        advanced = fact.cumulative_quantity > record.filled_quantity
         if advanced:
             record = self.oms.apply_cumulative_fill(
-                intent_id,
-                event_id=f"broker-fill:{broker_fill.execution_id}",
-                cumulative_filled=broker_fill.cumulative_quantity,
-                occurred_at=broker_fill.occurred_at,
-                broker_order_id=broker_fill.broker_order_id,
+                fact.intent_id,
+                event_id=f"broker-fill:{fact.execution_fact_id}",
+                cumulative_filled=fact.cumulative_quantity,
+                occurred_at=fact.occurred_at,
+                broker_order_id=fact.broker_order_id,
             )
+
+        domain_fill = fact.to_fill()
+        # Validate the projection against durable portfolio history before appending it.
+        # A factual broker execution can therefore survive an accounting-model failure
+        # without poisoning replay of the accounting journal.
+        candidate = self.portfolio.replay(opening_cash=self.opening_cash)
+        candidate.apply_fill(domain_fill)
+
+        appended = self.portfolio.append_fill(domain_fill)
+        if self.runtime_ledger is not None:
+            self.runtime_ledger.apply_fill(domain_fill)
+
+        self.execution_facts.mark_projected(
+            fact.execution_fact_id,
+            occurred_at=fact.occurred_at,
+        )
         return FillAccountingResult(
             record=record,
             fill=domain_fill,
             portfolio_event_appended=appended,
             oms_advanced=advanced,
         )
+
+    @staticmethod
+    def _projection_reason(exc: Exception) -> str:
+        text = str(exc).strip()
+        if not text:
+            return exc.__class__.__name__
+        return text[:160]
+
+    @staticmethod
+    def _validate_fact_identity(record: OrderRecord, fact: ExecutionFact) -> None:
+        if record.client_order_id != fact.client_order_id:
+            raise ValueError("BROKER_CLIENT_ORDER_ID_MISMATCH")
+        if record.broker_order_id and record.broker_order_id != fact.broker_order_id:
+            raise ValueError("BROKER_ORDER_ID_MISMATCH")
+        if record.symbol != fact.symbol:
+            raise ValueError("BROKER_SYMBOL_MISMATCH")
+        if record.side is not fact.side:
+            raise ValueError("BROKER_SIDE_MISMATCH")
+        if record.quantity != fact.order_quantity:
+            raise ValueError("BROKER_QUANTITY_MISMATCH")
 
     @staticmethod
     def _validate_identity(record: OrderRecord, broker_fill: ExactBrokerFill) -> None:

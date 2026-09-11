@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 
 from app.domain.trading import Bar, OrderIntent, Side, TargetPosition
+from app.execution.execution_facts import ExecutionFactStore
 from app.portfolio.ledger import PortfolioLedger
 from app.risk.evidence import RecordedRiskDecision, RiskAdmissionService
 from app.risk.pretrade import PreTradeRiskEngine, RiskContext, RiskDecision
@@ -21,6 +22,7 @@ class PaperTradingPipeline:
         ledger: PortfolioLedger,
         risk: PreTradeRiskEngine,
         risk_admission: RiskAdmissionService | None = None,
+        execution_facts: ExecutionFactStore | None = None,
     ) -> None:
         if risk_admission is not None and risk_admission.engine is not risk:
             raise ValueError("risk_admission must use the pipeline risk engine")
@@ -28,6 +30,7 @@ class PaperTradingPipeline:
         self.ledger = ledger
         self.risk = risk
         self.risk_admission = risk_admission
+        self.execution_facts = execution_facts
         self.last_recorded_risk: RecordedRiskDecision | None = None
 
     def plan(
@@ -37,6 +40,8 @@ class PaperTradingPipeline:
         kill_switch_engaged: bool = False,
         risk_context: RiskContext | None = None,
     ) -> tuple[TargetPosition, OrderIntent | None, RiskDecision | None]:
+        if self.execution_facts is not None and self.execution_facts.unresolved_count() > 0:
+            raise RuntimeError("EXECUTION_ACCOUNTING_NOT_CONVERGED")
         target = self.strategy.target(bars)
         current = self.ledger.position(target.symbol)
         delta = target.quantity - current.quantity

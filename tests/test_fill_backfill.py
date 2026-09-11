@@ -16,6 +16,7 @@ from app.execution.alpaca_fill_backfill import (
     FillBackfillPolicy,
     PaperFillBackfillService,
 )
+from app.execution.execution_facts import SQLiteExecutionFactStore
 from app.execution.trade_fills import (
     ExactBrokerFill,
     ExplicitZeroPaperFeeModel,
@@ -152,6 +153,8 @@ def recovery_stack(tmp_path, source: StaticActivitySource):
     accounting = PaperTradeFillAccounting(
         oms=oms,
         portfolio=portfolio,
+        execution_facts=SQLiteExecutionFactStore(tmp_path / "execution.sqlite"),
+        opening_cash=Decimal("1000"),
         fee_provider=ExplicitZeroPaperFeeModel(),
         runtime_ledger=ledger,
     )
