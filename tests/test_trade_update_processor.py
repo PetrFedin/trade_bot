@@ -8,6 +8,7 @@ import pytest
 
 from app.application.trade_updates import PaperTradeUpdateProcessor, UnmappedBrokerOrderError
 from app.domain.trading import OrderIntent, Side
+from app.execution.execution_facts import SQLiteExecutionFactStore
 from app.execution.trade_fills import ExplicitZeroPaperFeeModel, PaperTradeFillAccounting
 from app.oms.indexed import IndexedDurableOmsStore
 from app.oms.store import OrderState
@@ -110,6 +111,8 @@ def processor(tmp_path):
     accounting = PaperTradeFillAccounting(
         oms=oms,
         portfolio=portfolio,
+        execution_facts=SQLiteExecutionFactStore(tmp_path / "execution.sqlite"),
+        opening_cash=Decimal("1000"),
         fee_provider=ExplicitZeroPaperFeeModel(),
     )
     return (
@@ -175,6 +178,8 @@ def test_unmapped_broker_fill_fails_closed(tmp_path) -> None:
         fill_accounting=PaperTradeFillAccounting(
             oms=oms,
             portfolio=portfolio,
+            execution_facts=SQLiteExecutionFactStore(tmp_path / "execution.sqlite"),
+            opening_cash=Decimal("1000"),
             fee_provider=ExplicitZeroPaperFeeModel(),
         ),
     )

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from app.domain.trading import OrderIntent, Side
+from app.execution.execution_facts import SQLiteExecutionFactStore
 from app.execution.trade_fills import (
     ExplicitZeroPaperFeeModel,
     PaperTradeFillAccounting,
@@ -93,6 +94,8 @@ def accounting(tmp_path: Path):
     service = PaperTradeFillAccounting(
         oms=oms,
         portfolio=portfolio,
+        execution_facts=SQLiteExecutionFactStore(tmp_path / "execution.sqlite"),
+        opening_cash=Decimal("1000"),
         fee_provider=ExplicitZeroPaperFeeModel(),
     )
     return oms, portfolio, service
@@ -192,6 +195,8 @@ def test_fill_can_acknowledge_submit_started_before_advancing_quantity(tmp_path:
     service = PaperTradeFillAccounting(
         oms=oms,
         portfolio=portfolio,
+        execution_facts=SQLiteExecutionFactStore(tmp_path / "execution.sqlite"),
+        opening_cash=Decimal("1000"),
         fee_provider=ExplicitZeroPaperFeeModel(),
     )
     exact = parse_alpaca_trade_fill(

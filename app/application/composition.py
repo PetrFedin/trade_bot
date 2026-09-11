@@ -6,6 +6,11 @@ from pathlib import Path
 
 from app.application.order_lifecycle import PaperOrderLifecycle
 from app.application.paper_pipeline import PaperTradingPipeline
+from app.execution.execution_facts import (
+    ExecutionFactStore,
+    PostgresExecutionFactStore,
+    SQLiteExecutionFactStore,
+)
 from app.execution.order_mutation_executor import PaperOrderMutationExecutor
 from app.execution.trade_fills import PaperFillFeeProvider, PaperTradeFillAccounting
 from app.observability.readiness import OperationalReadinessEvaluator, OperationalSloPolicy
@@ -53,6 +58,7 @@ class ProductRuntime:
     risk_admission: RiskAdmissionService
     portfolio: PortfolioLedger
     portfolio_store: PortfolioStore
+    execution_facts: ExecutionFactStore
     oms_store: IndexedOmsStore
     order_mutations: MutationStore
     order_lifecycle: PaperOrderLifecycle
@@ -84,6 +90,7 @@ def _compose(
     mutation_store: MutationStore,
     risk_journal: RiskEvidenceJournal,
     portfolio_store: PortfolioStore,
+    execution_facts: ExecutionFactStore,
     fee_provider: PaperFillFeeProvider | None,
 ) -> ProductRuntime:
     config.validate()
@@ -99,6 +106,7 @@ def _compose(
         ledger=portfolio,
         risk=risk_engine,
         risk_admission=risk_admission,
+        execution_facts=execution_facts,
     )
     readiness = OperationalReadinessEvaluator(config.operational_slo)
     fill_accounting = (
@@ -107,6 +115,8 @@ def _compose(
         else PaperTradeFillAccounting(
             oms=oms_store,
             portfolio=portfolio_store,
+            execution_facts=execution_facts,
+            opening_cash=config.opening_cash,
             fee_provider=fee_provider,
             runtime_ledger=portfolio,
         )
@@ -118,6 +128,7 @@ def _compose(
         risk_admission=risk_admission,
         portfolio=portfolio,
         portfolio_store=portfolio_store,
+        execution_facts=execution_facts,
         oms_store=oms_store,
         order_mutations=mutation_store,
         order_lifecycle=lifecycle,
@@ -142,12 +153,14 @@ def build_local_product(
     oms_path = directory / "oms.sqlite"
     oms_store = IndexedDurableOmsStore(oms_path)
     mutation_store = DurableOrderMutationStore(oms_path)
+    execution_facts = SQLiteExecutionFactStore(directory / "execution.sqlite")
     return _compose(
         config=config,
         oms_store=oms_store,
         mutation_store=mutation_store,
         risk_journal=SQLiteRiskEvidenceJournal(directory / "risk.sqlite"),
         portfolio_store=StrictPortfolioEventStore(directory / "portfolio.sqlite"),
+        execution_facts=execution_facts,
         fee_provider=fee_provider,
     )
 
@@ -165,16 +178,19 @@ def build_postgres_product(
     mutation_store = PostgresOrderMutationStore(dsn)
     risk_journal = PostgresRiskEvidenceJournal(dsn)
     portfolio_store = StrictPostgresPortfolioEventStore(dsn)
+    execution_facts = PostgresExecutionFactStore(dsn)
     if migrate:
         oms_store.migrate()
         mutation_store.migrate()
         risk_journal.migrate()
         portfolio_store.migrate()
+        execution_facts.migrate()
     return _compose(
         config=config,
         oms_store=oms_store,
         mutation_store=mutation_store,
         risk_journal=risk_journal,
         portfolio_store=portfolio_store,
+        execution_facts=execution_facts,
         fee_provider=fee_provider,
     )
