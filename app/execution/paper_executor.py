@@ -44,6 +44,15 @@ class OmsExecutionStore(Protocol):
     def mark_outbox_published(self, message_id: int, *, occurred_at: datetime) -> None: ...
 
 
+class DispatchAuthorizer(Protocol):
+    def __call__(
+        self,
+        record: OrderRecord,
+        *,
+        occurred_at: datetime,
+    ) -> object: ...
+
+
 @dataclass(frozen=True)
 class ExecutionResult:
     record: OrderRecord
@@ -58,10 +67,10 @@ class PaperSubmitExecutor:
     ``OUTBOXED -> SUBMIT_STARTED`` transition. Exactly one concurrent caller can
     own that transition; stale readers lose the claim and therefore never POST.
 
-    A fresh ``SUBMIT_STARTED`` marker is also protected by a bounded recovery
-    grace. A competing worker must not perform GET recovery while the claim owner
-    may still be inside the broker mutation. After the grace, restart recovery is
-    GET-only and the submit mutation is never repeated.
+    When a final-dispatch authorizer is configured it is evaluated immediately
+    before the submit claim. A blocked dispatch therefore leaves the order
+    OUTBOXED and the outbox message unpublished. A fresh ``SUBMIT_STARTED`` marker
+    is protected by a bounded recovery grace; stale restart recovery is GET-only.
     """
 
     def __init__(
@@ -70,6 +79,7 @@ class PaperSubmitExecutor:
         store: OmsExecutionStore,
         broker: PaperBrokerV99,
         started_recovery_grace_seconds: float = 30.0,
+        dispatch_authorizer: DispatchAuthorizer | None = None,
     ) -> None:
         grace = float(started_recovery_grace_seconds)
         if not math.isfinite(grace) or grace < 0:
@@ -77,6 +87,7 @@ class PaperSubmitExecutor:
         self.store = store
         self.broker = broker
         self.started_recovery_grace_seconds = grace
+        self.dispatch_authorizer = dispatch_authorizer
 
     @staticmethod
     def _time(value: datetime) -> datetime:
@@ -93,6 +104,8 @@ class PaperSubmitExecutor:
             raise ValueError("PAPER_ORDER_WRITES_DISABLED")
 
         if record.state is OrderState.OUTBOXED:
+            if self.dispatch_authorizer is not None:
+                self.dispatch_authorizer(record, occurred_at=moment)
             try:
                 record = self.store.transition(
                     record.intent_id,
