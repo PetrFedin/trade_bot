@@ -6,22 +6,28 @@ on:
     paths:
       - 'app/oms/**'
       - 'app/application/order_lifecycle.py'
+      - 'app/application/paper_cycle.py'
       - 'app/execution/execution_facts.py'
       - 'app/execution/paper_executor.py'
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
       - 'tests/test_postgres_execution_facts.py'
+      - 'tests/test_postgres_risk_reservations.py'
+      - 'tests/test_pending_risk_reservations.py'
       - 'pyproject.toml'
       - '.github/workflows/postgres-oms-e2e.yml'
   pull_request:
     paths:
       - 'app/oms/**'
       - 'app/application/order_lifecycle.py'
+      - 'app/application/paper_cycle.py'
       - 'app/execution/execution_facts.py'
       - 'app/execution/paper_executor.py'
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
       - 'tests/test_postgres_execution_facts.py'
+      - 'tests/test_postgres_risk_reservations.py'
+      - 'tests/test_pending_risk_reservations.py'
       - 'pyproject.toml'
       - '.github/workflows/postgres-oms-e2e.yml'
 
@@ -66,6 +72,10 @@ jobs:
         run: pytest -q tests/test_postgres_oms_e2e.py
       - name: PostgreSQL execution facts E2E
         run: pytest -q tests/test_postgres_execution_facts.py
+      - name: PostgreSQL pending-risk reservation E2E
+        run: pytest -q tests/test_postgres_risk_reservations.py
+      - name: SQLite reservation parity regression
+        run: pytest -q tests/test_pending_risk_reservations.py
       - name: SQLite OMS parity regression
         run: pytest -q tests/test_durable_oms_e2e.py
       - name: Compile OMS and execution boundaries
