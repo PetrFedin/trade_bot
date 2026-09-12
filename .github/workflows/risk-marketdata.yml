@@ -4,17 +4,31 @@ on:
   push:
     branches: [main]
     paths:
+      - 'app/application/paper_pipeline.py'
+      - 'app/application/paper_cycle.py'
+      - 'app/application/composition.py'
       - 'app/marketdata/**'
       - 'app/risk/**'
       - 'app/domain/**'
+      - 'tests/test_operational_marketdata_admission.py'
       - 'tests/test_risk_marketdata.py'
+      - 'tests/test_pipeline_risk_evidence.py'
+      - 'tests/test_paper_cycle_e2e.py'
+      - 'tests/test_trading_core_e2e.py'
       - '.github/workflows/risk-marketdata.yml'
   pull_request:
     paths:
+      - 'app/application/paper_pipeline.py'
+      - 'app/application/paper_cycle.py'
+      - 'app/application/composition.py'
       - 'app/marketdata/**'
       - 'app/risk/**'
       - 'app/domain/**'
+      - 'tests/test_operational_marketdata_admission.py'
       - 'tests/test_risk_marketdata.py'
+      - 'tests/test_pipeline_risk_evidence.py'
+      - 'tests/test_paper_cycle_e2e.py'
+      - 'tests/test_trading_core_e2e.py'
       - '.github/workflows/risk-marketdata.yml'
 
 permissions:
@@ -35,11 +49,13 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: python -m pip install --disable-pip-version-check '.[test]'
-      - name: Market data and risk guardrail tests
-        run: pytest -q tests/test_risk_marketdata.py
+      - name: Operational market-data admission qualification
+        run: pytest -q tests/test_operational_marketdata_admission.py tests/test_risk_marketdata.py
+      - name: Pipeline clock and evidence regression
+        run: pytest -q tests/test_pipeline_risk_evidence.py tests/test_paper_cycle_e2e.py
       - name: Product E2E regression
         run: pytest -q tests/test_trading_core_e2e.py tests/test_durable_oms_e2e.py
       - name: Full regression
         run: pytest -q
-      - name: Compile risk and data boundary
-        run: python -m compileall -q app/marketdata app/risk app/domain
+      - name: Compile risk, data and operational planning boundary
+        run: python -m compileall -q app/application app/marketdata app/risk app/domain

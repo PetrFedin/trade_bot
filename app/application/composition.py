@@ -5,7 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from app.application.order_lifecycle import PaperOrderLifecycle
-from app.application.paper_pipeline import PaperTradingPipeline
+from app.application.paper_pipeline import PaperTradingPipeline, PlanningMode
 from app.application.risk_checked_mutations import RiskCheckedOrderMutationLifecycle
 from app.execution.execution_facts import (
     ExecutionFactStore,
@@ -113,6 +113,7 @@ def _compose(
         strategy=strategy,
         ledger=portfolio,
         risk=risk_engine,
+        mode=PlanningMode.OPERATIONAL,
         risk_admission=risk_admission,
         execution_facts=execution_facts,
     )

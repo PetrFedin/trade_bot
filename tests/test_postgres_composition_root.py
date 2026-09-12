@@ -87,10 +87,14 @@ def acknowledge(runtime, intent_id: str, broker_order_id: str) -> None:
     )
 
 
+def plan(runtime):
+    return runtime.paper_pipeline.plan(bars(), decision_time=NOW)
+
+
 def test_postgres_composition_uses_shared_durable_backends() -> None:
     runtime = clean_runtime()
 
-    _, intent, decision = runtime.paper_pipeline.plan(bars())
+    _, intent, decision = plan(runtime)
     assert intent is not None and decision is not None and decision.approved
     assert runtime.paper_pipeline.last_recorded_risk is not None
     assert len(runtime.risk_admission.journal.verify()) == 1
@@ -138,7 +142,7 @@ def test_postgres_composition_uses_shared_durable_backends() -> None:
 
 def test_postgres_composition_f07_rejects_before_mutation_persistence() -> None:
     runtime = clean_runtime()
-    _, intent, decision = runtime.paper_pipeline.plan(bars())
+    _, intent, decision = plan(runtime)
     assert intent is not None and decision is not None and decision.approved
     runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
     acknowledge(runtime, intent.intent_id, "pg-broker-order-f07")
@@ -163,7 +167,7 @@ def test_postgres_composition_f07_rejects_before_mutation_persistence() -> None:
 
 def test_postgres_composition_restart_reopens_all_durable_truth() -> None:
     runtime = clean_runtime()
-    _, intent, decision = runtime.paper_pipeline.plan(bars())
+    _, intent, decision = plan(runtime)
     assert intent is not None and decision is not None
     prepared = runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
     acknowledge(runtime, intent.intent_id, "pg-restart-broker-order")

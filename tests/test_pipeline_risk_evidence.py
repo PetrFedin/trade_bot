@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from app.application.paper_pipeline import PaperTradingPipeline
+from app.application.paper_pipeline import PaperTradingPipeline, PlanningMode
 from app.domain.trading import Bar
 from app.portfolio.ledger import PortfolioLedger
 from app.risk.evidence import RiskAdmissionService, SQLiteRiskEvidenceJournal
@@ -36,6 +36,7 @@ def build_pipeline(path):
             strategy=LongOnlyMomentumStrategy(target_quantity=Decimal("1")),
             ledger=PortfolioLedger(opening_cash=Decimal("10000")),
             risk=risk,
+            mode=PlanningMode.REPLAY,
             risk_admission=admission,
         ),
         journal,
