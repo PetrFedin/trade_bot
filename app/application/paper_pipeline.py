@@ -4,6 +4,7 @@ import hashlib
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 
 from app.domain.trading import Bar, OrderIntent, Side, TargetPosition
@@ -158,7 +159,7 @@ class PaperTradingPipeline:
         supplied: RiskContext | OperationalRiskContext | None,
         *,
         decision_time: datetime,
-    ) -> tuple[RiskContext, dict[str, object]]:
+    ) -> tuple[RiskContext, dict[str, Decimal]]:
         if self.mode is PlanningMode.OPERATIONAL:
             if not isinstance(supplied, OperationalRiskContext):
                 raise ValueError("OPERATIONAL_RISK_CONTEXT_REQUIRED")
