@@ -18,7 +18,7 @@ from app.application.composition import ProductConfig, build_postgres_product
 from app.domain.trading import Bar, Fill, Side
 from app.oms.order_mutations import MutationState
 from app.oms.store import OrderState
-from app.risk.pretrade import RiskContext, RiskLimits
+from app.risk.pretrade import OperationalRiskContext, RiskLimits
 
 NOW = datetime(2026, 8, 7, 20, 30, tzinfo=UTC)
 
@@ -43,11 +43,22 @@ def bars() -> list[Bar]:
     ]
 
 
-def replace_context(*, available_cash: Decimal) -> RiskContext:
-    return RiskContext(
+def operational_context(runtime) -> OperationalRiskContext:
+    return OperationalRiskContext(
         price_timestamp=NOW,
         decision_time=NOW,
-        available_cash=available_cash,
+        market_open=True,
+        halted=False,
+        spread_bps=Decimal("1"),
+        estimated_slippage_bps=Decimal("1"),
+        daily_pnl=Decimal("0"),
+        drawdown=Decimal("0"),
+        turnover_notional=Decimal("0"),
+        average_daily_dollar_volume=Decimal("1000000"),
+        portfolio_equity=runtime.portfolio.cash,
+        sector_notional=Decimal("0"),
+        annualized_volatility=Decimal("0.20"),
+        available_cash=runtime.portfolio.cash,
     )
 
 
@@ -88,7 +99,11 @@ def acknowledge(runtime, intent_id: str, broker_order_id: str) -> None:
 
 
 def plan(runtime):
-    return runtime.paper_pipeline.plan(bars(), decision_time=NOW)
+    return runtime.paper_pipeline.plan(
+        bars(),
+        decision_time=NOW,
+        risk_context=operational_context(runtime),
+    )
 
 
 def test_postgres_composition_uses_shared_durable_backends() -> None:
@@ -115,7 +130,7 @@ def test_postgres_composition_uses_shared_durable_backends() -> None:
         occurred_at=NOW,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
-        risk_context=replace_context(available_cash=runtime.portfolio.cash),
+        risk_context=operational_context(runtime),
     )
     assert mutation.state is MutationState.REQUESTED
     assert mutation.broker_order_id == "pg-broker-order-1"
@@ -155,7 +170,7 @@ def test_postgres_composition_f07_rejects_before_mutation_persistence() -> None:
             occurred_at=NOW,
             current_symbol_notional=Decimal("0"),
             current_gross_notional=Decimal("0"),
-            risk_context=replace_context(available_cash=runtime.portfolio.cash),
+            risk_context=operational_context(runtime),
         )
 
     assert runtime.order_mutations.get("pg-composition-replace-f07") is None
