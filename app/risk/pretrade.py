@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.domain.trading import OrderIntent, Side
@@ -101,6 +103,27 @@ class RiskContext:
                 raise ValueError(f"{name} must be finite and non-negative when supplied")
 
 
+def risk_intent_fingerprint(intent: OrderIntent) -> str:
+    """Stable identity/economics binding for a pre-trade risk decision."""
+
+    intent.validate()
+    material = json.dumps(
+        {
+            "intent_id": intent.intent_id,
+            "symbol": intent.symbol,
+            "side": intent.side.value,
+            "quantity": str(intent.quantity),
+            "limit_price": str(intent.limit_price),
+            "created_at": intent.created_at.astimezone(UTC).isoformat(),
+            "strategy_id": intent.strategy_id,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
 @dataclass(frozen=True)
 class RiskDecision:
     approved: bool
@@ -108,6 +131,8 @@ class RiskDecision:
     order_notional: Decimal
     projected_symbol_notional: Decimal
     projected_gross_notional: Decimal
+    intent_id: str = ""
+    intent_fingerprint: str = ""
 
 
 class PreTradeRiskEngine:
@@ -125,6 +150,7 @@ class PreTradeRiskEngine:
         context: RiskContext | None = None,
     ) -> RiskDecision:
         intent.validate()
+        intent_fingerprint = risk_intent_fingerprint(intent)
         for name, value in (
             ("current_symbol_notional", current_symbol_notional),
             ("current_gross_notional", current_gross_notional),
@@ -143,6 +169,8 @@ class PreTradeRiskEngine:
                     order_notional=order_notional,
                     projected_symbol_notional=current_symbol_notional,
                     projected_gross_notional=current_gross_notional,
+                    intent_id=intent.intent_id,
+                    intent_fingerprint=intent_fingerprint,
                 )
             projected_symbol = current_symbol_notional - order_notional
             projected_gross = max(Decimal("0"), current_gross_notional - order_notional)
@@ -216,4 +244,6 @@ class PreTradeRiskEngine:
             order_notional=order_notional,
             projected_symbol_notional=projected_symbol,
             projected_gross_notional=projected_gross,
+            intent_id=intent.intent_id,
+            intent_fingerprint=intent_fingerprint,
         )
