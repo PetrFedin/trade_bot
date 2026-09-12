@@ -2,13 +2,18 @@ name: operational-readiness
 
 on:
   push:
-    branches: [agent/schema108-paper-core-foundation]
+    branches: [main]
     paths:
       - 'app/observability/**'
       - 'app/risk/**'
       - 'app/oms/**'
       - 'app/portfolio/**'
+      - 'app/application/paper_cycle.py'
+      - 'app/execution/paper_executor.py'
+      - 'app/runtime/paper_dispatch_control.py'
+      - 'app/runtime/paper_final_dispatch.py'
       - 'tests/test_operational_readiness.py'
+      - 'tests/test_final_dispatch_interlock.py'
       - '.github/workflows/operational-readiness.yml'
   pull_request:
     paths:
@@ -16,7 +21,12 @@ on:
       - 'app/risk/**'
       - 'app/oms/**'
       - 'app/portfolio/**'
+      - 'app/application/paper_cycle.py'
+      - 'app/execution/paper_executor.py'
+      - 'app/runtime/paper_dispatch_control.py'
+      - 'app/runtime/paper_final_dispatch.py'
       - 'tests/test_operational_readiness.py'
+      - 'tests/test_final_dispatch_interlock.py'
       - '.github/workflows/operational-readiness.yml'
 
 permissions:
@@ -39,7 +49,9 @@ jobs:
       - run: python -m pip install --disable-pip-version-check '.[test]'
       - name: Operational health and SLO gate
         run: pytest -q tests/test_operational_readiness.py
+      - name: Final dispatch HALT/readiness interlock
+        run: pytest -q tests/test_final_dispatch_interlock.py
       - name: Risk and reconciliation regression
         run: pytest -q tests/test_risk_marketdata.py tests/test_durable_oms_e2e.py
       - name: Compile operational boundary
-        run: python -m compileall -q app/observability app/risk app/oms app/portfolio
+        run: python -m compileall -q app/observability app/risk app/oms app/portfolio app/application/paper_cycle.py app/execution/paper_executor.py app/runtime/paper_dispatch_control.py app/runtime/paper_final_dispatch.py
