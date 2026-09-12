@@ -11,7 +11,12 @@ from app.execution.execution_facts import ExecutionFactStore
 from app.marketdata.validation import MarketDataPolicy, validate_bar_series
 from app.portfolio.ledger import PortfolioLedger
 from app.risk.evidence import RecordedRiskDecision, RiskAdmissionService
-from app.risk.pretrade import PreTradeRiskEngine, RiskContext, RiskDecision
+from app.risk.pretrade import (
+    OperationalRiskContext,
+    PreTradeRiskEngine,
+    RiskContext,
+    RiskDecision,
+)
 from app.strategy.momentum import LongOnlyMomentumStrategy
 
 
@@ -27,7 +32,7 @@ class MarketDataNotReady(ValueError):
 
 
 class PaperTradingPipeline:
-    """Deterministic trading slice with an explicit replay/operational clock boundary."""
+    """Deterministic trading slice with explicit replay and operational boundaries."""
 
     def __init__(
         self,
@@ -60,7 +65,7 @@ class PaperTradingPipeline:
         *,
         decision_time: datetime | None = None,
         kill_switch_engaged: bool = False,
-        risk_context: RiskContext | None = None,
+        risk_context: RiskContext | OperationalRiskContext | None = None,
     ) -> tuple[TargetPosition, OrderIntent | None, RiskDecision | None]:
         if self.execution_facts is not None and self.execution_facts.unresolved_count() > 0:
             raise RuntimeError("EXECUTION_ACCOUNTING_NOT_CONVERGED")
@@ -151,18 +156,32 @@ class PaperTradingPipeline:
     def _risk_context(
         self,
         target: TargetPosition,
-        supplied: RiskContext | None,
+        supplied: RiskContext | OperationalRiskContext | None,
         *,
         decision_time: datetime,
     ) -> RiskContext:
+        if self.mode is PlanningMode.OPERATIONAL:
+            if not isinstance(supplied, OperationalRiskContext):
+                raise ValueError("OPERATIONAL_RISK_CONTEXT_REQUIRED")
+            supplied.validate()
+            if supplied.decision_time != decision_time:
+                raise ValueError("RISK_CONTEXT_DECISION_TIME_MISMATCH")
+            if supplied.price_timestamp != target.generated_at:
+                raise ValueError("RISK_CONTEXT_PRICE_TIMESTAMP_MISMATCH")
+            if supplied.available_cash != self.ledger.cash:
+                raise ValueError(
+                    "risk_context available_cash disagrees with durable portfolio cash"
+                )
+            return supplied.to_risk_context()
+
         if supplied is None:
             return RiskContext(
                 price_timestamp=target.generated_at,
                 decision_time=decision_time,
                 available_cash=self.ledger.cash,
             )
-        if self.mode is PlanningMode.OPERATIONAL and supplied.decision_time != decision_time:
-            raise ValueError("RISK_CONTEXT_DECISION_TIME_MISMATCH")
+        if isinstance(supplied, OperationalRiskContext):
+            supplied = supplied.to_risk_context()
         if supplied.available_cash is None:
             return replace(supplied, available_cash=self.ledger.cash)
         if supplied.available_cash != self.ledger.cash:
