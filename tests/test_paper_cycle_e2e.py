@@ -319,7 +319,11 @@ def test_cycle_rejects_buy_above_replayed_available_cash_before_outbox(tmp_path)
     )
     assert planning.intent is not None
     assert planning.risk is not None and not planning.risk.approved
-    assert planning.risk.reasons == ("INSUFFICIENT_AVAILABLE_CASH",)
+    assert planning.risk.reasons == (
+        "INSUFFICIENT_AVAILABLE_CASH",
+        "POSITION_CONCENTRATION_EXCEEDED",
+        "SECTOR_CONCENTRATION_EXCEEDED",
+    )
     assert planning.prepared is None
     assert runtime.oms_store.pending_outbox() == ()
     assert broker.submit_calls == 0
