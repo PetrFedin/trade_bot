@@ -2,7 +2,7 @@ name: paper-executor-e2e
 
 on:
   push:
-    branches: [agent/schema108-paper-core-foundation]
+    branches: [main]
     paths:
       - 'app/execution/**'
       - 'app/oms/**'

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from threading import Event
 
 import pytest
 
@@ -17,9 +18,11 @@ if not DSN:
 
 from app.application.order_lifecycle import PaperOrderLifecycle
 from app.domain.trading import OrderIntent, Side
+from app.execution.paper_executor import PaperSubmitExecutor
 from app.oms.postgres import PostgresOmsStore
 from app.oms.store import OrderState
 from app.risk.pretrade import RiskDecision
+from app.runtime.paper_broker_contract_v99 import BrokerOrder, BrokerOrderStatus, OrderSide
 
 NOW = datetime(2026, 8, 7, 14, 0, tzinfo=UTC)
 
@@ -44,6 +47,40 @@ def decision() -> RiskDecision:
         projected_symbol_notional=Decimal("1000"),
         projected_gross_notional=Decimal("1000"),
     )
+
+
+class BlockingPaperBroker:
+    paper_order_writes_enabled = True
+
+    def __init__(self) -> None:
+        self.submit_calls = 0
+        self.get_calls = 0
+        self.submit_entered = Event()
+        self.release_submit = Event()
+        self.orders: dict[str, BrokerOrder] = {}
+
+    def submit_limit_order(self, **kwargs) -> BrokerOrder:
+        self.submit_entered.set()
+        if not self.release_submit.wait(timeout=5):
+            raise RuntimeError("test submit release timed out")
+        self.submit_calls += 1
+        order = BrokerOrder(
+            client_order_id=kwargs["client_order_id"],
+            broker_order_id="pg-broker-race-1",
+            instrument=kwargs["instrument"],
+            side=kwargs["side"],
+            quantity=kwargs["quantity"],
+            limit_price=kwargs["limit_price"],
+            status=BrokerOrderStatus.ACKNOWLEDGED,
+            filled_quantity=Decimal("0"),
+            updated_at=NOW,
+        )
+        self.orders[order.client_order_id] = order
+        return order
+
+    def get_order_by_client_order_id(self, client_order_id: str):
+        self.get_calls += 1
+        return self.orders.get(client_order_id)
 
 
 @pytest.fixture()
@@ -139,6 +176,43 @@ def test_postgres_row_lock_and_event_key_make_duplicate_fill_at_most_once(
     assert len(events) == 1
     persisted = store.get("pg-intent-1")
     assert persisted is not None and persisted.version == 6
+
+
+def test_postgres_submit_claim_allows_one_worker_only(store: PostgresOmsStore) -> None:
+    PaperOrderLifecycle(store).prepare(intent(), decision(), occurred_at=NOW)
+    message = store.pending_outbox()[0]
+    broker = BlockingPaperBroker()
+    winner = PaperSubmitExecutor(store=PostgresOmsStore(DSN), broker=broker)
+    contender = PaperSubmitExecutor(store=PostgresOmsStore(DSN), broker=broker)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(winner.execute, message, occurred_at=NOW)
+        assert broker.submit_entered.wait(timeout=5)
+        second = executor.submit(
+            contender.execute,
+            message,
+            occurred_at=NOW + timedelta(seconds=1),
+        )
+        second_result = second.result(timeout=5)
+        assert second_result.record.state is OrderState.SUBMIT_STARTED
+        assert not second_result.mutation_attempted
+        assert not second_result.recovered_by_read
+        assert broker.submit_calls == 0
+        assert broker.get_calls == 0
+
+        broker.release_submit.set()
+        first_result = first.result(timeout=5)
+
+    assert first_result.record.state is OrderState.ACKNOWLEDGED
+    assert first_result.mutation_attempted
+    assert broker.submit_calls == 1
+    assert broker.get_calls == 0
+    assert store.pending_outbox() == ()
+
+    persisted = store.get("pg-intent-1")
+    assert persisted is not None
+    assert persisted.state is OrderState.ACKNOWLEDGED
+    assert persisted.broker_order_id == "pg-broker-race-1"
 
 
 def test_postgres_event_journal_is_append_only(store: PostgresOmsStore) -> None:
