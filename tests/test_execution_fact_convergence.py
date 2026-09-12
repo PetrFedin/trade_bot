@@ -15,7 +15,7 @@ from app.execution.execution_facts import (
 )
 from app.execution.trade_fills import ExactBrokerFill, canonical_broker_fill_id
 from app.oms.store import OrderState
-from app.risk.pretrade import RiskLimits
+from app.risk.pretrade import OperationalRiskContext, RiskLimits
 
 NOW = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
 
@@ -37,6 +37,8 @@ def config(*, opening_cash: str = "102") -> ProductConfig:
             maximum_order_notional=Decimal("1000"),
             maximum_symbol_notional=Decimal("1000"),
             maximum_gross_notional=Decimal("1000"),
+            maximum_position_fraction_of_equity=Decimal("1"),
+            maximum_sector_fraction_of_equity=Decimal("1"),
         ),
     )
 
@@ -49,8 +51,29 @@ def bars() -> list[Bar]:
     ]
 
 
+def risk_context(runtime) -> OperationalRiskContext:
+    return OperationalRiskContext(
+        price_timestamp=NOW,
+        decision_time=NOW,
+        market_open=True,
+        halted=False,
+        spread_bps=Decimal("1"),
+        estimated_slippage_bps=Decimal("1"),
+        daily_pnl=Decimal("0"),
+        drawdown=Decimal("0"),
+        turnover_notional=Decimal("0"),
+        average_daily_dollar_volume=Decimal("1000000"),
+        portfolio_equity=runtime.portfolio.cash,
+        sector_notional=Decimal("0"),
+        annualized_volatility=Decimal("0.20"),
+        available_cash=runtime.portfolio.cash,
+    )
+
+
 def prepare_ack(runtime) -> OrderIntent:
-    target, intent, decision = runtime.paper_pipeline.plan(bars(), decision_time=NOW)
+    target, intent, decision = runtime.paper_pipeline.plan(
+        bars(), decision_time=NOW, risk_context=risk_context(runtime)
+    )
     assert target.quantity == Decimal("1")
     assert intent is not None
     assert decision is not None and decision.approved
