@@ -19,6 +19,8 @@ except ImportError:  # pragma: no cover - optional dependency boundary
     dict_row = None
 
 _MAX_ARM_TTL = timedelta(minutes=5)
+_POSTGRES_CONTROL_LOCK_KEY = 0x44535043
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 class DispatchControlMode(StrEnum):
@@ -98,6 +100,66 @@ class PaperDispatchControlStore(Protocol):
     def events(self) -> tuple[Mapping[str, object], ...]: ...
 
 
+def _implicit_halt() -> DispatchControlState:
+    return DispatchControlState(
+        mode=DispatchControlMode.HALTED,
+        version=0,
+        operator_id="system",
+        reason="CONTROL_NOT_ARMED",
+        armed_until=None,
+        updated_at=None,
+    )
+
+
+def _aware_utc(value: datetime, label: str) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{label} must be timezone-aware")
+    return value.astimezone(UTC)
+
+
+def _text(value: str, label: str, maximum: int) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{label} is required")
+    if len(normalized) > maximum:
+        raise ValueError(f"{label} is too long")
+    return normalized
+
+
+def _validate_ttl(ttl: timedelta) -> None:
+    if ttl <= timedelta(0) or ttl > _MAX_ARM_TTL:
+        raise ValueError("dispatch ARM ttl must be within (0, 300] seconds")
+
+
+def _assert_armed(state: DispatchControlState, *, occurred_at: datetime) -> None:
+    if state.mode is not DispatchControlMode.ARMED:
+        raise DispatchBlocked(("DISPATCH_CONTROL_HALTED",))
+    if state.armed_until is None or occurred_at > state.armed_until:
+        raise DispatchBlocked(("DISPATCH_CONTROL_EXPIRED",))
+
+
+def _control_event_id(
+    kind: DispatchControlEventKind,
+    *,
+    version: int,
+    intent_id: str | None,
+    occurred_at: datetime,
+    payload: dict[str, object],
+) -> str:
+    material = json.dumps(
+        {
+            "kind": kind.value,
+            "version": version,
+            "intent_id": intent_id,
+            "occurred_at": occurred_at.isoformat(),
+            "payload": payload,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
 class SQLitePaperDispatchControlStore:
     """Durable fail-closed paper-dispatch control colocated with the SQLite OMS."""
 
@@ -146,12 +208,23 @@ class SQLitePaperDispatchControlStore:
                         OR (mode = 'ARMED' AND armed_until IS NOT NULL)
                     )
                 );
+                INSERT OR IGNORE INTO paper_dispatch_control_state
+                (singleton, mode, version, operator_id, reason, armed_until, updated_at)
+                VALUES (
+                    1,
+                    'HALTED',
+                    1,
+                    'system:migration',
+                    'CONTROL_NOT_ARMED',
+                    NULL,
+                    '1970-01-01T00:00:00+00:00'
+                );
                 CREATE TABLE IF NOT EXISTS paper_dispatch_control_events (
                     event_id TEXT PRIMARY KEY,
                     event_type TEXT NOT NULL CHECK (
                         event_type IN ('ARM', 'HALT', 'DISPATCH_AUTHORIZED')
                     ),
-                    intent_id TEXT REFERENCES oms_orders(intent_id) ON DELETE RESTRICT,
+                    intent_id TEXT,
                     control_version INTEGER NOT NULL CHECK (control_version >= 0),
                     payload TEXT NOT NULL,
                     occurred_at TEXT NOT NULL
@@ -187,23 +260,12 @@ class SQLitePaperDispatchControlStore:
             ),
         )
 
-    @staticmethod
-    def _implicit_halt() -> DispatchControlState:
-        return DispatchControlState(
-            mode=DispatchControlMode.HALTED,
-            version=0,
-            operator_id="system",
-            reason="CONTROL_NOT_ARMED",
-            armed_until=None,
-            updated_at=None,
-        )
-
     @classmethod
     def _load_current(cls, connection: sqlite3.Connection) -> DispatchControlState:
         row = connection.execute(
             "SELECT * FROM paper_dispatch_control_state WHERE singleton=1"
         ).fetchone()
-        return cls._implicit_halt() if row is None else cls._row(row)
+        return _implicit_halt() if row is None else cls._row(row)
 
     @staticmethod
     def _append_event(
@@ -254,16 +316,9 @@ class SQLitePaperDispatchControlStore:
             current = self._load_current(connection)
             version = current.version + 1
             connection.execute(
-                """INSERT INTO paper_dispatch_control_state
-                (singleton, mode, version, operator_id, reason, armed_until, updated_at)
-                VALUES (1, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(singleton) DO UPDATE SET
-                    mode=excluded.mode,
-                    version=excluded.version,
-                    operator_id=excluded.operator_id,
-                    reason=excluded.reason,
-                    armed_until=excluded.armed_until,
-                    updated_at=excluded.updated_at""",
+                """UPDATE paper_dispatch_control_state
+                SET mode=?, version=?, operator_id=?, reason=?, armed_until=?, updated_at=?
+                WHERE singleton=1""",
                 (
                     DispatchControlMode.ARMED.value,
                     version,
@@ -310,16 +365,9 @@ class SQLitePaperDispatchControlStore:
             current = self._load_current(connection)
             version = current.version + 1
             connection.execute(
-                """INSERT INTO paper_dispatch_control_state
-                (singleton, mode, version, operator_id, reason, armed_until, updated_at)
-                VALUES (1, ?, ?, ?, ?, NULL, ?)
-                ON CONFLICT(singleton) DO UPDATE SET
-                    mode=excluded.mode,
-                    version=excluded.version,
-                    operator_id=excluded.operator_id,
-                    reason=excluded.reason,
-                    armed_until=NULL,
-                    updated_at=excluded.updated_at""",
+                """UPDATE paper_dispatch_control_state
+                SET mode=?, version=?, operator_id=?, reason=?, armed_until=NULL, updated_at=?
+                WHERE singleton=1""",
                 (
                     DispatchControlMode.HALTED.value,
                     version,
@@ -418,7 +466,7 @@ class SQLitePaperDispatchControlStore:
 
 
 class PostgresPaperDispatchControlStore:
-    """PostgreSQL equivalent with row locking as the dispatch authorization point."""
+    """PostgreSQL equivalent with explicit account-wide control serialization."""
 
     def __init__(self, dsn: str) -> None:
         if not dsn.strip():
@@ -462,18 +510,27 @@ class PostgresPaperDispatchControlStore:
             updated_at=_aware_utc(updated_at, "updated_at"),
         )
 
-    @staticmethod
-    def _implicit_halt() -> DispatchControlState:
-        return SQLitePaperDispatchControlStore._implicit_halt()
-
     @classmethod
     def _load_current(cls, cursor, *, for_update: bool) -> DispatchControlState:
-        suffix = " FOR UPDATE" if for_update else ""
-        cursor.execute(
-            f"SELECT * FROM astra_paper_dispatch_control_state WHERE singleton=TRUE{suffix}"
-        )
+        if for_update:
+            cursor.execute(
+                """SELECT * FROM astra_paper_dispatch_control_state
+                WHERE singleton=TRUE FOR UPDATE"""
+            )
+        else:
+            cursor.execute(
+                """SELECT * FROM astra_paper_dispatch_control_state
+                WHERE singleton=TRUE"""
+            )
         row = cursor.fetchone()
-        return cls._implicit_halt() if row is None else cls._row(row)
+        return _implicit_halt() if row is None else cls._row(row)
+
+    @staticmethod
+    def _lock_control(cursor) -> None:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(%s)",
+            (_POSTGRES_CONTROL_LOCK_KEY,),
+        )
 
     @staticmethod
     def _append_event(
@@ -522,6 +579,7 @@ class PostgresPaperDispatchControlStore:
         with self._connect() as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
+                    self._lock_control(cursor)
                     current = self._load_current(cursor, for_update=True)
                     version = current.version + 1
                     cursor.execute(
@@ -580,6 +638,7 @@ class PostgresPaperDispatchControlStore:
         with self._connect() as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
+                    self._lock_control(cursor)
                     current = self._load_current(cursor, for_update=True)
                     version = current.version + 1
                     cursor.execute(
@@ -637,6 +696,7 @@ class PostgresPaperDispatchControlStore:
         with self._connect() as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
+                    self._lock_control(cursor)
                     current = self._load_current(cursor, for_update=True)
                     _assert_armed(current, occurred_at=moment)
                     payload = {
@@ -690,52 +750,3 @@ class PostgresPaperDispatchControlStore:
                     }
                     for row in rows
                 )
-
-
-def _aware_utc(value: datetime, label: str) -> datetime:
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise ValueError(f"{label} must be timezone-aware")
-    return value.astimezone(UTC)
-
-
-def _text(value: str, label: str, maximum: int) -> str:
-    normalized = value.strip()
-    if not normalized:
-        raise ValueError(f"{label} is required")
-    if len(normalized) > maximum:
-        raise ValueError(f"{label} is too long")
-    return normalized
-
-
-def _validate_ttl(ttl: timedelta) -> None:
-    if ttl <= timedelta(0) or ttl > _MAX_ARM_TTL:
-        raise ValueError("dispatch ARM ttl must be within (0, 300] seconds")
-
-
-def _assert_armed(state: DispatchControlState, *, occurred_at: datetime) -> None:
-    if state.mode is not DispatchControlMode.ARMED:
-        raise DispatchBlocked(("DISPATCH_CONTROL_HALTED",))
-    if state.armed_until is None or occurred_at > state.armed_until:
-        raise DispatchBlocked(("DISPATCH_CONTROL_EXPIRED",))
-
-
-def _control_event_id(
-    kind: DispatchControlEventKind,
-    *,
-    version: int,
-    intent_id: str | None,
-    occurred_at: datetime,
-    payload: dict[str, object],
-) -> str:
-    material = json.dumps(
-        {
-            "kind": kind.value,
-            "version": version,
-            "intent_id": intent_id,
-            "occurred_at": occurred_at.isoformat(),
-            "payload": payload,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(material.encode("utf-8")).hexdigest()
