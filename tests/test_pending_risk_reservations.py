@@ -12,7 +12,7 @@ from app.execution.trade_fills import ExplicitZeroPaperFeeModel
 from app.oms.indexed import IndexedDurableOmsStore
 from app.oms.risk_reservations import RiskReservationBudget, RiskReservationRejected
 from app.oms.store import OrderState
-from app.risk.pretrade import RiskLimits
+from app.risk.pretrade import OperationalRiskContext, RiskLimits
 from app.runtime.alpaca_paper_adapter_v100 import (
     AlpacaPaperCredentialsV100,
     AlpacaTradeUpdateStreamV100,
@@ -29,6 +29,8 @@ def tight_config() -> ProductConfig:
             maximum_order_notional=Decimal("110"),
             maximum_symbol_notional=Decimal("110"),
             maximum_gross_notional=Decimal("110"),
+            maximum_position_fraction_of_equity=Decimal("1"),
+            maximum_sector_fraction_of_equity=Decimal("1"),
         ),
     )
 
@@ -40,6 +42,25 @@ def bars(offset_minutes: int) -> list[Bar]:
         Bar("AAPL", end - timedelta(minutes=1), Decimal("101")),
         Bar("AAPL", end, Decimal("102")),
     ]
+
+
+def risk_context(runtime, *, at: datetime) -> OperationalRiskContext:
+    return OperationalRiskContext(
+        price_timestamp=at,
+        decision_time=at,
+        market_open=True,
+        halted=False,
+        spread_bps=Decimal("1"),
+        estimated_slippage_bps=Decimal("1"),
+        daily_pnl=Decimal("0"),
+        drawdown=Decimal("0"),
+        turnover_notional=Decimal("0"),
+        average_daily_dollar_volume=Decimal("1000000"),
+        portfolio_equity=runtime.portfolio.cash,
+        sector_notional=Decimal("0"),
+        annualized_volatility=Decimal("0.20"),
+        available_cash=runtime.portfolio.cash,
+    )
 
 
 def listening_stream() -> AlpacaTradeUpdateStreamV100:
@@ -112,12 +133,20 @@ def test_product_reserves_first_pending_buy_and_rejects_second_and_third(tmp_pat
         stream_generation=1,
     )
 
-    first = cycle.plan_and_prepare(bars(0), decision_time=NOW)
-    second = cycle.plan_and_prepare(
-        bars(10), decision_time=NOW + timedelta(minutes=10)
+    first = cycle.plan_and_prepare(
+        bars(0), decision_time=NOW, risk_context=risk_context(runtime, at=NOW)
     )
+    second_time = NOW + timedelta(minutes=10)
+    second = cycle.plan_and_prepare(
+        bars(10),
+        decision_time=second_time,
+        risk_context=risk_context(runtime, at=second_time),
+    )
+    third_time = NOW + timedelta(minutes=20)
     third = cycle.plan_and_prepare(
-        bars(20), decision_time=NOW + timedelta(minutes=20)
+        bars(20),
+        decision_time=third_time,
+        risk_context=risk_context(runtime, at=third_time),
     )
 
     assert first.order_ready
