@@ -229,7 +229,7 @@ def test_partially_filled_buy_reserves_only_remaining_notional(tmp_path) -> None
         event_id="risk:partial-second",
         occurred_at=NOW,
         budget=RiskReservationBudget(
-            available_cash=Decimal("75"),
+            available_cash=Decimal("100"),
             current_symbol_notional=Decimal("50"),
             current_gross_notional=Decimal("50"),
             maximum_symbol_notional=Decimal("150"),
