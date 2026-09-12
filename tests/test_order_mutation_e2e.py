@@ -20,7 +20,7 @@ from app.oms.order_mutations import (
     OrderMutationLifecycle,
 )
 from app.oms.store import DurableOmsStore, OrderState
-from app.risk.pretrade import RiskDecision
+from app.risk.pretrade import PreTradeRiskEngine, RiskDecision, RiskLimits
 from app.runtime.paper_broker_contract_v99 import (
     BrokerMutationError,
     BrokerOrder,
@@ -42,8 +42,18 @@ def intent() -> OrderIntent:
     )
 
 
-def approved() -> RiskDecision:
-    return RiskDecision(True, (), Decimal("1000"), Decimal("1000"), Decimal("1000"))
+def approved(value: OrderIntent) -> RiskDecision:
+    return PreTradeRiskEngine(
+        RiskLimits(
+            maximum_order_notional=Decimal("10000"),
+            maximum_symbol_notional=Decimal("10000"),
+            maximum_gross_notional=Decimal("10000"),
+        )
+    ).evaluate(
+        value,
+        current_symbol_notional=Decimal("0"),
+        current_gross_notional=Decimal("0"),
+    )
 
 
 class FakePaperBroker:
@@ -151,7 +161,8 @@ class BlockingMutationBroker(FakePaperBroker):
 def prepared(tmp_path, *, broker: FakePaperBroker | None = None):
     db = tmp_path / "order-mutations.sqlite"
     oms = DurableOmsStore(db)
-    PaperOrderLifecycle(oms).prepare(intent(), approved(), occurred_at=NOW)
+    value = intent()
+    PaperOrderLifecycle(oms).prepare(value, approved(value), occurred_at=NOW)
     broker = FakePaperBroker() if broker is None else broker
     submit_message = oms.pending_outbox()[0]
     submit = PaperSubmitExecutor(store=oms, broker=broker).execute(
