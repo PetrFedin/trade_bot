@@ -2,23 +2,27 @@ name: risk-evidence
 
 on:
   push:
-    branches: [agent/schema108-paper-core-foundation]
+    branches: [main]
     paths:
       - 'app/risk/**'
       - 'app/application/paper_pipeline.py'
+      - 'app/application/order_lifecycle.py'
       - 'migrations/product/002_risk_evidence.sql'
       - 'tests/test_risk_evidence.py'
       - 'tests/test_postgres_risk_evidence.py'
       - 'tests/test_pipeline_risk_evidence.py'
+      - 'tests/test_risk_approval_binding.py'
       - '.github/workflows/risk-evidence.yml'
   pull_request:
     paths:
       - 'app/risk/**'
       - 'app/application/paper_pipeline.py'
+      - 'app/application/order_lifecycle.py'
       - 'migrations/product/002_risk_evidence.sql'
       - 'tests/test_risk_evidence.py'
       - 'tests/test_postgres_risk_evidence.py'
       - 'tests/test_pipeline_risk_evidence.py'
+      - 'tests/test_risk_approval_binding.py'
       - '.github/workflows/risk-evidence.yml'
 
 permissions:
@@ -62,7 +66,9 @@ jobs:
         run: pytest -q tests/test_risk_evidence.py tests/test_postgres_risk_evidence.py
       - name: Paper pipeline risk-evidence integration
         run: pytest -q tests/test_pipeline_risk_evidence.py
+      - name: Exact lifecycle approval binding
+        run: pytest -q tests/test_risk_approval_binding.py
       - name: Pre-trade risk regression
         run: pytest -q tests/test_risk_marketdata.py tests/test_advanced_risk.py
-      - name: Compile risk evidence boundary
-        run: python -m compileall -q app/risk app/application/paper_pipeline.py
+      - name: Compile risk approval boundary
+        run: python -m compileall -q app/risk app/application/paper_pipeline.py app/application/order_lifecycle.py

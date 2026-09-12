@@ -17,7 +17,7 @@ from app.oms.reconciliation import (
 )
 from app.oms.store import DurableOmsStore, OrderState
 from app.portfolio.ledger import PortfolioLedger
-from app.risk.pretrade import RiskDecision
+from app.risk.pretrade import PreTradeRiskEngine, RiskDecision, RiskLimits
 
 UTC = timezone.utc
 NOW = datetime(2026, 8, 7, 12, 0, tzinfo=UTC)
@@ -35,13 +35,17 @@ def intent(intent_id: str = "intent-1") -> OrderIntent:
     )
 
 
-def approved() -> RiskDecision:
-    return RiskDecision(
-        approved=True,
-        reasons=(),
-        order_notional=Decimal("1000"),
-        projected_symbol_notional=Decimal("1000"),
-        projected_gross_notional=Decimal("1000"),
+def approved(value: OrderIntent) -> RiskDecision:
+    return PreTradeRiskEngine(
+        RiskLimits(
+            maximum_order_notional=Decimal("10000"),
+            maximum_symbol_notional=Decimal("10000"),
+            maximum_gross_notional=Decimal("10000"),
+        )
+    ).evaluate(
+        value,
+        current_symbol_notional=Decimal("0"),
+        current_gross_notional=Decimal("0"),
     )
 
 
@@ -49,12 +53,13 @@ def test_durable_order_lifecycle_outbox_and_monotonic_fills(tmp_path) -> None:
     db = tmp_path / "oms.sqlite"
     store = DurableOmsStore(db)
     lifecycle = PaperOrderLifecycle(store)
+    value = intent()
 
-    prepared = lifecycle.prepare(intent(), approved(), occurred_at=NOW)
+    prepared = lifecycle.prepare(value, approved(value), occurred_at=NOW)
     assert prepared.record.state is OrderState.OUTBOXED
     assert prepared.client_order_id.startswith("astra-paper-")
 
-    repeated = lifecycle.prepare(intent(), approved(), occurred_at=NOW)
+    repeated = lifecycle.prepare(value, approved(value), occurred_at=NOW)
     assert repeated.client_order_id == prepared.client_order_id
     assert len(store.pending_outbox()) == 1
 
@@ -121,7 +126,8 @@ def test_durable_order_lifecycle_outbox_and_monotonic_fills(tmp_path) -> None:
 def test_uncertain_order_uses_read_only_reconciliation(tmp_path) -> None:
     store = DurableOmsStore(tmp_path / "reconcile.sqlite")
     lifecycle = PaperOrderLifecycle(store)
-    lifecycle.prepare(intent("intent-2"), approved(), occurred_at=NOW)
+    value = intent("intent-2")
+    lifecycle.prepare(value, approved(value), occurred_at=NOW)
     store.transition(
         "intent-2",
         OrderState.SUBMIT_STARTED,
@@ -137,7 +143,7 @@ def test_uncertain_order_uses_read_only_reconciliation(tmp_path) -> None:
     )
 
     truth = BrokerOrderTruth(
-        client_order_id=PaperOrderLifecycle(store).client_order_id(intent("intent-2")),
+        client_order_id=PaperOrderLifecycle(store).client_order_id(value),
         broker_order_id="broker-2",
         state=BrokerOrderState.OPEN,
         cumulative_filled=Decimal("0"),
@@ -156,7 +162,8 @@ def test_uncertain_order_uses_read_only_reconciliation(tmp_path) -> None:
 def test_missing_uncertain_order_escalates_to_manual_without_mutation(tmp_path) -> None:
     store = DurableOmsStore(tmp_path / "missing.sqlite")
     lifecycle = PaperOrderLifecycle(store)
-    lifecycle.prepare(intent("intent-3"), approved(), occurred_at=NOW)
+    value = intent("intent-3")
+    lifecycle.prepare(value, approved(value), occurred_at=NOW)
     store.transition("intent-3", OrderState.SUBMIT_STARTED, event_id="submit:3", occurred_at=NOW)
     store.transition("intent-3", OrderState.UNCERTAIN, event_id="timeout:3", occurred_at=NOW)
     result = OmsReconciler(store).reconcile_order(
