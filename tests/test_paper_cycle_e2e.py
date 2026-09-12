@@ -9,6 +9,7 @@ from app.application.paper_cycle import PaperCycleService
 from app.domain.trading import Bar, Side
 from app.execution.alpaca_fill_backfill import AlpacaFillActivity, FillActivityPage
 from app.execution.trade_fills import ExplicitZeroPaperFeeModel
+from app.observability.readiness import OperationalSnapshot
 from app.oms.reconciliation import BrokerPortfolioTruth, BrokerPositionTruth
 from app.oms.store import OrderState
 from app.risk.pretrade import RiskLimits
@@ -39,6 +40,26 @@ def bars() -> list[Bar]:
         Bar("AAPL", NOW - timedelta(minutes=1), Decimal("101")),
         Bar("AAPL", NOW, Decimal("102")),
     ]
+
+
+def ready_snapshot() -> OperationalSnapshot:
+    return OperationalSnapshot(
+        market_data_age_seconds=Decimal("0"),
+        stream_silence_seconds=Decimal("0"),
+        broker_latency_ms=Decimal("1"),
+        broker_error_fraction=Decimal("0"),
+        uncertain_orders=0,
+        reconciliation_age_seconds=Decimal("0"),
+        cash_mismatch=Decimal("0"),
+        position_mismatches=0,
+        daily_pnl=Decimal("0"),
+        drawdown=Decimal("0"),
+        kill_switch_engaged=False,
+        market_data_ready=True,
+        stream_ready=True,
+        broker_connected=True,
+        portfolio_reconciled=True,
+    )
 
 
 def listening_stream() -> AlpacaTradeUpdateStreamV100:
@@ -144,12 +165,18 @@ def build_cycle(tmp_path, broker: FakeCycleBroker, *, fill_activity_source=None)
         state_directory=tmp_path,
         fee_provider=ExplicitZeroPaperFeeModel(),
     )
+    runtime.dispatch_control.arm(
+        operator_id="test-operator",
+        reason="paper cycle qualification",
+        occurred_at=NOW,
+    )
     cycle = PaperCycleService(
         runtime=runtime,
         broker=broker,
         trade_stream=listening_stream(),
         stream_generation=1,
         fill_activity_source=fill_activity_source,
+        operational_snapshot_provider=ready_snapshot,
     )
     return runtime, cycle
 
