@@ -46,7 +46,9 @@ class PaperTradingPipeline:
         self.ledger = ledger
         self.risk = risk
         self.mode = PlanningMode(mode)
-        self.market_data_policy = MarketDataPolicy() if market_data_policy is None else market_data_policy
+        self.market_data_policy = (
+            MarketDataPolicy() if market_data_policy is None else market_data_policy
+        )
         self.market_data_policy.validate()
         self.risk_admission = risk_admission
         self.execution_facts = execution_facts
