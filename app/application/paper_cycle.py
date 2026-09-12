@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 from app.application.composition import ProductRuntime
 from app.application.order_lifecycle import PreparedPaperOrder
 from app.application.trade_updates import PaperTradeUpdateProcessor, TradeUpdateProcessingResult
-from app.domain.trading import Bar, OrderIntent, TargetPosition
+from app.domain.trading import Bar, OrderIntent, Side, TargetPosition
 from app.execution.alpaca_fill_backfill import (
     FillActivitySource,
     FillBackfillPolicy,
@@ -21,6 +21,7 @@ from app.oms.reconciliation import (
     PortfolioReconciliationResult,
     reconcile_portfolio,
 )
+from app.oms.risk_reservations import RiskReservationBudget, RiskReservationRejected
 from app.oms.store import OrderRecord
 from app.risk.pretrade import RiskContext, RiskDecision
 from app.runtime.alpaca_paper_adapter_v100 import AlpacaTradeUpdateStreamV100
@@ -97,11 +98,34 @@ class PaperCycleService:
         )
         if intent is None or decision is None or not decision.approved:
             return PaperPlanningResult(target, intent, decision, None)
-        prepared = self.runtime.order_lifecycle.prepare(
-            intent,
-            decision,
-            occurred_at=target.generated_at,
+
+        if intent.side is Side.BUY:
+            current_symbol = decision.projected_symbol_notional - decision.order_notional
+            current_gross = decision.projected_gross_notional - decision.order_notional
+        else:
+            current_symbol = decision.projected_symbol_notional + decision.order_notional
+            current_gross = decision.projected_gross_notional + decision.order_notional
+        budget = RiskReservationBudget(
+            available_cash=self.runtime.portfolio.cash,
+            current_symbol_notional=current_symbol,
+            current_gross_notional=current_gross,
+            maximum_symbol_notional=self.runtime.risk_engine.limits.maximum_symbol_notional,
+            maximum_gross_notional=self.runtime.risk_engine.limits.maximum_gross_notional,
         )
+        try:
+            prepared = self.runtime.order_lifecycle.prepare(
+                intent,
+                decision,
+                occurred_at=target.generated_at,
+                reservation_budget=budget,
+            )
+        except RiskReservationRejected as exc:
+            denied = replace(
+                decision,
+                approved=False,
+                reasons=tuple(sorted(set((*decision.reasons, *exc.reasons)))),
+            )
+            return PaperPlanningResult(target, intent, denied, None)
         return PaperPlanningResult(target, intent, decision, prepared)
 
     def execute_next_submit(self, *, occurred_at: datetime) -> ExecutionResult | None:

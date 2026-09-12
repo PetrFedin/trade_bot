@@ -6,6 +6,7 @@ from datetime import datetime
 
 from app.domain.trading import OrderIntent
 from app.oms.protocols import OmsStore
+from app.oms.risk_reservations import RiskReservationBudget
 from app.oms.store import OrderRecord, OrderState
 from app.risk.pretrade import RiskDecision
 
@@ -40,6 +41,7 @@ class PaperOrderLifecycle:
         decision: RiskDecision,
         *,
         occurred_at: datetime,
+        reservation_budget: RiskReservationBudget | None = None,
     ) -> PreparedPaperOrder:
         intent.validate()
         if not decision.approved:
@@ -51,11 +53,22 @@ class PaperOrderLifecycle:
             occurred_at=occurred_at,
         )
         if record.state is OrderState.CREATED:
-            record = self.store.approve_risk(
-                intent.intent_id,
-                event_id=f"risk:{intent.intent_id}",
-                occurred_at=occurred_at,
-            )
+            if reservation_budget is None:
+                record = self.store.approve_risk(
+                    intent.intent_id,
+                    event_id=f"risk:{intent.intent_id}",
+                    occurred_at=occurred_at,
+                )
+            else:
+                reserve = getattr(self.store, "approve_risk_with_reservation", None)
+                if reserve is None:
+                    raise RuntimeError("OMS_RISK_RESERVATION_UNSUPPORTED")
+                record = reserve(
+                    intent.intent_id,
+                    event_id=f"risk:{intent.intent_id}",
+                    occurred_at=occurred_at,
+                    budget=reservation_budget,
+                )
         if record.state is OrderState.RISK_APPROVED:
             record = self.store.enqueue_submit(
                 intent.intent_id,
