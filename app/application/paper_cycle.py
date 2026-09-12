@@ -26,6 +26,10 @@ from app.oms.store import OrderRecord
 from app.risk.pretrade import RiskContext, RiskDecision
 from app.runtime.alpaca_paper_adapter_v100 import AlpacaTradeUpdateStreamV100
 from app.runtime.paper_broker_contract_v99 import PaperBrokerV99
+from app.runtime.paper_final_dispatch import (
+    OperationalSnapshotProvider,
+    PaperFinalDispatchGuard,
+)
 
 
 @dataclass(frozen=True)
@@ -44,10 +48,11 @@ class PaperCycleService:
     """Bounded application service for the stable paper-trading product graph.
 
     It intentionally exposes one durable external mutation per ``execute_next_submit``
-    call. There is no hidden retry loop or daemon. Planning persists immutable risk and
-    outbox state, submit execution uses the at-most-one executor, trade updates route by
-    durable client-order identity, missed fills can be repaired through a GET-only
-    activity source, and reconciliation remains read-only.
+    call. Planning persists immutable risk and outbox state. Every submit re-reads
+    current operational readiness and durable ARM/HALT control immediately before the
+    exclusive submit claim. Trade updates route by durable client-order identity,
+    missed fills can be repaired through a GET-only activity source, and
+    reconciliation remains read-only.
     """
 
     def __init__(
@@ -59,6 +64,7 @@ class PaperCycleService:
         stream_generation: int,
         fill_activity_source: FillActivitySource | None = None,
         fill_backfill_policy: FillBackfillPolicy | None = None,
+        operational_snapshot_provider: OperationalSnapshotProvider | None = None,
     ) -> None:
         if stream_generation < 1:
             raise ValueError("stream_generation must be positive")
@@ -66,7 +72,16 @@ class PaperCycleService:
         self.broker = broker
         self.trade_stream = trade_stream
         self.stream_generation = stream_generation
-        self.executor = PaperSubmitExecutor(store=runtime.oms_store, broker=broker)
+        self.final_dispatch = PaperFinalDispatchGuard(
+            control=runtime.dispatch_control,
+            readiness=runtime.operational_readiness,
+            snapshot_provider=operational_snapshot_provider,
+        )
+        self.executor = PaperSubmitExecutor(
+            store=runtime.oms_store,
+            broker=broker,
+            dispatch_authorizer=self.final_dispatch.authorize,
+        )
         accounting = runtime.require_fill_accounting()
         self.trade_updates = PaperTradeUpdateProcessor(
             stream=trade_stream,
@@ -129,7 +144,7 @@ class PaperCycleService:
         return PaperPlanningResult(target, intent, decision, prepared)
 
     def execute_next_submit(self, *, occurred_at: datetime) -> ExecutionResult | None:
-        """Execute at most one durable submit outbox message."""
+        """Execute at most one durable submit after the final dispatch interlock."""
 
         pending = self.runtime.oms_store.pending_outbox(limit=1)
         if not pending:
