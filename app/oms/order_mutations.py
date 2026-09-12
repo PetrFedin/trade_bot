@@ -79,6 +79,10 @@ class MutationStore(Protocol):
         occurred_at: datetime,
     ) -> OrderMutationRecord: ...
 
+    def claim_started(
+        self, mutation_id: str, *, occurred_at: datetime
+    ) -> tuple[OrderMutationRecord, bool]: ...
+
     def mark_started(self, mutation_id: str, *, occurred_at: datetime) -> OrderMutationRecord: ...
 
     def mark_succeeded(
@@ -493,6 +497,33 @@ class DurableOrderMutationStore:
             )
             return self._load(connection, mutation_id)
 
+    def claim_started(
+        self, mutation_id: str, *, occurred_at: datetime
+    ) -> tuple[OrderMutationRecord, bool]:
+        """Atomically grant one worker the external mutation capability."""
+
+        moment = self._now(occurred_at)
+        with self._transaction() as connection:
+            current = self._load(connection, mutation_id)
+            if current.state is not MutationState.REQUESTED:
+                return current, False
+            next_version = current.version + 1
+            connection.execute(
+                """UPDATE oms_order_mutations
+                SET state=?, outcome='', version=version+1, updated_at=?
+                WHERE mutation_id=?""",
+                (MutationState.STARTED.value, moment.isoformat(), mutation_id),
+            )
+            self._append_event(
+                connection,
+                event_id=f"state:{mutation_id}:{MutationState.STARTED.value}:{next_version}",
+                mutation_id=mutation_id,
+                event_type=MutationState.STARTED.value,
+                payload={"outcome": ""},
+                occurred_at=moment,
+            )
+            return self._load(connection, mutation_id), True
+
     def _set_state(
         self,
         mutation_id: str,
@@ -556,9 +587,12 @@ class DurableOrderMutationStore:
             return self._load(connection, mutation_id)
 
     def mark_started(self, mutation_id: str, *, occurred_at: datetime) -> OrderMutationRecord:
-        return self._set_state(
-            mutation_id, MutationState.STARTED, outcome="", occurred_at=occurred_at
-        )
+        record, _ = self.claim_started(mutation_id, occurred_at=occurred_at)
+        if record.state is not MutationState.STARTED:
+            raise ValueError(
+                f"invalid mutation transition: {record.state.value}->{MutationState.STARTED.value}"
+            )
+        return record
 
     def mark_succeeded(
         self,

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from threading import Event
 
 import pytest
 
@@ -51,6 +53,7 @@ class FakePaperBroker:
         self.submit_calls = 0
         self.cancel_calls = 0
         self.replace_calls = 0
+        self.get_calls = 0
         self.cancel_ambiguous = False
         self.cancel_persists_before_error = True
         self.replace_ambiguous = False
@@ -109,6 +112,7 @@ class FakePaperBroker:
         return replaced
 
     def get_order_by_client_order_id(self, client_order_id: str):
+        self.get_calls += 1
         return self.orders.get(client_order_id)
 
     def _by_broker_id(self, broker_order_id: str) -> BrokerOrder:
@@ -118,11 +122,37 @@ class FakePaperBroker:
         raise BrokerMutationError("404", "order not found", ambiguous=False)
 
 
-def prepared(tmp_path):
+class BlockingMutationBroker(FakePaperBroker):
+    def __init__(self) -> None:
+        super().__init__()
+        self.cancel_entered = Event()
+        self.replace_entered = Event()
+        self.release_cancel = Event()
+        self.release_replace = Event()
+
+    def cancel_order(self, *, broker_order_id: str) -> BrokerOrder:
+        self.cancel_entered.set()
+        if not self.release_cancel.wait(timeout=5):
+            raise RuntimeError("test cancel release timed out")
+        return super().cancel_order(broker_order_id=broker_order_id)
+
+    def replace_limit_order(
+        self, *, broker_order_id: str, limit_price: Decimal
+    ) -> BrokerOrder:
+        self.replace_entered.set()
+        if not self.release_replace.wait(timeout=5):
+            raise RuntimeError("test replace release timed out")
+        return super().replace_limit_order(
+            broker_order_id=broker_order_id,
+            limit_price=limit_price,
+        )
+
+
+def prepared(tmp_path, *, broker: FakePaperBroker | None = None):
     db = tmp_path / "order-mutations.sqlite"
     oms = DurableOmsStore(db)
     PaperOrderLifecycle(oms).prepare(intent(), approved(), occurred_at=NOW)
-    broker = FakePaperBroker()
+    broker = FakePaperBroker() if broker is None else broker
     submit_message = oms.pending_outbox()[0]
     submit = PaperSubmitExecutor(store=oms, broker=broker).execute(
         submit_message, occurred_at=NOW
@@ -169,7 +199,7 @@ def test_restart_after_cancel_started_is_get_only_then_reconcilable(tmp_path) ->
     lifecycle.request_cancel("mutation-intent", mutation_id="cancel-crash", occurred_at=NOW)
     message = mutations.pending_outbox()[0]
     mutations.mark_started("cancel-crash", occurred_at=NOW)
-    first = executor.execute(message, occurred_at=NOW)
+    first = executor.execute(message, occurred_at=NOW + timedelta(seconds=31))
     assert first.mutation.state is MutationState.UNCERTAIN
     assert first.recovered_by_read
     assert not first.mutation_attempted
@@ -179,10 +209,57 @@ def test_restart_after_cancel_started_is_get_only_then_reconcilable(tmp_path) ->
     broker.orders[current.client_order_id] = replace(
         current, status=BrokerOrderStatus.CANCELLED
     )
-    resolved = executor.reconcile("cancel-crash", occurred_at=NOW)
+    resolved = executor.reconcile(
+        "cancel-crash", occurred_at=NOW + timedelta(seconds=32)
+    )
     assert resolved.mutation.state is MutationState.SUCCEEDED
     assert resolved.record.state is OrderState.CANCELLED
     assert broker.cancel_calls == 0
+
+
+def test_fresh_started_cancel_does_not_read_while_owner_may_be_active(tmp_path) -> None:
+    _, _, mutations, lifecycle, executor, broker = prepared(tmp_path)
+    lifecycle.request_cancel("mutation-intent", mutation_id="cancel-fresh", occurred_at=NOW)
+    message = mutations.pending_outbox()[0]
+    mutations.mark_started("cancel-fresh", occurred_at=NOW)
+    result = executor.execute(message, occurred_at=NOW + timedelta(seconds=1))
+    assert result.mutation.state is MutationState.STARTED
+    assert not result.mutation_attempted
+    assert not result.recovered_by_read
+    assert broker.cancel_calls == 0
+    assert broker.get_calls == 0
+    assert len(mutations.pending_outbox()) == 1
+
+
+def test_two_workers_share_one_cancel_claim_and_only_winner_can_delete(tmp_path) -> None:
+    blocking = BlockingMutationBroker()
+    _, oms, mutations, lifecycle, executor, broker = prepared(tmp_path, broker=blocking)
+    lifecycle.request_cancel("mutation-intent", mutation_id="cancel-race", occurred_at=NOW)
+    message = mutations.pending_outbox()[0]
+    contender = PaperOrderMutationExecutor(oms=oms, mutations=mutations, broker=broker)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(executor.execute, message, occurred_at=NOW)
+        assert blocking.cancel_entered.wait(timeout=5)
+        second = pool.submit(
+            contender.execute,
+            message,
+            occurred_at=NOW + timedelta(seconds=1),
+        )
+        second_result = second.result(timeout=5)
+        assert second_result.mutation.state is MutationState.STARTED
+        assert not second_result.mutation_attempted
+        assert not second_result.recovered_by_read
+        assert broker.cancel_calls == 0
+        assert broker.get_calls == 0
+
+        blocking.release_cancel.set()
+        first_result = first.result(timeout=5)
+
+    assert first_result.mutation.state is MutationState.SUCCEEDED
+    assert first_result.record.state is OrderState.CANCELLED
+    assert broker.cancel_calls == 1
+    assert broker.get_calls == 0
 
 
 def test_replace_tracks_effective_price_and_rotated_broker_id(tmp_path) -> None:
@@ -236,10 +313,46 @@ def test_restart_after_replace_started_never_patches_blindly(tmp_path) -> None:
     )
     message = mutations.pending_outbox()[0]
     mutations.mark_started("replace-crash", occurred_at=NOW)
-    result = executor.execute(message, occurred_at=NOW)
+    result = executor.execute(message, occurred_at=NOW + timedelta(seconds=31))
     assert result.mutation.state is MutationState.UNCERTAIN
     assert result.mutation.outcome == "REPLACE_PRICE_NOT_CONFIRMED"
     assert broker.replace_calls == 0
+
+
+def test_two_workers_share_one_replace_claim_and_only_winner_can_patch(tmp_path) -> None:
+    blocking = BlockingMutationBroker()
+    _, oms, mutations, lifecycle, executor, broker = prepared(tmp_path, broker=blocking)
+    lifecycle.request_replace(
+        "mutation-intent",
+        mutation_id="replace-race",
+        target_limit_price=Decimal("101"),
+        occurred_at=NOW,
+    )
+    message = mutations.pending_outbox()[0]
+    contender = PaperOrderMutationExecutor(oms=oms, mutations=mutations, broker=broker)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(executor.execute, message, occurred_at=NOW)
+        assert blocking.replace_entered.wait(timeout=5)
+        second = pool.submit(
+            contender.execute,
+            message,
+            occurred_at=NOW + timedelta(seconds=1),
+        )
+        second_result = second.result(timeout=5)
+        assert second_result.mutation.state is MutationState.STARTED
+        assert not second_result.mutation_attempted
+        assert not second_result.recovered_by_read
+        assert broker.replace_calls == 0
+        assert broker.get_calls == 0
+
+        blocking.release_replace.set()
+        first_result = first.result(timeout=5)
+
+    assert first_result.mutation.state is MutationState.SUCCEEDED
+    assert first_result.mutation.outcome == "REPLACED"
+    assert broker.replace_calls == 1
+    assert broker.get_calls == 0
 
 
 def test_replace_adopts_partial_fill_before_success(tmp_path) -> None:

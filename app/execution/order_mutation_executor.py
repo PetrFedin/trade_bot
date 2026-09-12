@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Protocol
 
@@ -55,11 +56,13 @@ class MutationExecutionResult:
 
 
 class PaperOrderMutationExecutor:
-    """At-most-one cancel/replace executor with read-only recovery after STARTED.
+    """Exclusive cancel/replace executor with bounded read-only recovery.
 
-    The mutation journal records STARTED before any broker DELETE/PATCH. Once STARTED
-    is durable, retries and crash recovery are GET-only. This intentionally prefers a
-    missed mutation over a duplicate mutation when the outcome cannot be proven.
+    The mutation store atomically grants exactly one worker ownership of the
+    ``REQUESTED -> STARTED`` transition. Only that owner retains DELETE/PATCH
+    capability. Contenders observing a fresh STARTED marker do not perform broker
+    reads while the owner may still be inside the network mutation. After the
+    bounded grace, recovery is GET-only and the mutation is never repeated.
     """
 
     def __init__(
@@ -68,10 +71,21 @@ class PaperOrderMutationExecutor:
         oms: MutationOmsStore,
         mutations: MutationStore,
         broker: PaperBrokerV99,
+        started_recovery_grace_seconds: float = 30.0,
     ) -> None:
+        grace = float(started_recovery_grace_seconds)
+        if not math.isfinite(grace) or grace < 0:
+            raise ValueError("started_recovery_grace_seconds must be finite and non-negative")
         self.oms = oms
         self.mutations = mutations
         self.broker = broker
+        self.started_recovery_grace_seconds = grace
+
+    @staticmethod
+    def _time(value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("occurred_at must be timezone-aware")
+        return value.astimezone(UTC)
 
     def execute(
         self,
@@ -79,6 +93,7 @@ class PaperOrderMutationExecutor:
         *,
         occurred_at: datetime,
     ) -> MutationExecutionResult:
+        moment = self._time(occurred_at)
         mutation = self.mutations.get(message.mutation_id)
         if mutation is None:
             raise KeyError(message.mutation_id)
@@ -88,12 +103,29 @@ class PaperOrderMutationExecutor:
             raise ValueError("PAPER_ORDER_WRITES_DISABLED")
 
         if mutation.state is MutationState.REQUESTED:
-            mutation = self.mutations.mark_started(
-                mutation.mutation_id, occurred_at=occurred_at
+            mutation, owned = self.mutations.claim_started(
+                mutation.mutation_id, occurred_at=moment
             )
-            return self._attempt(mutation, message, occurred_at=occurred_at)
+            if owned:
+                return self._attempt(mutation, message, occurred_at=moment)
 
+        return self._handle_existing(mutation, message, occurred_at=moment)
+
+    def _handle_existing(
+        self,
+        mutation: OrderMutationRecord,
+        message: MutationOutboxMessage,
+        *,
+        occurred_at: datetime,
+    ) -> MutationExecutionResult:
         if mutation.state is MutationState.STARTED:
+            if not self._recovery_due(mutation, occurred_at=occurred_at):
+                return MutationExecutionResult(
+                    record=self._order(mutation.intent_id),
+                    mutation=mutation,
+                    mutation_attempted=False,
+                    recovered_by_read=False,
+                )
             result = self._recover(mutation, occurred_at=occurred_at)
             self.mutations.mark_outbox_published(message.message_id, occurred_at=occurred_at)
             return result
@@ -120,19 +152,40 @@ class PaperOrderMutationExecutor:
         *,
         occurred_at: datetime,
     ) -> MutationExecutionResult:
-        """Resolve STARTED/UNCERTAIN mutations using broker reads only."""
+        """Resolve stale STARTED/UNCERTAIN mutations using broker reads only."""
 
+        moment = self._time(occurred_at)
         mutation = self.mutations.get(mutation_id)
         if mutation is None:
             raise KeyError(mutation_id)
-        if mutation.state not in {MutationState.STARTED, MutationState.UNCERTAIN}:
-            return MutationExecutionResult(
-                record=self._order(mutation.intent_id),
-                mutation=mutation,
-                mutation_attempted=False,
-                recovered_by_read=False,
-            )
-        return self._recover(mutation, occurred_at=occurred_at)
+        if mutation.state is MutationState.STARTED:
+            if not self._recovery_due(mutation, occurred_at=moment):
+                return MutationExecutionResult(
+                    record=self._order(mutation.intent_id),
+                    mutation=mutation,
+                    mutation_attempted=False,
+                    recovered_by_read=False,
+                )
+            return self._recover(mutation, occurred_at=moment)
+        if mutation.state is MutationState.UNCERTAIN:
+            return self._recover(mutation, occurred_at=moment)
+        return MutationExecutionResult(
+            record=self._order(mutation.intent_id),
+            mutation=mutation,
+            mutation_attempted=False,
+            recovered_by_read=False,
+        )
+
+    def _recovery_due(
+        self,
+        mutation: OrderMutationRecord,
+        *,
+        occurred_at: datetime,
+    ) -> bool:
+        updated_at = self._time(mutation.updated_at)
+        return (
+            occurred_at - updated_at
+        ).total_seconds() >= self.started_recovery_grace_seconds
 
     def _attempt(
         self,
