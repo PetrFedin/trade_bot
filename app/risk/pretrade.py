@@ -2,11 +2,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.domain.trading import OrderIntent, Side
+
+
+def _validate_mark_prices(prices: Mapping[str, Decimal]) -> None:
+    for symbol, price in prices.items():
+        normalized = symbol.strip().upper()
+        if not normalized or normalized != symbol:
+            raise ValueError("portfolio mark symbols must be normalized uppercase")
+        if not isinstance(price, Decimal) or not price.is_finite() or price <= 0:
+            raise ValueError(f"portfolio mark price must be positive and finite: {symbol}")
 
 
 @dataclass(frozen=True)
@@ -68,6 +78,7 @@ class RiskContext:
     sector_notional: Decimal | None = None
     annualized_volatility: Decimal | None = None
     available_cash: Decimal | None = None
+    portfolio_mark_prices: Mapping[str, Decimal] | None = None
 
     def validate(self) -> None:
         for name, value in (
@@ -101,6 +112,8 @@ class RiskContext:
         ):
             if value is not None and (not value.is_finite() or value < 0):
                 raise ValueError(f"{name} must be finite and non-negative when supplied")
+        if self.portfolio_mark_prices is not None:
+            _validate_mark_prices(self.portfolio_mark_prices)
 
 
 @dataclass(frozen=True)
@@ -108,8 +121,8 @@ class OperationalRiskContext:
     """Complete measured risk observations required for operational admission.
 
     Unlike ``RiskContext``, this type has no optimistic/defaulted observations.
-    Constructing one therefore proves that the caller intentionally supplied the
-    complete measurement set used by every configured pre-trade risk control.
+    It also carries the complete factual mark-price snapshot used to value every
+    open position plus the current target symbol before a risk decision is made.
     """
 
     price_timestamp: datetime
@@ -126,6 +139,7 @@ class OperationalRiskContext:
     sector_notional: Decimal
     annualized_volatility: Decimal
     available_cash: Decimal
+    portfolio_mark_prices: Mapping[str, Decimal]
 
     def to_risk_context(self) -> RiskContext:
         context = RiskContext(
@@ -143,6 +157,7 @@ class OperationalRiskContext:
             sector_notional=self.sector_notional,
             annualized_volatility=self.annualized_volatility,
             available_cash=self.available_cash,
+            portfolio_mark_prices=dict(self.portfolio_mark_prices),
         )
         context.validate()
         return context
@@ -152,6 +167,7 @@ class OperationalRiskContext:
             raise ValueError("market_open must be boolean")
         if not isinstance(self.halted, bool):
             raise ValueError("halted must be boolean")
+        _validate_mark_prices(self.portfolio_mark_prices)
         self.to_risk_context()
 
 
