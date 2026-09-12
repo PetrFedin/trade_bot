@@ -11,7 +11,7 @@ from app.execution.trade_fills import ExplicitZeroPaperFeeModel
 from app.observability.readiness import OperationalSnapshot
 from app.oms.order_mutations import MutationState
 from app.oms.store import OrderState
-from app.risk.pretrade import RiskLimits
+from app.risk.pretrade import RiskContext, RiskLimits
 
 NOW = datetime(2026, 8, 7, 20, 0, tzinfo=UTC)
 
@@ -32,12 +32,32 @@ def config() -> ProductConfig:
     )
 
 
+def tight_config() -> ProductConfig:
+    return ProductConfig(
+        opening_cash=Decimal("110"),
+        target_quantity=Decimal("1"),
+        risk_limits=RiskLimits(
+            maximum_order_notional=Decimal("110"),
+            maximum_symbol_notional=Decimal("110"),
+            maximum_gross_notional=Decimal("110"),
+        ),
+    )
+
+
 def bars() -> list[Bar]:
     return [
         Bar("AAPL", NOW - timedelta(minutes=2), Decimal("100")),
         Bar("AAPL", NOW - timedelta(minutes=1), Decimal("101")),
         Bar("AAPL", NOW, Decimal("102")),
     ]
+
+
+def replace_context(*, available_cash: Decimal) -> RiskContext:
+    return RiskContext(
+        price_timestamp=NOW,
+        decision_time=NOW,
+        available_cash=available_cash,
+    )
 
 
 def acknowledge(runtime, intent_id: str, broker_order_id: str) -> None:
@@ -64,6 +84,7 @@ def test_local_composition_wires_one_coherent_product_graph(tmp_path) -> None:
     assert runtime.order_lifecycle.store is runtime.oms_store
     assert runtime.order_mutation_lifecycle.oms is runtime.oms_store
     assert runtime.order_mutation_lifecycle.mutations is runtime.order_mutations
+    assert runtime.order_mutation_lifecycle.risk_admission is runtime.risk_admission
     assert runtime.reconciler.store is runtime.oms_store
 
     _, intent, decision = runtime.paper_pipeline.plan(bars())
@@ -82,9 +103,13 @@ def test_local_composition_wires_one_coherent_product_graph(tmp_path) -> None:
         mutation_id="composition-replace-1",
         target_limit_price=Decimal("103"),
         occurred_at=NOW,
+        current_symbol_notional=Decimal("0"),
+        current_gross_notional=Decimal("0"),
+        risk_context=replace_context(available_cash=runtime.portfolio.cash),
     )
     assert mutation.state is MutationState.REQUESTED
     assert mutation.broker_order_id == "composition-broker-1"
+    assert len(runtime.risk_admission.journal.verify()) == 2
     message = runtime.order_mutations.pending_outbox()[0]
 
     executor = runtime.build_order_mutation_executor(DisabledBroker())
@@ -93,6 +118,68 @@ def test_local_composition_wires_one_coherent_product_graph(tmp_path) -> None:
     with pytest.raises(ValueError, match="PAPER_ORDER_WRITES_DISABLED"):
         executor.execute(message, occurred_at=NOW)
     assert runtime.order_mutations.get(mutation.mutation_id).state is MutationState.REQUESTED
+
+
+def test_local_composition_replace_increase_has_no_permissive_context_defaults(tmp_path) -> None:
+    runtime = build_local_product(config=config(), state_directory=tmp_path)
+    _, intent, decision = runtime.paper_pipeline.plan(bars())
+    assert intent is not None and decision is not None and decision.approved
+    runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
+    acknowledge(runtime, intent.intent_id, "composition-broker-context")
+
+    with pytest.raises(ValueError, match="REPLACE_RISK_EXPOSURE_CONTEXT_REQUIRED"):
+        runtime.order_mutation_lifecycle.request_replace(
+            intent.intent_id,
+            mutation_id="composition-replace-no-context",
+            target_limit_price=Decimal("103"),
+            occurred_at=NOW,
+        )
+
+    assert runtime.order_mutations.get("composition-replace-no-context") is None
+    assert runtime.order_mutations.pending_outbox() == ()
+    assert len(runtime.risk_admission.journal.verify()) == 1
+
+
+def test_local_composition_rejects_f07_replace_before_mutation_outbox(tmp_path) -> None:
+    runtime = build_local_product(config=tight_config(), state_directory=tmp_path)
+    _, intent, decision = runtime.paper_pipeline.plan(bars())
+    assert intent is not None and decision is not None and decision.approved
+    runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
+    acknowledge(runtime, intent.intent_id, "composition-broker-f07")
+
+    with pytest.raises(ValueError, match="REPLACE_RISK_NOT_APPROVED"):
+        runtime.order_mutation_lifecycle.request_replace(
+            intent.intent_id,
+            mutation_id="composition-replace-f07",
+            target_limit_price=Decimal("100000"),
+            occurred_at=NOW,
+            current_symbol_notional=Decimal("0"),
+            current_gross_notional=Decimal("0"),
+            risk_context=replace_context(available_cash=runtime.portfolio.cash),
+        )
+
+    assert runtime.order_mutations.get("composition-replace-f07") is None
+    assert runtime.order_mutations.pending_outbox() == ()
+    records = runtime.risk_admission.journal.verify()
+    assert len(records) == 2
+    assert records[-1].payload["decision"]["approved"] is False
+
+
+def test_local_composition_risk_reducing_replace_does_not_require_readmission(tmp_path) -> None:
+    runtime = build_local_product(config=config(), state_directory=tmp_path)
+    _, intent, decision = runtime.paper_pipeline.plan(bars())
+    assert intent is not None and decision is not None and decision.approved
+    runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
+    acknowledge(runtime, intent.intent_id, "composition-broker-reduce")
+
+    mutation = runtime.order_mutation_lifecycle.request_replace(
+        intent.intent_id,
+        mutation_id="composition-replace-reduce",
+        target_limit_price=Decimal("101"),
+        occurred_at=NOW,
+    )
+    assert mutation.state is MutationState.REQUESTED
+    assert len(runtime.risk_admission.journal.verify()) == 1
 
 
 def test_local_composition_reopens_mutation_journal_after_restart(tmp_path) -> None:

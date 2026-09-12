@@ -18,7 +18,7 @@ from app.application.composition import ProductConfig, build_postgres_product
 from app.domain.trading import Bar, Fill, Side
 from app.oms.order_mutations import MutationState
 from app.oms.store import OrderState
-from app.risk.pretrade import RiskLimits
+from app.risk.pretrade import RiskContext, RiskLimits
 
 NOW = datetime(2026, 8, 7, 20, 30, tzinfo=UTC)
 
@@ -41,6 +41,14 @@ def bars() -> list[Bar]:
         Bar("AAPL", NOW - timedelta(minutes=1), Decimal("101")),
         Bar("AAPL", NOW, Decimal("102")),
     ]
+
+
+def replace_context(*, available_cash: Decimal) -> RiskContext:
+    return RiskContext(
+        price_timestamp=NOW,
+        decision_time=NOW,
+        available_cash=available_cash,
+    )
 
 
 def reset_product_tables() -> None:
@@ -101,9 +109,13 @@ def test_postgres_composition_uses_shared_durable_backends() -> None:
         mutation_id="pg-composition-replace",
         target_limit_price=Decimal("103"),
         occurred_at=NOW,
+        current_symbol_notional=Decimal("0"),
+        current_gross_notional=Decimal("0"),
+        risk_context=replace_context(available_cash=runtime.portfolio.cash),
     )
     assert mutation.state is MutationState.REQUESTED
     assert mutation.broker_order_id == "pg-broker-order-1"
+    assert len(runtime.risk_admission.journal.verify()) == 2
     pending_mutations = runtime.order_mutations.pending_outbox()
     assert len(pending_mutations) == 1
     assert pending_mutations[0].mutation_id == mutation.mutation_id
@@ -122,6 +134,31 @@ def test_postgres_composition_uses_shared_durable_backends() -> None:
     replayed = runtime.portfolio_store.replay(opening_cash=runtime.config.opening_cash)
     assert replayed.cash == Decimal("9899")
     assert replayed.position("AAPL").quantity == Decimal("1")
+
+
+def test_postgres_composition_f07_rejects_before_mutation_persistence() -> None:
+    runtime = clean_runtime()
+    _, intent, decision = runtime.paper_pipeline.plan(bars())
+    assert intent is not None and decision is not None and decision.approved
+    runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
+    acknowledge(runtime, intent.intent_id, "pg-broker-order-f07")
+
+    with pytest.raises(ValueError, match="REPLACE_RISK_NOT_APPROVED"):
+        runtime.order_mutation_lifecycle.request_replace(
+            intent.intent_id,
+            mutation_id="pg-composition-replace-f07",
+            target_limit_price=Decimal("100000"),
+            occurred_at=NOW,
+            current_symbol_notional=Decimal("0"),
+            current_gross_notional=Decimal("0"),
+            risk_context=replace_context(available_cash=runtime.portfolio.cash),
+        )
+
+    assert runtime.order_mutations.get("pg-composition-replace-f07") is None
+    assert runtime.order_mutations.pending_outbox() == ()
+    records = runtime.risk_admission.journal.verify()
+    assert len(records) == 2
+    assert records[-1].payload["decision"]["approved"] is False
 
 
 def test_postgres_composition_restart_reopens_all_durable_truth() -> None:
