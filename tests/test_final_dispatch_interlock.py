@@ -148,7 +148,7 @@ def test_readiness_failure_after_outbox_durably_halts_before_broker_submit(tmp_p
         reason="qualification arm",
         occurred_at=NOW,
     )
-    planning = cycle.plan_and_prepare(bars())
+    planning = cycle.plan_and_prepare(bars(), decision_time=NOW)
     assert planning.prepared is not None
     assert planning.prepared.record.state is OrderState.OUTBOXED
     assert len(runtime.oms_store.pending_outbox()) == 1
@@ -203,7 +203,7 @@ def test_missing_operational_snapshot_fails_closed_and_persists_halt(tmp_path) -
         reason="qualification arm",
         occurred_at=NOW,
     )
-    planning = cycle.plan_and_prepare(bars())
+    planning = cycle.plan_and_prepare(bars(), decision_time=NOW)
     assert planning.prepared is not None
 
     with pytest.raises(DispatchBlocked) as blocked:
@@ -224,7 +224,7 @@ def test_expired_arm_cannot_authorize_outbox(tmp_path) -> None:
         occurred_at=NOW,
         ttl=timedelta(seconds=1),
     )
-    planning = cycle.plan_and_prepare(bars())
+    planning = cycle.plan_and_prepare(bars(), decision_time=NOW)
     assert planning.prepared is not None
 
     with pytest.raises(DispatchBlocked) as blocked:
