@@ -112,9 +112,13 @@ def test_product_reserves_first_pending_buy_and_rejects_second_and_third(tmp_pat
         stream_generation=1,
     )
 
-    first = cycle.plan_and_prepare(bars(0))
-    second = cycle.plan_and_prepare(bars(10))
-    third = cycle.plan_and_prepare(bars(20))
+    first = cycle.plan_and_prepare(bars(0), decision_time=NOW)
+    second = cycle.plan_and_prepare(
+        bars(10), decision_time=NOW + timedelta(minutes=10)
+    )
+    third = cycle.plan_and_prepare(
+        bars(20), decision_time=NOW + timedelta(minutes=20)
+    )
 
     assert first.order_ready
     assert first.prepared is not None
