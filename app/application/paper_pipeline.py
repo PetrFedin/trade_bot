@@ -96,14 +96,13 @@ class PaperTradingPipeline:
             created_at=target.generated_at,
             strategy_id=target.strategy_id,
         )
-        prices = {target.symbol: target.reference_price}
-        current_symbol_notional = current.quantity * target.reference_price
-        current_gross_notional = self.ledger.gross_notional(prices)
-        effective_context = self._risk_context(
+        effective_context, prices = self._risk_context(
             target,
             risk_context,
             decision_time=decision_clock,
         )
+        current_symbol_notional = current.quantity * prices[target.symbol]
+        current_gross_notional = self.ledger.gross_notional(prices)
         if self.risk_admission is None:
             self.last_recorded_risk = None
             decision = self.risk.evaluate(
@@ -159,7 +158,7 @@ class PaperTradingPipeline:
         supplied: RiskContext | OperationalRiskContext | None,
         *,
         decision_time: datetime,
-    ) -> RiskContext:
+    ) -> tuple[RiskContext, dict[str, object]]:
         if self.mode is PlanningMode.OPERATIONAL:
             if not isinstance(supplied, OperationalRiskContext):
                 raise ValueError("OPERATIONAL_RISK_CONTEXT_REQUIRED")
@@ -172,18 +171,38 @@ class PaperTradingPipeline:
                 raise ValueError(
                     "risk_context available_cash disagrees with durable portfolio cash"
                 )
-            return supplied.to_risk_context()
+            prices = dict(supplied.portfolio_mark_prices)
+            target_mark = prices.get(target.symbol)
+            if target_mark is None:
+                raise ValueError(f"TARGET_MARK_PRICE_REQUIRED:{target.symbol}")
+            if target_mark != target.reference_price:
+                raise ValueError("TARGET_MARK_PRICE_MISMATCH")
+            missing = tuple(
+                position.symbol
+                for position in self.ledger.positions()
+                if position.quantity != 0 and position.symbol not in prices
+            )
+            if missing:
+                raise ValueError(f"PORTFOLIO_VALUATION_INCOMPLETE:{','.join(missing)}")
+            durable_equity = self.ledger.equity(prices)
+            if supplied.portfolio_equity != durable_equity:
+                raise ValueError("PORTFOLIO_EQUITY_MISMATCH")
+            return supplied.to_risk_context(), prices
 
+        prices = {target.symbol: target.reference_price}
         if supplied is None:
-            return RiskContext(
-                price_timestamp=target.generated_at,
-                decision_time=decision_time,
-                available_cash=self.ledger.cash,
+            return (
+                RiskContext(
+                    price_timestamp=target.generated_at,
+                    decision_time=decision_time,
+                    available_cash=self.ledger.cash,
+                ),
+                prices,
             )
         if isinstance(supplied, OperationalRiskContext):
             supplied = supplied.to_risk_context()
         if supplied.available_cash is None:
-            return replace(supplied, available_cash=self.ledger.cash)
+            return replace(supplied, available_cash=self.ledger.cash), prices
         if supplied.available_cash != self.ledger.cash:
             raise ValueError("risk_context available_cash disagrees with durable portfolio cash")
-        return supplied
+        return supplied, prices
