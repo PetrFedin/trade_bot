@@ -101,6 +101,9 @@ class RiskCheckedOrderMutationLifecycle(OrderMutationLifecycle):
         risk_context: RiskContext | None = None,
         kill_switch_engaged: bool = False,
     ) -> OrderMutationRecord:
+        if not target_limit_price.is_finite() or target_limit_price <= 0:
+            raise ValueError("target_limit_price must be positive and finite")
+
         existing = self.mutations.get(mutation_id)
         if existing is not None:
             return super().request_replace(
