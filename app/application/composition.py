@@ -29,6 +29,11 @@ from app.risk.evidence import RiskAdmissionService, RiskEvidenceJournal, SQLiteR
 from app.risk.postgres import PostgresRiskEvidenceJournal
 from app.risk.pretrade import PreTradeRiskEngine, RiskLimits
 from app.runtime.paper_broker_contract_v99 import PaperBrokerV99
+from app.runtime.paper_dispatch_control import (
+    PaperDispatchControlStore,
+    PostgresPaperDispatchControlStore,
+    SQLitePaperDispatchControlStore,
+)
 from app.strategy.momentum import LongOnlyMomentumStrategy
 
 
@@ -61,6 +66,7 @@ class ProductRuntime:
     execution_facts: ExecutionFactStore
     oms_store: IndexedOmsStore
     order_mutations: MutationStore
+    dispatch_control: PaperDispatchControlStore
     order_lifecycle: PaperOrderLifecycle
     order_mutation_lifecycle: OrderMutationLifecycle
     reconciler: OmsReconciler
@@ -88,6 +94,7 @@ def _compose(
     config: ProductConfig,
     oms_store: IndexedOmsStore,
     mutation_store: MutationStore,
+    dispatch_control: PaperDispatchControlStore,
     risk_journal: RiskEvidenceJournal,
     portfolio_store: PortfolioStore,
     execution_facts: ExecutionFactStore,
@@ -131,6 +138,7 @@ def _compose(
         execution_facts=execution_facts,
         oms_store=oms_store,
         order_mutations=mutation_store,
+        dispatch_control=dispatch_control,
         order_lifecycle=lifecycle,
         order_mutation_lifecycle=mutation_lifecycle,
         reconciler=reconciler,
@@ -153,11 +161,13 @@ def build_local_product(
     oms_path = directory / "oms.sqlite"
     oms_store = IndexedDurableOmsStore(oms_path)
     mutation_store = DurableOrderMutationStore(oms_path)
+    dispatch_control = SQLitePaperDispatchControlStore(oms_path)
     execution_facts = SQLiteExecutionFactStore(directory / "execution.sqlite")
     return _compose(
         config=config,
         oms_store=oms_store,
         mutation_store=mutation_store,
+        dispatch_control=dispatch_control,
         risk_journal=SQLiteRiskEvidenceJournal(directory / "risk.sqlite"),
         portfolio_store=StrictPortfolioEventStore(directory / "portfolio.sqlite"),
         execution_facts=execution_facts,
@@ -176,12 +186,14 @@ def build_postgres_product(
 
     oms_store = IndexedPostgresOmsStore(dsn)
     mutation_store = PostgresOrderMutationStore(dsn)
+    dispatch_control = PostgresPaperDispatchControlStore(dsn)
     risk_journal = PostgresRiskEvidenceJournal(dsn)
     portfolio_store = StrictPostgresPortfolioEventStore(dsn)
     execution_facts = PostgresExecutionFactStore(dsn)
     if migrate:
         oms_store.migrate()
         mutation_store.migrate()
+        dispatch_control.migrate()
         risk_journal.migrate()
         portfolio_store.migrate()
         execution_facts.migrate()
@@ -189,6 +201,7 @@ def build_postgres_product(
         config=config,
         oms_store=oms_store,
         mutation_store=mutation_store,
+        dispatch_control=dispatch_control,
         risk_journal=risk_journal,
         portfolio_store=portfolio_store,
         execution_facts=execution_facts,
