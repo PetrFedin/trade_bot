@@ -103,7 +103,7 @@ class PaperSubmitExecutor:
             except ValueError:
                 latest = self.store.get(message.intent_id)
                 if latest is None:
-                    raise KeyError(message.intent_id)
+                    raise KeyError(message.intent_id) from None
                 if latest.state is OrderState.OUTBOXED:
                     raise
                 return self._handle_existing(latest, message, occurred_at=moment)
