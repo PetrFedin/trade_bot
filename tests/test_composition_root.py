@@ -11,7 +11,7 @@ from app.execution.trade_fills import ExplicitZeroPaperFeeModel
 from app.observability.readiness import OperationalSnapshot
 from app.oms.order_mutations import MutationState
 from app.oms.store import OrderState
-from app.risk.pretrade import RiskContext, RiskLimits
+from app.risk.pretrade import OperationalRiskContext, RiskLimits
 
 NOW = datetime(2026, 8, 7, 20, 0, tzinfo=UTC)
 
@@ -40,6 +40,8 @@ def tight_config() -> ProductConfig:
             maximum_order_notional=Decimal("110"),
             maximum_symbol_notional=Decimal("110"),
             maximum_gross_notional=Decimal("110"),
+            maximum_position_fraction_of_equity=Decimal("1"),
+            maximum_sector_fraction_of_equity=Decimal("1"),
         ),
     )
 
@@ -52,11 +54,22 @@ def bars() -> list[Bar]:
     ]
 
 
-def replace_context(*, available_cash: Decimal) -> RiskContext:
-    return RiskContext(
+def operational_context(runtime) -> OperationalRiskContext:
+    return OperationalRiskContext(
         price_timestamp=NOW,
         decision_time=NOW,
-        available_cash=available_cash,
+        market_open=True,
+        halted=False,
+        spread_bps=Decimal("1"),
+        estimated_slippage_bps=Decimal("1"),
+        daily_pnl=Decimal("0"),
+        drawdown=Decimal("0"),
+        turnover_notional=Decimal("0"),
+        average_daily_dollar_volume=Decimal("1000000"),
+        portfolio_equity=runtime.portfolio.cash,
+        sector_notional=Decimal("0"),
+        annualized_volatility=Decimal("0.20"),
+        available_cash=runtime.portfolio.cash,
     )
 
 
@@ -77,7 +90,11 @@ def acknowledge(runtime, intent_id: str, broker_order_id: str) -> None:
 
 
 def plan(runtime):
-    return runtime.paper_pipeline.plan(bars(), decision_time=NOW)
+    return runtime.paper_pipeline.plan(
+        bars(),
+        decision_time=NOW,
+        risk_context=operational_context(runtime),
+    )
 
 
 def test_local_composition_wires_one_coherent_product_graph(tmp_path) -> None:
@@ -109,7 +126,7 @@ def test_local_composition_wires_one_coherent_product_graph(tmp_path) -> None:
         occurred_at=NOW,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
-        risk_context=replace_context(available_cash=runtime.portfolio.cash),
+        risk_context=operational_context(runtime),
     )
     assert mutation.state is MutationState.REQUESTED
     assert mutation.broker_order_id == "composition-broker-1"
@@ -159,7 +176,7 @@ def test_local_composition_rejects_f07_replace_before_mutation_outbox(tmp_path) 
             occurred_at=NOW,
             current_symbol_notional=Decimal("0"),
             current_gross_notional=Decimal("0"),
-            risk_context=replace_context(available_cash=runtime.portfolio.cash),
+            risk_context=operational_context(runtime),
         )
 
     assert runtime.order_mutations.get("composition-replace-f07") is None
