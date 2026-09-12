@@ -21,7 +21,7 @@ from app.domain.trading import OrderIntent, Side
 from app.execution.paper_executor import PaperSubmitExecutor
 from app.oms.postgres import PostgresOmsStore
 from app.oms.store import OrderState
-from app.risk.pretrade import RiskDecision
+from app.risk.pretrade import PreTradeRiskEngine, RiskDecision, RiskLimits
 from app.runtime.paper_broker_contract_v99 import BrokerOrder, BrokerOrderStatus, OrderSide
 
 NOW = datetime(2026, 8, 7, 14, 0, tzinfo=UTC)
@@ -39,13 +39,17 @@ def intent() -> OrderIntent:
     )
 
 
-def decision() -> RiskDecision:
-    return RiskDecision(
-        approved=True,
-        reasons=(),
-        order_notional=Decimal("1000"),
-        projected_symbol_notional=Decimal("1000"),
-        projected_gross_notional=Decimal("1000"),
+def decision(value: OrderIntent) -> RiskDecision:
+    return PreTradeRiskEngine(
+        RiskLimits(
+            maximum_order_notional=Decimal("10000"),
+            maximum_symbol_notional=Decimal("10000"),
+            maximum_gross_notional=Decimal("10000"),
+        )
+    ).evaluate(
+        value,
+        current_symbol_notional=Decimal("0"),
+        current_gross_notional=Decimal("0"),
     )
 
 
@@ -96,11 +100,12 @@ def store() -> PostgresOmsStore:
 
 def test_postgres_order_lifecycle_is_durable_and_idempotent(store: PostgresOmsStore) -> None:
     lifecycle = PaperOrderLifecycle(store)
-    prepared = lifecycle.prepare(intent(), decision(), occurred_at=NOW)
+    value = intent()
+    prepared = lifecycle.prepare(value, decision(value), occurred_at=NOW)
     assert prepared.record.state is OrderState.OUTBOXED
     assert len(store.pending_outbox()) == 1
 
-    repeated = lifecycle.prepare(intent(), decision(), occurred_at=NOW)
+    repeated = lifecycle.prepare(value, decision(value), occurred_at=NOW)
     assert repeated.record.state is OrderState.OUTBOXED
     assert len(store.pending_outbox()) == 1
 
@@ -141,7 +146,8 @@ def test_postgres_row_lock_and_event_key_make_duplicate_fill_at_most_once(
     store: PostgresOmsStore,
 ) -> None:
     lifecycle = PaperOrderLifecycle(store)
-    lifecycle.prepare(intent(), decision(), occurred_at=NOW)
+    value = intent()
+    lifecycle.prepare(value, decision(value), occurred_at=NOW)
     store.transition(
         "pg-intent-1",
         OrderState.SUBMIT_STARTED,
@@ -179,7 +185,8 @@ def test_postgres_row_lock_and_event_key_make_duplicate_fill_at_most_once(
 
 
 def test_postgres_submit_claim_allows_one_worker_only(store: PostgresOmsStore) -> None:
-    PaperOrderLifecycle(store).prepare(intent(), decision(), occurred_at=NOW)
+    value = intent()
+    PaperOrderLifecycle(store).prepare(value, decision(value), occurred_at=NOW)
     message = store.pending_outbox()[0]
     broker = BlockingPaperBroker()
     winner = PaperSubmitExecutor(store=PostgresOmsStore(DSN), broker=broker)
@@ -216,7 +223,8 @@ def test_postgres_submit_claim_allows_one_worker_only(store: PostgresOmsStore) -
 
 
 def test_postgres_event_journal_is_append_only(store: PostgresOmsStore) -> None:
-    PaperOrderLifecycle(store).prepare(intent(), decision(), occurred_at=NOW)
+    value = intent()
+    PaperOrderLifecycle(store).prepare(value, decision(value), occurred_at=NOW)
     with psycopg.connect(DSN) as connection:
         with pytest.raises(psycopg.errors.RaiseException):
             connection.execute(
