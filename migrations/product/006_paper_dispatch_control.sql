@@ -12,6 +12,19 @@ CREATE TABLE IF NOT EXISTS astra_paper_dispatch_control_state (
     )
 );
 
+INSERT INTO astra_paper_dispatch_control_state
+(singleton, mode, version, operator_id, reason, armed_until, updated_at)
+VALUES (
+    TRUE,
+    'HALTED',
+    1,
+    'system:migration',
+    'CONTROL_NOT_ARMED',
+    NULL,
+    TIMESTAMPTZ '1970-01-01 00:00:00+00'
+)
+ON CONFLICT (singleton) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS astra_paper_dispatch_control_events (
     sequence BIGSERIAL PRIMARY KEY,
     event_id TEXT NOT NULL UNIQUE,
