@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Protocol
+from uuid import uuid4
 
 from app.oms.store import OrderRecord, OrderState, OutboxMessage
 from app.runtime.paper_broker_contract_v99 import (
@@ -52,16 +54,38 @@ class ExecutionResult:
 class PaperSubmitExecutor:
     """At-most-one paper submit executor with GET-only ambiguity recovery.
 
-    `SUBMIT_STARTED` is persisted before the network mutation. If the process later
-    sees an outbox message in that state, it must reconcile by GET and must never POST
-    again. This intentionally prefers a missed order over a duplicate mutation.
+    Every execution attempt uses a unique claim event for the transactional
+    ``OUTBOXED -> SUBMIT_STARTED`` transition. Exactly one concurrent caller can
+    own that transition; stale readers lose the claim and therefore never POST.
+
+    A fresh ``SUBMIT_STARTED`` marker is also protected by a bounded recovery
+    grace. A competing worker must not perform GET recovery while the claim owner
+    may still be inside the broker mutation. After the grace, restart recovery is
+    GET-only and the submit mutation is never repeated.
     """
 
-    def __init__(self, *, store: OmsExecutionStore, broker: PaperBrokerV99) -> None:
+    def __init__(
+        self,
+        *,
+        store: OmsExecutionStore,
+        broker: PaperBrokerV99,
+        started_recovery_grace_seconds: float = 30.0,
+    ) -> None:
+        grace = float(started_recovery_grace_seconds)
+        if not math.isfinite(grace) or grace < 0:
+            raise ValueError("started_recovery_grace_seconds must be finite and non-negative")
         self.store = store
         self.broker = broker
+        self.started_recovery_grace_seconds = grace
+
+    @staticmethod
+    def _time(value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("occurred_at must be timezone-aware")
+        return value.astimezone(UTC)
 
     def execute(self, message: OutboxMessage, *, occurred_at: datetime) -> ExecutionResult:
+        moment = self._time(occurred_at)
         record = self.store.get(message.intent_id)
         if record is None:
             raise KeyError(message.intent_id)
@@ -69,14 +93,31 @@ class PaperSubmitExecutor:
             raise ValueError("PAPER_ORDER_WRITES_DISABLED")
 
         if record.state is OrderState.OUTBOXED:
-            record = self.store.transition(
-                record.intent_id,
-                OrderState.SUBMIT_STARTED,
-                event_id=f"submit-start:{message.message_id}",
-                occurred_at=occurred_at,
-            )
-            return self._attempt_submit(record, message, occurred_at=occurred_at)
+            try:
+                record = self.store.transition(
+                    record.intent_id,
+                    OrderState.SUBMIT_STARTED,
+                    event_id=f"submit-claim:{message.message_id}:{uuid4().hex}",
+                    occurred_at=moment,
+                )
+            except ValueError:
+                latest = self.store.get(message.intent_id)
+                if latest is None:
+                    raise KeyError(message.intent_id) from None
+                if latest.state is OrderState.OUTBOXED:
+                    raise
+                return self._handle_existing(latest, message, occurred_at=moment)
+            return self._attempt_submit(record, message, occurred_at=moment)
 
+        return self._handle_existing(record, message, occurred_at=moment)
+
+    def _handle_existing(
+        self,
+        record: OrderRecord,
+        message: OutboxMessage,
+        *,
+        occurred_at: datetime,
+    ) -> ExecutionResult:
         if record.state is OrderState.SUBMIT_STARTED:
             return self._recover_after_started(record, message, occurred_at=occurred_at)
 
@@ -158,6 +199,11 @@ class PaperSubmitExecutor:
         *,
         occurred_at: datetime,
     ) -> ExecutionResult:
+        started_at = self._time(record.updated_at)
+        age_seconds = (occurred_at - started_at).total_seconds()
+        if age_seconds < self.started_recovery_grace_seconds:
+            return ExecutionResult(record=record, mutation_attempted=False, recovered_by_read=False)
+
         broker_order = self.broker.get_order_by_client_order_id(record.client_order_id)
         if broker_order is None:
             uncertain = self.store.transition(

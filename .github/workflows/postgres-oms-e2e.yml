@@ -7,6 +7,7 @@ on:
       - 'app/oms/**'
       - 'app/application/order_lifecycle.py'
       - 'app/execution/execution_facts.py'
+      - 'app/execution/paper_executor.py'
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
       - 'tests/test_postgres_execution_facts.py'
@@ -17,6 +18,7 @@ on:
       - 'app/oms/**'
       - 'app/application/order_lifecycle.py'
       - 'app/execution/execution_facts.py'
+      - 'app/execution/paper_executor.py'
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
       - 'tests/test_postgres_execution_facts.py'
@@ -66,5 +68,5 @@ jobs:
         run: pytest -q tests/test_postgres_execution_facts.py
       - name: SQLite OMS parity regression
         run: pytest -q tests/test_durable_oms_e2e.py
-      - name: Compile OMS and execution fact boundaries
-        run: python -m compileall -q app/oms app/application app/execution/execution_facts.py
+      - name: Compile OMS and execution boundaries
+        run: python -m compileall -q app/oms app/application app/execution/execution_facts.py app/execution/paper_executor.py
