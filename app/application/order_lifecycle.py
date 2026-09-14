@@ -8,7 +8,7 @@ from app.domain.trading import OrderIntent
 from app.oms.protocols import OmsStore
 from app.oms.risk_reservations import RiskReservationBudget
 from app.oms.store import OrderRecord, OrderState
-from app.risk.pretrade import RiskDecision
+from app.risk.pretrade import RiskDecision, risk_intent_fingerprint
 
 
 @dataclass(frozen=True)
@@ -18,10 +18,13 @@ class PreparedPaperOrder:
 
 
 class PaperOrderLifecycle:
-    """Application boundary from approved intent to durable submit outbox.
+    """Application boundary from an exact risk-approved intent to durable outbox.
 
     This component persists intent/risk/outbox state only. It intentionally does not
-    call a broker, so a crash cannot create an unjournaled external mutation.
+    call a broker, so a crash cannot create an unjournaled external mutation. A risk
+    decision is accepted only when it is bound to this exact intent identity and
+    economics; an unrelated or manually fabricated unbound approval cannot advance
+    the order to RISK_APPROVED.
     """
 
     def __init__(self, store: OmsStore, *, namespace: str = "astra-paper") -> None:
@@ -35,6 +38,20 @@ class PaperOrderLifecycle:
         digest = hashlib.sha256(f"{self.namespace}|{intent.intent_id}".encode()).hexdigest()[:32]
         return f"{self.namespace}-{digest}"
 
+    @staticmethod
+    def _validate_risk_approval(intent: OrderIntent, decision: RiskDecision) -> None:
+        if not decision.approved:
+            raise ValueError("RISK_NOT_APPROVED")
+        if not decision.intent_id.strip() or not decision.intent_fingerprint.strip():
+            raise ValueError("RISK_APPROVAL_NOT_BOUND")
+        if decision.intent_id != intent.intent_id:
+            raise ValueError("RISK_APPROVAL_INTENT_MISMATCH")
+        expected_notional = intent.quantity * intent.limit_price
+        if decision.order_notional != expected_notional:
+            raise ValueError("RISK_APPROVAL_ECONOMICS_MISMATCH")
+        if decision.intent_fingerprint != risk_intent_fingerprint(intent):
+            raise ValueError("RISK_APPROVAL_INTENT_MISMATCH")
+
     def prepare(
         self,
         intent: OrderIntent,
@@ -44,8 +61,7 @@ class PaperOrderLifecycle:
         reservation_budget: RiskReservationBudget | None = None,
     ) -> PreparedPaperOrder:
         intent.validate()
-        if not decision.approved:
-            raise ValueError("RISK_NOT_APPROVED")
+        self._validate_risk_approval(intent, decision)
         client_order_id = self.client_order_id(intent)
         record = self.store.create(
             intent,

@@ -21,7 +21,7 @@ from app.oms.order_mutations import (
 from app.oms.order_mutations_postgres import PostgresOrderMutationStore
 from app.oms.postgres import PostgresOmsStore
 from app.oms.store import OrderState
-from app.risk.pretrade import RiskDecision
+from app.risk.pretrade import PreTradeRiskEngine, RiskDecision, RiskLimits
 from app.runtime.paper_broker_contract_v99 import BrokerOrder, BrokerOrderStatus, OrderSide
 
 psycopg = pytest.importorskip("psycopg")
@@ -47,8 +47,18 @@ def intent() -> OrderIntent:
     )
 
 
-def approved() -> RiskDecision:
-    return RiskDecision(True, (), Decimal("1000"), Decimal("1000"), Decimal("1000"))
+def approved(value: OrderIntent) -> RiskDecision:
+    return PreTradeRiskEngine(
+        RiskLimits(
+            maximum_order_notional=Decimal("10000"),
+            maximum_symbol_notional=Decimal("10000"),
+            maximum_gross_notional=Decimal("10000"),
+        )
+    ).evaluate(
+        value,
+        current_symbol_notional=Decimal("0"),
+        current_gross_notional=Decimal("0"),
+    )
 
 
 class BlockingMutationBroker:
@@ -123,7 +133,8 @@ def stores():
             astra_order_mutations, astra_oms_outbox, astra_oms_events, astra_oms_orders
             RESTART IDENTITY CASCADE"""
         )
-    PaperOrderLifecycle(oms).prepare(intent(), approved(), occurred_at=NOW)
+    value = intent()
+    PaperOrderLifecycle(oms).prepare(value, approved(value), occurred_at=NOW)
     message = oms.pending_outbox()[0]
     oms.mark_outbox_published(message.message_id, occurred_at=NOW)
     oms.transition(
