@@ -238,9 +238,12 @@ def test_bounded_paper_cycle_reaches_fill_portfolio_reconcile_and_restart(tmp_pa
         BrokerPortfolioTruth(
             cash=Decimal("9899"),
             positions=(BrokerPositionTruth("AAPL", Decimal("1")),),
-        )
+        ),
+        occurred_at=NOW + timedelta(seconds=2),
     )
     assert reconciliation.matched
+    assert runtime.portfolio_reconciliation.latest() is not None
+    assert runtime.portfolio_reconciliation.latest().matched
 
     no_rebalance = cycle.plan_and_prepare(
         bars(), decision_time=NOW, risk_context=operational_context(runtime)
@@ -251,6 +254,8 @@ def test_bounded_paper_cycle_reaches_fill_portfolio_reconcile_and_restart(tmp_pa
     restarted_runtime, restarted_cycle = build_cycle(tmp_path, broker)
     assert restarted_runtime.portfolio.cash == Decimal("9899")
     assert restarted_runtime.portfolio.position("AAPL").quantity == Decimal("1")
+    assert restarted_runtime.portfolio_reconciliation.latest() is not None
+    assert restarted_runtime.portfolio_reconciliation.latest().matched
     after_restart = restarted_cycle.plan_and_prepare(
         bars(), decision_time=NOW, risk_context=operational_context(restarted_runtime)
     )

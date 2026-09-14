@@ -10,6 +10,7 @@ from enum import StrEnum
 from app.domain.trading import Bar, OrderIntent, Side, TargetPosition
 from app.execution.execution_facts import ExecutionFactStore
 from app.marketdata.validation import MarketDataPolicy, validate_bar_series
+from app.oms.portfolio_reconciliation import PortfolioReconciliationStore
 from app.portfolio.ledger import PortfolioLedger
 from app.risk.evidence import RecordedRiskDecision, RiskAdmissionService
 from app.risk.pretrade import (
@@ -45,6 +46,7 @@ class PaperTradingPipeline:
         market_data_policy: MarketDataPolicy | None = None,
         risk_admission: RiskAdmissionService | None = None,
         execution_facts: ExecutionFactStore | None = None,
+        portfolio_reconciliation: PortfolioReconciliationStore | None = None,
     ) -> None:
         if risk_admission is not None and risk_admission.engine is not risk:
             raise ValueError("risk_admission must use the pipeline risk engine")
@@ -58,6 +60,7 @@ class PaperTradingPipeline:
         self.market_data_policy.validate()
         self.risk_admission = risk_admission
         self.execution_facts = execution_facts
+        self.portfolio_reconciliation = portfolio_reconciliation
         self.last_recorded_risk: RecordedRiskDecision | None = None
 
     def plan(
@@ -97,6 +100,7 @@ class PaperTradingPipeline:
             created_at=target.generated_at,
             strategy_id=target.strategy_id,
         )
+        self._known_reconciliation_gate(side)
         effective_context, prices = self._risk_context(
             target,
             risk_context,
@@ -125,6 +129,16 @@ class PaperTradingPipeline:
             self.last_recorded_risk = recorded
             decision = recorded.decision
         return target, intent, decision
+
+    def _known_reconciliation_gate(self, side: Side) -> None:
+        if side is not Side.BUY or self.portfolio_reconciliation is None:
+            return
+        latest = self.portfolio_reconciliation.latest()
+        if latest is None or latest.matched:
+            return
+        self.last_recorded_risk = None
+        reasons = ",".join(latest.reasons) or "UNKNOWN"
+        raise RuntimeError(f"BROKER_PORTFOLIO_NOT_RECONCILED:{reasons}")
 
     def _operational_market_data_gate(
         self,
