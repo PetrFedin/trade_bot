@@ -45,6 +45,7 @@ def bars() -> list[Bar]:
 
 
 def operational_context(runtime) -> OperationalRiskContext:
+    marks = {"AAPL": Decimal("102")}
     return OperationalRiskContext(
         price_timestamp=NOW,
         decision_time=NOW,
@@ -56,10 +57,11 @@ def operational_context(runtime) -> OperationalRiskContext:
         drawdown=Decimal("0"),
         turnover_notional=Decimal("0"),
         average_daily_dollar_volume=Decimal("1000000"),
-        portfolio_equity=max(runtime.portfolio.cash, Decimal("1")),
+        portfolio_equity=runtime.portfolio.equity(marks),
         sector_notional=Decimal("0"),
         annualized_volatility=Decimal("0.20"),
         available_cash=runtime.portfolio.cash,
+        portfolio_mark_prices=marks,
     )
 
 

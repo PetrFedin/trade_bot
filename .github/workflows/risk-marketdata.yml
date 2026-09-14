@@ -13,6 +13,7 @@ on:
       - 'app/domain/**'
       - 'tests/test_operational_marketdata_admission.py'
       - 'tests/test_operational_risk_observations.py'
+      - 'tests/test_portfolio_valuation_context.py'
       - 'tests/test_risk_marketdata.py'
       - 'tests/test_pipeline_risk_evidence.py'
       - 'tests/test_paper_cycle_e2e.py'
@@ -29,6 +30,7 @@ on:
       - 'app/domain/**'
       - 'tests/test_operational_marketdata_admission.py'
       - 'tests/test_operational_risk_observations.py'
+      - 'tests/test_portfolio_valuation_context.py'
       - 'tests/test_risk_marketdata.py'
       - 'tests/test_pipeline_risk_evidence.py'
       - 'tests/test_paper_cycle_e2e.py'
@@ -53,11 +55,12 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: python -m pip install --disable-pip-version-check '.[test]'
-      - name: Operational market-data and risk-observation qualification
+      - name: Operational market-data, risk and portfolio valuation qualification
         run: |
           pytest -q \
             tests/test_operational_marketdata_admission.py \
             tests/test_operational_risk_observations.py \
+            tests/test_portfolio_valuation_context.py \
             tests/test_risk_marketdata.py
       - name: Pipeline clock and evidence regression
         run: pytest -q tests/test_pipeline_risk_evidence.py tests/test_paper_cycle_e2e.py
