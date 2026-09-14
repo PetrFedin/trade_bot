@@ -103,6 +103,58 @@ class RiskContext:
                 raise ValueError(f"{name} must be finite and non-negative when supplied")
 
 
+@dataclass(frozen=True)
+class OperationalRiskContext:
+    """Complete measured risk observations required for operational admission.
+
+    Unlike ``RiskContext``, this type has no optimistic/defaulted observations.
+    Constructing one therefore proves that the caller intentionally supplied the
+    complete measurement set used by every configured pre-trade risk control.
+    """
+
+    price_timestamp: datetime
+    decision_time: datetime
+    market_open: bool
+    halted: bool
+    spread_bps: Decimal
+    estimated_slippage_bps: Decimal
+    daily_pnl: Decimal
+    drawdown: Decimal
+    turnover_notional: Decimal
+    average_daily_dollar_volume: Decimal
+    portfolio_equity: Decimal
+    sector_notional: Decimal
+    annualized_volatility: Decimal
+    available_cash: Decimal
+
+    def to_risk_context(self) -> RiskContext:
+        context = RiskContext(
+            price_timestamp=self.price_timestamp,
+            decision_time=self.decision_time,
+            market_open=self.market_open,
+            halted=self.halted,
+            spread_bps=self.spread_bps,
+            estimated_slippage_bps=self.estimated_slippage_bps,
+            daily_pnl=self.daily_pnl,
+            drawdown=self.drawdown,
+            turnover_notional=self.turnover_notional,
+            average_daily_dollar_volume=self.average_daily_dollar_volume,
+            portfolio_equity=self.portfolio_equity,
+            sector_notional=self.sector_notional,
+            annualized_volatility=self.annualized_volatility,
+            available_cash=self.available_cash,
+        )
+        context.validate()
+        return context
+
+    def validate(self) -> None:
+        if not isinstance(self.market_open, bool):
+            raise ValueError("market_open must be boolean")
+        if not isinstance(self.halted, bool):
+            raise ValueError("halted must be boolean")
+        self.to_risk_context()
+
+
 def risk_intent_fingerprint(intent: OrderIntent) -> str:
     """Stable identity/economics binding for a pre-trade risk decision."""
 

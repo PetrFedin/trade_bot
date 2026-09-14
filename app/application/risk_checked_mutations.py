@@ -9,7 +9,7 @@ from app.domain.trading import OrderIntent, Side
 from app.oms.order_mutations import MutationStore, OrderMutationLifecycle, OrderMutationRecord
 from app.oms.store import OrderRecord
 from app.risk.evidence import RiskAdmissionService
-from app.risk.pretrade import RiskContext
+from app.risk.pretrade import OperationalRiskContext
 
 
 def replace_requires_risk_readmission(
@@ -74,7 +74,7 @@ class RiskCheckedOrderMutationLifecycle(OrderMutationLifecycle):
 
     Cancel operations and risk-reducing replaces stay available without a new
     admission. A BUY price increase has no permissive defaults: callers must
-    supply authoritative exposure inputs and a risk context with available cash.
+    supply authoritative exposure inputs and a complete operational risk context.
     The decision is persisted by ``RiskAdmissionService`` before the mutation or
     outbox row can exist.
     """
@@ -98,7 +98,7 @@ class RiskCheckedOrderMutationLifecycle(OrderMutationLifecycle):
         occurred_at: datetime,
         current_symbol_notional: Decimal | None = None,
         current_gross_notional: Decimal | None = None,
-        risk_context: RiskContext | None = None,
+        risk_context: OperationalRiskContext | None = None,
         kill_switch_engaged: bool = False,
     ) -> OrderMutationRecord:
         if not target_limit_price.is_finite() or target_limit_price <= 0:
@@ -124,8 +124,9 @@ class RiskCheckedOrderMutationLifecycle(OrderMutationLifecycle):
                 raise ValueError("REPLACE_RISK_EXPOSURE_CONTEXT_REQUIRED")
             if risk_context is None:
                 raise ValueError("REPLACE_RISK_CONTEXT_REQUIRED")
-            if risk_context.available_cash is None:
-                raise ValueError("REPLACE_RISK_AVAILABLE_CASH_REQUIRED")
+            risk_context.validate()
+            if risk_context.decision_time != occurred_at:
+                raise ValueError("REPLACE_RISK_DECISION_TIME_MISMATCH")
 
             risk_intent = replace_risk_intent(
                 order,
@@ -138,7 +139,7 @@ class RiskCheckedOrderMutationLifecycle(OrderMutationLifecycle):
                 current_symbol_notional=current_symbol_notional,
                 current_gross_notional=current_gross_notional,
                 kill_switch_engaged=kill_switch_engaged,
-                context=risk_context,
+                context=risk_context.to_risk_context(),
                 evaluated_at=occurred_at,
             )
             if not recorded.decision.approved:

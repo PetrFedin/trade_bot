@@ -13,7 +13,7 @@ from app.domain.trading import Bar
 from app.execution.trade_fills import ExplicitZeroPaperFeeModel
 from app.observability.readiness import OperationalSnapshot
 from app.oms.store import OrderState
-from app.risk.pretrade import RiskLimits
+from app.risk.pretrade import OperationalRiskContext, RiskLimits
 from app.runtime.alpaca_paper_adapter_v100 import (
     AlpacaPaperCredentialsV100,
     AlpacaTradeUpdateStreamV100,
@@ -44,6 +44,25 @@ def bars() -> list[Bar]:
     ]
 
 
+def risk_context(runtime) -> OperationalRiskContext:
+    return OperationalRiskContext(
+        price_timestamp=NOW,
+        decision_time=NOW,
+        market_open=True,
+        halted=False,
+        spread_bps=Decimal("1"),
+        estimated_slippage_bps=Decimal("1"),
+        daily_pnl=Decimal("0"),
+        drawdown=Decimal("0"),
+        turnover_notional=Decimal("0"),
+        average_daily_dollar_volume=Decimal("1000000"),
+        portfolio_equity=runtime.portfolio.cash,
+        sector_notional=Decimal("0"),
+        annualized_volatility=Decimal("0.20"),
+        available_cash=runtime.portfolio.cash,
+    )
+
+
 def ready_snapshot() -> OperationalSnapshot:
     return OperationalSnapshot(
         market_data_age_seconds=Decimal("0"),
@@ -65,10 +84,7 @@ def ready_snapshot() -> OperationalSnapshot:
 
 
 def listening_stream() -> AlpacaTradeUpdateStreamV100:
-    credentials = AlpacaPaperCredentialsV100(
-        key_id="paper-key",
-        secret_key="paper-secret",
-    )
+    credentials = AlpacaPaperCredentialsV100(key_id="paper-key", secret_key="paper-secret")
     stream = AlpacaTradeUpdateStreamV100(generation=1, credentials=credentials)
     stream.authentication_frame()
     stream.ingest(
@@ -148,7 +164,9 @@ def test_readiness_failure_after_outbox_durably_halts_before_broker_submit(tmp_p
         reason="qualification arm",
         occurred_at=NOW,
     )
-    planning = cycle.plan_and_prepare(bars(), decision_time=NOW)
+    planning = cycle.plan_and_prepare(
+        bars(), decision_time=NOW, risk_context=risk_context(runtime)
+    )
     assert planning.prepared is not None
     assert planning.prepared.record.state is OrderState.OUTBOXED
     assert len(runtime.oms_store.pending_outbox()) == 1
@@ -166,11 +184,7 @@ def test_readiness_failure_after_outbox_durably_halts_before_broker_submit(tmp_p
     assert event_types == ["ARM", "HALT"]
 
     restarted_provider = MutableSnapshotProvider(ready_snapshot())
-    restarted_runtime, restarted_cycle = build_cycle(
-        tmp_path,
-        broker,
-        restarted_provider,
-    )
+    restarted_runtime, restarted_cycle = build_cycle(tmp_path, broker, restarted_provider)
     assert restarted_runtime.dispatch_control.current().mode is DispatchControlMode.HALTED
     with pytest.raises(DispatchBlocked) as still_blocked:
         restarted_cycle.execute_next_submit(occurred_at=NOW + timedelta(seconds=2))
@@ -183,9 +197,7 @@ def test_readiness_failure_after_outbox_durably_halts_before_broker_submit(tmp_p
         reason="explicit re-arm after investigation",
         occurred_at=NOW + timedelta(seconds=3),
     )
-    execution = restarted_cycle.execute_next_submit(
-        occurred_at=NOW + timedelta(seconds=4)
-    )
+    execution = restarted_cycle.execute_next_submit(occurred_at=NOW + timedelta(seconds=4))
     assert execution is not None and execution.mutation_attempted
     assert execution.record.state is OrderState.ACKNOWLEDGED
     assert broker.submit_calls == 1
@@ -203,7 +215,9 @@ def test_missing_operational_snapshot_fails_closed_and_persists_halt(tmp_path) -
         reason="qualification arm",
         occurred_at=NOW,
     )
-    planning = cycle.plan_and_prepare(bars(), decision_time=NOW)
+    planning = cycle.plan_and_prepare(
+        bars(), decision_time=NOW, risk_context=risk_context(runtime)
+    )
     assert planning.prepared is not None
 
     with pytest.raises(DispatchBlocked) as blocked:
@@ -224,7 +238,9 @@ def test_expired_arm_cannot_authorize_outbox(tmp_path) -> None:
         occurred_at=NOW,
         ttl=timedelta(seconds=1),
     )
-    planning = cycle.plan_and_prepare(bars(), decision_time=NOW)
+    planning = cycle.plan_and_prepare(
+        bars(), decision_time=NOW, risk_context=risk_context(runtime)
+    )
     assert planning.prepared is not None
 
     with pytest.raises(DispatchBlocked) as blocked:
