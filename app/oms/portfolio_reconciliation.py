@@ -83,10 +83,16 @@ class PortfolioReconciliationEvidence:
         return {
             "internal_cash": str(self.internal_cash),
             "broker_cash": str(self.broker_cash),
-            "internal_positions": [[symbol, str(quantity)] for symbol, quantity in self.internal_positions],
-            "broker_positions": [[symbol, str(quantity)] for symbol, quantity in self.broker_positions],
+            "internal_positions": [
+                [symbol, str(quantity)] for symbol, quantity in self.internal_positions
+            ],
+            "broker_positions": [
+                [symbol, str(quantity)] for symbol, quantity in self.broker_positions
+            ],
             "cash_delta": str(self.cash_delta),
-            "position_deltas": [[symbol, str(delta)] for symbol, delta in self.position_deltas],
+            "position_deltas": [
+                [symbol, str(delta)] for symbol, delta in self.position_deltas
+            ],
             "reasons": list(self.reasons),
             "cash_tolerance": str(self.cash_tolerance),
             "quantity_tolerance": str(self.quantity_tolerance),
@@ -99,7 +105,7 @@ class PortfolioReconciliationEvidence:
         reconciliation_id: str,
         payload: dict[str, object],
         occurred_at: datetime,
-    ) -> "PortfolioReconciliationEvidence":
+    ) -> PortfolioReconciliationEvidence:
         def pairs(name: str) -> tuple[tuple[str, Decimal], ...]:
             raw = payload.get(name)
             if not isinstance(raw, list):
@@ -314,7 +320,9 @@ class PostgresPortfolioReconciliationStore:
         if not dsn.strip():
             raise ValueError("dsn is required")
         if psycopg is None:
-            raise RuntimeError("install the postgresql extra to use PostgresPortfolioReconciliationStore")
+            raise RuntimeError(
+                "install the postgresql extra to use PostgresPortfolioReconciliationStore"
+            )
         self.dsn = dsn
 
     def _connect(self):
@@ -322,7 +330,10 @@ class PostgresPortfolioReconciliationStore:
             raise RuntimeError("PostgreSQL dependency is unavailable")
         return psycopg.connect(self.dsn, row_factory=dict_row, autocommit=False)
 
-    def migrate(self, path: str | Path = "migrations/product/007_portfolio_reconciliation.sql") -> None:
+    def migrate(
+        self,
+        path: str | Path = "migrations/product/007_portfolio_reconciliation.sql",
+    ) -> None:
         sql = Path(path).read_text(encoding="utf-8")
         with self._connect() as connection:
             with connection.cursor() as cursor:
