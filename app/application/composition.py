@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.application.order_lifecycle import PaperOrderLifecycle
 from app.application.paper_pipeline import PaperTradingPipeline
+from app.application.risk_checked_mutations import RiskCheckedOrderMutationLifecycle
 from app.execution.execution_facts import (
     ExecutionFactStore,
     PostgresExecutionFactStore,
@@ -15,11 +16,7 @@ from app.execution.order_mutation_executor import PaperOrderMutationExecutor
 from app.execution.trade_fills import PaperFillFeeProvider, PaperTradeFillAccounting
 from app.observability.readiness import OperationalReadinessEvaluator, OperationalSloPolicy
 from app.oms.indexed import IndexedDurableOmsStore, IndexedOmsStore, IndexedPostgresOmsStore
-from app.oms.order_mutations import (
-    DurableOrderMutationStore,
-    MutationStore,
-    OrderMutationLifecycle,
-)
+from app.oms.order_mutations import DurableOrderMutationStore, MutationStore
 from app.oms.order_mutations_postgres import PostgresOrderMutationStore
 from app.oms.reconciliation import OmsReconciler
 from app.portfolio.ledger import PortfolioLedger
@@ -68,7 +65,7 @@ class ProductRuntime:
     order_mutations: MutationStore
     dispatch_control: PaperDispatchControlStore
     order_lifecycle: PaperOrderLifecycle
-    order_mutation_lifecycle: OrderMutationLifecycle
+    order_mutation_lifecycle: RiskCheckedOrderMutationLifecycle
     reconciler: OmsReconciler
     paper_pipeline: PaperTradingPipeline
     operational_readiness: OperationalReadinessEvaluator
@@ -106,7 +103,11 @@ def _compose(
     risk_admission = RiskAdmissionService(engine=risk_engine, journal=risk_journal)
     portfolio = portfolio_store.replay(opening_cash=config.opening_cash)
     lifecycle = PaperOrderLifecycle(oms_store)
-    mutation_lifecycle = OrderMutationLifecycle(oms=oms_store, mutations=mutation_store)
+    mutation_lifecycle = RiskCheckedOrderMutationLifecycle(
+        oms=oms_store,
+        mutations=mutation_store,
+        risk_admission=risk_admission,
+    )
     reconciler = OmsReconciler(oms_store)
     pipeline = PaperTradingPipeline(
         strategy=strategy,
