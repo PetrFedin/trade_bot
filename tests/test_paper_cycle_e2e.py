@@ -185,7 +185,7 @@ def test_bounded_paper_cycle_reaches_fill_portfolio_reconcile_and_restart(tmp_pa
     broker = FakeCycleBroker()
     runtime, cycle = build_cycle(tmp_path, broker)
 
-    planning = cycle.plan_and_prepare(bars())
+    planning = cycle.plan_and_prepare(bars(), decision_time=NOW)
     assert planning.order_ready
     assert planning.risk is not None and planning.risk.approved
     assert planning.prepared is not None
@@ -217,14 +217,14 @@ def test_bounded_paper_cycle_reaches_fill_portfolio_reconcile_and_restart(tmp_pa
     )
     assert reconciliation.matched
 
-    no_rebalance = cycle.plan_and_prepare(bars())
+    no_rebalance = cycle.plan_and_prepare(bars(), decision_time=NOW)
     assert no_rebalance.intent is None
     assert not no_rebalance.order_ready
 
     restarted_runtime, restarted_cycle = build_cycle(tmp_path, broker)
     assert restarted_runtime.portfolio.cash == Decimal("9899")
     assert restarted_runtime.portfolio.position("AAPL").quantity == Decimal("1")
-    after_restart = restarted_cycle.plan_and_prepare(bars())
+    after_restart = restarted_cycle.plan_and_prepare(bars(), decision_time=NOW)
     assert after_restart.intent is None
     assert broker.submit_calls == 1
 
@@ -232,7 +232,7 @@ def test_bounded_paper_cycle_reaches_fill_portfolio_reconcile_and_restart(tmp_pa
 def test_missed_stream_fill_is_recovered_get_only_after_restart(tmp_path) -> None:
     broker = FakeCycleBroker()
     runtime, cycle = build_cycle(tmp_path, broker)
-    planning = cycle.plan_and_prepare(bars())
+    planning = cycle.plan_and_prepare(bars(), decision_time=NOW)
     assert planning.prepared is not None
     execution = cycle.execute_next_submit(occurred_at=NOW)
     assert execution is not None and execution.record.state is OrderState.ACKNOWLEDGED
@@ -285,7 +285,7 @@ def test_cycle_rejects_buy_above_replayed_available_cash_before_outbox(tmp_path)
         stream_generation=1,
     )
 
-    planning = cycle.plan_and_prepare(bars())
+    planning = cycle.plan_and_prepare(bars(), decision_time=NOW)
     assert planning.intent is not None
     assert planning.risk is not None and not planning.risk.approved
     assert planning.risk.reasons == ("INSUFFICIENT_AVAILABLE_CASH",)

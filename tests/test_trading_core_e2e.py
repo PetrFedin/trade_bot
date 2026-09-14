@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.application.paper_pipeline import PaperTradingPipeline
+from app.application.paper_pipeline import PaperTradingPipeline, PlanningMode
 from app.domain.trading import Bar, Fill, Side
 from app.portfolio.ledger import PortfolioLedger
 from app.risk.pretrade import PreTradeRiskEngine, RiskLimits
@@ -32,6 +32,7 @@ def pipeline(*, opening_cash="10000", max_order="1000"):
                 maximum_gross_notional=Decimal("5000"),
             )
         ),
+        mode=PlanningMode.REPLAY,
     )
 
 

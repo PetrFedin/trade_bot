@@ -48,11 +48,12 @@ class PaperCycleService:
     """Bounded application service for the stable paper-trading product graph.
 
     It intentionally exposes one durable external mutation per ``execute_next_submit``
-    call. Planning persists immutable risk and outbox state. Every submit re-reads
-    current operational readiness and durable ARM/HALT control immediately before the
-    exclusive submit claim. Trade updates route by durable client-order identity,
-    missed fills can be repaired through a GET-only activity source, and
-    reconciliation remains read-only.
+    call. Operational planning requires an explicit wall-clock decision time and
+    rejects unqualified market data before strategy evaluation. Planning persists
+    immutable risk and outbox state. Every submit re-reads current operational
+    readiness and durable ARM/HALT control immediately before the exclusive submit
+    claim. Trade updates route by durable client-order identity, missed fills can be
+    repaired through a GET-only activity source, and reconciliation remains read-only.
     """
 
     def __init__(
@@ -103,11 +104,13 @@ class PaperCycleService:
         self,
         bars: Sequence[Bar],
         *,
+        decision_time: datetime,
         kill_switch_engaged: bool = False,
         risk_context: RiskContext | None = None,
     ) -> PaperPlanningResult:
         target, intent, decision = self.runtime.paper_pipeline.plan(
             bars,
+            decision_time=decision_time,
             kill_switch_engaged=kill_switch_engaged,
             risk_context=risk_context,
         )
@@ -131,7 +134,7 @@ class PaperCycleService:
             prepared = self.runtime.order_lifecycle.prepare(
                 intent,
                 decision,
-                occurred_at=target.generated_at,
+                occurred_at=decision_time,
                 reservation_budget=budget,
             )
         except RiskReservationRejected as exc:

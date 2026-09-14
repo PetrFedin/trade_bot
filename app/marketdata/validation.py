@@ -45,16 +45,19 @@ def validate_bar_series(
         return MarketDataQuality(False, ("NO_BARS",), 0, None)
 
     reasons: set[str] = set()
-    symbol = bars[0].symbol
+    symbol: str | None = None
     previous: Bar | None = None
     seen: set[datetime] = set()
+    last_valid_timestamp: datetime | None = None
     for bar in bars:
         try:
             bar.validate()
-        except ValueError:
+        except (TypeError, ValueError):
             reasons.add("INVALID_BAR")
             continue
-        if bar.symbol != symbol:
+        if symbol is None:
+            symbol = bar.symbol
+        elif bar.symbol != symbol:
             reasons.add("MIXED_SYMBOLS")
         if bar.timestamp in seen:
             reasons.add("DUPLICATE_TIMESTAMP")
@@ -71,13 +74,19 @@ def validate_bar_series(
                 if jump > policy.maximum_jump_fraction:
                     reasons.add("PRICE_JUMP_EXCEEDED")
         previous = bar
+        last_valid_timestamp = bar.timestamp
 
-    last_timestamp = bars[-1].timestamp
-    if last_timestamp <= now and now - last_timestamp > policy.maximum_last_bar_age:
-        reasons.add("STALE_LAST_BAR")
+    if last_valid_timestamp is not None:
+        if (
+            last_valid_timestamp <= now
+            and now - last_valid_timestamp > policy.maximum_last_bar_age
+        ):
+            reasons.add("STALE_LAST_BAR")
+    else:
+        reasons.add("NO_VALID_BARS")
     return MarketDataQuality(
         ready=not reasons,
         reasons=tuple(sorted(reasons)),
         bars_checked=len(bars),
-        last_timestamp=last_timestamp,
+        last_timestamp=last_valid_timestamp,
     )
