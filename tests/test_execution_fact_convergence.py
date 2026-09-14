@@ -50,7 +50,7 @@ def bars() -> list[Bar]:
 
 
 def prepare_ack(runtime) -> OrderIntent:
-    target, intent, decision = runtime.paper_pipeline.plan(bars())
+    target, intent, decision = runtime.paper_pipeline.plan(bars(), decision_time=NOW)
     assert target.quantity == Decimal("1")
     assert intent is not None
     assert decision is not None and decision.approved
@@ -101,7 +101,6 @@ def test_execution_fact_survives_accounting_failure_and_blocks_new_risk(tmp_path
     with pytest.raises(ValueError, match="INSUFFICIENT_CASH"):
         runtime.require_fill_accounting().apply(intent.intent_id, fill)
 
-    # Broker truth survives even though the accounting model rejected the projection.
     record = runtime.oms_store.get(intent.intent_id)
     assert record is not None
     assert record.state is OrderState.FILLED
@@ -113,16 +112,13 @@ def test_execution_fact_survives_accounting_failure_and_blocks_new_risk(tmp_path
     assert unresolved[0].fact.execution_fact_id == canonical_broker_fill_id(fill)
     assert unresolved[0].reason == "INSUFFICIENT_CASH"
 
-    # The portfolio journal is still replayable and has not fabricated a fill it cannot book.
     replayed = runtime.portfolio_store.replay(opening_cash=Decimal("102"))
     assert replayed.cash == Decimal("102")
     assert replayed.position("AAPL").quantity == Decimal("0")
 
-    # No further strategy/risk decision is allowed while execution/accounting diverge.
     with pytest.raises(RuntimeError, match="EXECUTION_ACCOUNTING_NOT_CONVERGED"):
-        runtime.paper_pipeline.plan(bars())
+        runtime.paper_pipeline.plan(bars(), decision_time=NOW)
 
-    # The blocker is durable across restart.
     restarted = build_local_product(
         config=config(),
         state_directory=tmp_path,
@@ -130,7 +126,7 @@ def test_execution_fact_survives_accounting_failure_and_blocks_new_risk(tmp_path
     )
     assert restarted.execution_facts.unresolved_count() == 1
     with pytest.raises(RuntimeError, match="EXECUTION_ACCOUNTING_NOT_CONVERGED"):
-        restarted.paper_pipeline.plan(bars())
+        restarted.paper_pipeline.plan(bars(), decision_time=NOW)
 
 
 def test_pending_fact_recovers_idempotently_after_restart(tmp_path: Path) -> None:

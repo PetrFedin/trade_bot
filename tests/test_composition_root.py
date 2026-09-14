@@ -76,6 +76,10 @@ def acknowledge(runtime, intent_id: str, broker_order_id: str) -> None:
     )
 
 
+def plan(runtime):
+    return runtime.paper_pipeline.plan(bars(), decision_time=NOW)
+
+
 def test_local_composition_wires_one_coherent_product_graph(tmp_path) -> None:
     runtime = build_local_product(config=config(), state_directory=tmp_path)
     assert runtime.paper_pipeline.risk is runtime.risk_engine
@@ -87,7 +91,7 @@ def test_local_composition_wires_one_coherent_product_graph(tmp_path) -> None:
     assert runtime.order_mutation_lifecycle.risk_admission is runtime.risk_admission
     assert runtime.reconciler.store is runtime.oms_store
 
-    _, intent, decision = runtime.paper_pipeline.plan(bars())
+    _, intent, decision = plan(runtime)
     assert intent is not None and decision is not None and decision.approved
     assert runtime.paper_pipeline.last_recorded_risk is not None
     assert len(runtime.risk_admission.journal.verify()) == 1
@@ -122,7 +126,7 @@ def test_local_composition_wires_one_coherent_product_graph(tmp_path) -> None:
 
 def test_local_composition_replace_increase_has_no_permissive_context_defaults(tmp_path) -> None:
     runtime = build_local_product(config=config(), state_directory=tmp_path)
-    _, intent, decision = runtime.paper_pipeline.plan(bars())
+    _, intent, decision = plan(runtime)
     assert intent is not None and decision is not None and decision.approved
     runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
     acknowledge(runtime, intent.intent_id, "composition-broker-context")
@@ -142,7 +146,7 @@ def test_local_composition_replace_increase_has_no_permissive_context_defaults(t
 
 def test_local_composition_rejects_f07_replace_before_mutation_outbox(tmp_path) -> None:
     runtime = build_local_product(config=tight_config(), state_directory=tmp_path)
-    _, intent, decision = runtime.paper_pipeline.plan(bars())
+    _, intent, decision = plan(runtime)
     assert intent is not None and decision is not None and decision.approved
     runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
     acknowledge(runtime, intent.intent_id, "composition-broker-f07")
@@ -167,7 +171,7 @@ def test_local_composition_rejects_f07_replace_before_mutation_outbox(tmp_path) 
 
 def test_local_composition_risk_reducing_replace_does_not_require_readmission(tmp_path) -> None:
     runtime = build_local_product(config=config(), state_directory=tmp_path)
-    _, intent, decision = runtime.paper_pipeline.plan(bars())
+    _, intent, decision = plan(runtime)
     assert intent is not None and decision is not None and decision.approved
     runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
     acknowledge(runtime, intent.intent_id, "composition-broker-reduce")
@@ -184,7 +188,7 @@ def test_local_composition_risk_reducing_replace_does_not_require_readmission(tm
 
 def test_local_composition_reopens_mutation_journal_after_restart(tmp_path) -> None:
     runtime = build_local_product(config=config(), state_directory=tmp_path)
-    _, intent, decision = runtime.paper_pipeline.plan(bars())
+    _, intent, decision = plan(runtime)
     assert intent is not None and decision is not None and decision.approved
     runtime.order_lifecycle.prepare(intent, decision, occurred_at=NOW)
     acknowledge(runtime, intent.intent_id, "composition-broker-restart")
