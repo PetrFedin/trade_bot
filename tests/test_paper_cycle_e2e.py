@@ -12,7 +12,7 @@ from app.execution.trade_fills import ExplicitZeroPaperFeeModel
 from app.observability.readiness import OperationalSnapshot
 from app.oms.reconciliation import BrokerPortfolioTruth, BrokerPositionTruth
 from app.oms.store import OrderState
-from app.risk.pretrade import RiskLimits
+from app.risk.pretrade import OperationalRiskContext, RiskLimits
 from app.runtime.alpaca_paper_adapter_v100 import (
     AlpacaPaperCredentialsV100,
     AlpacaTradeUpdateStreamV100,
@@ -30,6 +30,8 @@ def config(*, opening_cash: str = "10000") -> ProductConfig:
             maximum_order_notional=Decimal("1000"),
             maximum_symbol_notional=Decimal("2000"),
             maximum_gross_notional=Decimal("5000"),
+            maximum_position_fraction_of_equity=Decimal("1"),
+            maximum_sector_fraction_of_equity=Decimal("1"),
         ),
     )
 
@@ -40,6 +42,25 @@ def bars() -> list[Bar]:
         Bar("AAPL", NOW - timedelta(minutes=1), Decimal("101")),
         Bar("AAPL", NOW, Decimal("102")),
     ]
+
+
+def operational_context(runtime) -> OperationalRiskContext:
+    return OperationalRiskContext(
+        price_timestamp=NOW,
+        decision_time=NOW,
+        market_open=True,
+        halted=False,
+        spread_bps=Decimal("1"),
+        estimated_slippage_bps=Decimal("1"),
+        daily_pnl=Decimal("0"),
+        drawdown=Decimal("0"),
+        turnover_notional=Decimal("0"),
+        average_daily_dollar_volume=Decimal("1000000"),
+        portfolio_equity=max(runtime.portfolio.cash, Decimal("1")),
+        sector_notional=Decimal("0"),
+        annualized_volatility=Decimal("0.20"),
+        available_cash=runtime.portfolio.cash,
+    )
 
 
 def ready_snapshot() -> OperationalSnapshot:
@@ -185,7 +206,9 @@ def test_bounded_paper_cycle_reaches_fill_portfolio_reconcile_and_restart(tmp_pa
     broker = FakeCycleBroker()
     runtime, cycle = build_cycle(tmp_path, broker)
 
-    planning = cycle.plan_and_prepare(bars(), decision_time=NOW)
+    planning = cycle.plan_and_prepare(
+        bars(), decision_time=NOW, risk_context=operational_context(runtime)
+    )
     assert planning.order_ready
     assert planning.risk is not None and planning.risk.approved
     assert planning.prepared is not None
@@ -217,14 +240,18 @@ def test_bounded_paper_cycle_reaches_fill_portfolio_reconcile_and_restart(tmp_pa
     )
     assert reconciliation.matched
 
-    no_rebalance = cycle.plan_and_prepare(bars(), decision_time=NOW)
+    no_rebalance = cycle.plan_and_prepare(
+        bars(), decision_time=NOW, risk_context=operational_context(runtime)
+    )
     assert no_rebalance.intent is None
     assert not no_rebalance.order_ready
 
     restarted_runtime, restarted_cycle = build_cycle(tmp_path, broker)
     assert restarted_runtime.portfolio.cash == Decimal("9899")
     assert restarted_runtime.portfolio.position("AAPL").quantity == Decimal("1")
-    after_restart = restarted_cycle.plan_and_prepare(bars(), decision_time=NOW)
+    after_restart = restarted_cycle.plan_and_prepare(
+        bars(), decision_time=NOW, risk_context=operational_context(restarted_runtime)
+    )
     assert after_restart.intent is None
     assert broker.submit_calls == 1
 
@@ -232,7 +259,9 @@ def test_bounded_paper_cycle_reaches_fill_portfolio_reconcile_and_restart(tmp_pa
 def test_missed_stream_fill_is_recovered_get_only_after_restart(tmp_path) -> None:
     broker = FakeCycleBroker()
     runtime, cycle = build_cycle(tmp_path, broker)
-    planning = cycle.plan_and_prepare(bars(), decision_time=NOW)
+    planning = cycle.plan_and_prepare(
+        bars(), decision_time=NOW, risk_context=operational_context(runtime)
+    )
     assert planning.prepared is not None
     execution = cycle.execute_next_submit(occurred_at=NOW)
     assert execution is not None and execution.record.state is OrderState.ACKNOWLEDGED
@@ -285,10 +314,16 @@ def test_cycle_rejects_buy_above_replayed_available_cash_before_outbox(tmp_path)
         stream_generation=1,
     )
 
-    planning = cycle.plan_and_prepare(bars(), decision_time=NOW)
+    planning = cycle.plan_and_prepare(
+        bars(), decision_time=NOW, risk_context=operational_context(runtime)
+    )
     assert planning.intent is not None
     assert planning.risk is not None and not planning.risk.approved
-    assert planning.risk.reasons == ("INSUFFICIENT_AVAILABLE_CASH",)
+    assert planning.risk.reasons == (
+        "INSUFFICIENT_AVAILABLE_CASH",
+        "POSITION_CONCENTRATION_EXCEEDED",
+        "SECTOR_CONCENTRATION_EXCEEDED",
+    )
     assert planning.prepared is None
     assert runtime.oms_store.pending_outbox() == ()
     assert broker.submit_calls == 0
