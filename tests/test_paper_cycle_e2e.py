@@ -18,6 +18,7 @@ from app.runtime.alpaca_paper_adapter_v100 import (
     AlpacaTradeUpdateStreamV100,
 )
 from app.runtime.paper_broker_contract_v99 import BrokerOrder, BrokerOrderStatus
+from tests.financial_activity_truth_support import ready_financial_activity_truth
 
 NOW = datetime(2026, 8, 7, 18, 45, tzinfo=UTC)
 
@@ -198,6 +199,7 @@ def build_cycle(tmp_path, broker: FakeCycleBroker, *, fill_activity_source=None)
         broker=broker,
         trade_stream=listening_stream(),
         stream_generation=1,
+        financial_activity_truth=ready_financial_activity_truth(tmp_path, now=NOW),
         fill_activity_source=fill_activity_source,
         operational_snapshot_provider=ready_snapshot,
     )
@@ -319,6 +321,7 @@ def test_cycle_rejects_buy_above_replayed_available_cash_before_outbox(tmp_path)
         broker=broker,
         trade_stream=listening_stream(),
         stream_generation=1,
+        financial_activity_truth=ready_financial_activity_truth(tmp_path, now=NOW),
     )
 
     planning = cycle.plan_and_prepare(

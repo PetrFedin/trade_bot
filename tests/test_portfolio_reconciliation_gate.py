@@ -15,6 +15,7 @@ from app.oms.store import OrderRecord, OrderState
 from app.risk.pretrade import OperationalRiskContext, RiskLimits
 from app.runtime.paper_dispatch_control import DispatchBlocked, DispatchControlMode
 from app.runtime.paper_final_dispatch import PaperFinalDispatchGuard
+from tests.financial_activity_truth_support import ready_financial_activity_truth
 
 NOW = datetime(2026, 9, 14, 18, 30, tzinfo=UTC)
 
@@ -196,10 +197,12 @@ def test_known_mismatch_blocks_buy_dispatch_but_preserves_sell_authority(tmp_pat
         reason="bounded dispatch qualification",
         occurred_at=NOW,
     )
+    financial_truth = ready_financial_activity_truth(tmp_path, now=NOW)
     guard = PaperFinalDispatchGuard(
         control=runtime.dispatch_control,
         readiness=runtime.operational_readiness,
         snapshot_provider=ready_snapshot,
+        financial_activity_truth=financial_truth,
         portfolio_reconciliation=runtime.portfolio_reconciliation,
     )
 
@@ -216,6 +219,7 @@ def test_known_mismatch_blocks_buy_dispatch_but_preserves_sell_authority(tmp_pat
         control=restarted.dispatch_control,
         readiness=restarted.operational_readiness,
         snapshot_provider=ready_snapshot,
+        financial_activity_truth=ready_financial_activity_truth(tmp_path, now=NOW),
         portfolio_reconciliation=restarted.portfolio_reconciliation,
     )
     with pytest.raises(DispatchBlocked) as blocked_after_restart:

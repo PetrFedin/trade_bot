@@ -14,11 +14,13 @@ on:
       - 'migrations/product/**'
       - 'pyproject.toml'
       - 'requirements.lock'
+      - 'tests/financial_activity_truth_support.py'
       - 'tests/test_composition_root.py'
       - 'tests/test_postgres_composition_root.py'
       - 'tests/test_portfolio_reconciliation_gate.py'
       - 'tests/test_postgres_portfolio_reconciliation.py'
       - 'tests/test_financial_activity_recovery.py'
+      - 'tests/test_financial_activity_truth_gate.py'
       - 'tests/test_postgres_financial_activities.py'
       - 'tests/test_trade_fill_accounting.py'
       - 'tests/test_trade_update_processor.py'
@@ -39,11 +41,13 @@ on:
       - 'migrations/product/**'
       - 'pyproject.toml'
       - 'requirements.lock'
+      - 'tests/financial_activity_truth_support.py'
       - 'tests/test_composition_root.py'
       - 'tests/test_postgres_composition_root.py'
       - 'tests/test_portfolio_reconciliation_gate.py'
       - 'tests/test_postgres_portfolio_reconciliation.py'
       - 'tests/test_financial_activity_recovery.py'
+      - 'tests/test_financial_activity_truth_gate.py'
       - 'tests/test_postgres_financial_activities.py'
       - 'tests/test_trade_fill_accounting.py'
       - 'tests/test_trade_update_processor.py'
@@ -97,6 +101,7 @@ jobs:
           tests/test_composition_root.py
           tests/test_portfolio_reconciliation_gate.py
           tests/test_financial_activity_recovery.py
+          tests/test_financial_activity_truth_gate.py
           tests/test_trade_fill_accounting.py
           tests/test_trade_update_processor.py
           tests/test_fill_backfill.py

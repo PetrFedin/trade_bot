@@ -14,6 +14,7 @@ from app.execution.alpaca_fill_backfill import (
     FillBackfillResult,
     PaperFillBackfillService,
 )
+from app.execution.financial_activity_gate import FinancialActivityTruthProvider
 from app.execution.paper_executor import ExecutionResult, PaperSubmitExecutor
 from app.oms.portfolio_reconciliation import build_portfolio_reconciliation_evidence
 from app.oms.reconciliation import (
@@ -50,13 +51,13 @@ class PaperCycleService:
 
     It intentionally exposes one durable external mutation per ``execute_next_submit``
     call. Operational planning requires an explicit wall-clock decision time, a
-    complete measured risk context, qualified market data, and no known durable
-    broker-portfolio mismatch before strategy risk can create new BUY exposure.
-    Planning persists immutable risk and outbox state. Every submit re-reads current
-    readiness, durable portfolio reconciliation and ARM/HALT control immediately
-    before the exclusive submit claim. Trade updates route by durable client-order
-    identity, missed fills can be repaired through a GET-only activity source, and
-    portfolio reconciliation evidence survives restart.
+    complete measured risk context, qualified market data, durable broker financial
+    truth and no known broker-portfolio mismatch before strategy risk can create new
+    BUY exposure. Planning persists immutable risk and outbox state. Every submit
+    re-reads current financial truth, readiness, portfolio reconciliation and
+    ARM/HALT control immediately before the exclusive submit claim. Trade updates
+    route by durable client-order identity, missed fills can be repaired through a
+    GET-only activity source, and reconciliation evidence survives restart.
     """
 
     def __init__(
@@ -66,20 +67,25 @@ class PaperCycleService:
         broker: PaperBrokerV99,
         trade_stream: AlpacaTradeUpdateStreamV100,
         stream_generation: int,
+        financial_activity_truth: FinancialActivityTruthProvider,
         fill_activity_source: FillActivitySource | None = None,
         fill_backfill_policy: FillBackfillPolicy | None = None,
         operational_snapshot_provider: OperationalSnapshotProvider | None = None,
     ) -> None:
         if stream_generation < 1:
             raise ValueError("stream_generation must be positive")
+        if financial_activity_truth is None:
+            raise ValueError("financial_activity_truth is required")
         self.runtime = runtime
         self.broker = broker
         self.trade_stream = trade_stream
         self.stream_generation = stream_generation
+        self.financial_activity_truth = financial_activity_truth
         self.final_dispatch = PaperFinalDispatchGuard(
             control=runtime.dispatch_control,
             readiness=runtime.operational_readiness,
             snapshot_provider=operational_snapshot_provider,
+            financial_activity_truth=financial_activity_truth,
             portfolio_reconciliation=runtime.portfolio_reconciliation,
         )
         self.executor = PaperSubmitExecutor(
@@ -117,6 +123,7 @@ class PaperCycleService:
             decision_time=decision_time,
             kill_switch_engaged=kill_switch_engaged,
             risk_context=risk_context,
+            financial_activity_truth=self.financial_activity_truth,
         )
         if intent is None or decision is None or not decision.approved:
             return PaperPlanningResult(target, intent, decision, None)

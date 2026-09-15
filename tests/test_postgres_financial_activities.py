@@ -4,7 +4,7 @@ import json
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -18,6 +18,10 @@ if not DSN:
     )
 
 from app.execution.alpaca_financial_activities import FinancialActivityProjector
+from app.execution.financial_activity_gate import (
+    BoundFinancialActivityTruthProvider,
+    financial_activity_truth_block_reasons,
+)
 from app.execution.financial_activity_postgres import PostgresFinancialActivityStore
 from app.execution.financial_activity_store import (
     BrokerFinancialActivity,
@@ -229,3 +233,68 @@ def test_postgres_same_id_conflict_quarantines_and_cursor_is_monotonic() -> None
             recovered_through=NOW.replace(hour=11),
             occurred_at=NOW,
         )
+
+
+def test_postgres_financial_truth_gate_is_release_scoped_and_fail_closed() -> None:
+    store, _, _, _ = stack()
+    truth = BoundFinancialActivityTruthProvider(
+        store=store,
+        account_identity=ACCOUNT,
+        release_identity=RELEASE,
+        maximum_age=timedelta(minutes=5),
+    )
+    assert financial_activity_truth_block_reasons(truth, now=NOW) == (
+        "FINANCIAL_ACTIVITY_RECOVERY_REQUIRED",
+    )
+
+    store.advance_recovery(
+        account_identity=ACCOUNT,
+        release_identity=RELEASE,
+        recovered_through=NOW,
+        occurred_at=NOW,
+    )
+    assert financial_activity_truth_block_reasons(truth, now=NOW) == ()
+
+    store.ingest(activity("pg-gate-fee", "FEE", "-1"), ingested_at=NOW)
+    assert financial_activity_truth_block_reasons(truth, now=NOW) == (
+        "FINANCIAL_ACTIVITY_PROJECTION_PENDING",
+    )
+
+    next_release = BoundFinancialActivityTruthProvider(
+        store=store,
+        account_identity=ACCOUNT,
+        release_identity=OTHER_RELEASE,
+        maximum_age=timedelta(minutes=5),
+    )
+    assert financial_activity_truth_block_reasons(next_release, now=NOW) == (
+        "FINANCIAL_ACTIVITY_PROJECTION_PENDING",
+        "FINANCIAL_ACTIVITY_RECOVERY_REQUIRED",
+    )
+
+    store.quarantine(
+        ACCOUNT,
+        "pg-gate-fee",
+        reason="QUALIFICATION_QUARANTINE",
+        occurred_at=NOW,
+    )
+    assert financial_activity_truth_block_reasons(truth, now=NOW) == (
+        "FINANCIAL_ACTIVITY_QUARANTINED",
+    )
+
+    stale_release = "release:f21c-stale"
+    store.advance_recovery(
+        account_identity=ACCOUNT,
+        release_identity=stale_release,
+        recovered_through=NOW - timedelta(minutes=6),
+        occurred_at=NOW,
+    )
+    stale = BoundFinancialActivityTruthProvider(
+        store=store,
+        account_identity=ACCOUNT,
+        release_identity=stale_release,
+        maximum_age=timedelta(minutes=5),
+    )
+    assert set(financial_activity_truth_block_reasons(stale, now=NOW)) == {
+        "FINANCIAL_ACTIVITY_QUARANTINED",
+        "FINANCIAL_ACTIVITY_RECOVERY_STALE",
+    }
