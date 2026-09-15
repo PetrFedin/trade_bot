@@ -28,6 +28,8 @@ from app.runtime.alpaca_paper_adapter_v100 import (
 NOW = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
 ACCOUNT = "paper-account:fingerprint-1"
 RELEASE = "release:f21b"
+OTHER_ACCOUNT = "paper-account:fingerprint-2"
+OTHER_RELEASE = "release:other"
 
 
 class QueueTransport:
@@ -81,6 +83,8 @@ def activity(
     *,
     occurred_at: datetime = NOW - timedelta(minutes=1),
     symbol: str | None = None,
+    account_identity: str = ACCOUNT,
+    release_identity: str = RELEASE,
 ) -> BrokerFinancialActivity:
     raw = payload(
         activity_id,
@@ -96,8 +100,8 @@ def activity(
         currency="USD",
         symbol=symbol,
         occurred_at=occurred_at,
-        account_identity=ACCOUNT,
-        release_identity=RELEASE,
+        account_identity=account_identity,
+        release_identity=release_identity,
         source_cursor="ROOT",
         canonical_payload=json.dumps(raw, sort_keys=True, separators=(",", ":")),
     )
@@ -111,6 +115,8 @@ def stack(tmp_path, *, opening_cash: str = "1000"):
         store=fact_store,
         portfolio=portfolio,
         runtime_ledger=ledger,
+        account_identity=ACCOUNT,
+        release_identity=RELEASE,
     )
     return fact_store, portfolio, ledger, projector
 
@@ -173,13 +179,56 @@ def test_fee_withdrawal_deposit_and_dividend_project_exact_cash_and_restart(tmp_
     assert restarted.snapshot({}).total_pnl == Decimal("15")
 
 
+def test_projection_never_crosses_account_or_release_scope(tmp_path) -> None:
+    store, portfolio, ledger, projector = stack(tmp_path)
+    store.ingest(activity("mine", "CSD", "10"), ingested_at=NOW)
+    store.ingest(
+        activity(
+            "other-account",
+            "CSD",
+            "900",
+            account_identity=OTHER_ACCOUNT,
+        ),
+        ingested_at=NOW,
+    )
+    store.ingest(
+        activity(
+            "other-release",
+            "CSD",
+            "800",
+            release_identity=OTHER_RELEASE,
+        ),
+        ingested_at=NOW,
+    )
+
+    projected, quarantined = projector.project_pending(occurred_at=NOW)
+    assert projected == 1 and quarantined == 0
+    assert ledger.cash == Decimal("1010")
+    assert portfolio.replay(opening_cash=Decimal("1000")).cash == Decimal("1010")
+    assert store.pending_count(
+        account_identity=ACCOUNT,
+        release_identity=RELEASE,
+    ) == 0
+    assert store.pending_count(
+        account_identity=OTHER_ACCOUNT,
+        release_identity=RELEASE,
+    ) == 1
+    assert store.pending_count(
+        account_identity=ACCOUNT,
+        release_identity=OTHER_RELEASE,
+    ) == 1
+
+
 def test_unknown_activity_quarantines_and_same_id_changed_payload_conflicts(tmp_path) -> None:
     store, _, ledger, projector = stack(tmp_path)
     unknown = activity("journal-1", "JNLC", "25")
     store.ingest(unknown, ingested_at=NOW)
     projected, quarantined = projector.project_pending(occurred_at=NOW)
     assert projected == 0 and quarantined == 1
-    assert store.quarantined_count() == 1
+    assert store.quarantined_count(
+        account_identity=ACCOUNT,
+        release_identity=RELEASE,
+    ) == 1
     assert ledger.cash == Decimal("1000")
 
     changed = activity("journal-1", "JNLC", "30")
@@ -193,7 +242,10 @@ def test_crash_after_fact_append_before_projection_resumes_exactly_once(tmp_path
     store, portfolio, ledger, _ = stack(tmp_path)
     fact = activity("fee-crash", "FEE", "-7")
     store.ingest(fact, ingested_at=NOW)
-    assert store.pending_count() == 1
+    assert store.pending_count(
+        account_identity=ACCOUNT,
+        release_identity=RELEASE,
+    ) == 1
     assert ledger.cash == Decimal("1000")
 
     restarted_ledger = portfolio.replay(opening_cash=Decimal("1000"))
@@ -201,6 +253,8 @@ def test_crash_after_fact_append_before_projection_resumes_exactly_once(tmp_path
         store=SQLiteFinancialActivityStore(tmp_path / "financial.sqlite"),
         portfolio=StrictPortfolioEventStore(tmp_path / "portfolio.sqlite"),
         runtime_ledger=restarted_ledger,
+        account_identity=ACCOUNT,
+        release_identity=RELEASE,
     )
     projected, quarantined = restarted_projector.project_pending(
         occurred_at=NOW + timedelta(seconds=1)
