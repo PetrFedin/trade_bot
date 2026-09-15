@@ -22,6 +22,7 @@ from app.risk.pretrade import (
     PreTradeRiskEngine,
     RiskContext,
     RiskDecision,
+    RiskEvaluationMode,
 )
 from app.strategy.momentum import LongOnlyMomentumStrategy
 
@@ -118,10 +119,16 @@ class PaperTradingPipeline:
         )
         current_symbol_notional = current.quantity * prices[target.symbol]
         current_gross_notional = self.ledger.gross_notional(prices)
+        evaluation_mode = (
+            RiskEvaluationMode.OPERATIONAL
+            if self.mode is PlanningMode.OPERATIONAL
+            else RiskEvaluationMode.REPLAY
+        )
         if self.risk_admission is None:
             self.last_recorded_risk = None
             decision = self.risk.evaluate(
                 intent,
+                mode=evaluation_mode,
                 current_symbol_notional=current_symbol_notional,
                 current_gross_notional=current_gross_notional,
                 kill_switch_engaged=kill_switch_engaged,
@@ -130,6 +137,7 @@ class PaperTradingPipeline:
         else:
             recorded = self.risk_admission.evaluate_and_record(
                 intent,
+                mode=evaluation_mode,
                 current_symbol_notional=current_symbol_notional,
                 current_gross_notional=current_gross_notional,
                 kill_switch_engaged=kill_switch_engaged,
@@ -203,7 +211,7 @@ class PaperTradingPipeline:
         supplied: RiskContext | OperationalRiskContext | None,
         *,
         decision_time: datetime,
-    ) -> tuple[RiskContext, dict[str, Decimal]]:
+    ) -> tuple[RiskContext | OperationalRiskContext, dict[str, Decimal]]:
         if self.mode is PlanningMode.OPERATIONAL:
             if not isinstance(supplied, OperationalRiskContext):
                 raise ValueError("OPERATIONAL_RISK_CONTEXT_REQUIRED")
@@ -232,7 +240,7 @@ class PaperTradingPipeline:
             durable_equity = self.ledger.equity(prices)
             if supplied.portfolio_equity != durable_equity:
                 raise ValueError("PORTFOLIO_EQUITY_MISMATCH")
-            return supplied.to_risk_context(), prices
+            return supplied, prices
 
         prices = {target.symbol: target.reference_price}
         if supplied is None:
