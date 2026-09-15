@@ -14,6 +14,16 @@ from app.execution.execution_facts import (
 )
 from app.execution.order_mutation_executor import PaperOrderMutationExecutor
 from app.execution.trade_fills import PaperFillFeeProvider, PaperTradeFillAccounting
+from app.marketdata.continuity import (
+    OperationalContinuityStore,
+    OperationalRepairBarStore,
+    SQLiteOperationalContinuityStore,
+    SQLiteOperationalRepairBarStore,
+)
+from app.marketdata.continuity_postgres import (
+    PostgresOperationalContinuityStore,
+    PostgresOperationalRepairBarStore,
+)
 from app.marketdata.operational import (
     OperationalMarketDataStore,
     SQLiteOperationalMarketDataStore,
@@ -73,6 +83,8 @@ class ProductRuntime:
     portfolio_reconciliation: PortfolioReconciliationStore
     execution_facts: ExecutionFactStore
     operational_marketdata: OperationalMarketDataStore
+    marketdata_continuity: OperationalContinuityStore
+    marketdata_repair: OperationalRepairBarStore
     oms_store: IndexedOmsStore
     order_mutations: MutationStore
     dispatch_control: PaperDispatchControlStore
@@ -109,6 +121,8 @@ def _compose(
     portfolio_reconciliation: PortfolioReconciliationStore,
     execution_facts: ExecutionFactStore,
     operational_marketdata: OperationalMarketDataStore,
+    marketdata_continuity: OperationalContinuityStore,
+    marketdata_repair: OperationalRepairBarStore,
     fee_provider: PaperFillFeeProvider | None,
 ) -> ProductRuntime:
     config.validate()
@@ -155,6 +169,8 @@ def _compose(
         portfolio_reconciliation=portfolio_reconciliation,
         execution_facts=execution_facts,
         operational_marketdata=operational_marketdata,
+        marketdata_continuity=marketdata_continuity,
+        marketdata_repair=marketdata_repair,
         oms_store=oms_store,
         order_mutations=mutation_store,
         dispatch_control=dispatch_control,
@@ -178,6 +194,7 @@ def build_local_product(
     directory = Path(state_directory)
     directory.mkdir(parents=True, exist_ok=True)
     oms_path = directory / "oms.sqlite"
+    marketdata_path = directory / "marketdata.sqlite"
     oms_store = IndexedDurableOmsStore(oms_path)
     mutation_store = DurableOrderMutationStore(oms_path)
     dispatch_control = SQLitePaperDispatchControlStore(oms_path)
@@ -185,7 +202,9 @@ def build_local_product(
     reconciliation_store = SQLitePortfolioReconciliationStore(
         directory / "portfolio_reconciliation.sqlite"
     )
-    marketdata_store = SQLiteOperationalMarketDataStore(directory / "marketdata.sqlite")
+    marketdata_store = SQLiteOperationalMarketDataStore(marketdata_path)
+    continuity_store = SQLiteOperationalContinuityStore(marketdata_path)
+    repair_store = SQLiteOperationalRepairBarStore(marketdata_path)
     return _compose(
         config=config,
         oms_store=oms_store,
@@ -196,6 +215,8 @@ def build_local_product(
         portfolio_reconciliation=reconciliation_store,
         execution_facts=execution_facts,
         operational_marketdata=marketdata_store,
+        marketdata_continuity=continuity_store,
+        marketdata_repair=repair_store,
         fee_provider=fee_provider,
     )
 
@@ -217,6 +238,8 @@ def build_postgres_product(
     reconciliation_store = PostgresPortfolioReconciliationStore(dsn)
     execution_facts = PostgresExecutionFactStore(dsn)
     marketdata_store = PostgresOperationalMarketDataStore(dsn)
+    continuity_store = PostgresOperationalContinuityStore(dsn)
+    repair_store = PostgresOperationalRepairBarStore(dsn)
     if migrate:
         oms_store.migrate()
         mutation_store.migrate()
@@ -226,6 +249,7 @@ def build_postgres_product(
         execution_facts.migrate()
         reconciliation_store.migrate()
         marketdata_store.migrate()
+        continuity_store.migrate()
     return _compose(
         config=config,
         oms_store=oms_store,
@@ -236,5 +260,7 @@ def build_postgres_product(
         portfolio_reconciliation=reconciliation_store,
         execution_facts=execution_facts,
         operational_marketdata=marketdata_store,
+        marketdata_continuity=continuity_store,
+        marketdata_repair=repair_store,
         fee_provider=fee_provider,
     )
