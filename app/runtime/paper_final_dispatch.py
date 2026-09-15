@@ -4,6 +4,10 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 from app.domain.trading import Side
+from app.execution.financial_activity_gate import (
+    FinancialActivityTruthProvider,
+    financial_activity_truth_block_reasons,
+)
 from app.observability.readiness import (
     OperationalReadinessEvaluator,
     OperationalSnapshot,
@@ -22,11 +26,12 @@ OperationalSnapshotProvider = Callable[[], OperationalSnapshot]
 class PaperFinalDispatchGuard:
     """Last-mile fail-closed guard immediately before submit ownership is claimed.
 
-    Operational readiness is re-evaluated for every outbound submit attempt. A
-    known durable broker-portfolio mismatch blocks BUY dispatch without disabling
-    risk-reducing exits. A missing or degraded operational snapshot durably HALTs
-    new entries before the caller can acquire submit capability. If readiness is
-    healthy, authorization is recorded under the durable dispatch-control lock.
+    Operational readiness is re-evaluated for every outbound submit attempt.
+    Durable portfolio reconciliation and broker financial-activity truth are
+    re-read for BUY/new-risk dispatch without disabling risk-reducing exits.
+    A missing or degraded operational snapshot durably HALTs new entries before
+    the caller can acquire submit capability. Financial-truth failures block the
+    individual BUY without globally HALTING exit authority.
     """
 
     def __init__(
@@ -35,11 +40,15 @@ class PaperFinalDispatchGuard:
         control: PaperDispatchControlStore,
         readiness: OperationalReadinessEvaluator,
         snapshot_provider: OperationalSnapshotProvider | None,
+        financial_activity_truth: FinancialActivityTruthProvider,
         portfolio_reconciliation: PortfolioReconciliationStore | None = None,
     ) -> None:
+        if financial_activity_truth is None:
+            raise ValueError("financial_activity_truth is required")
         self.control = control
         self.readiness = readiness
         self.snapshot_provider = snapshot_provider
+        self.financial_activity_truth = financial_activity_truth
         self.portfolio_reconciliation = portfolio_reconciliation
 
     @staticmethod
@@ -56,6 +65,7 @@ class PaperFinalDispatchGuard:
     ) -> DispatchAuthorization:
         moment = self._time(occurred_at)
         self._known_reconciliation_gate(record)
+        self._financial_activity_gate(record, occurred_at=moment)
         if self.snapshot_provider is None:
             reasons = ("OPERATIONAL_SNAPSHOT_REQUIRED",)
             self._halt(reasons, occurred_at=moment)
@@ -86,6 +96,21 @@ class PaperFinalDispatchGuard:
         if latest is None or latest.matched:
             return
         raise DispatchBlocked(("BROKER_PORTFOLIO_NOT_RECONCILED", *latest.reasons))
+
+    def _financial_activity_gate(
+        self,
+        record: OrderRecord,
+        *,
+        occurred_at: datetime,
+    ) -> None:
+        if record.side is not Side.BUY:
+            return
+        reasons = financial_activity_truth_block_reasons(
+            self.financial_activity_truth,
+            now=occurred_at,
+        )
+        if reasons:
+            raise DispatchBlocked(reasons)
 
     def _halt(self, reasons: tuple[str, ...], *, occurred_at: datetime) -> None:
         self.control.halt(
