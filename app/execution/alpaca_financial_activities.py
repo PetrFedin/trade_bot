@@ -372,7 +372,7 @@ class AlpacaPaperFinancialActivityReader:
 
 
 class FinancialActivityProjector:
-    """Exactly-once cash projection bound to one account/release scope."""
+    """Exactly-once cash projection bound to one broker account."""
 
     def __init__(
         self,
@@ -381,14 +381,12 @@ class FinancialActivityProjector:
         portfolio: PortfolioStore,
         runtime_ledger: PortfolioLedger,
         account_identity: str,
-        release_identity: str,
     ) -> None:
-        _validate_scope(account_identity, release_identity)
+        _validate_account(account_identity)
         self.store = store
         self.portfolio = portfolio
         self.runtime_ledger = runtime_ledger
         self.account_identity = account_identity
-        self.release_identity = release_identity
 
     def project_pending(
         self,
@@ -401,20 +399,17 @@ class FinancialActivityProjector:
         quarantined = 0
         for record in self.store.pending(
             account_identity=self.account_identity,
-            release_identity=self.release_identity,
             limit=limit,
         ):
             activity = record.activity
-            if (
-                activity.account_identity != self.account_identity
-                or activity.release_identity != self.release_identity
-            ):
+            if activity.account_identity != self.account_identity:
                 raise FinancialActivityRecoveryError(
-                    "financial activity projection scope mismatch"
+                    "financial activity projection account mismatch"
                 )
             classification = _classification(activity)
             if not isinstance(classification, CashAdjustmentKind):
                 self.store.quarantine(
+                    self.account_identity,
                     activity.activity_id,
                     reason=classification,
                     occurred_at=moment,
@@ -434,6 +429,7 @@ class FinancialActivityProjector:
                     kind=classification,
                 )
                 self.store.mark_projected(
+                    self.account_identity,
                     activity.activity_id,
                     portfolio_event_id=f"broker-cash:{activity.activity_id}",
                     occurred_at=moment,
@@ -442,6 +438,7 @@ class FinancialActivityProjector:
                     projected += 1
             except ValueError as exc:
                 self.store.quarantine(
+                    self.account_identity,
                     activity.activity_id,
                     reason=f"CASH_PROJECTION_REJECTED:{exc}",
                     occurred_at=moment,
@@ -451,7 +448,7 @@ class FinancialActivityProjector:
 
 
 class FinancialActivityRecoveryService:
-    """Restart-safe recovery with durable high-water and bounded overlap."""
+    """Restart-safe recovery with durable release cursor and account-wide projection."""
 
     def __init__(
         self,
@@ -465,11 +462,8 @@ class FinancialActivityRecoveryService:
         policy: FinancialActivityRecoveryPolicy | None = None,
     ) -> None:
         _validate_scope(account_identity, release_identity)
-        if (
-            projector.account_identity != account_identity
-            or projector.release_identity != release_identity
-        ):
-            raise ValueError("financial projector scope must match recovery scope")
+        if projector.account_identity != account_identity:
+            raise ValueError("financial projector account must match recovery account")
         self.source = source
         self.store = store
         self.projector = projector
@@ -551,14 +545,12 @@ class FinancialActivityRecoveryService:
                     reasons.add("ACTIVITY_LIMIT_REACHED")
                     break
                 before_pending = self.store.pending_count(
-                    account_identity=self.account_identity,
-                    release_identity=self.release_identity,
+                    account_identity=self.account_identity
                 )
                 record = self.store.ingest(activity, ingested_at=observed_at)
                 seen += 1
                 after_pending = self.store.pending_count(
-                    account_identity=self.account_identity,
-                    release_identity=self.release_identity,
+                    account_identity=self.account_identity
                 )
                 if record.state.value != "PENDING" or after_pending == before_pending:
                     duplicates += 1
@@ -629,14 +621,8 @@ def financial_activity_readiness(
         account_identity=account_identity,
         release_identity=release_identity,
     )
-    pending = store.pending_count(
-        account_identity=account_identity,
-        release_identity=release_identity,
-    )
-    quarantined = store.quarantined_count(
-        account_identity=account_identity,
-        release_identity=release_identity,
-    )
+    pending = store.pending_count(account_identity=account_identity)
+    quarantined = store.quarantined_count(account_identity=account_identity)
     reasons: set[str] = set()
     recovered_through: datetime | None = None
     if state is None:
@@ -725,6 +711,12 @@ def _aware(value: datetime, field: str) -> datetime:
     return value.astimezone(UTC)
 
 
+def _validate_account(account_identity: str) -> None:
+    if not account_identity.strip():
+        raise ValueError("account_identity is required")
+
+
 def _validate_scope(account_identity: str, release_identity: str) -> None:
-    if not account_identity.strip() or not release_identity.strip():
-        raise ValueError("account_identity and release_identity are required")
+    _validate_account(account_identity)
+    if not release_identity.strip():
+        raise ValueError("release_identity is required")
