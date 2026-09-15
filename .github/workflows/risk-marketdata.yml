@@ -11,6 +11,7 @@ on:
       - 'app/marketdata/**'
       - 'app/risk/**'
       - 'app/domain/**'
+      - 'tests/test_bybit_public_marketdata.py'
       - 'tests/test_operational_marketdata_admission.py'
       - 'tests/test_operational_risk_observations.py'
       - 'tests/test_portfolio_valuation_context.py'
@@ -29,6 +30,7 @@ on:
       - 'app/marketdata/**'
       - 'app/risk/**'
       - 'app/domain/**'
+      - 'tests/test_bybit_public_marketdata.py'
       - 'tests/test_operational_marketdata_admission.py'
       - 'tests/test_operational_risk_observations.py'
       - 'tests/test_portfolio_valuation_context.py'
@@ -57,9 +59,10 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: python -m pip install --disable-pip-version-check '.[test]'
-      - name: Operational market-data, risk and portfolio valuation qualification
+      - name: Operational market-data, Bybit public feed, risk and portfolio valuation qualification
         run: |
           pytest -q \
+            tests/test_bybit_public_marketdata.py \
             tests/test_operational_marketdata_admission.py \
             tests/test_operational_risk_observations.py \
             tests/test_portfolio_valuation_context.py \
