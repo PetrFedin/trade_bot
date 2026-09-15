@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+from app.domain.trading import Side
 from app.observability.readiness import (
     OperationalReadinessEvaluator,
     OperationalSnapshot,
 )
+from app.oms.portfolio_reconciliation import PortfolioReconciliationStore
 from app.oms.store import OrderRecord
 from app.runtime.paper_dispatch_control import (
     DispatchAuthorization,
@@ -21,11 +23,10 @@ class PaperFinalDispatchGuard:
     """Last-mile fail-closed guard immediately before submit ownership is claimed.
 
     Operational readiness is re-evaluated for every outbound submit attempt. A
-    missing or degraded snapshot durably HALTs new entries before the caller can
-    acquire submit capability. If readiness is healthy, authorization is recorded
-    under the durable dispatch-control lock. A later HALT is therefore ordered
-    after that authorization; the existing exclusive submit claim still guarantees
-    that only one worker can perform the broker POST.
+    known durable broker-portfolio mismatch blocks BUY dispatch without disabling
+    risk-reducing exits. A missing or degraded operational snapshot durably HALTs
+    new entries before the caller can acquire submit capability. If readiness is
+    healthy, authorization is recorded under the durable dispatch-control lock.
     """
 
     def __init__(
@@ -34,10 +35,12 @@ class PaperFinalDispatchGuard:
         control: PaperDispatchControlStore,
         readiness: OperationalReadinessEvaluator,
         snapshot_provider: OperationalSnapshotProvider | None,
+        portfolio_reconciliation: PortfolioReconciliationStore | None = None,
     ) -> None:
         self.control = control
         self.readiness = readiness
         self.snapshot_provider = snapshot_provider
+        self.portfolio_reconciliation = portfolio_reconciliation
 
     @staticmethod
     def _time(value: datetime) -> datetime:
@@ -52,6 +55,7 @@ class PaperFinalDispatchGuard:
         occurred_at: datetime,
     ) -> DispatchAuthorization:
         moment = self._time(occurred_at)
+        self._known_reconciliation_gate(record)
         if self.snapshot_provider is None:
             reasons = ("OPERATIONAL_SNAPSHOT_REQUIRED",)
             self._halt(reasons, occurred_at=moment)
@@ -74,6 +78,14 @@ class PaperFinalDispatchGuard:
             intent_id=record.intent_id,
             occurred_at=moment,
         )
+
+    def _known_reconciliation_gate(self, record: OrderRecord) -> None:
+        if record.side is not Side.BUY or self.portfolio_reconciliation is None:
+            return
+        latest = self.portfolio_reconciliation.latest()
+        if latest is None or latest.matched:
+            return
+        raise DispatchBlocked(("BROKER_PORTFOLIO_NOT_RECONCILED", *latest.reasons))
 
     def _halt(self, reasons: tuple[str, ...], *, occurred_at: datetime) -> None:
         self.control.halt(
