@@ -70,7 +70,7 @@ class FakeSocketContext(AbstractAsyncContextManager[FakeSocket]):
         return self.socket
 
     async def __aexit__(self, exc_type, exc_value, traceback) -> None:
-        return None
+        pass
 
 
 class FakeSocketFactory:
