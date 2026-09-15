@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 
 from app.marketdata.continuity import (
@@ -259,7 +260,7 @@ class PostgresOperationalContinuityStore:
 
 
 class PostgresOperationalRepairBarStore:
-    """Persist repaired bar truth without scheduling any strategy decision."""
+    """Persist repaired bar economics without scheduling any strategy decision."""
 
     def __init__(self, dsn: str) -> None:
         if not dsn.strip():
@@ -303,14 +304,21 @@ class PostgresOperationalRepairBarStore:
                     inserted = cursor.rowcount == 1
                     if not inserted:
                         cursor.execute(
-                            """SELECT content_hash FROM astra_operational_market_bars
+                            """SELECT provider, venue, symbol, interval_seconds,
+                                      open_time, close_time, revision,
+                                      open_price, high_price, low_price,
+                                      close_price, volume, content_hash
+                            FROM astra_operational_market_bars
                             WHERE bar_id=%s FOR UPDATE""",
                             (bar.bar_id,),
                         )
                         row = cursor.fetchone()
                         if row is None:
                             raise RuntimeError("repair bar idempotency lookup failed")
-                        if str(row["content_hash"]) != bar.content_hash:
+                        if (
+                            str(row["content_hash"]) != bar.content_hash
+                            and not self._same_stored_economics(row, bar)
+                        ):
                             cursor.execute(
                                 """INSERT INTO astra_operational_market_bar_conflicts(
                                     bar_id, existing_content_hash,
@@ -333,6 +341,32 @@ class PostgresOperationalRepairBarStore:
         if conflict:
             raise OperationalBarConflict(f"OPERATIONAL_BAR_CONFLICT:{bar.bar_id}")
         return inserted
+
+    @staticmethod
+    def _same_stored_economics(
+        row: Mapping[str, object],
+        bar: OperationalBar,
+    ) -> bool:
+        def moment(name: str) -> datetime:
+            value = row[name]
+            return value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+
+        return (
+            str(row["provider"]) == bar.provider
+            and str(row["venue"]) == bar.venue
+            and str(row["symbol"]) == bar.symbol
+            and int(str(row["interval_seconds"])) == bar.interval_seconds
+            and _aware(moment("open_time"), "open_time")
+            == _aware(bar.open_time, "open_time")
+            and _aware(moment("close_time"), "close_time")
+            == _aware(bar.close_time, "close_time")
+            and int(str(row["revision"])) == bar.revision
+            and Decimal(str(row["open_price"])) == bar.open
+            and Decimal(str(row["high_price"])) == bar.high
+            and Decimal(str(row["low_price"])) == bar.low
+            and Decimal(str(row["close_price"])) == bar.close
+            and Decimal(str(row["volume"])) == bar.volume
+        )
 
     @staticmethod
     def _bar_values(bar: OperationalBar, recorded_at: datetime) -> tuple[object, ...]:
