@@ -159,7 +159,7 @@ class OperationalRepairBarStore(Protocol):
 
 
 class SQLiteOperationalContinuityStore:
-    """Append-only continuity high-water journal in the operational market-data DB."""
+    """Append-only single-chain continuity high-water journal."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
@@ -201,6 +201,13 @@ class SQLiteOperationalContinuityStore:
                     provider, venue, symbol, interval_seconds,
                     through_close_time DESC, checkpoint_id DESC
                 );
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_operational_market_continuity_root
+                ON operational_market_continuity(
+                    provider, venue, symbol, interval_seconds
+                ) WHERE previous_checkpoint_id IS NULL;
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_operational_market_continuity_successor
+                ON operational_market_continuity(previous_checkpoint_id)
+                WHERE previous_checkpoint_id IS NOT NULL;
                 CREATE TRIGGER IF NOT EXISTS operational_market_continuity_no_update
                 BEFORE UPDATE ON operational_market_continuity BEGIN
                     SELECT RAISE(ABORT, 'operational_market_continuity is append-only');
@@ -231,6 +238,7 @@ class SQLiteOperationalContinuityStore:
                 connection.execute("COMMIT")
                 return False
 
+            previous = None
             if checkpoint.previous_checkpoint_id is not None:
                 previous = connection.execute(
                     """SELECT provider, venue, symbol, interval_seconds,
@@ -248,14 +256,16 @@ class SQLiteOperationalContinuityStore:
                     or int(previous["interval_seconds"]) != checkpoint.interval_seconds
                 ):
                     raise ValueError("continuity checkpoint stream identity changed")
-                previous_close = datetime.fromisoformat(
-                    str(previous["through_close_time"])
-                )
+                previous_close = datetime.fromisoformat(str(previous["through_close_time"]))
                 if previous_close >= _aware(
                     checkpoint.through_close_time,
                     "through_close_time",
                 ):
                     raise ValueError("continuity checkpoint did not advance")
+
+            occupied = self._chain_slot(connection, checkpoint)
+            if occupied is not None:
+                raise ValueError("continuity checkpoint chain fork")
 
             connection.execute(
                 """INSERT INTO operational_market_continuity(
@@ -292,6 +302,30 @@ class SQLiteOperationalContinuityStore:
             raise
         finally:
             connection.close()
+
+    @staticmethod
+    def _chain_slot(
+        connection: sqlite3.Connection,
+        checkpoint: OperationalContinuityCheckpoint,
+    ) -> sqlite3.Row | None:
+        if checkpoint.previous_checkpoint_id is None:
+            return connection.execute(
+                """SELECT checkpoint_id FROM operational_market_continuity
+                WHERE previous_checkpoint_id IS NULL
+                  AND provider=? AND venue=? AND symbol=? AND interval_seconds=?
+                LIMIT 1""",
+                (
+                    checkpoint.provider,
+                    checkpoint.venue,
+                    checkpoint.symbol,
+                    checkpoint.interval_seconds,
+                ),
+            ).fetchone()
+        return connection.execute(
+            """SELECT checkpoint_id FROM operational_market_continuity
+            WHERE previous_checkpoint_id=? LIMIT 1""",
+            (checkpoint.previous_checkpoint_id,),
+        ).fetchone()
 
     @staticmethod
     def _verify_through_bar(
