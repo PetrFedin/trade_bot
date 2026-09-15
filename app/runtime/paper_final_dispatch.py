@@ -110,7 +110,7 @@ class PaperFinalDispatchGuard:
             now=occurred_at,
         )
         if reasons:
-            raise DispatchBlocked(reasons)
+            raise DispatchBlocked(("BROKER_FINANCIAL_ACTIVITY_NOT_READY", *reasons))
 
     def _halt(self, reasons: tuple[str, ...], *, occurred_at: datetime) -> None:
         self.control.halt(
