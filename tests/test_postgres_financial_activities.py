@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -10,13 +12,16 @@ import pytest
 psycopg = pytest.importorskip("psycopg")
 DSN = os.environ.get("ASTRA_TEST_POSTGRES_DSN")
 if not DSN:
-    pytest.skip("PostgreSQL financial activity tests require ASTRA_TEST_POSTGRES_DSN", allow_module_level=True)
+    pytest.skip(
+        "PostgreSQL financial activity tests require ASTRA_TEST_POSTGRES_DSN",
+        allow_module_level=True,
+    )
 
 from app.execution.alpaca_financial_activities import FinancialActivityProjector
+from app.execution.financial_activity_postgres import PostgresFinancialActivityStore
 from app.execution.financial_activity_store import (
     BrokerFinancialActivity,
     FinancialProjectionState,
-    PostgresFinancialActivityStore,
 )
 from app.portfolio.ledger import PortfolioLedger
 from app.portfolio.strict import StrictPostgresPortfolioEventStore
@@ -26,7 +31,11 @@ ACCOUNT = "paper-account:pg-fingerprint"
 RELEASE = "release:f21b-pg"
 
 
-def activity(activity_id: str, activity_type: str, amount: str) -> BrokerFinancialActivity:
+def activity(
+    activity_id: str,
+    activity_type: str,
+    amount: str,
+) -> BrokerFinancialActivity:
     payload = {
         "id": activity_id,
         "activity_type": activity_type,
@@ -43,7 +52,11 @@ def activity(activity_id: str, activity_type: str, amount: str) -> BrokerFinanci
         account_identity=ACCOUNT,
         release_identity=RELEASE,
         source_cursor="ROOT",
-        canonical_payload=json.dumps(payload, sort_keys=True, separators=(",", ":")),
+        canonical_payload=json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
     )
 
 
@@ -90,6 +103,35 @@ def test_postgres_fee_and_deposit_projection_survive_restart() -> None:
     assert restarted.external_cash_flow == Decimal("100")
     assert restarted.fees_paid == Decimal("4")
     assert restarted.snapshot({}).total_pnl == Decimal("-4")
+
+
+def test_postgres_same_id_concurrent_ingestion_is_one_fact() -> None:
+    store, _, _, _ = stack()
+    fact = activity("pg-race", "CSD", "10")
+    barrier = threading.Barrier(2)
+
+    def ingest_once() -> FinancialProjectionState:
+        barrier.wait(timeout=5)
+        return store.ingest(fact, ingested_at=NOW).state
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        states = tuple(pool.map(lambda _: ingest_once(), range(2)))
+
+    assert states == (
+        FinancialProjectionState.PENDING,
+        FinancialProjectionState.PENDING,
+    )
+    with psycopg.connect(DSN) as connection:
+        facts = connection.execute(
+            "SELECT COUNT(*) FROM astra_financial_activity_facts"
+        ).fetchone()[0]
+        projections = connection.execute(
+            "SELECT COUNT(*) FROM astra_financial_activity_projection"
+        ).fetchone()[0]
+        conflicts = connection.execute(
+            "SELECT COUNT(*) FROM astra_financial_activity_conflicts"
+        ).fetchone()[0]
+    assert (facts, projections, conflicts) == (1, 1, 0)
 
 
 def test_postgres_same_id_conflict_quarantines_and_cursor_is_monotonic() -> None:
