@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Protocol
 
 from app.domain.trading import Fill
-from app.portfolio.ledger import PortfolioLedger
+from app.portfolio.ledger import CashAdjustmentKind, PortfolioLedger
 from app.portfolio.store import PersistedPortfolioSnapshot
 
 
@@ -13,6 +13,15 @@ class PortfolioStore(Protocol):
     """Persistence port shared by local and PostgreSQL portfolio journals."""
 
     def append_fill(self, fill: Fill) -> bool: ...
+
+    def append_cash_adjustment(
+        self,
+        *,
+        activity_id: str,
+        amount: Decimal,
+        kind: CashAdjustmentKind,
+        occurred_at: datetime,
+    ) -> bool: ...
 
     def append_split(
         self,

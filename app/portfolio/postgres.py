@@ -6,7 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from app.domain.trading import Fill, Side
-from app.portfolio.ledger import PortfolioLedger, PortfolioSnapshot
+from app.portfolio.ledger import CashAdjustmentKind, PortfolioLedger, PortfolioSnapshot
 from app.portfolio.store import PersistedPortfolioSnapshot
 
 try:
@@ -85,6 +85,30 @@ class PostgresPortfolioEventStore:
             occurred_at=fill.occurred_at,
         )
 
+    def append_cash_adjustment(
+        self,
+        *,
+        activity_id: str,
+        amount: Decimal,
+        kind: CashAdjustmentKind,
+        occurred_at: datetime,
+    ) -> bool:
+        if not activity_id.strip():
+            raise ValueError("activity_id is required")
+        if not amount.is_finite() or amount == 0:
+            raise ValueError("cash adjustment amount must be finite and non-zero")
+        normalized_kind = CashAdjustmentKind(kind)
+        return self._append(
+            event_id=f"broker-cash:{activity_id}",
+            event_type="CASH_ADJUSTMENT",
+            payload={
+                "activity_id": activity_id,
+                "amount": str(amount),
+                "kind": normalized_kind.value,
+            },
+            occurred_at=occurred_at,
+        )
+
     def append_split(
         self,
         *,
@@ -155,6 +179,12 @@ class PostgresPortfolioEventStore:
                         occurred_at=occurred_at,
                     )
                 )
+            elif event_type == "CASH_ADJUSTMENT":
+                ledger.apply_cash_adjustment(
+                    activity_id=str(payload["activity_id"]),
+                    amount=Decimal(str(payload["amount"])),
+                    kind=CashAdjustmentKind(str(payload["kind"])),
+                )
             elif event_type == "SPLIT":
                 ledger.apply_split(
                     action_id=str(payload["action_id"]),
@@ -190,6 +220,7 @@ class PostgresPortfolioEventStore:
             "cash_income": str(snapshot.cash_income),
             "total_pnl": str(snapshot.total_pnl),
             "fees_paid": str(snapshot.fees_paid),
+            "external_cash_flow": str(snapshot.external_cash_flow),
         }
 
     def persist_snapshot(

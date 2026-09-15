@@ -3,8 +3,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import StrEnum
 
 from app.domain.trading import Fill, Side
+
+
+class CashAdjustmentKind(StrEnum):
+    EXTERNAL_FLOW = "EXTERNAL_FLOW"
+    INCOME = "INCOME"
+    FEE = "FEE"
 
 
 @dataclass(frozen=True)
@@ -25,10 +32,11 @@ class PortfolioSnapshot:
     cash_income: Decimal
     total_pnl: Decimal
     fees_paid: Decimal
+    external_cash_flow: Decimal
 
 
 class PortfolioLedger:
-    """Deterministic long-only ledger with fee, P&L and corporate-action accounting."""
+    """Deterministic long-only ledger with fee, P&L and cash-activity accounting."""
 
     def __init__(self, *, opening_cash: Decimal) -> None:
         if not opening_cash.is_finite() or opening_cash < 0:
@@ -38,9 +46,11 @@ class PortfolioLedger:
         self.realized_pnl = Decimal("0")
         self.cash_income = Decimal("0")
         self.fees_paid = Decimal("0")
+        self.external_cash_flow = Decimal("0")
         self._positions: dict[str, Position] = {}
         self._fill_ids: set[str] = set()
         self._corporate_action_ids: set[str] = set()
+        self._cash_adjustment_ids: set[str] = set()
 
     def position(self, symbol: str) -> Position:
         normalized = symbol.strip().upper()
@@ -85,6 +95,35 @@ class PortfolioLedger:
             )
         self.fees_paid += fill.fee
         self._fill_ids.add(fill.fill_id)
+
+    def apply_cash_adjustment(
+        self,
+        *,
+        activity_id: str,
+        amount: Decimal,
+        kind: CashAdjustmentKind,
+    ) -> None:
+        if not activity_id.strip():
+            raise ValueError("activity_id is required")
+        if activity_id in self._cash_adjustment_ids:
+            return
+        if not amount.is_finite() or amount == 0:
+            raise ValueError("cash adjustment amount must be finite and non-zero")
+        kind = CashAdjustmentKind(kind)
+        if kind is CashAdjustmentKind.FEE and amount > 0:
+            raise ValueError("fee cash adjustment must not be positive")
+        projected_cash = self.cash + amount
+        if projected_cash < 0:
+            raise ValueError("NEGATIVE_CASH_AFTER_ADJUSTMENT")
+
+        self.cash = projected_cash
+        if kind is CashAdjustmentKind.EXTERNAL_FLOW:
+            self.external_cash_flow += amount
+        elif kind is CashAdjustmentKind.INCOME:
+            self.cash_income += amount
+        else:
+            self.fees_paid += -amount
+        self._cash_adjustment_ids.add(activity_id)
 
     def apply_split(self, *, action_id: str, symbol: str, ratio: Decimal) -> None:
         if not action_id.strip():
@@ -166,6 +205,7 @@ class PortfolioLedger:
             realized_pnl=self.realized_pnl,
             unrealized_pnl=unrealized,
             cash_income=self.cash_income,
-            total_pnl=equity - self.opening_cash,
+            total_pnl=equity - self.opening_cash - self.external_cash_flow,
             fees_paid=self.fees_paid,
+            external_cash_flow=self.external_cash_flow,
         )
