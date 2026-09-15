@@ -23,6 +23,16 @@ ON astra_operational_market_continuity(
     through_close_time DESC, checkpoint_id DESC
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_operational_market_continuity_root
+ON astra_operational_market_continuity(
+    provider, venue, symbol, interval_seconds
+)
+WHERE previous_checkpoint_id IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_operational_market_continuity_successor
+ON astra_operational_market_continuity(previous_checkpoint_id)
+WHERE previous_checkpoint_id IS NOT NULL;
+
 CREATE OR REPLACE FUNCTION reject_astra_operational_market_continuity_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
