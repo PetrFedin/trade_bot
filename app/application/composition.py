@@ -14,6 +14,11 @@ from app.execution.execution_facts import (
 )
 from app.execution.order_mutation_executor import PaperOrderMutationExecutor
 from app.execution.trade_fills import PaperFillFeeProvider, PaperTradeFillAccounting
+from app.marketdata.operational import (
+    OperationalMarketDataStore,
+    SQLiteOperationalMarketDataStore,
+)
+from app.marketdata.operational_postgres import PostgresOperationalMarketDataStore
 from app.observability.readiness import OperationalReadinessEvaluator, OperationalSloPolicy
 from app.oms.indexed import IndexedDurableOmsStore, IndexedOmsStore, IndexedPostgresOmsStore
 from app.oms.order_mutations import DurableOrderMutationStore, MutationStore
@@ -67,6 +72,7 @@ class ProductRuntime:
     portfolio_store: PortfolioStore
     portfolio_reconciliation: PortfolioReconciliationStore
     execution_facts: ExecutionFactStore
+    operational_marketdata: OperationalMarketDataStore
     oms_store: IndexedOmsStore
     order_mutations: MutationStore
     dispatch_control: PaperDispatchControlStore
@@ -102,6 +108,7 @@ def _compose(
     portfolio_store: PortfolioStore,
     portfolio_reconciliation: PortfolioReconciliationStore,
     execution_facts: ExecutionFactStore,
+    operational_marketdata: OperationalMarketDataStore,
     fee_provider: PaperFillFeeProvider | None,
 ) -> ProductRuntime:
     config.validate()
@@ -147,6 +154,7 @@ def _compose(
         portfolio_store=portfolio_store,
         portfolio_reconciliation=portfolio_reconciliation,
         execution_facts=execution_facts,
+        operational_marketdata=operational_marketdata,
         oms_store=oms_store,
         order_mutations=mutation_store,
         dispatch_control=dispatch_control,
@@ -177,6 +185,7 @@ def build_local_product(
     reconciliation_store = SQLitePortfolioReconciliationStore(
         directory / "portfolio_reconciliation.sqlite"
     )
+    marketdata_store = SQLiteOperationalMarketDataStore(directory / "marketdata.sqlite")
     return _compose(
         config=config,
         oms_store=oms_store,
@@ -186,6 +195,7 @@ def build_local_product(
         portfolio_store=StrictPortfolioEventStore(directory / "portfolio.sqlite"),
         portfolio_reconciliation=reconciliation_store,
         execution_facts=execution_facts,
+        operational_marketdata=marketdata_store,
         fee_provider=fee_provider,
     )
 
@@ -206,6 +216,7 @@ def build_postgres_product(
     portfolio_store = StrictPostgresPortfolioEventStore(dsn)
     reconciliation_store = PostgresPortfolioReconciliationStore(dsn)
     execution_facts = PostgresExecutionFactStore(dsn)
+    marketdata_store = PostgresOperationalMarketDataStore(dsn)
     if migrate:
         oms_store.migrate()
         mutation_store.migrate()
@@ -214,6 +225,7 @@ def build_postgres_product(
         portfolio_store.migrate()
         execution_facts.migrate()
         reconciliation_store.migrate()
+        marketdata_store.migrate()
     return _compose(
         config=config,
         oms_store=oms_store,
@@ -223,5 +235,6 @@ def build_postgres_product(
         portfolio_store=portfolio_store,
         portfolio_reconciliation=reconciliation_store,
         execution_facts=execution_facts,
+        operational_marketdata=marketdata_store,
         fee_provider=fee_provider,
     )
