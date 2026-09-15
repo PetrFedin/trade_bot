@@ -18,7 +18,12 @@ if not DSN:
 from app.domain.trading import OrderIntent, Side
 from app.risk.evidence import RiskAdmissionService
 from app.risk.postgres import PostgresRiskEvidenceJournal
-from app.risk.pretrade import PreTradeRiskEngine, RiskContext, RiskLimits
+from app.risk.pretrade import (
+    PreTradeRiskEngine,
+    RiskContext,
+    RiskEvaluationMode,
+    RiskLimits,
+)
 
 NOW = datetime(2026, 8, 7, 18, 30, tzinfo=UTC)
 
@@ -67,6 +72,7 @@ def record(value: int) -> str:
         journal=local_journal,
     ).evaluate_and_record(
         intent(value),
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
         context=context(),
@@ -110,6 +116,7 @@ def test_postgres_same_intent_conflict_is_rejected(
     )
     service.evaluate_and_record(
         intent(1),
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
         context=context(),
@@ -118,6 +125,7 @@ def test_postgres_same_intent_conflict_is_rejected(
     with pytest.raises(ValueError, match="RISK_DECISION_CONFLICT"):
         service.evaluate_and_record(
             intent(1),
+            mode=RiskEvaluationMode.REPLAY,
             current_symbol_notional=Decimal("100"),
             current_gross_notional=Decimal("100"),
             context=context(),
