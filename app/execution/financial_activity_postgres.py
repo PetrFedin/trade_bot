@@ -23,6 +23,19 @@ except ImportError:  # pragma: no cover - optional dependency boundary
     dict_row = None
 
 
+_SELECT_ACTIVITY = """SELECT f.*, p.state, p.reason, p.portfolio_event_id, p.updated_at
+FROM astra_financial_activity_facts f
+JOIN astra_financial_activity_projection p USING(activity_id)
+WHERE f.activity_id=%s"""
+
+_SELECT_ACTIVITY_FOR_UPDATE = """SELECT f.*, p.state, p.reason,
+       p.portfolio_event_id, p.updated_at
+FROM astra_financial_activity_facts f
+JOIN astra_financial_activity_projection p USING(activity_id)
+WHERE f.activity_id=%s
+FOR UPDATE"""
+
+
 class PostgresFinancialActivityStore:
     """Conflict-aware PostgreSQL financial fact inbox and recovery cursor."""
 
@@ -94,16 +107,6 @@ class PostgresFinancialActivityStore:
             updated_at=aware_utc(updated_at, "updated_at"),
         )
 
-    @staticmethod
-    def _select_sql(*, for_update: bool = False) -> str:
-        suffix = " FOR UPDATE" if for_update else ""
-        return (
-            "SELECT f.*, p.state, p.reason, p.portfolio_event_id, p.updated_at "
-            "FROM astra_financial_activity_facts f "
-            "JOIN astra_financial_activity_projection p USING(activity_id) "
-            "WHERE f.activity_id=%s" + suffix
-        )
-
     def ingest(
         self,
         activity: BrokerFinancialActivity,
@@ -151,10 +154,7 @@ class PostgresFinancialActivityStore:
                             VALUES (%s, 'PENDING', NULL, NULL, %s)""",
                             (activity.activity_id, moment),
                         )
-                        cursor.execute(
-                            self._select_sql(),
-                            (activity.activity_id,),
-                        )
+                        cursor.execute(_SELECT_ACTIVITY, (activity.activity_id,))
                         row = cursor.fetchone()
                         if row is None:
                             raise RuntimeError(
@@ -163,7 +163,7 @@ class PostgresFinancialActivityStore:
                         return self._record(row)
 
                     cursor.execute(
-                        self._select_sql(for_update=True),
+                        _SELECT_ACTIVITY_FOR_UPDATE,
                         (activity.activity_id,),
                     )
                     existing = cursor.fetchone()
@@ -194,10 +194,7 @@ class PostgresFinancialActivityStore:
                         WHERE activity_id=%s""",
                         (moment, activity.activity_id),
                     )
-                    cursor.execute(
-                        self._select_sql(),
-                        (activity.activity_id,),
-                    )
+                    cursor.execute(_SELECT_ACTIVITY, (activity.activity_id,))
                     row = cursor.fetchone()
                     if row is None:
                         raise RuntimeError(
@@ -235,10 +232,7 @@ class PostgresFinancialActivityStore:
         with self._connect() as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
-                    cursor.execute(
-                        self._select_sql(for_update=True),
-                        (activity_id,),
-                    )
+                    cursor.execute(_SELECT_ACTIVITY_FOR_UPDATE, (activity_id,))
                     row = cursor.fetchone()
                     if row is None:
                         raise KeyError(activity_id)
@@ -270,10 +264,7 @@ class PostgresFinancialActivityStore:
                             activity_id,
                         ),
                     )
-                    cursor.execute(
-                        self._select_sql(),
-                        (activity_id,),
-                    )
+                    cursor.execute(_SELECT_ACTIVITY, (activity_id,))
                     updated = cursor.fetchone()
                     if updated is None:
                         raise RuntimeError(
