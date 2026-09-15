@@ -9,6 +9,10 @@ from enum import StrEnum
 
 from app.domain.trading import Bar, OrderIntent, Side, TargetPosition
 from app.execution.execution_facts import ExecutionFactStore
+from app.execution.financial_activity_gate import (
+    FinancialActivityTruthProvider,
+    financial_activity_truth_block_reasons,
+)
 from app.marketdata.validation import MarketDataPolicy, validate_bar_series
 from app.oms.portfolio_reconciliation import PortfolioReconciliationStore
 from app.portfolio.ledger import PortfolioLedger
@@ -70,6 +74,7 @@ class PaperTradingPipeline:
         decision_time: datetime | None = None,
         kill_switch_engaged: bool = False,
         risk_context: RiskContext | OperationalRiskContext | None = None,
+        financial_activity_truth: FinancialActivityTruthProvider | None = None,
     ) -> tuple[TargetPosition, OrderIntent | None, RiskDecision | None]:
         if self.execution_facts is not None and self.execution_facts.unresolved_count() > 0:
             raise RuntimeError("EXECUTION_ACCOUNTING_NOT_CONVERGED")
@@ -101,6 +106,11 @@ class PaperTradingPipeline:
             strategy_id=target.strategy_id,
         )
         self._known_reconciliation_gate(side)
+        self._financial_activity_gate(
+            side,
+            decision_time=decision_clock,
+            provider=financial_activity_truth,
+        )
         effective_context, prices = self._risk_context(
             target,
             risk_context,
@@ -139,6 +149,26 @@ class PaperTradingPipeline:
         self.last_recorded_risk = None
         reasons = ",".join(latest.reasons) or "UNKNOWN"
         raise RuntimeError(f"BROKER_PORTFOLIO_NOT_RECONCILED:{reasons}")
+
+    def _financial_activity_gate(
+        self,
+        side: Side,
+        *,
+        decision_time: datetime,
+        provider: FinancialActivityTruthProvider | None,
+    ) -> None:
+        if side is not Side.BUY or provider is None:
+            return
+        reasons = financial_activity_truth_block_reasons(
+            provider,
+            now=decision_time,
+        )
+        if not reasons:
+            return
+        self.last_recorded_risk = None
+        raise RuntimeError(
+            "BROKER_FINANCIAL_ACTIVITY_NOT_READY:" + ",".join(reasons)
+        )
 
     def _operational_market_data_gate(
         self,
