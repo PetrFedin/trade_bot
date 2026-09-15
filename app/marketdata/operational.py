@@ -261,6 +261,8 @@ class SQLiteOperationalMarketDataStore:
                     observed_payload TEXT NOT NULL,
                     observed_at TEXT NOT NULL
                 );
+                CREATE INDEX IF NOT EXISTS idx_operational_market_conflicts_bar
+                ON operational_market_bar_conflicts(bar_id, sequence);
                 CREATE TABLE IF NOT EXISTS operational_decision_tickets (
                     ticket_id TEXT PRIMARY KEY,
                     strategy_id TEXT NOT NULL,
@@ -431,7 +433,8 @@ class SQLiteOperationalMarketDataStore:
                     """SELECT t.ticket_id, t.strategy_id, t.bar_id, t.created_at
                     FROM operational_decision_tickets t
                     LEFT JOIN operational_decision_completions c USING(ticket_id)
-                    WHERE c.ticket_id IS NULL
+                    LEFT JOIN operational_market_bar_conflicts x ON x.bar_id=t.bar_id
+                    WHERE c.ticket_id IS NULL AND x.bar_id IS NULL
                     ORDER BY t.created_at, t.ticket_id LIMIT ?""",
                     (limit,),
                 ).fetchall()
@@ -442,7 +445,8 @@ class SQLiteOperationalMarketDataStore:
                     """SELECT t.ticket_id, t.strategy_id, t.bar_id, t.created_at
                     FROM operational_decision_tickets t
                     LEFT JOIN operational_decision_completions c USING(ticket_id)
-                    WHERE c.ticket_id IS NULL AND t.strategy_id=?
+                    LEFT JOIN operational_market_bar_conflicts x ON x.bar_id=t.bar_id
+                    WHERE c.ticket_id IS NULL AND x.bar_id IS NULL AND t.strategy_id=?
                     ORDER BY t.created_at, t.ticket_id LIMIT ?""",
                     (strategy_id, limit),
                 ).fetchall()
@@ -469,10 +473,12 @@ class SQLiteOperationalMarketDataStore:
         connection = self._connect()
         try:
             rows = connection.execute(
-                """SELECT * FROM operational_market_bars
-                WHERE provider=? AND venue=? AND symbol=? AND interval_seconds=?
-                  AND close_time<=?
-                ORDER BY close_time DESC, bar_id DESC LIMIT ?""",
+                """SELECT b.* FROM operational_market_bars b
+                LEFT JOIN operational_market_bar_conflicts x USING(bar_id)
+                WHERE x.bar_id IS NULL
+                  AND b.provider=? AND b.venue=? AND b.symbol=? AND b.interval_seconds=?
+                  AND b.close_time<=?
+                ORDER BY b.close_time DESC, b.bar_id DESC LIMIT ?""",
                 (provider, venue, symbol, interval_seconds, through.isoformat(), limit),
             ).fetchall()
         finally:
@@ -498,6 +504,14 @@ class SQLiteOperationalMarketDataStore:
             ).fetchone()
             if ticket is None:
                 raise KeyError(ticket_id)
+            conflict = connection.execute(
+                """SELECT 1 FROM operational_market_bar_conflicts x
+                JOIN operational_decision_tickets t ON t.bar_id=x.bar_id
+                WHERE t.ticket_id=? LIMIT 1""",
+                (ticket_id,),
+            ).fetchone()
+            if conflict is not None:
+                raise ValueError("OPERATIONAL_DECISION_BAR_CONFLICTED")
             cursor = connection.execute(
                 """INSERT OR IGNORE INTO operational_decision_completions(
                     ticket_id, outcome_id, completed_at
