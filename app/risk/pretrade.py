@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
+from enum import StrEnum
 
 from app.domain.trading import OrderIntent, Side
 
@@ -17,6 +18,18 @@ def _validate_mark_prices(prices: Mapping[str, Decimal]) -> None:
             raise ValueError("portfolio mark symbols must be normalized uppercase")
         if not isinstance(price, Decimal) or not price.is_finite() or price <= 0:
             raise ValueError(f"portfolio mark price must be positive and finite: {symbol}")
+
+
+class RiskEvaluationMode(StrEnum):
+    """Explicit trust boundary for pre-trade risk inputs.
+
+    REPLAY is intentionally permissive for deterministic historical/research
+    evaluation. OPERATIONAL is fail-closed and requires a complete measured
+    ``OperationalRiskContext``. There is deliberately no implicit/default mode.
+    """
+
+    REPLAY = "REPLAY"
+    OPERATIONAL = "OPERATIONAL"
 
 
 @dataclass(frozen=True)
@@ -64,6 +77,13 @@ class RiskLimits:
 
 @dataclass(frozen=True)
 class RiskContext:
+    """Replay/research risk observations.
+
+    Several observations retain deterministic defaults for explicit REPLAY use.
+    Production admission must never rely on this type; OPERATIONAL evaluation
+    accepts only ``OperationalRiskContext``.
+    """
+
     price_timestamp: datetime
     decision_time: datetime
     market_open: bool = True
@@ -208,16 +228,38 @@ class PreTradeRiskEngine:
         limits.validate()
         self.limits = limits
 
+    @staticmethod
+    def _context_for_mode(
+        mode: RiskEvaluationMode,
+        context: RiskContext | OperationalRiskContext | None,
+    ) -> RiskContext | None:
+        evaluation_mode = RiskEvaluationMode(mode)
+        if evaluation_mode is RiskEvaluationMode.OPERATIONAL:
+            if not isinstance(context, OperationalRiskContext):
+                raise ValueError("OPERATIONAL_RISK_CONTEXT_REQUIRED")
+            context.validate()
+            return context.to_risk_context()
+        if context is None:
+            return None
+        if isinstance(context, OperationalRiskContext):
+            context.validate()
+            return context.to_risk_context()
+        context.validate()
+        return context
+
     def evaluate(
         self,
         intent: OrderIntent,
         *,
+        mode: RiskEvaluationMode,
         current_symbol_notional: Decimal,
         current_gross_notional: Decimal,
         kill_switch_engaged: bool = False,
-        context: RiskContext | None = None,
+        context: RiskContext | OperationalRiskContext | None = None,
     ) -> RiskDecision:
         intent.validate()
+        evaluation_mode = RiskEvaluationMode(mode)
+        effective_context = self._context_for_mode(evaluation_mode, context)
         intent_fingerprint = risk_intent_fingerprint(intent)
         for name, value in (
             ("current_symbol_notional", current_symbol_notional),
@@ -252,57 +294,67 @@ class PreTradeRiskEngine:
         if projected_gross > self.limits.maximum_gross_notional:
             reasons.append("GROSS_NOTIONAL_LIMIT_EXCEEDED")
 
-        if context is not None:
-            context.validate()
+        if effective_context is not None:
             age_seconds = Decimal(
-                str((context.decision_time - context.price_timestamp).total_seconds())
+                str(
+                    (
+                        effective_context.decision_time - effective_context.price_timestamp
+                    ).total_seconds()
+                )
             )
             if age_seconds > self.limits.maximum_price_age_seconds:
                 reasons.append("STALE_PRICE")
-            if not context.market_open:
+            if not effective_context.market_open:
                 reasons.append("MARKET_CLOSED")
-            if context.halted:
+            if effective_context.halted:
                 reasons.append("INSTRUMENT_HALTED")
-            if context.spread_bps > self.limits.maximum_spread_bps:
+            if effective_context.spread_bps > self.limits.maximum_spread_bps:
                 reasons.append("SPREAD_LIMIT_EXCEEDED")
-            if context.estimated_slippage_bps > self.limits.maximum_slippage_bps:
+            if effective_context.estimated_slippage_bps > self.limits.maximum_slippage_bps:
                 reasons.append("SLIPPAGE_LIMIT_EXCEEDED")
-            if context.daily_pnl <= -self.limits.maximum_daily_loss:
+            if effective_context.daily_pnl <= -self.limits.maximum_daily_loss:
                 reasons.append("DAILY_LOSS_LIMIT_REACHED")
-            if context.drawdown >= self.limits.maximum_drawdown:
+            if effective_context.drawdown >= self.limits.maximum_drawdown:
                 reasons.append("DRAWDOWN_LIMIT_REACHED")
-            if context.turnover_notional + order_notional > self.limits.maximum_turnover_notional:
+            if (
+                effective_context.turnover_notional + order_notional
+                > self.limits.maximum_turnover_notional
+            ):
                 reasons.append("TURNOVER_LIMIT_EXCEEDED")
             if (
                 intent.side is Side.BUY
-                and context.available_cash is not None
-                and order_notional > context.available_cash
+                and effective_context.available_cash is not None
+                and order_notional > effective_context.available_cash
             ):
                 reasons.append("INSUFFICIENT_AVAILABLE_CASH")
-            if context.average_daily_dollar_volume is not None:
-                participation = order_notional / context.average_daily_dollar_volume
+            if effective_context.average_daily_dollar_volume is not None:
+                participation = order_notional / effective_context.average_daily_dollar_volume
                 if participation > self.limits.maximum_liquidity_participation_fraction:
                     reasons.append("LIQUIDITY_PARTICIPATION_EXCEEDED")
-            if context.portfolio_equity is not None:
+            if effective_context.portfolio_equity is not None:
                 if (
-                    projected_symbol / context.portfolio_equity
+                    projected_symbol / effective_context.portfolio_equity
                     > self.limits.maximum_position_fraction_of_equity
                 ):
                     reasons.append("POSITION_CONCENTRATION_EXCEEDED")
-                if context.sector_notional is not None:
+                if effective_context.sector_notional is not None:
                     projected_sector = (
-                        context.sector_notional + order_notional
+                        effective_context.sector_notional + order_notional
                         if intent.side is Side.BUY
-                        else max(Decimal("0"), context.sector_notional - order_notional)
+                        else max(
+                            Decimal("0"),
+                            effective_context.sector_notional - order_notional,
+                        )
                     )
                     if (
-                        projected_sector / context.portfolio_equity
+                        projected_sector / effective_context.portfolio_equity
                         > self.limits.maximum_sector_fraction_of_equity
                     ):
                         reasons.append("SECTOR_CONCENTRATION_EXCEEDED")
             if (
-                context.annualized_volatility is not None
-                and context.annualized_volatility > self.limits.maximum_annualized_volatility
+                effective_context.annualized_volatility is not None
+                and effective_context.annualized_volatility
+                > self.limits.maximum_annualized_volatility
             ):
                 reasons.append("VOLATILITY_LIMIT_EXCEEDED")
 
