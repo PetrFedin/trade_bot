@@ -238,7 +238,6 @@ class SQLiteOperationalContinuityStore:
                 connection.execute("COMMIT")
                 return False
 
-            previous = None
             if checkpoint.previous_checkpoint_id is not None:
                 previous = connection.execute(
                     """SELECT provider, venue, symbol, interval_seconds,
@@ -438,7 +437,11 @@ class SQLiteOperationalRepairBarStore:
         try:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT content_hash FROM operational_market_bars WHERE bar_id=?",
+                """SELECT provider, venue, symbol, interval_seconds,
+                          open_time, close_time, revision,
+                          open_price, high_price, low_price, close_price, volume,
+                          content_hash
+                   FROM operational_market_bars WHERE bar_id=?""",
                 (bar.bar_id,),
             ).fetchone()
             if row is None:
@@ -452,7 +455,10 @@ class SQLiteOperationalRepairBarStore:
                     self._bar_values(bar, moment),
                 )
                 inserted = cursor.rowcount == 1
-            elif str(row["content_hash"]) != bar.content_hash:
+            elif (
+                str(row["content_hash"]) != bar.content_hash
+                and not self._same_stored_economics(row, bar)
+            ):
                 connection.execute(
                     """INSERT INTO operational_market_bar_conflicts(
                         bar_id, existing_content_hash, observed_content_hash,
@@ -483,6 +489,25 @@ class SQLiteOperationalRepairBarStore:
         if conflict:
             raise OperationalBarConflict(f"OPERATIONAL_BAR_CONFLICT:{bar.bar_id}")
         return inserted
+
+    @staticmethod
+    def _same_stored_economics(row: sqlite3.Row, bar: OperationalBar) -> bool:
+        return (
+            str(row["provider"]) == bar.provider
+            and str(row["venue"]) == bar.venue
+            and str(row["symbol"]) == bar.symbol
+            and int(row["interval_seconds"]) == bar.interval_seconds
+            and datetime.fromisoformat(str(row["open_time"]))
+            == _aware(bar.open_time, "open_time")
+            and datetime.fromisoformat(str(row["close_time"]))
+            == _aware(bar.close_time, "close_time")
+            and int(row["revision"]) == bar.revision
+            and Decimal(str(row["open_price"])) == bar.open
+            and Decimal(str(row["high_price"])) == bar.high
+            and Decimal(str(row["low_price"])) == bar.low
+            and Decimal(str(row["close_price"])) == bar.close
+            and Decimal(str(row["volume"])) == bar.volume
+        )
 
     @staticmethod
     def _bar_values(bar: OperationalBar, recorded_at: datetime) -> tuple[object, ...]:
