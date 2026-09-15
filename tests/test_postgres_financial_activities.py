@@ -29,12 +29,16 @@ from app.portfolio.strict import StrictPostgresPortfolioEventStore
 NOW = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
 ACCOUNT = "paper-account:pg-fingerprint"
 RELEASE = "release:f21b-pg"
+OTHER_ACCOUNT = "paper-account:pg-other"
 
 
 def activity(
     activity_id: str,
     activity_type: str,
     amount: str,
+    *,
+    account_identity: str = ACCOUNT,
+    release_identity: str = RELEASE,
 ) -> BrokerFinancialActivity:
     payload = {
         "id": activity_id,
@@ -49,8 +53,8 @@ def activity(
         currency="USD",
         symbol=None,
         occurred_at=NOW,
-        account_identity=ACCOUNT,
-        release_identity=RELEASE,
+        account_identity=account_identity,
+        release_identity=release_identity,
         source_cursor="ROOT",
         canonical_payload=json.dumps(
             payload,
@@ -83,6 +87,8 @@ def stack():
         store=store,
         portfolio=portfolio,
         runtime_ledger=ledger,
+        account_identity=ACCOUNT,
+        release_identity=RELEASE,
     )
     return store, portfolio, ledger, projector
 
@@ -103,6 +109,33 @@ def test_postgres_fee_and_deposit_projection_survive_restart() -> None:
     assert restarted.external_cash_flow == Decimal("100")
     assert restarted.fees_paid == Decimal("4")
     assert restarted.snapshot({}).total_pnl == Decimal("-4")
+
+
+def test_postgres_projection_never_crosses_account_scope() -> None:
+    store, portfolio, ledger, projector = stack()
+    store.ingest(activity("pg-mine", "CSD", "10"), ingested_at=NOW)
+    store.ingest(
+        activity(
+            "pg-other-account",
+            "CSD",
+            "900",
+            account_identity=OTHER_ACCOUNT,
+        ),
+        ingested_at=NOW,
+    )
+
+    projected, quarantined = projector.project_pending(occurred_at=NOW)
+    assert projected == 1 and quarantined == 0
+    assert ledger.cash == Decimal("1010")
+    assert portfolio.replay(opening_cash=Decimal("1000")).cash == Decimal("1010")
+    assert store.pending_count(
+        account_identity=ACCOUNT,
+        release_identity=RELEASE,
+    ) == 0
+    assert store.pending_count(
+        account_identity=OTHER_ACCOUNT,
+        release_identity=RELEASE,
+    ) == 1
 
 
 def test_postgres_same_id_concurrent_ingestion_is_one_fact() -> None:
@@ -144,7 +177,10 @@ def test_postgres_same_id_conflict_quarantines_and_cursor_is_monotonic() -> None
     record = store.ingest(changed, ingested_at=NOW)
     assert record.state is FinancialProjectionState.QUARANTINED
     assert record.reason == "ACTIVITY_ID_CONFLICT"
-    assert store.quarantined_count() == 1
+    assert store.quarantined_count(
+        account_identity=ACCOUNT,
+        release_identity=RELEASE,
+    ) == 1
 
     state = store.advance_recovery(
         account_identity=ACCOUNT,
