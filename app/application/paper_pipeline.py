@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
@@ -32,6 +32,9 @@ class MarketDataNotReady(ValueError):
         super().__init__(f"MARKET_DATA_NOT_READY:{','.join(reasons)}")
 
 
+OperationalIntentAuthorizer = Callable[[OrderIntent, datetime], None]
+
+
 class PaperTradingPipeline:
     """Deterministic trading slice with explicit replay and operational boundaries."""
 
@@ -45,6 +48,7 @@ class PaperTradingPipeline:
         market_data_policy: MarketDataPolicy | None = None,
         risk_admission: RiskAdmissionService | None = None,
         execution_facts: ExecutionFactStore | None = None,
+        new_risk_authorizer: OperationalIntentAuthorizer | None = None,
     ) -> None:
         if risk_admission is not None and risk_admission.engine is not risk:
             raise ValueError("risk_admission must use the pipeline risk engine")
@@ -58,6 +62,7 @@ class PaperTradingPipeline:
         self.market_data_policy.validate()
         self.risk_admission = risk_admission
         self.execution_facts = execution_facts
+        self.new_risk_authorizer = new_risk_authorizer
         self.last_recorded_risk: RecordedRiskDecision | None = None
 
     def plan(
@@ -97,6 +102,8 @@ class PaperTradingPipeline:
             created_at=target.generated_at,
             strategy_id=target.strategy_id,
         )
+        if self.mode is PlanningMode.OPERATIONAL and self.new_risk_authorizer is not None:
+            self.new_risk_authorizer(intent, decision_clock)
         effective_context, prices = self._risk_context(
             target,
             risk_context,
