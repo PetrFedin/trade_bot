@@ -180,9 +180,73 @@ def test_postgres_continuity_chain_is_restart_safe_and_retry_idempotent(stores) 
     ) == second
 
 
-def test_postgres_continuity_rejects_nonadvancing_or_wrong_stream_chain(stores) -> None:
-    _, continuity, _ = stores
+def test_postgres_two_workers_append_same_checkpoint_exactly_once(stores) -> None:
+    _, _, repair = stores
+    value = bar(0)
+    assert repair.record_without_decision(value, recorded_at=OBSERVED)
+    candidate = checkpoint(value, previous=None, established_at=OBSERVED)
+
+    def append_once(_: int) -> bool:
+        worker = PostgresOperationalContinuityStore(DSN)
+        return worker.append(candidate)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(append_once, range(2)))
+
+    assert sorted(results) == [False, True]
+    with psycopg.connect(DSN) as connection:
+        count = connection.execute(
+            "SELECT COUNT(*) FROM astra_operational_market_continuity"
+        ).fetchone()[0]
+    assert count == 1
+
+
+def test_postgres_two_workers_cannot_fork_same_parent(stores) -> None:
+    _, continuity, repair = stores
     first_bar = bar(0)
+    second_bar = bar(1)
+    third_bar = bar(2)
+    for value in (first_bar, second_bar, third_bar):
+        assert repair.record_without_decision(value, recorded_at=OBSERVED)
+
+    root = checkpoint(first_bar, previous=None, established_at=OBSERVED)
+    assert continuity.append(root)
+    first_child = checkpoint(
+        second_bar,
+        previous=root,
+        established_at=OBSERVED + timedelta(seconds=1),
+    )
+    competing_child = checkpoint(
+        third_bar,
+        previous=root,
+        established_at=OBSERVED + timedelta(seconds=2),
+    )
+
+    def append_child(candidate: OperationalContinuityCheckpoint) -> str:
+        worker = PostgresOperationalContinuityStore(DSN)
+        try:
+            return "INSERTED" if worker.append(candidate) else "IDEMPOTENT"
+        except ValueError as exc:
+            assert "chain fork" in str(exc)
+            return "FORK_REJECTED"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(append_child, (first_child, competing_child)))
+
+    assert sorted(results) == ["FORK_REJECTED", "INSERTED"]
+    with psycopg.connect(DSN) as connection:
+        child_count = connection.execute(
+            """SELECT COUNT(*) FROM astra_operational_market_continuity
+            WHERE previous_checkpoint_id=%s""",
+            (root.checkpoint_id,),
+        ).fetchone()[0]
+    assert child_count == 1
+
+
+def test_postgres_continuity_rejects_nonadvancing_chain(stores) -> None:
+    _, continuity, repair = stores
+    first_bar = bar(0)
+    assert repair.record_without_decision(first_bar, recorded_at=OBSERVED)
     first = checkpoint(first_bar, previous=None, established_at=OBSERVED)
     assert continuity.append(first)
 
@@ -210,6 +274,13 @@ def test_postgres_continuity_rejects_nonadvancing_or_wrong_stream_chain(stores) 
     )
     with pytest.raises(ValueError, match="did not advance"):
         continuity.append(nonadvancing)
+
+
+def test_postgres_continuity_rejects_missing_through_bar(stores) -> None:
+    _, continuity, _ = stores
+    missing = checkpoint(bar(0), previous=None, established_at=OBSERVED)
+    with pytest.raises(ValueError, match="through bar is missing"):
+        continuity.append(missing)
 
 
 def test_postgres_continuity_journal_is_append_only(stores) -> None:
