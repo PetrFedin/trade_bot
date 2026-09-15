@@ -65,11 +65,12 @@ class BrokerFinancialActivity:
 
     @property
     def payload_hash(self) -> str:
+        """Broker-fact identity is release-independent within one account."""
+
         self.validate()
         envelope = json.dumps(
             {
                 "account_identity": self.account_identity,
-                "release_identity": self.release_identity,
                 "payload": json.loads(self.canonical_payload),
             },
             sort_keys=True,
@@ -108,12 +109,12 @@ class FinancialActivityStore(Protocol):
         self,
         *,
         account_identity: str,
-        release_identity: str,
         limit: int = 100,
     ) -> tuple[FinancialActivityRecord, ...]: ...
 
     def mark_projected(
         self,
+        account_identity: str,
         activity_id: str,
         *,
         portfolio_event_id: str,
@@ -122,25 +123,16 @@ class FinancialActivityStore(Protocol):
 
     def quarantine(
         self,
+        account_identity: str,
         activity_id: str,
         *,
         reason: str,
         occurred_at: datetime,
     ) -> FinancialActivityRecord: ...
 
-    def pending_count(
-        self,
-        *,
-        account_identity: str,
-        release_identity: str,
-    ) -> int: ...
+    def pending_count(self, *, account_identity: str) -> int: ...
 
-    def quarantined_count(
-        self,
-        *,
-        account_identity: str,
-        release_identity: str,
-    ) -> int: ...
+    def quarantined_count(self, *, account_identity: str) -> int: ...
 
     def recovery_state(
         self,
@@ -177,9 +169,15 @@ def canonical_payload(value: str) -> str:
     )
 
 
+def validate_account(account_identity: str) -> None:
+    if not account_identity.strip():
+        raise ValueError("account_identity is required")
+
+
 def validate_scope(account_identity: str, release_identity: str) -> None:
-    if not account_identity.strip() or not release_identity.strip():
-        raise ValueError("account_identity and release_identity are required")
+    validate_account(account_identity)
+    if not release_identity.strip():
+        raise ValueError("release_identity is required")
 
 
 class SQLiteFinancialActivityStore:
@@ -221,32 +219,38 @@ class SQLiteFinancialActivityStore:
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS financial_activity_facts (
-                    activity_id TEXT PRIMARY KEY,
+                    account_identity TEXT NOT NULL,
+                    activity_id TEXT NOT NULL,
                     activity_type TEXT NOT NULL,
                     net_amount TEXT NOT NULL,
                     currency TEXT NOT NULL,
                     symbol TEXT,
                     occurred_at TEXT NOT NULL,
-                    account_identity TEXT NOT NULL,
-                    release_identity TEXT NOT NULL,
+                    first_seen_release_identity TEXT NOT NULL,
                     source_cursor TEXT NOT NULL,
                     payload_hash TEXT NOT NULL,
                     canonical_payload TEXT NOT NULL,
-                    ingested_at TEXT NOT NULL
+                    ingested_at TEXT NOT NULL,
+                    PRIMARY KEY(account_identity, activity_id)
                 );
                 CREATE TABLE IF NOT EXISTS financial_activity_projection (
-                    activity_id TEXT PRIMARY KEY,
+                    account_identity TEXT NOT NULL,
+                    activity_id TEXT NOT NULL,
                     state TEXT NOT NULL CHECK(
                         state IN ('PENDING', 'PROJECTED', 'QUARANTINED')
                     ),
                     reason TEXT,
                     portfolio_event_id TEXT,
                     updated_at TEXT NOT NULL,
-                    FOREIGN KEY(activity_id)
-                        REFERENCES financial_activity_facts(activity_id)
+                    PRIMARY KEY(account_identity, activity_id),
+                    FOREIGN KEY(account_identity, activity_id)
+                        REFERENCES financial_activity_facts(
+                            account_identity, activity_id
+                        )
                 );
                 CREATE TABLE IF NOT EXISTS financial_activity_conflicts (
                     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_identity TEXT NOT NULL,
                     activity_id TEXT NOT NULL,
                     existing_payload_hash TEXT NOT NULL,
                     observed_payload_hash TEXT NOT NULL,
@@ -261,10 +265,12 @@ class SQLiteFinancialActivityStore:
                     PRIMARY KEY(account_identity, release_identity)
                 );
                 CREATE INDEX IF NOT EXISTS idx_financial_projection_state
-                ON financial_activity_projection(state, updated_at, activity_id);
-                CREATE INDEX IF NOT EXISTS idx_financial_fact_scope
+                ON financial_activity_projection(
+                    account_identity, state, updated_at, activity_id
+                );
+                CREATE INDEX IF NOT EXISTS idx_financial_fact_time
                 ON financial_activity_facts(
-                    account_identity, release_identity, occurred_at, activity_id
+                    account_identity, occurred_at, activity_id
                 );
                 CREATE TRIGGER IF NOT EXISTS financial_activity_facts_no_update
                 BEFORE UPDATE ON financial_activity_facts BEGIN
@@ -312,7 +318,7 @@ class SQLiteFinancialActivityStore:
                 "occurred_at",
             ),
             account_identity=str(row["account_identity"]),
-            release_identity=str(row["release_identity"]),
+            release_identity=str(row["first_seen_release_identity"]),
             source_cursor=str(row["source_cursor"]),
             canonical_payload=str(row["canonical_payload"]),
         )
@@ -335,14 +341,16 @@ class SQLiteFinancialActivityStore:
     @staticmethod
     def _select(
         connection: sqlite3.Connection,
+        account_identity: str,
         activity_id: str,
     ) -> sqlite3.Row | None:
         return connection.execute(
             """SELECT f.*, p.state, p.reason, p.portfolio_event_id, p.updated_at
             FROM financial_activity_facts f
-            JOIN financial_activity_projection p USING(activity_id)
-            WHERE f.activity_id=?""",
-            (activity_id,),
+            JOIN financial_activity_projection p
+              USING(account_identity, activity_id)
+            WHERE f.account_identity=? AND f.activity_id=?""",
+            (account_identity, activity_id),
         ).fetchone()
 
     def ingest(
@@ -356,16 +364,21 @@ class SQLiteFinancialActivityStore:
         payload = canonical_payload(activity.canonical_payload)
         digest = activity.payload_hash
         with self._transaction() as connection:
-            existing = self._select(connection, activity.activity_id)
+            existing = self._select(
+                connection,
+                activity.account_identity,
+                activity.activity_id,
+            )
             if existing is not None:
                 if str(existing["payload_hash"]) == digest:
                     return self._record(existing)
                 connection.execute(
                     """INSERT INTO financial_activity_conflicts
-                    (activity_id, existing_payload_hash, observed_payload_hash,
-                     observed_payload, observed_at)
-                    VALUES (?, ?, ?, ?, ?)""",
+                    (account_identity, activity_id, existing_payload_hash,
+                     observed_payload_hash, observed_payload, observed_at)
+                    VALUES (?, ?, ?, ?, ?, ?)""",
                     (
+                        activity.account_identity,
                         activity.activity_id,
                         str(existing["payload_hash"]),
                         digest,
@@ -378,28 +391,36 @@ class SQLiteFinancialActivityStore:
                     SET state='QUARANTINED',
                         reason='ACTIVITY_ID_CONFLICT',
                         updated_at=?
-                    WHERE activity_id=?""",
-                    (moment.isoformat(), activity.activity_id),
+                    WHERE account_identity=? AND activity_id=?""",
+                    (
+                        moment.isoformat(),
+                        activity.account_identity,
+                        activity.activity_id,
+                    ),
                 )
-                row = self._select(connection, activity.activity_id)
+                row = self._select(
+                    connection,
+                    activity.account_identity,
+                    activity.activity_id,
+                )
                 if row is None:
                     raise RuntimeError("financial activity conflict lookup failed")
                 return self._record(row)
 
             connection.execute(
                 """INSERT INTO financial_activity_facts
-                (activity_id, activity_type, net_amount, currency, symbol,
-                 occurred_at, account_identity, release_identity, source_cursor,
-                 payload_hash, canonical_payload, ingested_at)
+                (account_identity, activity_id, activity_type, net_amount,
+                 currency, symbol, occurred_at, first_seen_release_identity,
+                 source_cursor, payload_hash, canonical_payload, ingested_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
+                    activity.account_identity,
                     activity.activity_id,
                     activity.activity_type,
                     str(activity.net_amount),
                     activity.currency,
                     activity.symbol,
                     aware_utc(activity.occurred_at, "occurred_at").isoformat(),
-                    activity.account_identity,
                     activity.release_identity,
                     activity.source_cursor,
                     digest,
@@ -409,11 +430,20 @@ class SQLiteFinancialActivityStore:
             )
             connection.execute(
                 """INSERT INTO financial_activity_projection
-                (activity_id, state, reason, portfolio_event_id, updated_at)
-                VALUES (?, 'PENDING', NULL, NULL, ?)""",
-                (activity.activity_id, moment.isoformat()),
+                (account_identity, activity_id, state, reason,
+                 portfolio_event_id, updated_at)
+                VALUES (?, ?, 'PENDING', NULL, NULL, ?)""",
+                (
+                    activity.account_identity,
+                    activity.activity_id,
+                    moment.isoformat(),
+                ),
             )
-            row = self._select(connection, activity.activity_id)
+            row = self._select(
+                connection,
+                activity.account_identity,
+                activity.activity_id,
+            )
             if row is None:
                 raise RuntimeError("financial activity insert lookup failed")
             return self._record(row)
@@ -422,10 +452,9 @@ class SQLiteFinancialActivityStore:
         self,
         *,
         account_identity: str,
-        release_identity: str,
         limit: int = 100,
     ) -> tuple[FinancialActivityRecord, ...]:
-        validate_scope(account_identity, release_identity)
+        validate_account(account_identity)
         if limit < 1:
             raise ValueError("limit must be positive")
         connection = self._connect()
@@ -434,12 +463,12 @@ class SQLiteFinancialActivityStore:
                 """SELECT f.*, p.state, p.reason,
                           p.portfolio_event_id, p.updated_at
                 FROM financial_activity_facts f
-                JOIN financial_activity_projection p USING(activity_id)
+                JOIN financial_activity_projection p
+                  USING(account_identity, activity_id)
                 WHERE p.state='PENDING'
                   AND f.account_identity=?
-                  AND f.release_identity=?
                 ORDER BY f.occurred_at, f.activity_id LIMIT ?""",
-                (account_identity, release_identity, limit),
+                (account_identity, limit),
             ).fetchall()
             return tuple(self._record(row) for row in rows)
         finally:
@@ -447,6 +476,7 @@ class SQLiteFinancialActivityStore:
 
     def _transition(
         self,
+        account_identity: str,
         activity_id: str,
         *,
         state: FinancialProjectionState,
@@ -454,11 +484,12 @@ class SQLiteFinancialActivityStore:
         portfolio_event_id: str | None,
         occurred_at: datetime,
     ) -> FinancialActivityRecord:
+        validate_account(account_identity)
         moment = aware_utc(occurred_at, "occurred_at")
         with self._transaction() as connection:
-            row = self._select(connection, activity_id)
+            row = self._select(connection, account_identity, activity_id)
             if row is None:
-                raise KeyError(activity_id)
+                raise KeyError((account_identity, activity_id))
             current = FinancialProjectionState(str(row["state"]))
             if (
                 current is FinancialProjectionState.PROJECTED
@@ -475,22 +506,24 @@ class SQLiteFinancialActivityStore:
             connection.execute(
                 """UPDATE financial_activity_projection
                 SET state=?, reason=?, portfolio_event_id=?, updated_at=?
-                WHERE activity_id=?""",
+                WHERE account_identity=? AND activity_id=?""",
                 (
                     state.value,
                     reason,
                     portfolio_event_id,
                     moment.isoformat(),
+                    account_identity,
                     activity_id,
                 ),
             )
-            updated = self._select(connection, activity_id)
+            updated = self._select(connection, account_identity, activity_id)
             if updated is None:
                 raise RuntimeError("financial projection update lookup failed")
             return self._record(updated)
 
     def mark_projected(
         self,
+        account_identity: str,
         activity_id: str,
         *,
         portfolio_event_id: str,
@@ -499,6 +532,7 @@ class SQLiteFinancialActivityStore:
         if not portfolio_event_id.strip():
             raise ValueError("portfolio_event_id is required")
         return self._transition(
+            account_identity,
             activity_id,
             state=FinancialProjectionState.PROJECTED,
             reason=None,
@@ -508,6 +542,7 @@ class SQLiteFinancialActivityStore:
 
     def quarantine(
         self,
+        account_identity: str,
         activity_id: str,
         *,
         reason: str,
@@ -516,6 +551,7 @@ class SQLiteFinancialActivityStore:
         if not reason.strip():
             raise ValueError("quarantine reason is required")
         return self._transition(
+            account_identity,
             activity_id,
             state=FinancialProjectionState.QUARANTINED,
             reason=reason,
@@ -528,19 +564,15 @@ class SQLiteFinancialActivityStore:
         state: FinancialProjectionState,
         *,
         account_identity: str,
-        release_identity: str,
     ) -> int:
-        validate_scope(account_identity, release_identity)
+        validate_account(account_identity)
         connection = self._connect()
         try:
             row = connection.execute(
                 """SELECT COUNT(*) AS count
-                FROM financial_activity_projection p
-                JOIN financial_activity_facts f USING(activity_id)
-                WHERE p.state=?
-                  AND f.account_identity=?
-                  AND f.release_identity=?""",
-                (state.value, account_identity, release_identity),
+                FROM financial_activity_projection
+                WHERE state=? AND account_identity=?""",
+                (state.value, account_identity),
             ).fetchone()
             if row is None:
                 raise RuntimeError("financial projection count failed")
@@ -548,28 +580,16 @@ class SQLiteFinancialActivityStore:
         finally:
             connection.close()
 
-    def pending_count(
-        self,
-        *,
-        account_identity: str,
-        release_identity: str,
-    ) -> int:
+    def pending_count(self, *, account_identity: str) -> int:
         return self._count(
             FinancialProjectionState.PENDING,
             account_identity=account_identity,
-            release_identity=release_identity,
         )
 
-    def quarantined_count(
-        self,
-        *,
-        account_identity: str,
-        release_identity: str,
-    ) -> int:
+    def quarantined_count(self, *, account_identity: str) -> int:
         return self._count(
             FinancialProjectionState.QUARANTINED,
             account_identity=account_identity,
-            release_identity=release_identity,
         )
 
     def recovery_state(
