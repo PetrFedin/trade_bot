@@ -19,7 +19,6 @@ from app.oms.reconciliation import (
     BrokerOrderTruth,
     BrokerPortfolioTruth,
     PortfolioReconciliationResult,
-    reconcile_portfolio,
 )
 from app.oms.risk_reservations import RiskReservationBudget, RiskReservationRejected
 from app.oms.store import OrderRecord
@@ -47,14 +46,10 @@ class PaperPlanningResult:
 class PaperCycleService:
     """Bounded application service for the stable paper-trading product graph.
 
-    It intentionally exposes one durable external mutation per ``execute_next_submit``
-    call. Operational planning requires an explicit wall-clock decision time, a
-    complete measured risk context, and qualified market data before strategy
-    evaluation. Planning persists immutable risk and outbox state. Every submit
-    re-reads current readiness and durable ARM/HALT control immediately before the
-    exclusive submit claim. Trade updates route by durable client-order identity,
-    missed fills can be repaired through a GET-only activity source, and
-    reconciliation remains read-only.
+    Operational planning requires explicit wall-clock time, complete measured risk,
+    qualified market data and fresh durable broker-account reconciliation before new
+    BUY risk can be admitted. Final dispatch re-checks the same account truth and
+    current operational readiness immediately before submit ownership is claimed.
     """
 
     def __init__(
@@ -78,6 +73,7 @@ class PaperCycleService:
             control=runtime.dispatch_control,
             readiness=runtime.operational_readiness,
             snapshot_provider=operational_snapshot_provider,
+            account_reconciliation_gate=runtime.account_reconciliation_gate,
         )
         self.executor = PaperSubmitExecutor(
             store=runtime.oms_store,
@@ -198,5 +194,10 @@ class PaperCycleService:
     def reconcile_portfolio(
         self,
         broker_truth: BrokerPortfolioTruth,
+        *,
+        occurred_at: datetime,
     ) -> PortfolioReconciliationResult:
-        return reconcile_portfolio(self.runtime.portfolio, broker_truth)
+        return self.runtime.account_reconciliation_gate.reconcile(
+            broker_truth,
+            occurred_at=occurred_at,
+        )
