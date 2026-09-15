@@ -234,8 +234,11 @@ class PostgresOperationalMarketDataStore:
             with connection.transaction():
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        """SELECT ticket_id FROM astra_operational_decision_tickets
-                        WHERE ticket_id=%s""",
+                        """SELECT t.ticket_id
+                        FROM astra_operational_decision_tickets t
+                        JOIN astra_operational_market_bars b ON b.bar_id=t.bar_id
+                        WHERE t.ticket_id=%s
+                        FOR UPDATE OF b""",
                         (ticket_id,),
                     )
                     if cursor.fetchone() is None:
