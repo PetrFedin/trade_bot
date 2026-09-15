@@ -13,6 +13,7 @@ from app.execution.financial_activity_store import (
     FinancialProjectionState,
     aware_utc,
     canonical_payload,
+    validate_scope,
 )
 
 try:
@@ -202,7 +203,14 @@ class PostgresFinancialActivityStore:
                         )
                     return self._record(row)
 
-    def pending(self, *, limit: int = 100) -> tuple[FinancialActivityRecord, ...]:
+    def pending(
+        self,
+        *,
+        account_identity: str,
+        release_identity: str,
+        limit: int = 100,
+    ) -> tuple[FinancialActivityRecord, ...]:
+        validate_scope(account_identity, release_identity)
         if limit < 1:
             raise ValueError("limit must be positive")
         with self._connect() as connection:
@@ -213,8 +221,10 @@ class PostgresFinancialActivityStore:
                     FROM astra_financial_activity_facts f
                     JOIN astra_financial_activity_projection p USING(activity_id)
                     WHERE p.state='PENDING'
+                      AND f.account_identity=%s
+                      AND f.release_identity=%s
                     ORDER BY f.occurred_at, f.activity_id LIMIT %s""",
-                    (limit,),
+                    (account_identity, release_identity, limit),
                 )
                 rows = cursor.fetchall()
         return tuple(self._record(row) for row in rows)
@@ -306,25 +316,53 @@ class PostgresFinancialActivityStore:
             occurred_at=occurred_at,
         )
 
-    def _count(self, state: FinancialProjectionState) -> int:
+    def _count(
+        self,
+        state: FinancialProjectionState,
+        *,
+        account_identity: str,
+        release_identity: str,
+    ) -> int:
+        validate_scope(account_identity, release_identity)
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """SELECT COUNT(*) AS count
-                    FROM astra_financial_activity_projection
-                    WHERE state=%s""",
-                    (state.value,),
+                    FROM astra_financial_activity_projection p
+                    JOIN astra_financial_activity_facts f USING(activity_id)
+                    WHERE p.state=%s
+                      AND f.account_identity=%s
+                      AND f.release_identity=%s""",
+                    (state.value, account_identity, release_identity),
                 )
                 row = cursor.fetchone()
         if row is None:
             raise RuntimeError("financial projection count failed")
         return int(row["count"])
 
-    def pending_count(self) -> int:
-        return self._count(FinancialProjectionState.PENDING)
+    def pending_count(
+        self,
+        *,
+        account_identity: str,
+        release_identity: str,
+    ) -> int:
+        return self._count(
+            FinancialProjectionState.PENDING,
+            account_identity=account_identity,
+            release_identity=release_identity,
+        )
 
-    def quarantined_count(self) -> int:
-        return self._count(FinancialProjectionState.QUARANTINED)
+    def quarantined_count(
+        self,
+        *,
+        account_identity: str,
+        release_identity: str,
+    ) -> int:
+        return self._count(
+            FinancialProjectionState.QUARANTINED,
+            account_identity=account_identity,
+            release_identity=release_identity,
+        )
 
     def recovery_state(
         self,
@@ -332,6 +370,7 @@ class PostgresFinancialActivityStore:
         account_identity: str,
         release_identity: str,
     ) -> FinancialActivityRecoveryState | None:
+        validate_scope(account_identity, release_identity)
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -363,8 +402,7 @@ class PostgresFinancialActivityStore:
         recovered_through: datetime,
         occurred_at: datetime,
     ) -> FinancialActivityRecoveryState:
-        if not account_identity.strip() or not release_identity.strip():
-            raise ValueError("account_identity and release_identity are required")
+        validate_scope(account_identity, release_identity)
         watermark = aware_utc(recovered_through, "recovered_through")
         moment = aware_utc(occurred_at, "occurred_at")
         if watermark > moment:
