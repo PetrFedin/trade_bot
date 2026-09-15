@@ -17,6 +17,7 @@ from app.runtime.alpaca_paper_adapter_v100 import (
     AlpacaPaperCredentialsV100,
     AlpacaTradeUpdateStreamV100,
 )
+from tests.financial_activity_truth_support import ready_financial_activity_truth
 
 NOW = datetime(2026, 9, 12, 12, 0, tzinfo=UTC)
 
@@ -133,6 +134,11 @@ def test_product_reserves_first_pending_buy_and_rejects_second_and_third(tmp_pat
         broker=broker,
         trade_stream=listening_stream(),
         stream_generation=1,
+        financial_activity_truth=ready_financial_activity_truth(
+            tmp_path,
+            now=NOW,
+            maximum_age=timedelta(minutes=30),
+        ),
     )
 
     first = cycle.plan_and_prepare(
