@@ -140,6 +140,38 @@ def economics_bar(index: int, *, received_at: datetime = OBSERVED) -> Operationa
     )
 
 
+def make_checkpoint(
+    through: OperationalBar,
+    *,
+    previous: OperationalContinuityCheckpoint | None,
+    established_at: datetime,
+    evidence_source: str = "TEST",
+) -> OperationalContinuityCheckpoint:
+    previous_id = None if previous is None else previous.checkpoint_id
+    checkpoint_id = continuity_checkpoint_id(
+        previous_checkpoint_id=previous_id,
+        provider="BYBIT",
+        venue="BYBIT_LINEAR",
+        symbol="BTCUSDT",
+        interval_seconds=300,
+        through_bar_id=through.bar_id,
+        through_close_time=through.close_time,
+        evidence_source=evidence_source,
+    )
+    return OperationalContinuityCheckpoint(
+        checkpoint_id=checkpoint_id,
+        previous_checkpoint_id=previous_id,
+        provider="BYBIT",
+        venue="BYBIT_LINEAR",
+        symbol="BTCUSDT",
+        interval_seconds=300,
+        through_bar_id=through.bar_id,
+        through_close_time=through.close_time,
+        established_at=established_at,
+        evidence_source=evidence_source,
+    )
+
+
 def test_bootstrap_repairs_three_bars_without_creating_decision_tickets(tmp_path) -> None:
     _, marketdata, _, continuity, transport, _, value = service(
         tmp_path,
@@ -227,6 +259,79 @@ def test_existing_live_overlap_is_verified_without_duplicate_old_decisions(tmp_p
     assert result.repaired_bars == 2
     assert result.existing_bars == 1
     assert marketdata.pending_decisions(strategy_id=STRATEGY) == (original_ticket,)
+
+
+def test_reconnect_must_verify_checkpoint_overlap_before_advancing(tmp_path) -> None:
+    _, marketdata, _, continuity, transport, _, value = service(
+        tmp_path,
+        payload([row(0), row(1), row(2)]),
+    )
+    first = value.repair(observed_at=OBSERVED, bootstrap_open_time=BASE)
+    reconnect_at = BASE + timedelta(minutes=20, seconds=2)
+    transport.body = payload([row(2), row(3)], server_at=reconnect_at)
+
+    second = value.repair(observed_at=reconnect_at)
+
+    assert second.expected_bars == 2
+    assert second.existing_bars == 1
+    assert second.repaired_bars == 1
+    assert second.checkpoint.previous_checkpoint_id == first.checkpoint.checkpoint_id
+    assert second.checkpoint.through_close_time == BASE + timedelta(minutes=20)
+    assert marketdata.pending_decisions() == ()
+    assert continuity.latest(
+        provider="BYBIT",
+        venue="BYBIT_LINEAR",
+        symbol="BTCUSDT",
+        interval_seconds=300,
+    ) == second.checkpoint
+    query = parse_qs(urlsplit(transport.urls[-1]).query)
+    assert query["limit"] == ["2"]
+    assert query["start"] == [str(int((BASE + timedelta(minutes=10)).timestamp() * 1000))]
+
+
+def test_reconnect_without_new_bar_still_verifies_overlap_and_keeps_checkpoint(tmp_path) -> None:
+    _, marketdata, _, continuity, transport, _, value = service(
+        tmp_path,
+        payload([row(0), row(1), row(2)]),
+    )
+    first = value.repair(observed_at=OBSERVED, bootstrap_open_time=BASE)
+    verify_at = BASE + timedelta(minutes=15, seconds=3)
+    transport.body = payload([row(2)], server_at=verify_at)
+
+    repeated = value.repair(observed_at=verify_at)
+
+    assert repeated.checkpoint == first.checkpoint
+    assert repeated.expected_bars == 1
+    assert repeated.existing_bars == 1
+    assert repeated.repaired_bars == 0
+    assert marketdata.pending_decisions() == ()
+    assert continuity.latest(
+        provider="BYBIT",
+        venue="BYBIT_LINEAR",
+        symbol="BTCUSDT",
+        interval_seconds=300,
+    ) == first.checkpoint
+    assert parse_qs(urlsplit(transport.urls[-1]).query)["limit"] == ["1"]
+
+
+def test_reconnect_overlap_drift_fails_without_checkpoint_advance(tmp_path) -> None:
+    _, _, _, continuity, transport, _, value = service(
+        tmp_path,
+        payload([row(0), row(1), row(2)]),
+    )
+    first = value.repair(observed_at=OBSERVED, bootstrap_open_time=BASE)
+    reconnect_at = BASE + timedelta(minutes=20, seconds=2)
+    transport.body = payload([row(2, close="999"), row(3)], server_at=reconnect_at)
+
+    with pytest.raises(BybitRepairProtocolError, match="ECONOMICS_MISMATCH"):
+        value.repair(observed_at=reconnect_at)
+
+    assert continuity.latest(
+        provider="BYBIT",
+        venue="BYBIT_LINEAR",
+        symbol="BTCUSDT",
+        interval_seconds=300,
+    ) == first.checkpoint
 
 
 def test_missing_middle_rest_bar_fails_before_persistence_or_checkpoint(tmp_path) -> None:
@@ -336,28 +441,7 @@ def test_checkpoint_retry_ignores_new_observation_time_but_remains_append_only(t
     path, _, repair, continuity = stores(tmp_path)
     durable_bar = economics_bar(0)
     assert repair.record_without_decision(durable_bar, recorded_at=OBSERVED)
-    checkpoint_id = continuity_checkpoint_id(
-        previous_checkpoint_id=None,
-        provider="BYBIT",
-        venue="BYBIT_LINEAR",
-        symbol="BTCUSDT",
-        interval_seconds=300,
-        through_bar_id=durable_bar.bar_id,
-        through_close_time=durable_bar.close_time,
-        evidence_source="TEST",
-    )
-    first = OperationalContinuityCheckpoint(
-        checkpoint_id=checkpoint_id,
-        previous_checkpoint_id=None,
-        provider="BYBIT",
-        venue="BYBIT_LINEAR",
-        symbol="BTCUSDT",
-        interval_seconds=300,
-        through_bar_id=durable_bar.bar_id,
-        through_close_time=durable_bar.close_time,
-        established_at=OBSERVED,
-        evidence_source="TEST",
-    )
+    first = make_checkpoint(durable_bar, previous=None, established_at=OBSERVED)
     repeated = OperationalContinuityCheckpoint(
         **{
             **first.__dict__,
@@ -381,6 +465,37 @@ def test_checkpoint_retry_ignores_new_observation_time_but_remains_append_only(t
             )
     finally:
         connection.close()
+
+
+def test_sqlite_continuity_rejects_second_root_and_second_successor(tmp_path) -> None:
+    _, _, repair, continuity = stores(tmp_path)
+    values = tuple(economics_bar(index) for index in range(3))
+    for value in values:
+        assert repair.record_without_decision(value, recorded_at=OBSERVED)
+
+    root = make_checkpoint(values[0], previous=None, established_at=OBSERVED)
+    assert continuity.append(root)
+    competing_root = make_checkpoint(
+        values[1],
+        previous=None,
+        established_at=OBSERVED + timedelta(seconds=1),
+    )
+    with pytest.raises(ValueError, match="chain fork"):
+        continuity.append(competing_root)
+
+    child = make_checkpoint(
+        values[1],
+        previous=root,
+        established_at=OBSERVED + timedelta(seconds=1),
+    )
+    assert continuity.append(child)
+    competing_child = make_checkpoint(
+        values[2],
+        previous=root,
+        established_at=OBSERVED + timedelta(seconds=2),
+    )
+    with pytest.raises(ValueError, match="chain fork"):
+        continuity.append(competing_child)
 
 
 def test_checkpoint_cannot_reference_missing_durable_bar(tmp_path) -> None:
