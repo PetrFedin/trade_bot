@@ -4,7 +4,7 @@ import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Protocol
@@ -68,7 +68,7 @@ class OperationalBar:
         received_at = _aware(self.received_at, "received_at")
         if close_time <= open_time:
             raise ValueError("close_time must follow open_time")
-        if int((close_time - open_time).total_seconds()) != self.interval_seconds:
+        if close_time - open_time != timedelta(seconds=self.interval_seconds):
             raise ValueError("bar boundaries disagree with interval_seconds")
         if source_time < open_time:
             raise ValueError("source_timestamp cannot precede bar open")
@@ -108,7 +108,7 @@ class OperationalBar:
                 _aware(self.close_time, "close_time").isoformat(),
             )
         )
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        return hashlib.sha256(raw.encode()).hexdigest()
 
     def source_payload(self) -> dict[str, object]:
         self.validate()
@@ -138,7 +138,7 @@ class OperationalBar:
             separators=(",", ":"),
             ensure_ascii=True,
         )
-        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        return hashlib.sha256(canonical.encode()).hexdigest()
 
     def strategy_bar(self) -> Bar:
         if not self.is_final:
@@ -204,7 +204,7 @@ class OperationalMarketDataStore(Protocol):
 def decision_ticket_id(strategy_id: str, bar_id: str) -> str:
     if not strategy_id.strip() or not bar_id.strip():
         raise ValueError("strategy_id and bar_id are required")
-    return hashlib.sha256(f"{strategy_id}|{bar_id}".encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"{strategy_id}|{bar_id}".encode()).hexdigest()
 
 
 class SQLiteOperationalMarketDataStore:
