@@ -4,7 +4,8 @@ import json
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time as datetime_time, timedelta
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as datetime_time
 from decimal import Decimal, InvalidOperation
 from typing import Protocol
 from urllib.parse import urlencode
@@ -31,8 +32,27 @@ class FinancialActivityRecoveryError(RuntimeError):
 
 
 _EXTERNAL_FLOW_TYPES = {"CSD", "CSW"}
-_FEE_TYPES = {"CFEE", "DIVFEE", "DIVFT", "DIVNRA", "DIVTW", "FEE", "INTNRA", "INTTW", "PTC"}
-_INCOME_TYPES = {"CGD", "DIV", "DIVCGL", "DIVCGS", "DIVROC", "DIVTXEX", "INT", "PTR"}
+_FEE_TYPES = {
+    "CFEE",
+    "DIVFEE",
+    "DIVFT",
+    "DIVNRA",
+    "DIVTW",
+    "FEE",
+    "INTNRA",
+    "INTTW",
+    "PTC",
+}
+_INCOME_TYPES = {
+    "CGD",
+    "DIV",
+    "DIVCGL",
+    "DIVCGS",
+    "DIVROC",
+    "DIVTXEX",
+    "INT",
+    "PTR",
+}
 
 
 @dataclass(frozen=True)
@@ -181,9 +201,14 @@ class AlpacaPaperFinancialActivityReader:
                 )
             except (TimeoutError, OSError) as exc:
                 if attempt == self.policy.maximum_read_attempts:
-                    raise FinancialActivityRecoveryError("activity read transport exhausted") from exc
+                    raise FinancialActivityRecoveryError(
+                        "activity read transport exhausted"
+                    ) from exc
                 self.sleeper(delay)
-                delay = min(self.policy.maximum_backoff_seconds, max(delay * 2, delay))
+                delay = min(
+                    self.policy.maximum_backoff_seconds,
+                    max(delay * 2, delay),
+                )
                 continue
             if len(response.body) > self.policy.maximum_response_bytes:
                 raise AlpacaPaperProtocolError("broker response exceeds configured size limit")
@@ -195,7 +220,10 @@ class AlpacaPaperFinancialActivityReader:
             retryable = response.status in {408, 425, 429} or response.status >= 500
             if retryable and attempt < self.policy.maximum_read_attempts:
                 self.sleeper(delay)
-                delay = min(self.policy.maximum_backoff_seconds, max(delay * 2, delay))
+                delay = min(
+                    self.policy.maximum_backoff_seconds,
+                    max(delay * 2, delay),
+                )
                 continue
             raise FinancialActivityRecoveryError(
                 f"financial activities HTTP status {response.status}"
@@ -214,7 +242,10 @@ class AlpacaPaperFinancialActivityReader:
         if activity_type == "FILL":
             raise AlpacaPaperProtocolError("FILL must use the execution accounting path")
         canonical_payload = json.dumps(
-            dict(value), sort_keys=True, separators=(",", ":"), ensure_ascii=True
+            dict(value),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
         )
         activity = BrokerFinancialActivity(
             activity_id=str(value.get("id", "")).strip(),
@@ -250,14 +281,19 @@ class FinancialActivityProjector:
         self.portfolio = portfolio
         self.runtime_ledger = runtime_ledger
 
-    def project_pending(self, *, occurred_at: datetime, limit: int = 1000) -> tuple[int, int]:
+    def project_pending(
+        self,
+        *,
+        occurred_at: datetime,
+        limit: int = 1000,
+    ) -> tuple[int, int]:
         moment = _aware(occurred_at, "occurred_at")
         projected = 0
         quarantined = 0
         for record in self.store.pending(limit=limit):
             activity = record.activity
             classification = _classification(activity)
-            if isinstance(classification, str):
+            if not isinstance(classification, CashAdjustmentKind):
                 self.store.quarantine(
                     activity.activity_id,
                     reason=classification,
@@ -336,9 +372,14 @@ class FinancialActivityRecoveryService:
         if prior is None:
             after = self.bootstrap_after
         else:
-            after = max(self.bootstrap_after, prior.recovered_through - self.policy.overlap)
+            after = max(
+                self.bootstrap_after,
+                prior.recovered_through - self.policy.overlap,
+            )
         if after >= until:
-            projected, quarantined = self.projector.project_pending(occurred_at=observed_at)
+            projected, quarantined = self.projector.project_pending(
+                occurred_at=observed_at
+            )
             readiness = financial_activity_readiness(
                 self.store,
                 account_identity=self.account_identity,
@@ -375,16 +416,23 @@ class FinancialActivityRecoveryService:
             pages_read += 1
             for activity in page.activities:
                 if activity.account_identity != self.account_identity:
-                    raise FinancialActivityRecoveryError("activity account identity mismatch")
+                    raise FinancialActivityRecoveryError(
+                        "activity account identity mismatch"
+                    )
                 if activity.release_identity != self.release_identity:
-                    raise FinancialActivityRecoveryError("activity release identity mismatch")
+                    raise FinancialActivityRecoveryError(
+                        "activity release identity mismatch"
+                    )
                 if seen >= self.policy.maximum_activities:
                     reasons.add("ACTIVITY_LIMIT_REACHED")
                     break
                 before_pending = self.store.pending_count()
                 record = self.store.ingest(activity, ingested_at=observed_at)
                 seen += 1
-                if record.state.value != "PENDING" or self.store.pending_count() == before_pending:
+                if (
+                    record.state.value != "PENDING"
+                    or self.store.pending_count() == before_pending
+                ):
                     duplicates += 1
             if reasons:
                 break
@@ -392,13 +440,17 @@ class FinancialActivityRecoveryService:
                 page_token = None
                 break
             if page.next_page_token == page_token:
-                raise FinancialActivityRecoveryError("financial activity page token did not advance")
+                raise FinancialActivityRecoveryError(
+                    "financial activity page token did not advance"
+                )
             page_token = page.next_page_token
         else:
             if page_token is not None:
                 reasons.add("PAGE_LIMIT_REACHED")
 
-        projected, newly_quarantined = self.projector.project_pending(occurred_at=observed_at)
+        projected, newly_quarantined = self.projector.project_pending(
+            occurred_at=observed_at
+        )
         acquisition_complete = not reasons and page_token is None
         if acquisition_complete:
             self.store.advance_recovery(
@@ -497,13 +549,19 @@ def _classification(activity: BrokerFinancialActivity) -> CashAdjustmentKind | s
 
 def _decimal(value: object, field: str) -> Decimal:
     if value is None or value == "":
-        raise AlpacaPaperProtocolError(f"missing financial activity decimal: {field}")
+        raise AlpacaPaperProtocolError(
+            f"missing financial activity decimal: {field}"
+        )
     try:
         result = Decimal(str(value))
     except (InvalidOperation, ValueError) as exc:
-        raise AlpacaPaperProtocolError(f"invalid financial activity decimal: {field}") from exc
+        raise AlpacaPaperProtocolError(
+            f"invalid financial activity decimal: {field}"
+        ) from exc
     if not result.is_finite():
-        raise AlpacaPaperProtocolError(f"non-finite financial activity decimal: {field}")
+        raise AlpacaPaperProtocolError(
+            f"non-finite financial activity decimal: {field}"
+        )
     return result
 
 
@@ -520,7 +578,9 @@ def _activity_time(value: Mapping[object, object]) -> datetime:
     except ValueError as exc:
         raise AlpacaPaperProtocolError("invalid financial activity date") from exc
     if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise AlpacaPaperProtocolError("financial activity date must be timezone-aware")
+        raise AlpacaPaperProtocolError(
+            "financial activity date must be timezone-aware"
+        )
     return parsed.astimezone(UTC)
 
 
