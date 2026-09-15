@@ -170,7 +170,8 @@ class PostgresOperationalMarketDataStore:
                         """SELECT t.ticket_id, t.strategy_id, t.bar_id, t.created_at
                         FROM astra_operational_decision_tickets t
                         LEFT JOIN astra_operational_decision_completions c USING(ticket_id)
-                        WHERE c.ticket_id IS NULL
+                        LEFT JOIN astra_operational_market_bar_conflicts x ON x.bar_id=t.bar_id
+                        WHERE c.ticket_id IS NULL AND x.bar_id IS NULL
                         ORDER BY t.created_at, t.ticket_id LIMIT %s""",
                         (limit,),
                     )
@@ -181,7 +182,8 @@ class PostgresOperationalMarketDataStore:
                         """SELECT t.ticket_id, t.strategy_id, t.bar_id, t.created_at
                         FROM astra_operational_decision_tickets t
                         LEFT JOIN astra_operational_decision_completions c USING(ticket_id)
-                        WHERE c.ticket_id IS NULL AND t.strategy_id=%s
+                        LEFT JOIN astra_operational_market_bar_conflicts x ON x.bar_id=t.bar_id
+                        WHERE c.ticket_id IS NULL AND x.bar_id IS NULL AND t.strategy_id=%s
                         ORDER BY t.created_at, t.ticket_id LIMIT %s""",
                         (strategy_id, limit),
                     )
@@ -207,10 +209,12 @@ class PostgresOperationalMarketDataStore:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """SELECT * FROM astra_operational_market_bars
-                    WHERE provider=%s AND venue=%s AND symbol=%s AND interval_seconds=%s
-                      AND close_time<=%s
-                    ORDER BY close_time DESC, bar_id DESC LIMIT %s""",
+                    """SELECT b.* FROM astra_operational_market_bars b
+                    LEFT JOIN astra_operational_market_bar_conflicts x USING(bar_id)
+                    WHERE x.bar_id IS NULL
+                      AND b.provider=%s AND b.venue=%s AND b.symbol=%s
+                      AND b.interval_seconds=%s AND b.close_time<=%s
+                    ORDER BY b.close_time DESC, b.bar_id DESC LIMIT %s""",
                     (provider, venue, symbol, interval_seconds, through, limit),
                 )
                 rows = cursor.fetchall()
@@ -236,6 +240,14 @@ class PostgresOperationalMarketDataStore:
                     )
                     if cursor.fetchone() is None:
                         raise KeyError(ticket_id)
+                    cursor.execute(
+                        """SELECT 1 FROM astra_operational_market_bar_conflicts x
+                        JOIN astra_operational_decision_tickets t ON t.bar_id=x.bar_id
+                        WHERE t.ticket_id=%s LIMIT 1""",
+                        (ticket_id,),
+                    )
+                    if cursor.fetchone() is not None:
+                        raise ValueError("OPERATIONAL_DECISION_BAR_CONFLICTED")
                     cursor.execute(
                         """INSERT INTO astra_operational_decision_completions(
                             ticket_id, outcome_id, completed_at
