@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import socket
 import ssl
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -41,6 +40,7 @@ class BybitRepairPolicy:
     maximum_response_bytes: int = 2_000_000
     maximum_server_age_seconds: float = 90.0
     maximum_server_future_skew_seconds: float = 2.0
+    minimum_finality_delay_seconds: float = 1.0
 
     def validate(self) -> None:
         if self.timeout_seconds <= 0:
@@ -53,6 +53,8 @@ class BybitRepairPolicy:
             raise ValueError("maximum_server_age_seconds must be positive")
         if self.maximum_server_future_skew_seconds < 0:
             raise ValueError("maximum_server_future_skew_seconds must be non-negative")
+        if self.minimum_finality_delay_seconds < 0:
+            raise ValueError("minimum_finality_delay_seconds must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -122,10 +124,10 @@ class StdlibBybitPublicHttpTransport:
                 raise BybitRepairProtocolError("HTTP redirects are forbidden") from exc
             body = exc.read(maximum_response_bytes + 1)
             return HttpResponse(status=int(exc.code), body=body[:maximum_response_bytes])
-        except socket.timeout as exc:
+        except TimeoutError as exc:
             raise TimeoutError("Bybit repair request timed out") from exc
         except URLError as exc:
-            if isinstance(exc.reason, socket.timeout):
+            if isinstance(exc.reason, TimeoutError):
                 raise TimeoutError("Bybit repair request timed out") from exc
             raise OSError(f"Bybit repair transport failure: {type(exc.reason).__name__}") from exc
 
@@ -165,8 +167,13 @@ class BybitPublicKlineClient:
         count = int((last_open - first_open) / interval) + 1
         if count > self.policy.maximum_repair_bars:
             raise BybitRepairError("REPAIR_RANGE_EXCEEDS_POLICY")
-        if last_open + interval > observed:
-            raise BybitRepairError("REPAIR_RANGE_INCLUDES_UNCLOSED_BAR")
+        if (
+            last_open
+            + interval
+            + timedelta(seconds=self.policy.minimum_finality_delay_seconds)
+            > observed
+        ):
+            raise BybitRepairError("REPAIR_RANGE_INCLUDES_UNSAFE_FINAL_BAR")
 
         interval_ms = self.subscription.interval_seconds * 1000
         start_ms = _milliseconds(first_open)
@@ -221,8 +228,12 @@ class BybitPublicKlineClient:
         open_time = _from_milliseconds(start_ms)
         interval = timedelta(seconds=self.subscription.interval_seconds)
         close_time = open_time + interval
-        if close_time > observed_at:
-            raise BybitRepairProtocolError("Bybit repair returned an unclosed candle")
+        if (
+            close_time
+            + timedelta(seconds=self.policy.minimum_finality_delay_seconds)
+            > observed_at
+        ):
+            raise BybitRepairProtocolError("Bybit repair returned an unsafe final candle")
         _non_negative_decimal(raw[6], "turnover")
         source_end = close_time - timedelta(milliseconds=1)
         bar = OperationalBar(
@@ -317,6 +328,7 @@ class BybitContinuityRepairService:
             symbol=self.subscription.symbol,
             interval_seconds=self.subscription.interval_seconds,
         )
+        interval = timedelta(seconds=self.subscription.interval_seconds)
         if latest is None:
             if bootstrap_open_time is None:
                 raise BybitRepairError("CONTINUITY_BOOTSTRAP_REQUIRED")
@@ -326,26 +338,19 @@ class BybitContinuityRepairService:
         else:
             if bootstrap_open_time is not None:
                 raise BybitRepairError("BOOTSTRAP_FORBIDDEN_AFTER_CONTINUITY_EXISTS")
-            first_open = latest.through_close_time
+            first_open = latest.through_close_time - interval
             previous_checkpoint_id = latest.checkpoint_id
 
         last_open = _last_completed_open(
             observed_at=observed,
             interval_seconds=self.subscription.interval_seconds,
+            finality_delay_seconds=self.client.policy.minimum_finality_delay_seconds,
         )
         if first_open > last_open:
             if latest is None:
                 raise BybitRepairError("NO_CLOSED_BAR_AVAILABLE_FOR_BOOTSTRAP")
-            result = BybitContinuityRepairResult(
-                checkpoint=latest,
-                expected_bars=0,
-                repaired_bars=0,
-                existing_bars=0,
-            )
-            result.validate()
-            return result
+            raise BybitRepairError("RECONNECT_OVERLAP_NOT_SAFELY_FINAL")
 
-        interval = timedelta(seconds=self.subscription.interval_seconds)
         expected_count = int((last_open - first_open) / interval) + 1
         if expected_count > self.client.policy.maximum_repair_bars:
             raise BybitRepairError("REPAIR_RANGE_EXCEEDS_POLICY")
@@ -356,6 +361,8 @@ class BybitContinuityRepairService:
         )
         if len(fetched) != expected_count:
             raise BybitRepairProtocolError("BYBIT_REPAIR_RANGE_COUNT_MISMATCH")
+        if latest is not None and fetched[0].bar_id != latest.through_bar_id:
+            raise BybitRepairProtocolError("BYBIT_REPAIR_HIGH_WATER_ID_MISMATCH")
 
         through_close = fetched[-1].close_time
         existing = self.marketdata.recent_bars(
@@ -369,6 +376,10 @@ class BybitContinuityRepairService:
         existing_by_open = {
             bar.open_time: bar for bar in existing if bar.open_time >= first_open
         }
+        if latest is not None:
+            overlap = existing_by_open.get(first_open)
+            if overlap is None or overlap.bar_id != latest.through_bar_id:
+                raise BybitRepairError("CONTINUITY_HIGH_WATER_BAR_MISSING")
         for bar in fetched:
             prior = existing_by_open.get(bar.open_time)
             if prior is not None and not _same_economics(prior, bar):
@@ -403,6 +414,16 @@ class BybitContinuityRepairService:
                 raise BybitRepairError("DURABLE_CONTINUITY_ECONOMICS_MISMATCH")
 
         through_bar = durable_by_open[fetched[-1].open_time]
+        if latest is not None and through_bar.bar_id == latest.through_bar_id:
+            result = BybitContinuityRepairResult(
+                checkpoint=latest,
+                expected_bars=expected_count,
+                repaired_bars=repaired_count,
+                existing_bars=existing_count,
+            )
+            result.validate()
+            return result
+
         checkpoint_id = continuity_checkpoint_id(
             previous_checkpoint_id=previous_checkpoint_id,
             provider=BYBIT_PROVIDER,
@@ -452,11 +473,25 @@ def _same_economics(left: OperationalBar, right: OperationalBar) -> bool:
     )
 
 
-def _last_completed_open(*, observed_at: datetime, interval_seconds: int) -> datetime:
+def _aware(value: datetime, name: str) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{name} must be timezone-aware")
+    return value.astimezone(UTC)
+
+
+def _last_completed_open(
+    *,
+    observed_at: datetime,
+    interval_seconds: int,
+    finality_delay_seconds: float,
+) -> datetime:
     observed = _aware(observed_at, "observed_at")
     if interval_seconds < 1:
         raise ValueError("interval_seconds must be positive")
-    epoch_seconds = int(observed.timestamp())
+    if finality_delay_seconds < 0:
+        raise ValueError("finality_delay_seconds must be non-negative")
+    safe_observed = observed - timedelta(seconds=finality_delay_seconds)
+    epoch_seconds = int(safe_observed.timestamp())
     boundary = epoch_seconds - (epoch_seconds % interval_seconds)
     return datetime.fromtimestamp(boundary - interval_seconds, tz=UTC)
 
