@@ -46,7 +46,10 @@ class OperationalContinuityCheckpoint:
     def validate(self) -> None:
         if not self.checkpoint_id.strip():
             raise ValueError("checkpoint_id is required")
-        if self.previous_checkpoint_id is not None and not self.previous_checkpoint_id.strip():
+        if (
+            self.previous_checkpoint_id is not None
+            and not self.previous_checkpoint_id.strip()
+        ):
             raise ValueError("previous_checkpoint_id cannot be blank")
         _identity(self.provider, "provider")
         _identity(self.venue, "venue")
@@ -61,9 +64,20 @@ class OperationalContinuityCheckpoint:
             raise ValueError("established_at cannot precede through_close_time")
         if not self.evidence_source.strip():
             raise ValueError("evidence_source is required")
+        expected = continuity_checkpoint_id(
+            previous_checkpoint_id=self.previous_checkpoint_id,
+            provider=self.provider,
+            venue=self.venue,
+            symbol=self.symbol,
+            interval_seconds=self.interval_seconds,
+            through_bar_id=self.through_bar_id,
+            through_close_time=self.through_close_time,
+            evidence_source=self.evidence_source,
+        )
+        if self.checkpoint_id != expected:
+            raise ValueError("checkpoint_id disagrees with continuity proof")
 
-    def payload(self) -> dict[str, object]:
-        self.validate()
+    def identity_payload(self) -> dict[str, object]:
         return {
             "previous_checkpoint_id": self.previous_checkpoint_id,
             "provider": self.provider,
@@ -72,10 +86,20 @@ class OperationalContinuityCheckpoint:
             "interval_seconds": self.interval_seconds,
             "through_bar_id": self.through_bar_id,
             "through_close_time": _aware(
-                self.through_close_time, "through_close_time"
+                self.through_close_time,
+                "through_close_time",
             ).isoformat(),
-            "established_at": _aware(self.established_at, "established_at").isoformat(),
             "evidence_source": self.evidence_source,
+        }
+
+    def payload(self) -> dict[str, object]:
+        self.validate()
+        return {
+            **self.identity_payload(),
+            "established_at": _aware(
+                self.established_at,
+                "established_at",
+            ).isoformat(),
         }
 
 
@@ -103,7 +127,8 @@ def continuity_checkpoint_id(
         "interval_seconds": interval_seconds,
         "through_bar_id": through_bar_id,
         "through_close_time": _aware(
-            through_close_time, "through_close_time"
+            through_close_time,
+            "through_close_time",
         ).isoformat(),
         "evidence_source": evidence_source,
     }
@@ -189,14 +214,20 @@ class SQLiteOperationalContinuityStore:
 
     def append(self, checkpoint: OperationalContinuityCheckpoint) -> bool:
         checkpoint.validate()
-        canonical = json.dumps(
-            checkpoint.payload(),
-            sort_keys=True,
-            separators=(",", ":"),
-        )
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                "SELECT * FROM operational_market_continuity WHERE checkpoint_id=?",
+                (checkpoint.checkpoint_id,),
+            ).fetchone()
+            if existing is not None:
+                stored = self._checkpoint(existing)
+                if stored.identity_payload() != checkpoint.identity_payload():
+                    raise ValueError("continuity checkpoint identity conflict")
+                connection.execute("COMMIT")
+                return False
+
             if checkpoint.previous_checkpoint_id is not None:
                 previous = connection.execute(
                     """SELECT provider, venue, symbol, interval_seconds,
@@ -214,25 +245,15 @@ class SQLiteOperationalContinuityStore:
                     or int(previous["interval_seconds"]) != checkpoint.interval_seconds
                 ):
                     raise ValueError("continuity checkpoint stream identity changed")
-                if datetime.fromisoformat(str(previous["through_close_time"])) >= _aware(
+                previous_close = datetime.fromisoformat(
+                    str(previous["through_close_time"])
+                )
+                if previous_close >= _aware(
                     checkpoint.through_close_time,
                     "through_close_time",
                 ):
                     raise ValueError("continuity checkpoint did not advance")
-            existing = connection.execute(
-                "SELECT * FROM operational_market_continuity WHERE checkpoint_id=?",
-                (checkpoint.checkpoint_id,),
-            ).fetchone()
-            if existing is not None:
-                existing_payload = json.dumps(
-                    self._checkpoint(existing).payload(),
-                    sort_keys=True,
-                    separators=(",", ":"),
-                )
-                if existing_payload != canonical:
-                    raise ValueError("continuity checkpoint identity conflict")
-                connection.execute("COMMIT")
-                return False
+
             connection.execute(
                 """INSERT INTO operational_market_continuity(
                     checkpoint_id, previous_checkpoint_id, provider, venue, symbol,
@@ -251,7 +272,10 @@ class SQLiteOperationalContinuityStore:
                         checkpoint.through_close_time,
                         "through_close_time",
                     ).isoformat(),
-                    _aware(checkpoint.established_at, "established_at").isoformat(),
+                    _aware(
+                        checkpoint.established_at,
+                        "established_at",
+                    ).isoformat(),
                     checkpoint.evidence_source,
                 ),
             )
