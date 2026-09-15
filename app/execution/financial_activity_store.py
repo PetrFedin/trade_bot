@@ -104,7 +104,13 @@ class FinancialActivityStore(Protocol):
         ingested_at: datetime,
     ) -> FinancialActivityRecord: ...
 
-    def pending(self, *, limit: int = 100) -> tuple[FinancialActivityRecord, ...]: ...
+    def pending(
+        self,
+        *,
+        account_identity: str,
+        release_identity: str,
+        limit: int = 100,
+    ) -> tuple[FinancialActivityRecord, ...]: ...
 
     def mark_projected(
         self,
@@ -122,9 +128,19 @@ class FinancialActivityStore(Protocol):
         occurred_at: datetime,
     ) -> FinancialActivityRecord: ...
 
-    def pending_count(self) -> int: ...
+    def pending_count(
+        self,
+        *,
+        account_identity: str,
+        release_identity: str,
+    ) -> int: ...
 
-    def quarantined_count(self) -> int: ...
+    def quarantined_count(
+        self,
+        *,
+        account_identity: str,
+        release_identity: str,
+    ) -> int: ...
 
     def recovery_state(
         self,
@@ -159,6 +175,11 @@ def canonical_payload(value: str) -> str:
         separators=(",", ":"),
         ensure_ascii=True,
     )
+
+
+def validate_scope(account_identity: str, release_identity: str) -> None:
+    if not account_identity.strip() or not release_identity.strip():
+        raise ValueError("account_identity and release_identity are required")
 
 
 class SQLiteFinancialActivityStore:
@@ -241,6 +262,10 @@ class SQLiteFinancialActivityStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_financial_projection_state
                 ON financial_activity_projection(state, updated_at, activity_id);
+                CREATE INDEX IF NOT EXISTS idx_financial_fact_scope
+                ON financial_activity_facts(
+                    account_identity, release_identity, occurred_at, activity_id
+                );
                 CREATE TRIGGER IF NOT EXISTS financial_activity_facts_no_update
                 BEFORE UPDATE ON financial_activity_facts BEGIN
                     SELECT RAISE(
@@ -393,7 +418,14 @@ class SQLiteFinancialActivityStore:
                 raise RuntimeError("financial activity insert lookup failed")
             return self._record(row)
 
-    def pending(self, *, limit: int = 100) -> tuple[FinancialActivityRecord, ...]:
+    def pending(
+        self,
+        *,
+        account_identity: str,
+        release_identity: str,
+        limit: int = 100,
+    ) -> tuple[FinancialActivityRecord, ...]:
+        validate_scope(account_identity, release_identity)
         if limit < 1:
             raise ValueError("limit must be positive")
         connection = self._connect()
@@ -404,8 +436,10 @@ class SQLiteFinancialActivityStore:
                 FROM financial_activity_facts f
                 JOIN financial_activity_projection p USING(activity_id)
                 WHERE p.state='PENDING'
+                  AND f.account_identity=?
+                  AND f.release_identity=?
                 ORDER BY f.occurred_at, f.activity_id LIMIT ?""",
-                (limit,),
+                (account_identity, release_identity, limit),
             ).fetchall()
             return tuple(self._record(row) for row in rows)
         finally:
@@ -489,13 +523,24 @@ class SQLiteFinancialActivityStore:
             occurred_at=occurred_at,
         )
 
-    def _count(self, state: FinancialProjectionState) -> int:
+    def _count(
+        self,
+        state: FinancialProjectionState,
+        *,
+        account_identity: str,
+        release_identity: str,
+    ) -> int:
+        validate_scope(account_identity, release_identity)
         connection = self._connect()
         try:
             row = connection.execute(
                 """SELECT COUNT(*) AS count
-                FROM financial_activity_projection WHERE state=?""",
-                (state.value,),
+                FROM financial_activity_projection p
+                JOIN financial_activity_facts f USING(activity_id)
+                WHERE p.state=?
+                  AND f.account_identity=?
+                  AND f.release_identity=?""",
+                (state.value, account_identity, release_identity),
             ).fetchone()
             if row is None:
                 raise RuntimeError("financial projection count failed")
@@ -503,11 +548,29 @@ class SQLiteFinancialActivityStore:
         finally:
             connection.close()
 
-    def pending_count(self) -> int:
-        return self._count(FinancialProjectionState.PENDING)
+    def pending_count(
+        self,
+        *,
+        account_identity: str,
+        release_identity: str,
+    ) -> int:
+        return self._count(
+            FinancialProjectionState.PENDING,
+            account_identity=account_identity,
+            release_identity=release_identity,
+        )
 
-    def quarantined_count(self) -> int:
-        return self._count(FinancialProjectionState.QUARANTINED)
+    def quarantined_count(
+        self,
+        *,
+        account_identity: str,
+        release_identity: str,
+    ) -> int:
+        return self._count(
+            FinancialProjectionState.QUARANTINED,
+            account_identity=account_identity,
+            release_identity=release_identity,
+        )
 
     def recovery_state(
         self,
@@ -515,6 +578,7 @@ class SQLiteFinancialActivityStore:
         account_identity: str,
         release_identity: str,
     ) -> FinancialActivityRecoveryState | None:
+        validate_scope(account_identity, release_identity)
         connection = self._connect()
         try:
             row = connection.execute(
@@ -547,8 +611,7 @@ class SQLiteFinancialActivityStore:
         recovered_through: datetime,
         occurred_at: datetime,
     ) -> FinancialActivityRecoveryState:
-        if not account_identity.strip() or not release_identity.strip():
-            raise ValueError("account_identity and release_identity are required")
+        validate_scope(account_identity, release_identity)
         watermark = aware_utc(recovered_through, "recovered_through")
         moment = aware_utc(occurred_at, "occurred_at")
         if watermark > moment:
