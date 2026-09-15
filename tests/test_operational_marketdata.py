@@ -58,6 +58,26 @@ def test_in_progress_bar_never_persists_or_schedules(tmp_path) -> None:
     assert store.conflict_count() == 0
 
 
+def test_fractional_bar_boundary_drift_is_rejected_before_persistence(tmp_path) -> None:
+    store = SQLiteOperationalMarketDataStore(tmp_path / "marketdata.sqlite")
+    value = bar(0)
+    invalid = OperationalBar(
+        **{
+            **value.__dict__,
+            "close_time": value.close_time + timedelta(milliseconds=500),
+        }
+    )
+
+    with pytest.raises(ValueError, match="bar boundaries disagree with interval_seconds"):
+        store.record_finalized_for_strategy(
+            invalid,
+            strategy_id=STRATEGY,
+            recorded_at=recorded(invalid),
+        )
+
+    assert store.pending_decisions() == ()
+
+
 def test_final_bar_duplicate_is_idempotent_and_restart_preserves_window(tmp_path) -> None:
     path = tmp_path / "marketdata.sqlite"
     store = SQLiteOperationalMarketDataStore(path)
