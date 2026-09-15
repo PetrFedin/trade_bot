@@ -30,6 +30,7 @@ NOW = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
 ACCOUNT = "paper-account:pg-fingerprint"
 RELEASE = "release:f21b-pg"
 OTHER_ACCOUNT = "paper-account:pg-other"
+OTHER_RELEASE = "release:f21b-pg-next"
 
 
 def activity(
@@ -88,7 +89,6 @@ def stack():
         portfolio=portfolio,
         runtime_ledger=ledger,
         account_identity=ACCOUNT,
-        release_identity=RELEASE,
     )
     return store, portfolio, ledger, projector
 
@@ -111,9 +111,18 @@ def test_postgres_fee_and_deposit_projection_survive_restart() -> None:
     assert restarted.snapshot({}).total_pnl == Decimal("-4")
 
 
-def test_postgres_projection_never_crosses_account_scope() -> None:
+def test_postgres_projection_is_account_scoped_across_release_change() -> None:
     store, portfolio, ledger, projector = stack()
     store.ingest(activity("pg-mine", "CSD", "10"), ingested_at=NOW)
+    store.ingest(
+        activity(
+            "pg-old-release",
+            "CSD",
+            "800",
+            release_identity=OTHER_RELEASE,
+        ),
+        ingested_at=NOW,
+    )
     store.ingest(
         activity(
             "pg-other-account",
@@ -125,17 +134,27 @@ def test_postgres_projection_never_crosses_account_scope() -> None:
     )
 
     projected, quarantined = projector.project_pending(occurred_at=NOW)
-    assert projected == 1 and quarantined == 0
-    assert ledger.cash == Decimal("1010")
-    assert portfolio.replay(opening_cash=Decimal("1000")).cash == Decimal("1010")
-    assert store.pending_count(
-        account_identity=ACCOUNT,
-        release_identity=RELEASE,
-    ) == 0
-    assert store.pending_count(
-        account_identity=OTHER_ACCOUNT,
-        release_identity=RELEASE,
-    ) == 1
+    assert projected == 2 and quarantined == 0
+    assert ledger.cash == Decimal("1810")
+    assert portfolio.replay(opening_cash=Decimal("1000")).cash == Decimal("1810")
+    assert store.pending_count(account_identity=ACCOUNT) == 0
+    assert store.pending_count(account_identity=OTHER_ACCOUNT) == 1
+
+
+def test_postgres_same_fact_is_idempotent_across_release_change() -> None:
+    store, _, _, _ = stack()
+    first = activity("pg-release-replay", "CSD", "10")
+    second = activity(
+        "pg-release-replay",
+        "CSD",
+        "10",
+        release_identity=OTHER_RELEASE,
+    )
+    assert store.ingest(first, ingested_at=NOW).state is FinancialProjectionState.PENDING
+    replayed = store.ingest(second, ingested_at=NOW)
+    assert replayed.state is FinancialProjectionState.PENDING
+    assert store.pending_count(account_identity=ACCOUNT) == 1
+    assert store.quarantined_count(account_identity=ACCOUNT) == 0
 
 
 def test_postgres_same_id_concurrent_ingestion_is_one_fact() -> None:
@@ -167,6 +186,23 @@ def test_postgres_same_id_concurrent_ingestion_is_one_fact() -> None:
     assert (facts, projections, conflicts) == (1, 1, 0)
 
 
+def test_postgres_same_activity_id_is_independent_across_accounts() -> None:
+    store, _, _, _ = stack()
+    mine = activity("shared-id", "CSD", "10")
+    other = activity(
+        "shared-id",
+        "CSD",
+        "20",
+        account_identity=OTHER_ACCOUNT,
+    )
+    store.ingest(mine, ingested_at=NOW)
+    store.ingest(other, ingested_at=NOW)
+    assert store.pending_count(account_identity=ACCOUNT) == 1
+    assert store.pending_count(account_identity=OTHER_ACCOUNT) == 1
+    assert store.quarantined_count(account_identity=ACCOUNT) == 0
+    assert store.quarantined_count(account_identity=OTHER_ACCOUNT) == 0
+
+
 def test_postgres_same_id_conflict_quarantines_and_cursor_is_monotonic() -> None:
     store, _, _, projector = stack()
     first = activity("pg-conflict", "CSD", "10")
@@ -177,10 +213,7 @@ def test_postgres_same_id_conflict_quarantines_and_cursor_is_monotonic() -> None
     record = store.ingest(changed, ingested_at=NOW)
     assert record.state is FinancialProjectionState.QUARANTINED
     assert record.reason == "ACTIVITY_ID_CONFLICT"
-    assert store.quarantined_count(
-        account_identity=ACCOUNT,
-        release_identity=RELEASE,
-    ) == 1
+    assert store.quarantined_count(account_identity=ACCOUNT) == 1
 
     state = store.advance_recovery(
         account_identity=ACCOUNT,
