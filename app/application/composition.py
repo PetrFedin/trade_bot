@@ -18,6 +18,11 @@ from app.observability.readiness import OperationalReadinessEvaluator, Operation
 from app.oms.indexed import IndexedDurableOmsStore, IndexedOmsStore, IndexedPostgresOmsStore
 from app.oms.order_mutations import DurableOrderMutationStore, MutationStore
 from app.oms.order_mutations_postgres import PostgresOrderMutationStore
+from app.oms.portfolio_reconciliation import (
+    PortfolioReconciliationStore,
+    PostgresPortfolioReconciliationStore,
+    SQLitePortfolioReconciliationStore,
+)
 from app.oms.reconciliation import OmsReconciler
 from app.portfolio.ledger import PortfolioLedger
 from app.portfolio.protocols import PortfolioStore
@@ -60,6 +65,7 @@ class ProductRuntime:
     risk_admission: RiskAdmissionService
     portfolio: PortfolioLedger
     portfolio_store: PortfolioStore
+    portfolio_reconciliation: PortfolioReconciliationStore
     execution_facts: ExecutionFactStore
     oms_store: IndexedOmsStore
     order_mutations: MutationStore
@@ -94,6 +100,7 @@ def _compose(
     dispatch_control: PaperDispatchControlStore,
     risk_journal: RiskEvidenceJournal,
     portfolio_store: PortfolioStore,
+    portfolio_reconciliation: PortfolioReconciliationStore,
     execution_facts: ExecutionFactStore,
     fee_provider: PaperFillFeeProvider | None,
 ) -> ProductRuntime:
@@ -116,6 +123,7 @@ def _compose(
         mode=PlanningMode.OPERATIONAL,
         risk_admission=risk_admission,
         execution_facts=execution_facts,
+        portfolio_reconciliation=portfolio_reconciliation,
     )
     readiness = OperationalReadinessEvaluator(config.operational_slo)
     fill_accounting = (
@@ -137,6 +145,7 @@ def _compose(
         risk_admission=risk_admission,
         portfolio=portfolio,
         portfolio_store=portfolio_store,
+        portfolio_reconciliation=portfolio_reconciliation,
         execution_facts=execution_facts,
         oms_store=oms_store,
         order_mutations=mutation_store,
@@ -165,6 +174,9 @@ def build_local_product(
     mutation_store = DurableOrderMutationStore(oms_path)
     dispatch_control = SQLitePaperDispatchControlStore(oms_path)
     execution_facts = SQLiteExecutionFactStore(directory / "execution.sqlite")
+    reconciliation_store = SQLitePortfolioReconciliationStore(
+        directory / "portfolio_reconciliation.sqlite"
+    )
     return _compose(
         config=config,
         oms_store=oms_store,
@@ -172,6 +184,7 @@ def build_local_product(
         dispatch_control=dispatch_control,
         risk_journal=SQLiteRiskEvidenceJournal(directory / "risk.sqlite"),
         portfolio_store=StrictPortfolioEventStore(directory / "portfolio.sqlite"),
+        portfolio_reconciliation=reconciliation_store,
         execution_facts=execution_facts,
         fee_provider=fee_provider,
     )
@@ -191,6 +204,7 @@ def build_postgres_product(
     dispatch_control = PostgresPaperDispatchControlStore(dsn)
     risk_journal = PostgresRiskEvidenceJournal(dsn)
     portfolio_store = StrictPostgresPortfolioEventStore(dsn)
+    reconciliation_store = PostgresPortfolioReconciliationStore(dsn)
     execution_facts = PostgresExecutionFactStore(dsn)
     if migrate:
         oms_store.migrate()
@@ -199,6 +213,7 @@ def build_postgres_product(
         risk_journal.migrate()
         portfolio_store.migrate()
         execution_facts.migrate()
+        reconciliation_store.migrate()
     return _compose(
         config=config,
         oms_store=oms_store,
@@ -206,6 +221,7 @@ def build_postgres_product(
         dispatch_control=dispatch_control,
         risk_journal=risk_journal,
         portfolio_store=portfolio_store,
+        portfolio_reconciliation=reconciliation_store,
         execution_facts=execution_facts,
         fee_provider=fee_provider,
     )
