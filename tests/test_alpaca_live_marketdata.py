@@ -218,6 +218,28 @@ def test_base_bar_is_provisional_source_fact_not_final_operational_bar() -> None
     assert evidence.maximum_delivery_lag_seconds == 1.0
 
 
+def test_public_update_validation_rejects_non_decimal_economics() -> None:
+    update = AlpacaBarUpdate(
+        provider="ALPACA",
+        venue="IEX",
+        symbol="AAPL",
+        interval_seconds=60,
+        open_time=NOW - timedelta(minutes=1, seconds=1),
+        close_time=NOW - timedelta(seconds=1),
+        received_at=NOW,
+        source_event_id="event",
+        kind=AlpacaBarUpdateKind.BASE,
+        open=100,  # type: ignore[arg-type]
+        high=Decimal("102"),
+        low=Decimal("99"),
+        close=Decimal("101"),
+        volume=Decimal("1000"),
+    )
+
+    with pytest.raises(ValueError, match="positive finite Decimal"):
+        update.validate()
+
+
 def test_updated_bar_is_same_bar_identity_but_separate_provisional_revision() -> None:
     value = stream()
     handshake(value)
@@ -247,6 +269,41 @@ def test_duplicate_stream_message_is_idempotent() -> None:
     assert len(first) == 1
     assert second == ()
     assert value.evidence(captured_at=NOW + timedelta(seconds=1)).duplicate_messages == 1
+
+
+def test_dedup_and_base_identity_memory_are_bounded() -> None:
+    policy = AlpacaMarketDataPolicy(
+        maximum_dedup_messages=4,
+        base_identity_retention=timedelta(minutes=1),
+    )
+    value = stream(policy=policy)
+    handshake(value)
+    value.ingest(
+        bar_message(timestamp="2026-09-16T10:00:00Z"),
+        received_at=datetime(2026, 9, 16, 10, 1, 1, tzinfo=UTC),
+        expected_generation=7,
+    )
+    value.ingest(
+        bar_message(timestamp="2026-09-16T10:01:00Z", close="102"),
+        received_at=datetime(2026, 9, 16, 10, 2, 1, tzinfo=UTC),
+        expected_generation=7,
+    )
+    value.ingest(
+        bar_message(timestamp="2026-09-16T10:02:00Z", close="103"),
+        received_at=datetime(2026, 9, 16, 10, 3, 1, tzinfo=UTC),
+        expected_generation=7,
+    )
+
+    evidence = value.evidence(captured_at=datetime(2026, 9, 16, 10, 3, 1, tzinfo=UTC))
+    assert evidence.dedup_cache_size == 4
+    assert evidence.tracked_base_identities == 2
+
+    with pytest.raises(AlpacaMarketDataProtocolError, match="without observed base"):
+        value.ingest(
+            bar_message(message_type="u", timestamp="2026-09-16T10:00:00Z", close="101.5"),
+            received_at=datetime(2026, 9, 16, 10, 3, 2, tzinfo=UTC),
+            expected_generation=7,
+        )
 
 
 def test_invalid_frame_quarantines_stream() -> None:
@@ -318,7 +375,7 @@ def test_receive_clock_regression_quarantines_stream() -> None:
 
     with pytest.raises(AlpacaMarketDataProtocolError, match="receive clock regressed"):
         value.ingest(
-            frame([{"T": "subscription", "bars": ["AAPL"], "updatedBars": ["AAPL"]}]),
+            subscribed(),
             received_at=NOW - timedelta(seconds=1),
             expected_generation=7,
         )
@@ -435,3 +492,28 @@ def test_sink_failure_degrades_stream_without_finalizing_source_fact() -> None:
 
     assert value.state is AlpacaMarketDataStreamState.DEGRADED
     assert "MARKET_DATA_SINK_FAILURE" in value.evidence(captured_at=NOW).reasons
+
+
+def test_graceful_task_cancellation_closes_healthy_stream_state() -> None:
+    socket = FakeSocket([connected(), authenticated(), subscribed()], hang_after_frames=True)
+    value = stream(
+        policy=AlpacaMarketDataPolicy(maximum_stream_silence=timedelta(minutes=1))
+    )
+    session = AlpacaLiveMarketDataSession(
+        stream=value,
+        sink=CollectingSink(),
+        socket_factory=FakeSocketFactory(socket),
+        clock=lambda: NOW,
+    )
+
+    async def exercise() -> None:
+        task = asyncio.create_task(session.run_once())
+        await asyncio.sleep(0.01)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(exercise())
+    assert value.state is AlpacaMarketDataStreamState.CLOSED

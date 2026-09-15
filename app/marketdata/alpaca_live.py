@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from collections import deque
 from collections.abc import Callable, Mapping
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import dataclass
@@ -115,6 +116,8 @@ class AlpacaMarketDataPolicy:
     maximum_stream_silence: timedelta = timedelta(seconds=45)
     maximum_bar_silence: timedelta = timedelta(seconds=90)
     maximum_future_skew: timedelta = timedelta(seconds=2)
+    base_identity_retention: timedelta = timedelta(minutes=10)
+    maximum_dedup_messages: int = 10_000
     websocket_open_timeout_seconds: float = 10.0
     websocket_ping_interval_seconds: float = 20.0
     websocket_ping_timeout_seconds: float = 20.0
@@ -129,6 +132,10 @@ class AlpacaMarketDataPolicy:
             raise ValueError("maximum_bar_silence must be positive")
         if self.maximum_future_skew < timedelta(0):
             raise ValueError("maximum_future_skew cannot be negative")
+        if self.base_identity_retention <= timedelta(0):
+            raise ValueError("base_identity_retention must be positive")
+        if self.maximum_dedup_messages < 1:
+            raise ValueError("maximum_dedup_messages must be positive")
         if self.websocket_open_timeout_seconds <= 0:
             raise ValueError("websocket_open_timeout_seconds must be positive")
         if self.websocket_ping_interval_seconds <= 0:
@@ -167,6 +174,8 @@ class AlpacaBarUpdate:
             raise ValueError("symbol must be normalized uppercase")
         if self.interval_seconds != 60:
             raise ValueError("F22B supports one-minute stock bars only")
+        if not isinstance(self.kind, AlpacaBarUpdateKind):
+            raise ValueError("kind must be an AlpacaBarUpdateKind")
         open_time = _aware(self.open_time, "open_time")
         close_time = _aware(self.close_time, "close_time")
         received_at = _aware(self.received_at, "received_at")
@@ -182,10 +191,10 @@ class AlpacaBarUpdate:
             ("low", self.low),
             ("close", self.close),
         ):
-            if not value.is_finite() or value <= 0:
-                raise ValueError(f"{name} must be positive and finite")
-        if not self.volume.is_finite() or self.volume < 0:
-            raise ValueError("volume must be finite and non-negative")
+            if not isinstance(value, Decimal) or not value.is_finite() or value <= 0:
+                raise ValueError(f"{name} must be a positive finite Decimal")
+        if not isinstance(self.volume, Decimal) or not self.volume.is_finite() or self.volume < 0:
+            raise ValueError("volume must be a finite non-negative Decimal")
         if self.high < max(self.open, self.low, self.close):
             raise ValueError("high is below bar prices")
         if self.low > min(self.open, self.high, self.close):
@@ -218,6 +227,8 @@ class AlpacaMarketDataEvidence:
     accepted_base_bars: int
     accepted_updated_bars: int
     duplicate_messages: int
+    dedup_cache_size: int
+    tracked_base_identities: int
     maximum_delivery_lag_seconds: float | None
     ready: bool
     reasons: tuple[str, ...]
@@ -298,7 +309,8 @@ class AlpacaStockMarketDataStream:
         self.accepted_updated_bars = 0
         self.duplicate_messages = 0
         self._seen_messages: set[str] = set()
-        self._base_open_times: set[tuple[str, datetime]] = set()
+        self._seen_order: deque[str] = deque()
+        self._base_open_times: dict[tuple[str, datetime], datetime] = {}
         self._latest_base_close_by_symbol: dict[str, datetime] = {}
         self._reasons: set[str] = set()
         self._maximum_delivery_lag_seconds: float | None = None
@@ -350,10 +362,9 @@ class AlpacaStockMarketDataStream:
         for message in messages:
             self.last_message_at = received
             digest = _canonical_digest(message)
-            if digest in self._seen_messages:
+            if not self._remember_message(digest):
                 self.duplicate_messages += 1
                 continue
-            self._seen_messages.add(digest)
             message_type = str(message.get("T", ""))
             if message_type == "success":
                 self._ingest_success(message)
@@ -411,6 +422,8 @@ class AlpacaStockMarketDataStream:
             accepted_base_bars=self.accepted_base_bars,
             accepted_updated_bars=self.accepted_updated_bars,
             duplicate_messages=self.duplicate_messages,
+            dedup_cache_size=len(self._seen_messages),
+            tracked_base_identities=len(self._base_open_times),
             maximum_delivery_lag_seconds=self._maximum_delivery_lag_seconds,
             ready=not reasons,
             reasons=tuple(sorted(reasons)),
@@ -429,8 +442,31 @@ class AlpacaStockMarketDataStream:
         self._quarantine(reason)
 
     def close(self) -> None:
-        if self.state is not AlpacaMarketDataStreamState.QUARANTINED:
+        if self.state not in {
+            AlpacaMarketDataStreamState.DEGRADED,
+            AlpacaMarketDataStreamState.QUARANTINED,
+        }:
             self.state = AlpacaMarketDataStreamState.CLOSED
+
+    def _remember_message(self, digest: str) -> bool:
+        if digest in self._seen_messages:
+            return False
+        self._seen_messages.add(digest)
+        self._seen_order.append(digest)
+        while len(self._seen_order) > self.policy.maximum_dedup_messages:
+            expired = self._seen_order.popleft()
+            self._seen_messages.discard(expired)
+        return True
+
+    def _purge_base_identities(self, reference_close: datetime) -> None:
+        cutoff = reference_close - self.policy.base_identity_retention
+        expired = [
+            identity
+            for identity, close_time in self._base_open_times.items()
+            if close_time < cutoff
+        ]
+        for identity in expired:
+            del self._base_open_times[identity]
 
     def _ingest_success(self, message: Mapping[str, object]) -> None:
         status = str(message.get("msg", "")).lower()
@@ -504,10 +540,11 @@ class AlpacaStockMarketDataStream:
             if prior_close is not None and close_time < prior_close:
                 self._quarantine("OUT_OF_ORDER_BASE_BAR")
                 raise AlpacaMarketDataProtocolError("base bar time regressed")
-            self._base_open_times.add(identity)
+            self._base_open_times[identity] = close_time
             self._latest_base_close_by_symbol[symbol] = (
                 close_time if prior_close is None else max(prior_close, close_time)
             )
+            self._purge_base_identities(close_time)
             kind = AlpacaBarUpdateKind.BASE
             self.accepted_base_bars += 1
         else:
@@ -605,36 +642,40 @@ class AlpacaLiveMarketDataSession:
         factory = self.socket_factory or self._default_socket_factory()
         frames_processed = 0
         updates_delivered = 0
-        async with AsyncExitStack() as stack:
-            try:
-                socket = await stack.enter_async_context(factory(self.stream.endpoint.stream_url))
-            except Exception as exc:
-                self.stream.degrade("MARKET_DATA_CONNECT_FAILURE")
-                raise AlpacaMarketDataTransportError("market-data connection failed") from exc
-            await self._receive_handshake(socket, AlpacaMarketDataStreamState.CONNECTED)
-            await self._send(socket, self.stream.authentication_frame())
-            await self._receive_handshake(socket, AlpacaMarketDataStreamState.AUTHENTICATED)
-            await self._send(socket, self.stream.subscription_frame())
-            await self._receive_handshake(socket, AlpacaMarketDataStreamState.SUBSCRIBED)
-            while maximum_market_frames is None or frames_processed < maximum_market_frames:
-                raw = await self._receive_market_frame(socket)
-                received_at = _aware(self.clock(), "clock")
-                updates = self.stream.ingest(
-                    raw,
-                    received_at=received_at,
-                    expected_generation=self.stream.generation,
-                )
-                frames_processed += 1
-                for update in updates:
-                    try:
-                        self.sink.accept(update)
-                    except Exception as exc:
-                        self.stream.degrade("MARKET_DATA_SINK_FAILURE")
-                        raise AlpacaMarketDataSinkError("market-data sink rejected update") from exc
-                    updates_delivered += 1
-            evidence = self.stream.evidence(captured_at=_aware(self.clock(), "clock"))
-        self.stream.close()
-        return AlpacaMarketDataSessionResult(updates_delivered, frames_processed, evidence)
+        try:
+            async with AsyncExitStack() as stack:
+                try:
+                    socket = await stack.enter_async_context(factory(self.stream.endpoint.stream_url))
+                except Exception as exc:
+                    self.stream.degrade("MARKET_DATA_CONNECT_FAILURE")
+                    raise AlpacaMarketDataTransportError("market-data connection failed") from exc
+                await self._receive_handshake(socket, AlpacaMarketDataStreamState.CONNECTED)
+                await self._send(socket, self.stream.authentication_frame())
+                await self._receive_handshake(socket, AlpacaMarketDataStreamState.AUTHENTICATED)
+                await self._send(socket, self.stream.subscription_frame())
+                await self._receive_handshake(socket, AlpacaMarketDataStreamState.SUBSCRIBED)
+                while maximum_market_frames is None or frames_processed < maximum_market_frames:
+                    raw = await self._receive_market_frame(socket)
+                    received_at = _aware(self.clock(), "clock")
+                    updates = self.stream.ingest(
+                        raw,
+                        received_at=received_at,
+                        expected_generation=self.stream.generation,
+                    )
+                    frames_processed += 1
+                    for update in updates:
+                        try:
+                            self.sink.accept(update)
+                        except Exception as exc:
+                            self.stream.degrade("MARKET_DATA_SINK_FAILURE")
+                            raise AlpacaMarketDataSinkError(
+                                "market-data sink rejected update"
+                            ) from exc
+                        updates_delivered += 1
+                evidence = self.stream.evidence(captured_at=_aware(self.clock(), "clock"))
+            return AlpacaMarketDataSessionResult(updates_delivered, frames_processed, evidence)
+        finally:
+            self.stream.close()
 
     async def _send(self, socket: MarketDataSocket, message: bytes | str) -> None:
         try:
