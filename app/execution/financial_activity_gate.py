@@ -54,11 +54,10 @@ def financial_activity_truth_block_reasons(
     *,
     now: datetime,
 ) -> tuple[str, ...]:
-    """Return deterministic fail-closed reasons for new-risk admission.
+    """Return deterministic fail-closed detail for new-risk admission.
 
     Provider/storage failures are deliberately collapsed to one public reason;
-    callers must never convert an unavailable financial truth source into an
-    optimistic admission decision.
+    callers add their own planning/dispatch-level blocker around these facts.
     """
 
     try:
@@ -67,11 +66,4 @@ def financial_activity_truth_block_reasons(
         return ("FINANCIAL_ACTIVITY_TRUTH_INVALID",)
     if readiness.ready:
         return ()
-    return tuple(
-        sorted(
-            {
-                "BROKER_FINANCIAL_ACTIVITY_NOT_READY",
-                *readiness.reasons,
-            }
-        )
-    )
+    return readiness.reasons
