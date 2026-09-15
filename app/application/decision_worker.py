@@ -30,6 +30,7 @@ from app.runtime.paper_dispatch_control import (
 )
 
 OperationalSnapshotProvider = Callable[[], OperationalSnapshot]
+DecisionClock = Callable[[], datetime]
 
 
 class OperationalRiskContextProvider(Protocol):
@@ -106,12 +107,13 @@ class OperationalDecisionWorker:
         control: PaperDispatchControlStore,
         risk_context_provider: OperationalRiskContextProvider,
         planner: OperationalDecisionPlanner,
+        clock: DecisionClock,
         policy: OperationalDecisionWorkerPolicy | None = None,
     ) -> None:
         if not strategy_id.strip() or not owner_id.strip() or not release_identity.strip():
             raise ValueError("strategy/owner/release identity is required")
-        if risk_context_provider is None or planner is None:
-            raise ValueError("risk_context_provider and planner are required")
+        if risk_context_provider is None or planner is None or clock is None:
+            raise ValueError("risk_context_provider, planner and clock are required")
         resolved = OperationalDecisionWorkerPolicy() if policy is None else policy
         resolved.validate()
         self.strategy_id = strategy_id
@@ -125,15 +127,16 @@ class OperationalDecisionWorker:
         self.control = control
         self.risk_context_provider = risk_context_provider
         self.planner = planner
+        self.clock = clock
         self.policy = resolved
 
-    def run_next(self, *, occurred_at: datetime) -> OperationalDecisionWorkerResult | None:
-        moment = _aware(occurred_at, "occurred_at")
+    def run_next(self) -> OperationalDecisionWorkerResult | None:
+        claim_at = self._now()
         receipt = self.leases.claim_next(
             strategy_id=self.strategy_id,
             owner_id=self.owner_id,
             release_identity=self.release_identity,
-            occurred_at=moment,
+            occurred_at=claim_at,
             policy=self.policy.lease,
         )
         if receipt is None:
@@ -142,6 +145,7 @@ class OperationalDecisionWorker:
         operational_bars, continuity_reasons, checkpoint_id = self._decision_window(receipt)
         _, readiness_reasons, snapshot = self._readiness()
         control_state = self.control.current()
+        evidence_at = self._now()
         first_bar_id = None if not operational_bars else operational_bars[0].bar_id
         last_bar_id = None if not operational_bars else operational_bars[-1].bar_id
         evidence = DecisionSafetyEvidence(
@@ -157,7 +161,7 @@ class OperationalDecisionWorker:
                 readiness_reasons=readiness_reasons,
                 control_mode=control_state.mode.value,
                 control_version=control_state.version,
-                observed_at=moment,
+                observed_at=evidence_at,
             ),
             ticket_id=receipt.ticket.ticket_id,
             owner_id=receipt.owner_id,
@@ -170,13 +174,13 @@ class OperationalDecisionWorker:
             readiness_reasons=readiness_reasons,
             control_mode=control_state.mode.value,
             control_version=control_state.version,
-            observed_at=moment,
+            observed_at=evidence_at,
         )
         self.leases.record_safety(evidence)
 
         if not evidence.ready_for_evaluation:
-            self._halt_if_armed(evidence, occurred_at=moment)
-            self.leases.release(receipt, occurred_at=moment)
+            self._halt_if_armed(evidence, occurred_at=evidence_at)
+            self.leases.release(receipt, occurred_at=self._now())
             result = OperationalDecisionWorkerResult(
                 receipt=receipt,
                 status="BLOCKED",
@@ -188,19 +192,20 @@ class OperationalDecisionWorker:
             return result
 
         domain_bars = tuple(_strategy_bar(bar) for bar in operational_bars)
-        risk_context = self.risk_context_provider.context_for_decision(
-            receipt=receipt,
-            bars=domain_bars,
-            decision_time=moment,
-        )
+        decision_time = self._now()
         renewed = self.leases.renew(
             receipt,
-            occurred_at=moment,
+            occurred_at=decision_time,
             policy=self.policy.lease,
+        )
+        risk_context = self.risk_context_provider.context_for_decision(
+            receipt=renewed,
+            bars=domain_bars,
+            decision_time=decision_time,
         )
         planning = self.planner.plan_and_prepare(
             domain_bars,
-            decision_time=moment,
+            decision_time=decision_time,
             risk_context=risk_context,
             kill_switch_engaged=False if snapshot is None else snapshot.kill_switch_engaged,
         )
@@ -208,7 +213,7 @@ class OperationalDecisionWorker:
         self.leases.complete(
             renewed,
             outcome_id=outcome_id,
-            occurred_at=moment,
+            occurred_at=self._now(),
         )
         result = OperationalDecisionWorkerResult(
             receipt=renewed,
@@ -219,6 +224,9 @@ class OperationalDecisionWorker:
         )
         result.validate()
         return result
+
+    def _now(self) -> datetime:
+        return _aware(self.clock(), "decision worker clock")
 
     def _decision_window(
         self,
