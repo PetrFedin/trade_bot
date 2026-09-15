@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Protocol
 
 from app.application.paper_cycle import PaperPlanningResult
@@ -140,7 +140,7 @@ class OperationalDecisionWorker:
             return None
 
         operational_bars, continuity_reasons, checkpoint_id = self._decision_window(receipt)
-        readiness, readiness_reasons, snapshot = self._readiness()
+        _, readiness_reasons, snapshot = self._readiness()
         control_state = self.control.current()
         first_bar_id = None if not operational_bars else operational_bars[0].bar_id
         last_bar_id = None if not operational_bars else operational_bars[-1].bar_id
@@ -261,7 +261,7 @@ class OperationalDecisionWorker:
         if bars and bars[-1].bar_id != receipt.ticket.bar_id:
             reasons.add("DECISION_BAR_NOT_WINDOW_TAIL")
         if len(bars) > 1:
-            for previous, current in zip(bars, bars[1:], strict=True):
+            for previous, current in zip(bars[:-1], bars[1:], strict=True):
                 if previous.close_time != current.open_time:
                     reasons.add("DECISION_WINDOW_GAP")
                     break
@@ -322,7 +322,7 @@ def _planning_outcome_id(result: PaperPlanningResult) -> str:
         "risk_reasons": [] if result.risk is None else list(result.risk.reasons),
         "prepared_intent_id": None
         if result.prepared is None
-        else result.prepared.order.intent_id,
+        else result.prepared.record.intent_id,
     }
     encoded = json.dumps(material, sort_keys=True, separators=(",", ":"))
     return "planning:" + hashlib.sha256(encoded.encode()).hexdigest()
@@ -331,4 +331,4 @@ def _planning_outcome_id(result: PaperPlanningResult) -> str:
 def _aware(value: datetime, name: str) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{name} must be timezone-aware")
-    return value
+    return value.astimezone(UTC)
