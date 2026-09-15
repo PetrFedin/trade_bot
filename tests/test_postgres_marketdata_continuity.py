@@ -124,6 +124,31 @@ def test_postgres_repair_persists_bar_without_decision_ticket(stores) -> None:
     assert restored == (value,)
 
 
+def test_postgres_repair_accepts_matching_economics_after_live_envelope_wins(stores) -> None:
+    marketdata, _, repair = stores
+    repair_bar = bar(0)
+    live_bar = OperationalBar(
+        **{
+            **repair_bar.__dict__,
+            "source_timestamp": repair_bar.close_time - timedelta(seconds=2),
+        }
+    )
+    assert live_bar.bar_id == repair_bar.bar_id
+    assert live_bar.content_hash != repair_bar.content_hash
+    ticket = marketdata.record_finalized_for_strategy(
+        live_bar,
+        strategy_id="bybit-demo-momentum-v1",
+        recorded_at=OBSERVED,
+    )
+
+    assert not repair.record_without_decision(
+        repair_bar,
+        recorded_at=OBSERVED + timedelta(seconds=1),
+    )
+    assert marketdata.conflict_count() == 0
+    assert marketdata.pending_decisions(strategy_id="bybit-demo-momentum-v1") == (ticket,)
+
+
 def test_postgres_two_workers_repair_same_bar_once_without_ticket(stores) -> None:
     marketdata, _, _ = stores
     value = bar(0)
