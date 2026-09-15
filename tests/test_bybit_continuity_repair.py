@@ -160,7 +160,11 @@ def test_bootstrap_repairs_three_bars_without_creating_decision_tickets(tmp_path
         through_close_time=BASE + timedelta(minutes=15),
         limit=3,
     )
-    assert [bar.close for bar in restored] == [Decimal("100"), Decimal("101"), Decimal("102")]
+    assert [bar.close for bar in restored] == [
+        Decimal("100"),
+        Decimal("101"),
+        Decimal("102"),
+    ]
     latest = continuity.latest(
         provider="BYBIT",
         venue="BYBIT_LINEAR",
@@ -329,16 +333,17 @@ def test_transport_rejects_non_allowlisted_url_before_network() -> None:
 
 
 def test_checkpoint_retry_ignores_new_observation_time_but_remains_append_only(tmp_path) -> None:
-    path, _, _, continuity = stores(tmp_path)
-    through = BASE + timedelta(minutes=5)
+    path, _, repair, continuity = stores(tmp_path)
+    durable_bar = economics_bar(0)
+    assert repair.record_without_decision(durable_bar, recorded_at=OBSERVED)
     checkpoint_id = continuity_checkpoint_id(
         previous_checkpoint_id=None,
         provider="BYBIT",
         venue="BYBIT_LINEAR",
         symbol="BTCUSDT",
         interval_seconds=300,
-        through_bar_id="bar-1",
-        through_close_time=through,
+        through_bar_id=durable_bar.bar_id,
+        through_close_time=durable_bar.close_time,
         evidence_source="TEST",
     )
     first = OperationalContinuityCheckpoint(
@@ -348,15 +353,15 @@ def test_checkpoint_retry_ignores_new_observation_time_but_remains_append_only(t
         venue="BYBIT_LINEAR",
         symbol="BTCUSDT",
         interval_seconds=300,
-        through_bar_id="bar-1",
-        through_close_time=through,
-        established_at=through + timedelta(seconds=1),
+        through_bar_id=durable_bar.bar_id,
+        through_close_time=durable_bar.close_time,
+        established_at=OBSERVED,
         evidence_source="TEST",
     )
     repeated = OperationalContinuityCheckpoint(
         **{
             **first.__dict__,
-            "established_at": through + timedelta(seconds=30),
+            "established_at": OBSERVED + timedelta(seconds=30),
         }
     )
     assert continuity.append(first)
@@ -376,3 +381,32 @@ def test_checkpoint_retry_ignores_new_observation_time_but_remains_append_only(t
             )
     finally:
         connection.close()
+
+
+def test_checkpoint_cannot_reference_missing_durable_bar(tmp_path) -> None:
+    _, _, _, continuity = stores(tmp_path)
+    through = BASE + timedelta(minutes=5)
+    checkpoint_id = continuity_checkpoint_id(
+        previous_checkpoint_id=None,
+        provider="BYBIT",
+        venue="BYBIT_LINEAR",
+        symbol="BTCUSDT",
+        interval_seconds=300,
+        through_bar_id="missing-bar",
+        through_close_time=through,
+        evidence_source="TEST",
+    )
+    invalid = OperationalContinuityCheckpoint(
+        checkpoint_id=checkpoint_id,
+        previous_checkpoint_id=None,
+        provider="BYBIT",
+        venue="BYBIT_LINEAR",
+        symbol="BTCUSDT",
+        interval_seconds=300,
+        through_bar_id="missing-bar",
+        through_close_time=through,
+        established_at=OBSERVED,
+        evidence_source="TEST",
+    )
+    with pytest.raises(ValueError, match="through bar is missing"):
+        continuity.append(invalid)
