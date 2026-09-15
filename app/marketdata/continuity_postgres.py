@@ -47,6 +47,7 @@ class PostgresOperationalContinuityStore:
         with self._connect() as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
+                    self._verify_through_bar(cursor, checkpoint)
                     cursor.execute(
                         """SELECT * FROM astra_operational_market_continuity
                         WHERE checkpoint_id=%s""",
@@ -110,6 +111,37 @@ class PostgresOperationalContinuityStore:
                         ),
                     )
                     return True
+
+    @staticmethod
+    def _verify_through_bar(cursor, checkpoint: OperationalContinuityCheckpoint) -> None:
+        cursor.execute(
+            """SELECT provider, venue, symbol, interval_seconds, close_time
+            FROM astra_operational_market_bars
+            WHERE bar_id=%s FOR SHARE""",
+            (checkpoint.through_bar_id,),
+        )
+        bar = cursor.fetchone()
+        if bar is None:
+            raise ValueError("continuity through bar is missing")
+        close_time = bar["close_time"]
+        if not isinstance(close_time, datetime):
+            close_time = datetime.fromisoformat(str(close_time))
+        if (
+            str(bar["provider"]) != checkpoint.provider
+            or str(bar["venue"]) != checkpoint.venue
+            or str(bar["symbol"]) != checkpoint.symbol
+            or int(str(bar["interval_seconds"])) != checkpoint.interval_seconds
+            or _aware(close_time, "bar close_time")
+            != _aware(checkpoint.through_close_time, "through_close_time")
+        ):
+            raise ValueError("continuity through bar disagrees with checkpoint")
+        cursor.execute(
+            """SELECT 1 FROM astra_operational_market_bar_conflicts
+            WHERE bar_id=%s LIMIT 1""",
+            (checkpoint.through_bar_id,),
+        )
+        if cursor.fetchone() is not None:
+            raise ValueError("continuity through bar is conflicted")
 
     def latest(
         self,
