@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS astra_operational_market_continuity (
     established_at TIMESTAMPTZ NOT NULL,
     evidence_source TEXT NOT NULL,
     FOREIGN KEY (previous_checkpoint_id)
-        REFERENCES astra_operational_market_continuity(checkpoint_id)
+        REFERENCES astra_operational_market_continuity(checkpoint_id),
+    FOREIGN KEY (through_bar_id)
+        REFERENCES astra_operational_market_bars(bar_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_operational_market_continuity_latest
