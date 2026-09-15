@@ -19,7 +19,9 @@ on:
       - 'tests/test_composition_root.py'
       - 'tests/test_postgres_composition_root.py'
       - 'tests/test_operational_marketdata.py'
+      - 'tests/test_bybit_continuity_repair.py'
       - 'tests/test_postgres_operational_marketdata.py'
+      - 'tests/test_postgres_marketdata_continuity.py'
       - 'tests/test_portfolio_reconciliation_gate.py'
       - 'tests/test_postgres_portfolio_reconciliation.py'
       - 'tests/test_financial_activity_recovery.py'
@@ -49,7 +51,9 @@ on:
       - 'tests/test_composition_root.py'
       - 'tests/test_postgres_composition_root.py'
       - 'tests/test_operational_marketdata.py'
+      - 'tests/test_bybit_continuity_repair.py'
       - 'tests/test_postgres_operational_marketdata.py'
+      - 'tests/test_postgres_marketdata_continuity.py'
       - 'tests/test_portfolio_reconciliation_gate.py'
       - 'tests/test_postgres_portfolio_reconciliation.py'
       - 'tests/test_financial_activity_recovery.py'
@@ -101,11 +105,12 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
           python -m pip check
-      - name: Local composition, market truth, financial truth, reconciliation, fills, recovery, and bounded paper cycle
+      - name: Local composition, market truth, continuity, financial truth, reconciliation, fills and recovery
         run: >-
           pytest -q
           tests/test_composition_root.py
           tests/test_operational_marketdata.py
+          tests/test_bybit_continuity_repair.py
           tests/test_portfolio_reconciliation_gate.py
           tests/test_financial_activity_recovery.py
           tests/test_financial_activity_truth_gate.py
@@ -114,11 +119,12 @@ jobs:
           tests/test_fill_backfill.py
           tests/test_portfolio_event_conflicts.py
           tests/test_paper_cycle_e2e.py
-      - name: PostgreSQL composition, market truth, financial truth, reconciliation, restart, and conflicts
+      - name: PostgreSQL composition, market truth, continuity, financial truth and conflicts
         run: >-
           pytest -q
           tests/test_postgres_composition_root.py
           tests/test_postgres_operational_marketdata.py
+          tests/test_postgres_marketdata_continuity.py
           tests/test_postgres_portfolio_reconciliation.py
           tests/test_postgres_financial_activities.py
           tests/test_postgres_portfolio_event_conflicts.py
