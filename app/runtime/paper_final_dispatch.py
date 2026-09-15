@@ -8,6 +8,10 @@ from app.observability.readiness import (
     OperationalSnapshot,
 )
 from app.oms.store import OrderRecord
+from app.runtime.account_reconciliation_truth import (
+    AccountReconciliationBlocked,
+    AccountReconciliationGate,
+)
 from app.runtime.paper_dispatch_control import (
     DispatchAuthorization,
     DispatchBlocked,
@@ -20,12 +24,10 @@ OperationalSnapshotProvider = Callable[[], OperationalSnapshot]
 class PaperFinalDispatchGuard:
     """Last-mile fail-closed guard immediately before submit ownership is claimed.
 
-    Operational readiness is re-evaluated for every outbound submit attempt. A
-    missing or degraded snapshot durably HALTs new entries before the caller can
-    acquire submit capability. If readiness is healthy, authorization is recorded
-    under the durable dispatch-control lock. A later HALT is therefore ordered
-    after that authorization; the existing exclusive submit claim still guarantees
-    that only one worker can perform the broker POST.
+    Operational readiness and durable broker-account reconciliation are re-evaluated
+    for every risk-increasing outbound submit attempt. A missing, stale or mismatched
+    account truth durably HALTs new entries before the caller can acquire submit
+    capability. Risk-reducing SELL operations are not blocked by account-truth drift.
     """
 
     def __init__(
@@ -34,10 +36,12 @@ class PaperFinalDispatchGuard:
         control: PaperDispatchControlStore,
         readiness: OperationalReadinessEvaluator,
         snapshot_provider: OperationalSnapshotProvider | None,
+        account_reconciliation_gate: AccountReconciliationGate | None = None,
     ) -> None:
         self.control = control
         self.readiness = readiness
         self.snapshot_provider = snapshot_provider
+        self.account_reconciliation_gate = account_reconciliation_gate
 
     @staticmethod
     def _time(value: datetime) -> datetime:
@@ -52,6 +56,13 @@ class PaperFinalDispatchGuard:
         occurred_at: datetime,
     ) -> DispatchAuthorization:
         moment = self._time(occurred_at)
+        if self.account_reconciliation_gate is not None:
+            try:
+                self.account_reconciliation_gate.authorize_order(record, moment)
+            except AccountReconciliationBlocked as exc:
+                self._halt(exc.reasons, occurred_at=moment)
+                raise DispatchBlocked(exc.reasons) from exc
+
         if self.snapshot_provider is None:
             reasons = ("OPERATIONAL_SNAPSHOT_REQUIRED",)
             self._halt(reasons, occurred_at=moment)
