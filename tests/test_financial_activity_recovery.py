@@ -116,7 +116,6 @@ def stack(tmp_path, *, opening_cash: str = "1000"):
         portfolio=portfolio,
         runtime_ledger=ledger,
         account_identity=ACCOUNT,
-        release_identity=RELEASE,
     )
     return fact_store, portfolio, ledger, projector
 
@@ -179,9 +178,18 @@ def test_fee_withdrawal_deposit_and_dividend_project_exact_cash_and_restart(tmp_
     assert restarted.snapshot({}).total_pnl == Decimal("15")
 
 
-def test_projection_never_crosses_account_or_release_scope(tmp_path) -> None:
+def test_projection_is_account_scoped_but_not_release_scoped(tmp_path) -> None:
     store, portfolio, ledger, projector = stack(tmp_path)
     store.ingest(activity("mine", "CSD", "10"), ingested_at=NOW)
+    store.ingest(
+        activity(
+            "same-account-old-release",
+            "CSD",
+            "800",
+            release_identity=OTHER_RELEASE,
+        ),
+        ingested_at=NOW,
+    )
     store.ingest(
         activity(
             "other-account",
@@ -191,32 +199,30 @@ def test_projection_never_crosses_account_or_release_scope(tmp_path) -> None:
         ),
         ingested_at=NOW,
     )
-    store.ingest(
-        activity(
-            "other-release",
-            "CSD",
-            "800",
-            release_identity=OTHER_RELEASE,
-        ),
-        ingested_at=NOW,
-    )
 
     projected, quarantined = projector.project_pending(occurred_at=NOW)
-    assert projected == 1 and quarantined == 0
-    assert ledger.cash == Decimal("1010")
-    assert portfolio.replay(opening_cash=Decimal("1000")).cash == Decimal("1010")
-    assert store.pending_count(
-        account_identity=ACCOUNT,
-        release_identity=RELEASE,
-    ) == 0
-    assert store.pending_count(
-        account_identity=OTHER_ACCOUNT,
-        release_identity=RELEASE,
-    ) == 1
-    assert store.pending_count(
-        account_identity=ACCOUNT,
+    assert projected == 2 and quarantined == 0
+    assert ledger.cash == Decimal("1810")
+    assert portfolio.replay(opening_cash=Decimal("1000")).cash == Decimal("1810")
+    assert store.pending_count(account_identity=ACCOUNT) == 0
+    assert store.pending_count(account_identity=OTHER_ACCOUNT) == 1
+
+
+def test_same_broker_fact_is_idempotent_across_release_change(tmp_path) -> None:
+    store, _, _, _ = stack(tmp_path)
+    first = activity("release-replay", "CSD", "25")
+    second = activity(
+        "release-replay",
+        "CSD",
+        "25",
         release_identity=OTHER_RELEASE,
-    ) == 1
+    )
+    original = store.ingest(first, ingested_at=NOW)
+    replayed = store.ingest(second, ingested_at=NOW + timedelta(seconds=1))
+    assert original.state is FinancialProjectionState.PENDING
+    assert replayed.state is FinancialProjectionState.PENDING
+    assert store.quarantined_count(account_identity=ACCOUNT) == 0
+    assert store.pending_count(account_identity=ACCOUNT) == 1
 
 
 def test_unknown_activity_quarantines_and_same_id_changed_payload_conflicts(tmp_path) -> None:
@@ -225,10 +231,7 @@ def test_unknown_activity_quarantines_and_same_id_changed_payload_conflicts(tmp_
     store.ingest(unknown, ingested_at=NOW)
     projected, quarantined = projector.project_pending(occurred_at=NOW)
     assert projected == 0 and quarantined == 1
-    assert store.quarantined_count(
-        account_identity=ACCOUNT,
-        release_identity=RELEASE,
-    ) == 1
+    assert store.quarantined_count(account_identity=ACCOUNT) == 1
     assert ledger.cash == Decimal("1000")
 
     changed = activity("journal-1", "JNLC", "30")
@@ -242,10 +245,7 @@ def test_crash_after_fact_append_before_projection_resumes_exactly_once(tmp_path
     store, portfolio, ledger, _ = stack(tmp_path)
     fact = activity("fee-crash", "FEE", "-7")
     store.ingest(fact, ingested_at=NOW)
-    assert store.pending_count(
-        account_identity=ACCOUNT,
-        release_identity=RELEASE,
-    ) == 1
+    assert store.pending_count(account_identity=ACCOUNT) == 1
     assert ledger.cash == Decimal("1000")
 
     restarted_ledger = portfolio.replay(opening_cash=Decimal("1000"))
@@ -254,7 +254,6 @@ def test_crash_after_fact_append_before_projection_resumes_exactly_once(tmp_path
         portfolio=StrictPortfolioEventStore(tmp_path / "portfolio.sqlite"),
         runtime_ledger=restarted_ledger,
         account_identity=ACCOUNT,
-        release_identity=RELEASE,
     )
     projected, quarantined = restarted_projector.project_pending(
         occurred_at=NOW + timedelta(seconds=1)
