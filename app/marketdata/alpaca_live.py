@@ -193,7 +193,11 @@ class AlpacaBarUpdate:
         ):
             if not isinstance(value, Decimal) or not value.is_finite() or value <= 0:
                 raise ValueError(f"{name} must be a positive finite Decimal")
-        if not isinstance(self.volume, Decimal) or not self.volume.is_finite() or self.volume < 0:
+        if (
+            not isinstance(self.volume, Decimal)
+            or not self.volume.is_finite()
+            or self.volume < 0
+        ):
             raise ValueError("volume must be a finite non-negative Decimal")
         if self.high < max(self.open, self.low, self.close):
             raise ValueError("high is below bar prices")
