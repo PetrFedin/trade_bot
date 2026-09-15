@@ -192,7 +192,9 @@ class SQLiteOperationalContinuityStore:
                     established_at TEXT NOT NULL,
                     evidence_source TEXT NOT NULL,
                     FOREIGN KEY(previous_checkpoint_id)
-                        REFERENCES operational_market_continuity(checkpoint_id)
+                        REFERENCES operational_market_continuity(checkpoint_id),
+                    FOREIGN KEY(through_bar_id)
+                        REFERENCES operational_market_bars(bar_id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_operational_market_continuity_latest
                 ON operational_market_continuity(
@@ -217,6 +219,7 @@ class SQLiteOperationalContinuityStore:
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self._verify_through_bar(connection, checkpoint)
             existing = connection.execute(
                 "SELECT * FROM operational_market_continuity WHERE checkpoint_id=?",
                 (checkpoint.checkpoint_id,),
@@ -289,6 +292,35 @@ class SQLiteOperationalContinuityStore:
             raise
         finally:
             connection.close()
+
+    @staticmethod
+    def _verify_through_bar(
+        connection: sqlite3.Connection,
+        checkpoint: OperationalContinuityCheckpoint,
+    ) -> None:
+        bar = connection.execute(
+            """SELECT provider, venue, symbol, interval_seconds, close_time
+            FROM operational_market_bars WHERE bar_id=?""",
+            (checkpoint.through_bar_id,),
+        ).fetchone()
+        if bar is None:
+            raise ValueError("continuity through bar is missing")
+        if (
+            str(bar["provider"]) != checkpoint.provider
+            or str(bar["venue"]) != checkpoint.venue
+            or str(bar["symbol"]) != checkpoint.symbol
+            or int(bar["interval_seconds"]) != checkpoint.interval_seconds
+            or datetime.fromisoformat(str(bar["close_time"]))
+            != _aware(checkpoint.through_close_time, "through_close_time")
+        ):
+            raise ValueError("continuity through bar disagrees with checkpoint")
+        conflict = connection.execute(
+            """SELECT 1 FROM operational_market_bar_conflicts
+            WHERE bar_id=? LIMIT 1""",
+            (checkpoint.through_bar_id,),
+        ).fetchone()
+        if conflict is not None:
+            raise ValueError("continuity through bar is conflicted")
 
     def latest(
         self,
