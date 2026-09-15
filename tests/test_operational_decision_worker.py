@@ -3,7 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from app.application.decision_worker import OperationalDecisionWorker
+import pytest
+
+from app.application.decision_worker import (
+    OperationalDecisionWorker,
+    OperationalDecisionWorkerPolicy,
+)
 from app.application.paper_cycle import PaperPlanningResult
 from app.domain.trading import TargetPosition
 from app.marketdata.continuity import (
@@ -12,7 +17,11 @@ from app.marketdata.continuity import (
     SQLiteOperationalRepairBarStore,
     continuity_checkpoint_id,
 )
-from app.marketdata.decision_leases import SQLiteDecisionLeaseStore
+from app.marketdata.decision_leases import (
+    DecisionLeasePolicy,
+    SQLiteDecisionLeaseStore,
+    StaleDecisionLease,
+)
 from app.marketdata.operational import (
     OperationalBar,
     OperationalBarConflict,
@@ -28,6 +37,17 @@ from app.runtime.paper_dispatch_control import (
 NOW = datetime(2026, 9, 16, 12, 0, tzinfo=UTC)
 BASE = NOW - timedelta(minutes=15)
 STRATEGY = "paper-momentum-v1"
+
+
+class MutableClock:
+    def __init__(self, value: datetime) -> None:
+        self.value = value
+
+    def __call__(self) -> datetime:
+        return self.value
+
+    def advance(self, delta: timedelta) -> None:
+        self.value += delta
 
 
 def bar(index: int, *, close: str | None = None) -> OperationalBar:
@@ -121,6 +141,18 @@ class FakePlanner:
         return PaperPlanningResult(target, None, None, None)
 
 
+class SlowPlanner(FakePlanner):
+    def __init__(self, clock: MutableClock, delay: timedelta) -> None:
+        super().__init__()
+        self.clock = clock
+        self.delay = delay
+
+    def plan_and_prepare(self, bars, **kwargs) -> PaperPlanningResult:
+        result = super().plan_and_prepare(bars, **kwargs)
+        self.clock.advance(self.delay)
+        return result
+
+
 def build_stack(tmp_path, *, with_checkpoint: bool = True):
     marketdata_path = tmp_path / "marketdata.sqlite"
     marketdata = SQLiteOperationalMarketDataStore(marketdata_path)
@@ -171,7 +203,10 @@ def worker(
     control,
     planner,
     snapshot_provider,
+    clock: MutableClock | None = None,
+    policy: OperationalDecisionWorkerPolicy | None = None,
 ):
+    resolved_clock = MutableClock(NOW + timedelta(seconds=2)) if clock is None else clock
     return OperationalDecisionWorker(
         strategy_id=STRATEGY,
         owner_id="worker-a",
@@ -184,6 +219,8 @@ def worker(
         control=control,
         risk_context_provider=FakeRiskContextProvider(),
         planner=planner,
+        clock=resolved_clock,
+        policy=policy,
     )
 
 
@@ -199,7 +236,7 @@ def test_ready_worker_evaluates_one_durable_ticket_once(tmp_path) -> None:
         snapshot_provider=ready_snapshot,
     )
 
-    result = service.run_next(occurred_at=NOW + timedelta(seconds=2))
+    result = service.run_next()
 
     assert result is not None and result.status == "COMPLETED"
     assert result.receipt.ticket.ticket_id == ticket.ticket_id
@@ -207,7 +244,7 @@ def test_ready_worker_evaluates_one_durable_ticket_once(tmp_path) -> None:
     assert result.safety.control_mode == "HALTED"
     assert planner.calls == 1
     assert marketdata.pending_decisions(strategy_id=STRATEGY) == ()
-    assert service.run_next(occurred_at=NOW + timedelta(seconds=3)) is None
+    assert service.run_next() is None
     assert planner.calls == 1
 
 
@@ -229,7 +266,7 @@ def test_degraded_readiness_blocks_planner_releases_ticket_and_halts_armed_contr
         snapshot_provider=lambda: ready_snapshot(market_data_ready=False),
     )
 
-    result = service.run_next(occurred_at=NOW + timedelta(seconds=2))
+    result = service.run_next()
 
     assert result is not None and result.status == "BLOCKED"
     assert "MARKET_DATA_NOT_READY" in result.safety.readiness_reasons
@@ -260,7 +297,7 @@ def test_missing_continuity_blocks_before_planner(tmp_path) -> None:
         snapshot_provider=ready_snapshot,
     )
 
-    result = service.run_next(occurred_at=NOW + timedelta(seconds=2))
+    result = service.run_next()
 
     assert result is not None and result.status == "BLOCKED"
     assert result.safety.continuity_reasons == ("CONTINUITY_CHECKPOINT_REQUIRED",)
@@ -305,9 +342,44 @@ def test_late_conflict_after_claim_is_rechecked_and_blocks_planner(tmp_path) -> 
         snapshot_provider=ready_snapshot,
     )
 
-    result = service.run_next(occurred_at=NOW + timedelta(seconds=2))
+    result = service.run_next()
 
     assert result is not None and result.status == "BLOCKED"
     assert "CONTINUITY_HIGH_WATER_CONFLICTED_OR_MISSING" in result.safety.continuity_reasons
     assert "DECISION_BAR_NOT_WINDOW_TAIL" in result.safety.continuity_reasons
     assert planner.calls == 0
+
+
+def test_slow_planner_cannot_complete_after_renewed_lease_expires(tmp_path) -> None:
+    _, ticket, marketdata, continuity, leases, control = build_stack(tmp_path)
+    clock = MutableClock(NOW + timedelta(seconds=2))
+    planner = SlowPlanner(clock, timedelta(seconds=2))
+    policy = OperationalDecisionWorkerPolicy(
+        lease=DecisionLeasePolicy(lease_ttl=timedelta(seconds=1))
+    )
+    service = worker(
+        marketdata=marketdata,
+        continuity=continuity,
+        leases=leases,
+        control=control,
+        planner=planner,
+        snapshot_provider=ready_snapshot,
+        clock=clock,
+        policy=policy,
+    )
+
+    with pytest.raises(StaleDecisionLease, match="expired"):
+        service.run_next()
+
+    assert planner.calls == 1
+    assert marketdata.pending_decisions(strategy_id=STRATEGY) == (ticket,)
+    reclaimed = leases.claim_next(
+        strategy_id=STRATEGY,
+        owner_id="worker-b",
+        release_identity="release-b",
+        occurred_at=clock.value,
+        policy=policy.lease,
+    )
+    assert reclaimed is not None
+    assert reclaimed.ticket.ticket_id == ticket.ticket_id
+    assert reclaimed.fencing_token == 2
