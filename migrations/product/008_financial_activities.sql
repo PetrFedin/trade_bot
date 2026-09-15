@@ -1,3 +1,15 @@
+BEGIN;
+
+-- F21B projects non-trade broker cash facts into the existing durable
+-- portfolio journal. Upgrade the event contract in this migration (rather
+-- than rewriting migration 003) so already-initialized databases receive the
+-- new event type as well as clean installs.
+ALTER TABLE astra_portfolio_events
+    DROP CONSTRAINT IF EXISTS astra_portfolio_events_event_type_check;
+ALTER TABLE astra_portfolio_events
+    ADD CONSTRAINT astra_portfolio_events_event_type_check
+    CHECK (event_type IN ('FILL', 'SPLIT', 'CASH_DIVIDEND', 'CASH_ADJUSTMENT'));
+
 CREATE TABLE IF NOT EXISTS astra_financial_activity_facts (
     account_identity TEXT NOT NULL,
     activity_id TEXT NOT NULL,
@@ -83,3 +95,5 @@ DROP TRIGGER IF EXISTS astra_financial_activity_conflicts_no_delete ON astra_fin
 CREATE TRIGGER astra_financial_activity_conflicts_no_delete
 BEFORE DELETE ON astra_financial_activity_conflicts
 FOR EACH ROW EXECUTE FUNCTION reject_astra_financial_conflict_mutation();
+
+COMMIT;
