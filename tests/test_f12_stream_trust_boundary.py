@@ -82,28 +82,12 @@ def prepare_order(oms: IndexedDurableOmsStore) -> None:
     )
 
 
-def test_rejected_trade_update_never_becomes_trusted_duplicate() -> None:
-    stream = AlpacaTradeUpdateStreamV100(generation=1, credentials=credentials())
-    stream.authentication_frame()
-    raw = fill_frame()
-
-    for _ in range(2):
-        with pytest.raises(AlpacaPaperProtocolError, match="update before listening"):
-            stream.ingest(raw, received_at=NOW, expected_generation=1)
-
-    assert stream.state is TradeStreamStateV100.QUARANTINED
-    assert stream.duplicate_updates == 0
-    assert stream.accepted_updates == 0
-
-
-def test_f12_replayed_rejected_fill_cannot_reach_accounting(tmp_path) -> None:
+def build_processor(tmp_path, *, stream: AlpacaTradeUpdateStreamV100):
     oms = IndexedDurableOmsStore(tmp_path / "oms.sqlite")
     prepare_order(oms)
     portfolio = PortfolioEventStore(tmp_path / "portfolio.sqlite")
     execution_path = tmp_path / "execution.sqlite"
     execution_facts = SQLiteExecutionFactStore(execution_path)
-    stream = AlpacaTradeUpdateStreamV100(generation=1, credentials=credentials())
-    stream.authentication_frame()
     service = PaperTradeUpdateProcessor(
         stream=stream,
         oms=oms,
@@ -115,15 +99,57 @@ def test_f12_replayed_rejected_fill_cannot_reach_accounting(tmp_path) -> None:
             fee_provider=ExplicitZeroPaperFeeModel(),
         ),
     )
+    return oms, portfolio, execution_facts, execution_path, service
+
+
+def test_f12_replayed_rejected_fill_cannot_reach_accounting(tmp_path) -> None:
+    stream = AlpacaTradeUpdateStreamV100(generation=1, credentials=credentials())
+    stream.authentication_frame()
+    oms, portfolio, execution_facts, execution_path, service = build_processor(
+        tmp_path,
+        stream=stream,
+    )
     raw = fill_frame()
 
-    for _ in range(2):
-        with pytest.raises(AlpacaPaperProtocolError, match="update before listening"):
-            service.process(raw, received_at=NOW, expected_generation=1)
+    with pytest.raises(AlpacaPaperProtocolError, match="update before listening"):
+        service.process(raw, received_at=NOW, expected_generation=1)
+    assert stream.state is TradeStreamStateV100.QUARANTINED
 
-    assert stream.duplicate_updates == 0
+    with pytest.raises(ValueError, match="TRADE_UPDATE_FILL_WITHOUT_VALIDATED_STREAM_PROVENANCE"):
+        service.process(raw, received_at=NOW, expected_generation=1)
+
+    assert stream.duplicate_updates == 1
+    assert stream.accepted_updates == 0
     assert oms.get("intent-1").state is OrderState.ACKNOWLEDGED
     assert portfolio.replay(opening_cash=Decimal("1000")).positions() == ()
     assert execution_facts.unresolved_count() == 0
     with sqlite3.connect(execution_path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM execution_facts").fetchone()[0] == 0
+
+
+def test_validated_fill_duplicate_remains_idempotently_replayable(tmp_path) -> None:
+    stream = AlpacaTradeUpdateStreamV100(generation=1, credentials=credentials())
+    stream.authentication_frame()
+    stream.ingest(
+        json.dumps({"stream": "authorization", "data": {"status": "authorized"}}),
+        received_at=NOW,
+        expected_generation=1,
+    )
+    stream.ingest(
+        json.dumps({"stream": "listening", "data": {"streams": ["trade_updates"]}}),
+        received_at=NOW,
+        expected_generation=1,
+    )
+    _, portfolio, execution_facts, _, service = build_processor(tmp_path, stream=stream)
+    raw = fill_frame()
+
+    first = service.process(raw, received_at=NOW, expected_generation=1)
+    duplicate = service.process(raw, received_at=NOW, expected_generation=1)
+
+    assert first.stream_update is not None
+    assert first.fill_accounting is not None and first.fill_accounting.portfolio_event_appended
+    assert duplicate.stream_update is None
+    assert duplicate.fill_accounting is not None
+    assert duplicate.fill_accounting.portfolio_event_appended is False
+    assert portfolio.replay(opening_cash=Decimal("1000")).position("AAPL").quantity == Decimal("1")
+    assert execution_facts.unresolved_count() == 0
