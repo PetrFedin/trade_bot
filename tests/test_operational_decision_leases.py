@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.marketdata.continuity import SQLiteOperationalContinuityStore
 from app.marketdata.decision_leases import (
     DecisionLeasePolicy,
     DecisionSafetyEvidence,
@@ -45,6 +46,7 @@ def bar() -> OperationalBar:
 def stack(tmp_path):
     path = tmp_path / "marketdata.sqlite"
     marketdata = SQLiteOperationalMarketDataStore(path)
+    SQLiteOperationalContinuityStore(path)
     value = bar()
     ticket = marketdata.record_finalized_for_strategy(
         value,
