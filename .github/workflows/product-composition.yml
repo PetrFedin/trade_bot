@@ -18,6 +18,8 @@ on:
       - 'tests/test_postgres_composition_root.py'
       - 'tests/test_portfolio_reconciliation_gate.py'
       - 'tests/test_postgres_portfolio_reconciliation.py'
+      - 'tests/test_financial_activity_recovery.py'
+      - 'tests/test_postgres_financial_activities.py'
       - 'tests/test_trade_fill_accounting.py'
       - 'tests/test_trade_update_processor.py'
       - 'tests/test_fill_backfill.py'
@@ -41,6 +43,8 @@ on:
       - 'tests/test_postgres_composition_root.py'
       - 'tests/test_portfolio_reconciliation_gate.py'
       - 'tests/test_postgres_portfolio_reconciliation.py'
+      - 'tests/test_financial_activity_recovery.py'
+      - 'tests/test_postgres_financial_activities.py'
       - 'tests/test_trade_fill_accounting.py'
       - 'tests/test_trade_update_processor.py'
       - 'tests/test_fill_backfill.py'
@@ -87,21 +91,23 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
           python -m pip check
-      - name: Local composition, reconciliation, exact fills, recovery, and bounded paper cycle
+      - name: Local composition, financial truth, reconciliation, fills, recovery, and bounded paper cycle
         run: >-
           pytest -q
           tests/test_composition_root.py
           tests/test_portfolio_reconciliation_gate.py
+          tests/test_financial_activity_recovery.py
           tests/test_trade_fill_accounting.py
           tests/test_trade_update_processor.py
           tests/test_fill_backfill.py
           tests/test_portfolio_event_conflicts.py
           tests/test_paper_cycle_e2e.py
-      - name: PostgreSQL composition, reconciliation, mutation journal, restart, and idempotency conflicts
+      - name: PostgreSQL composition, financial truth, reconciliation, restart, and conflicts
         run: >-
           pytest -q
           tests/test_postgres_composition_root.py
           tests/test_postgres_portfolio_reconciliation.py
+          tests/test_postgres_financial_activities.py
           tests/test_postgres_portfolio_event_conflicts.py
       - name: Core persistence and risk parity regression
         run: >-
