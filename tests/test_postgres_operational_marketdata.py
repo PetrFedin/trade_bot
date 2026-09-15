@@ -121,7 +121,7 @@ def test_postgres_two_workers_create_one_bar_and_one_ticket(
     assert tickets == 1
 
 
-def test_postgres_changed_economics_persists_conflict_and_preserves_ticket(
+def test_postgres_changed_economics_quarantines_ticket_and_window(
     store: PostgresOperationalMarketDataStore,
 ) -> None:
     original = bar(0)
@@ -140,7 +140,31 @@ def test_postgres_changed_economics_persists_conflict_and_preserves_ticket(
         )
 
     assert store.conflict_count() == 1
-    assert store.pending_decisions(strategy_id=STRATEGY) == (ticket,)
+    assert store.pending_decisions(strategy_id=STRATEGY) == ()
+    assert (
+        store.recent_bars(
+            provider="ALPACA",
+            venue="NASDAQ",
+            symbol="AAPL",
+            interval_seconds=60,
+            through_close_time=original.close_time,
+            limit=1,
+        )
+        == ()
+    )
+    with psycopg.connect(DSN) as connection:
+        ticket_count = connection.execute(
+            """SELECT COUNT(*) FROM astra_operational_decision_tickets
+            WHERE ticket_id=%s""",
+            (ticket.ticket_id,),
+        ).fetchone()[0]
+    assert ticket_count == 1
+    with pytest.raises(ValueError, match="OPERATIONAL_DECISION_BAR_CONFLICTED"):
+        store.complete_decision(
+            ticket.ticket_id,
+            outcome_id="MUST_NOT_RUN",
+            occurred_at=recorded(original, seconds=4),
+        )
 
 
 def test_postgres_completion_is_idempotent_and_append_only(
