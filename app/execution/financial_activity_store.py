@@ -65,12 +65,17 @@ class BrokerFinancialActivity:
 
     @property
     def payload_hash(self) -> str:
-        """Broker-fact identity is release-independent within one account."""
+        """Release-independent identity plus exact normalized broker economics."""
 
         self.validate()
         envelope = json.dumps(
             {
                 "account_identity": self.account_identity,
+                "activity_type": self.activity_type,
+                "net_amount": str(self.net_amount),
+                "currency": self.currency,
+                "symbol": self.symbol,
+                "occurred_at": self.occurred_at.astimezone(UTC).isoformat(),
                 "payload": json.loads(self.canonical_payload),
             },
             sort_keys=True,
