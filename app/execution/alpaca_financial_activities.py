@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 from datetime import time as datetime_time
 from decimal import Decimal, InvalidOperation
 from typing import Protocol
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from app.execution.financial_activity_store import (
     BrokerFinancialActivity,
@@ -16,19 +16,108 @@ from app.execution.financial_activity_store import (
 )
 from app.portfolio.ledger import CashAdjustmentKind, PortfolioLedger
 from app.portfolio.protocols import PortfolioStore
-from app.runtime.alpaca_paper_adapter_v100 import (
-    AlpacaPaperCredentialsV100,
-    AlpacaPaperEndpointsV100,
-    AlpacaPaperPolicyV100,
-    AlpacaPaperProtocolError,
-    AlpacaPaperRateLimitExceeded,
-    HttpTransportV100,
-    TokenBucketV100,
-)
 
 
 class FinancialActivityRecoveryError(RuntimeError):
     pass
+
+
+class FinancialActivityProtocolError(ValueError):
+    pass
+
+
+class FinancialActivityRateLimitExceeded(RuntimeError):
+    pass
+
+
+class FinancialActivityCredentials(Protocol):
+    def rest_headers(self) -> Mapping[str, str]: ...
+
+
+class FinancialHttpResponse(Protocol):
+    status: int
+    body: bytes
+
+
+class FinancialHttpTransport(Protocol):
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: Mapping[str, str],
+        body: bytes | None,
+        timeout_seconds: float,
+    ) -> FinancialHttpResponse: ...
+
+
+@dataclass(frozen=True)
+class FinancialActivityEndpoints:
+    rest_base_url: str = "https://paper-api.alpaca.markets"
+
+    def validate(self) -> None:
+        parsed = urlparse(self.rest_base_url)
+        if parsed.scheme != "https":
+            raise ValueError("financial activity REST endpoint must use https")
+        if parsed.hostname != "paper-api.alpaca.markets":
+            raise ValueError("financial activity reader is restricted to Alpaca Paper")
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError("financial activity REST endpoint must be a clean base URL")
+
+
+@dataclass(frozen=True)
+class FinancialActivityReadPolicy:
+    timeout_seconds: float = 10.0
+    maximum_response_bytes: int = 2_000_000
+    maximum_read_attempts: int = 3
+    initial_backoff_seconds: float = 0.25
+    maximum_backoff_seconds: float = 2.0
+    read_capacity: float = 20.0
+    read_refill_per_second: float = 10.0
+
+    def validate(self) -> None:
+        if self.timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        if self.maximum_response_bytes < 1:
+            raise ValueError("maximum_response_bytes must be positive")
+        if self.maximum_read_attempts < 1:
+            raise ValueError("maximum_read_attempts must be positive")
+        if self.initial_backoff_seconds < 0 or self.maximum_backoff_seconds < 0:
+            raise ValueError("backoff seconds must be non-negative")
+        if self.maximum_backoff_seconds < self.initial_backoff_seconds:
+            raise ValueError("maximum backoff cannot be below initial backoff")
+        if self.read_capacity <= 0 or self.read_refill_per_second <= 0:
+            raise ValueError("read rate limits must be positive")
+
+
+class _TokenBucket:
+    def __init__(
+        self,
+        *,
+        capacity: float,
+        refill_per_second: float,
+        clock: Callable[[], float],
+    ) -> None:
+        if capacity <= 0 or refill_per_second <= 0:
+            raise ValueError("token bucket configuration must be positive")
+        self.capacity = capacity
+        self.refill_per_second = refill_per_second
+        self.clock = clock
+        self.tokens = capacity
+        self.last_refill = clock()
+
+    def try_acquire(self) -> bool:
+        now = self.clock()
+        elapsed = max(0.0, now - self.last_refill)
+        self.last_refill = now
+        self.tokens = min(
+            self.capacity,
+            self.tokens + elapsed * self.refill_per_second,
+        )
+        if self.tokens < 1.0:
+            return False
+        self.tokens -= 1.0
+        return True
 
 
 _EXTERNAL_FLOW_TYPES = {"CSD", "CSW"}
@@ -120,12 +209,12 @@ class AlpacaPaperFinancialActivityReader:
     def __init__(
         self,
         *,
-        credentials: AlpacaPaperCredentialsV100,
-        transport: HttpTransportV100,
+        credentials: FinancialActivityCredentials,
+        transport: FinancialHttpTransport,
         account_identity: str,
         release_identity: str,
-        endpoints: AlpacaPaperEndpointsV100 | None = None,
-        policy: AlpacaPaperPolicyV100 | None = None,
+        endpoints: FinancialActivityEndpoints | None = None,
+        policy: FinancialActivityReadPolicy | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -133,14 +222,16 @@ class AlpacaPaperFinancialActivityReader:
             raise ValueError("account_identity and release_identity are required")
         self.account_identity = account_identity
         self.release_identity = release_identity
-        self.endpoints = AlpacaPaperEndpointsV100() if endpoints is None else endpoints
-        self.policy = AlpacaPaperPolicyV100() if policy is None else policy
+        self.endpoints = (
+            FinancialActivityEndpoints() if endpoints is None else endpoints
+        )
+        self.policy = FinancialActivityReadPolicy() if policy is None else policy
         self.endpoints.validate()
         self.policy.validate()
         self.credentials = credentials
         self.transport = transport
         self.sleeper = sleeper
-        self._read_limiter = TokenBucketV100(
+        self._read_limiter = _TokenBucket(
             capacity=self.policy.read_capacity,
             refill_per_second=self.policy.read_refill_per_second,
             clock=clock,
@@ -176,21 +267,29 @@ class AlpacaPaperFinancialActivityReader:
             source_cursor = token
         document = self._read_json("/v2/account/activities?" + urlencode(query))
         if not isinstance(document, list):
-            raise AlpacaPaperProtocolError("financial activities response must be a list")
+            raise FinancialActivityProtocolError(
+                "financial activities response must be a list"
+            )
         activities = tuple(
             self._parse_activity(item, source_cursor=source_cursor) for item in document
         )
         ids = [activity.activity_id for activity in activities]
         if len(ids) != len(set(ids)):
-            raise AlpacaPaperProtocolError("financial activities page contains duplicate ids")
-        next_page_token = activities[-1].activity_id if len(activities) == page_size else None
+            raise FinancialActivityProtocolError(
+                "financial activities page contains duplicate ids"
+            )
+        next_page_token = (
+            activities[-1].activity_id if len(activities) == page_size else None
+        )
         return FinancialActivityPage(activities, next_page_token)
 
     def _read_json(self, path: str) -> object:
         delay = self.policy.initial_backoff_seconds
         for attempt in range(1, self.policy.maximum_read_attempts + 1):
             if not self._read_limiter.try_acquire():
-                raise AlpacaPaperRateLimitExceeded("local paper read rate limit exceeded")
+                raise FinancialActivityRateLimitExceeded(
+                    "local paper read rate limit exceeded"
+                )
             try:
                 response = self.transport.request(
                     "GET",
@@ -211,12 +310,16 @@ class AlpacaPaperFinancialActivityReader:
                 )
                 continue
             if len(response.body) > self.policy.maximum_response_bytes:
-                raise AlpacaPaperProtocolError("broker response exceeds configured size limit")
+                raise FinancialActivityProtocolError(
+                    "broker response exceeds configured size limit"
+                )
             if 200 <= response.status < 300:
                 try:
                     return json.loads(response.body.decode("utf-8")) if response.body else []
                 except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                    raise AlpacaPaperProtocolError("invalid financial activities JSON") from exc
+                    raise FinancialActivityProtocolError(
+                        "invalid financial activities JSON"
+                    ) from exc
             retryable = response.status in {408, 425, 429} or response.status >= 500
             if retryable and attempt < self.policy.maximum_read_attempts:
                 self.sleeper(delay)
@@ -237,10 +340,12 @@ class AlpacaPaperFinancialActivityReader:
         source_cursor: str,
     ) -> BrokerFinancialActivity:
         if not isinstance(value, Mapping):
-            raise AlpacaPaperProtocolError("financial activity must be an object")
+            raise FinancialActivityProtocolError("financial activity must be an object")
         activity_type = str(value.get("activity_type", "")).strip().upper()
         if activity_type == "FILL":
-            raise AlpacaPaperProtocolError("FILL must use the execution accounting path")
+            raise FinancialActivityProtocolError(
+                "FILL must use the execution accounting path"
+            )
         canonical_payload = json.dumps(
             dict(value),
             sort_keys=True,
@@ -549,17 +654,17 @@ def _classification(activity: BrokerFinancialActivity) -> CashAdjustmentKind | s
 
 def _decimal(value: object, field: str) -> Decimal:
     if value is None or value == "":
-        raise AlpacaPaperProtocolError(
+        raise FinancialActivityProtocolError(
             f"missing financial activity decimal: {field}"
         )
     try:
         result = Decimal(str(value))
     except (InvalidOperation, ValueError) as exc:
-        raise AlpacaPaperProtocolError(
+        raise FinancialActivityProtocolError(
             f"invalid financial activity decimal: {field}"
         ) from exc
     if not result.is_finite():
-        raise AlpacaPaperProtocolError(
+        raise FinancialActivityProtocolError(
             f"non-finite financial activity decimal: {field}"
         )
     return result
@@ -568,7 +673,7 @@ def _decimal(value: object, field: str) -> Decimal:
 def _activity_time(value: Mapping[object, object]) -> datetime:
     raw = value.get("transaction_time") or value.get("date")
     if not isinstance(raw, str) or not raw.strip():
-        raise AlpacaPaperProtocolError("financial activity date is required")
+        raise FinancialActivityProtocolError("financial activity date is required")
     text = raw.strip()
     try:
         if len(text) == 10:
@@ -576,9 +681,9 @@ def _activity_time(value: Mapping[object, object]) -> datetime:
             return datetime.combine(parsed_date, datetime_time.min, tzinfo=UTC)
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError as exc:
-        raise AlpacaPaperProtocolError("invalid financial activity date") from exc
+        raise FinancialActivityProtocolError("invalid financial activity date") from exc
     if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise AlpacaPaperProtocolError(
+        raise FinancialActivityProtocolError(
             "financial activity date must be timezone-aware"
         )
     return parsed.astimezone(UTC)
