@@ -4,7 +4,7 @@ import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
@@ -656,7 +656,7 @@ class SQLiteDecisionLeaseStore:
         ):
             raise StaleDecisionLease("decision lease owner/release/fence is stale")
         expires = _parse_moment(row["lease_expires_at"], "lease_expires_at")
-        if require_unexpired and moment > expires:
+        if require_unexpired and moment >= expires:
             raise StaleDecisionLease("decision lease expired")
 
     @staticmethod
