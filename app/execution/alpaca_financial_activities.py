@@ -218,8 +218,7 @@ class AlpacaPaperFinancialActivityReader:
         clock: Callable[[], float] = time.monotonic,
         sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
-        if not account_identity.strip() or not release_identity.strip():
-            raise ValueError("account_identity and release_identity are required")
+        _validate_scope(account_identity, release_identity)
         self.account_identity = account_identity
         self.release_identity = release_identity
         self.endpoints = (
@@ -373,7 +372,7 @@ class AlpacaPaperFinancialActivityReader:
 
 
 class FinancialActivityProjector:
-    """Exactly-once durable cash projection with fail-closed quarantine."""
+    """Exactly-once cash projection bound to one account/release scope."""
 
     def __init__(
         self,
@@ -381,10 +380,15 @@ class FinancialActivityProjector:
         store: FinancialActivityStore,
         portfolio: PortfolioStore,
         runtime_ledger: PortfolioLedger,
+        account_identity: str,
+        release_identity: str,
     ) -> None:
+        _validate_scope(account_identity, release_identity)
         self.store = store
         self.portfolio = portfolio
         self.runtime_ledger = runtime_ledger
+        self.account_identity = account_identity
+        self.release_identity = release_identity
 
     def project_pending(
         self,
@@ -395,8 +399,19 @@ class FinancialActivityProjector:
         moment = _aware(occurred_at, "occurred_at")
         projected = 0
         quarantined = 0
-        for record in self.store.pending(limit=limit):
+        for record in self.store.pending(
+            account_identity=self.account_identity,
+            release_identity=self.release_identity,
+            limit=limit,
+        ):
             activity = record.activity
+            if (
+                activity.account_identity != self.account_identity
+                or activity.release_identity != self.release_identity
+            ):
+                raise FinancialActivityRecoveryError(
+                    "financial activity projection scope mismatch"
+                )
             classification = _classification(activity)
             if not isinstance(classification, CashAdjustmentKind):
                 self.store.quarantine(
@@ -449,8 +464,12 @@ class FinancialActivityRecoveryService:
         bootstrap_after: datetime,
         policy: FinancialActivityRecoveryPolicy | None = None,
     ) -> None:
-        if not account_identity.strip() or not release_identity.strip():
-            raise ValueError("account_identity and release_identity are required")
+        _validate_scope(account_identity, release_identity)
+        if (
+            projector.account_identity != account_identity
+            or projector.release_identity != release_identity
+        ):
+            raise ValueError("financial projector scope must match recovery scope")
         self.source = source
         self.store = store
         self.projector = projector
@@ -531,13 +550,17 @@ class FinancialActivityRecoveryService:
                 if seen >= self.policy.maximum_activities:
                     reasons.add("ACTIVITY_LIMIT_REACHED")
                     break
-                before_pending = self.store.pending_count()
+                before_pending = self.store.pending_count(
+                    account_identity=self.account_identity,
+                    release_identity=self.release_identity,
+                )
                 record = self.store.ingest(activity, ingested_at=observed_at)
                 seen += 1
-                if (
-                    record.state.value != "PENDING"
-                    or self.store.pending_count() == before_pending
-                ):
+                after_pending = self.store.pending_count(
+                    account_identity=self.account_identity,
+                    release_identity=self.release_identity,
+                )
+                if record.state.value != "PENDING" or after_pending == before_pending:
                     duplicates += 1
             if reasons:
                 break
@@ -598,6 +621,7 @@ def financial_activity_readiness(
     now: datetime,
     maximum_age: timedelta,
 ) -> FinancialActivityReadiness:
+    _validate_scope(account_identity, release_identity)
     moment = _aware(now, "now")
     if maximum_age <= timedelta(0):
         raise ValueError("maximum_age must be positive")
@@ -605,8 +629,14 @@ def financial_activity_readiness(
         account_identity=account_identity,
         release_identity=release_identity,
     )
-    pending = store.pending_count()
-    quarantined = store.quarantined_count()
+    pending = store.pending_count(
+        account_identity=account_identity,
+        release_identity=release_identity,
+    )
+    quarantined = store.quarantined_count(
+        account_identity=account_identity,
+        release_identity=release_identity,
+    )
     reasons: set[str] = set()
     recovered_through: datetime | None = None
     if state is None:
@@ -693,3 +723,8 @@ def _aware(value: datetime, field: str) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{field} must be timezone-aware")
     return value.astimezone(UTC)
+
+
+def _validate_scope(account_identity: str, release_identity: str) -> None:
+    if not account_identity.strip() or not release_identity.strip():
+        raise ValueError("account_identity and release_identity are required")
