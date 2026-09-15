@@ -20,6 +20,7 @@ on:
       - 'tests/test_postgres_composition_root.py'
       - 'tests/test_operational_marketdata.py'
       - 'tests/test_postgres_operational_marketdata.py'
+      - 'tests/test_alpaca_live_marketdata.py'
       - 'tests/test_portfolio_reconciliation_gate.py'
       - 'tests/test_postgres_portfolio_reconciliation.py'
       - 'tests/test_financial_activity_recovery.py'
@@ -50,6 +51,7 @@ on:
       - 'tests/test_postgres_composition_root.py'
       - 'tests/test_operational_marketdata.py'
       - 'tests/test_postgres_operational_marketdata.py'
+      - 'tests/test_alpaca_live_marketdata.py'
       - 'tests/test_portfolio_reconciliation_gate.py'
       - 'tests/test_postgres_portfolio_reconciliation.py'
       - 'tests/test_financial_activity_recovery.py'
@@ -101,10 +103,11 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
           python -m pip check
-      - name: Local composition, market truth, financial truth, reconciliation, fills, recovery, and bounded paper cycle
+      - name: Local composition, live source protocol, market truth, financial truth, reconciliation, fills, recovery, and bounded paper cycle
         run: >-
           pytest -q
           tests/test_composition_root.py
+          tests/test_alpaca_live_marketdata.py
           tests/test_operational_marketdata.py
           tests/test_portfolio_reconciliation_gate.py
           tests/test_financial_activity_recovery.py
