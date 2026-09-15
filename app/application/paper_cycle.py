@@ -15,6 +15,7 @@ from app.execution.alpaca_fill_backfill import (
     PaperFillBackfillService,
 )
 from app.execution.paper_executor import ExecutionResult, PaperSubmitExecutor
+from app.oms.portfolio_reconciliation import build_portfolio_reconciliation_evidence
 from app.oms.reconciliation import (
     BrokerOrderTruth,
     BrokerPortfolioTruth,
@@ -49,12 +50,13 @@ class PaperCycleService:
 
     It intentionally exposes one durable external mutation per ``execute_next_submit``
     call. Operational planning requires an explicit wall-clock decision time, a
-    complete measured risk context, and qualified market data before strategy
-    evaluation. Planning persists immutable risk and outbox state. Every submit
-    re-reads current readiness and durable ARM/HALT control immediately before the
-    exclusive submit claim. Trade updates route by durable client-order identity,
-    missed fills can be repaired through a GET-only activity source, and
-    reconciliation remains read-only.
+    complete measured risk context, qualified market data, and no known durable
+    broker-portfolio mismatch before strategy risk can create new BUY exposure.
+    Planning persists immutable risk and outbox state. Every submit re-reads current
+    readiness, durable portfolio reconciliation and ARM/HALT control immediately
+    before the exclusive submit claim. Trade updates route by durable client-order
+    identity, missed fills can be repaired through a GET-only activity source, and
+    portfolio reconciliation evidence survives restart.
     """
 
     def __init__(
@@ -78,6 +80,7 @@ class PaperCycleService:
             control=runtime.dispatch_control,
             readiness=runtime.operational_readiness,
             snapshot_provider=operational_snapshot_provider,
+            portfolio_reconciliation=runtime.portfolio_reconciliation,
         )
         self.executor = PaperSubmitExecutor(
             store=runtime.oms_store,
@@ -198,5 +201,15 @@ class PaperCycleService:
     def reconcile_portfolio(
         self,
         broker_truth: BrokerPortfolioTruth,
+        *,
+        occurred_at: datetime,
     ) -> PortfolioReconciliationResult:
-        return reconcile_portfolio(self.runtime.portfolio, broker_truth)
+        result = reconcile_portfolio(self.runtime.portfolio, broker_truth)
+        evidence = build_portfolio_reconciliation_evidence(
+            self.runtime.portfolio,
+            broker_truth,
+            result,
+            occurred_at=occurred_at,
+        )
+        self.runtime.portfolio_reconciliation.append(evidence)
+        return result
