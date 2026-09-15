@@ -8,7 +8,12 @@ import pytest
 
 from app.domain.trading import OrderIntent, Side
 from app.risk.evidence import RiskAdmissionService, SQLiteRiskEvidenceJournal
-from app.risk.pretrade import PreTradeRiskEngine, RiskContext, RiskLimits
+from app.risk.pretrade import (
+    PreTradeRiskEngine,
+    RiskContext,
+    RiskEvaluationMode,
+    RiskLimits,
+)
 
 NOW = datetime(2026, 8, 7, 18, 0, tzinfo=UTC)
 
@@ -60,6 +65,7 @@ def test_approved_and_rejected_decisions_are_immutably_recorded(tmp_path) -> Non
     admission = service(path)
     approved = admission.evaluate_and_record(
         intent(),
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
         context=context(),
@@ -71,6 +77,7 @@ def test_approved_and_rejected_decisions_are_immutably_recorded(tmp_path) -> Non
 
     rejected = admission.evaluate_and_record(
         intent("risk-evidence-2", quantity="30"),
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
         context=context(),
@@ -82,6 +89,7 @@ def test_approved_and_rejected_decisions_are_immutably_recorded(tmp_path) -> Non
     records = SQLiteRiskEvidenceJournal(path).verify()
     assert [record.sequence for record in records] == [1, 2]
     assert records[1].previous_digest == records[0].digest
+    assert records[0].payload["inputs"]["mode"] == "REPLAY"
     assert records[0].payload["decision"]["approved"] is True
     assert records[1].payload["decision"]["approved"] is False
 
@@ -91,6 +99,7 @@ def test_same_intent_and_same_evidence_is_idempotent(tmp_path) -> None:
     admission = service(path)
     first = admission.evaluate_and_record(
         intent(),
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
         context=context(),
@@ -98,6 +107,7 @@ def test_same_intent_and_same_evidence_is_idempotent(tmp_path) -> None:
     )
     second = admission.evaluate_and_record(
         intent(),
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
         context=context(),
@@ -112,6 +122,7 @@ def test_same_intent_with_changed_inputs_is_a_conflict(tmp_path) -> None:
     admission = service(path)
     admission.evaluate_and_record(
         intent(),
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
         context=context(),
@@ -120,6 +131,7 @@ def test_same_intent_with_changed_inputs_is_a_conflict(tmp_path) -> None:
     with pytest.raises(ValueError, match="RISK_DECISION_CONFLICT"):
         admission.evaluate_and_record(
             intent(),
+            mode=RiskEvaluationMode.REPLAY,
             current_symbol_notional=Decimal("100"),
             current_gross_notional=Decimal("100"),
             context=context(),
@@ -132,6 +144,7 @@ def test_tampered_risk_payload_fails_chain_verification(tmp_path) -> None:
     admission = service(path)
     admission.evaluate_and_record(
         intent(),
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
         context=context(),
