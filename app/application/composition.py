@@ -25,6 +25,12 @@ from app.portfolio.strict import StrictPortfolioEventStore, StrictPostgresPortfo
 from app.risk.evidence import RiskAdmissionService, RiskEvidenceJournal, SQLiteRiskEvidenceJournal
 from app.risk.postgres import PostgresRiskEvidenceJournal
 from app.risk.pretrade import PreTradeRiskEngine, RiskLimits
+from app.runtime.account_reconciliation_truth import (
+    AccountReconciliationGate,
+    AccountReconciliationTruthStore,
+    PostgresAccountReconciliationTruthStore,
+    SQLiteAccountReconciliationTruthStore,
+)
 from app.runtime.paper_broker_contract_v99 import PaperBrokerV99
 from app.runtime.paper_dispatch_control import (
     PaperDispatchControlStore,
@@ -64,6 +70,8 @@ class ProductRuntime:
     oms_store: IndexedOmsStore
     order_mutations: MutationStore
     dispatch_control: PaperDispatchControlStore
+    account_reconciliation_store: AccountReconciliationTruthStore
+    account_reconciliation_gate: AccountReconciliationGate
     order_lifecycle: PaperOrderLifecycle
     order_mutation_lifecycle: RiskCheckedOrderMutationLifecycle
     reconciler: OmsReconciler
@@ -92,6 +100,7 @@ def _compose(
     oms_store: IndexedOmsStore,
     mutation_store: MutationStore,
     dispatch_control: PaperDispatchControlStore,
+    account_reconciliation_store: AccountReconciliationTruthStore,
     risk_journal: RiskEvidenceJournal,
     portfolio_store: PortfolioStore,
     execution_facts: ExecutionFactStore,
@@ -102,6 +111,11 @@ def _compose(
     risk_engine = PreTradeRiskEngine(config.risk_limits)
     risk_admission = RiskAdmissionService(engine=risk_engine, journal=risk_journal)
     portfolio = portfolio_store.replay(opening_cash=config.opening_cash)
+    account_reconciliation_gate = AccountReconciliationGate(
+        store=account_reconciliation_store,
+        ledger=portfolio,
+        maximum_age_seconds=config.operational_slo.maximum_reconciliation_age_seconds,
+    )
     lifecycle = PaperOrderLifecycle(oms_store)
     mutation_lifecycle = RiskCheckedOrderMutationLifecycle(
         oms=oms_store,
@@ -116,6 +130,7 @@ def _compose(
         mode=PlanningMode.OPERATIONAL,
         risk_admission=risk_admission,
         execution_facts=execution_facts,
+        new_risk_authorizer=account_reconciliation_gate.authorize_intent,
     )
     readiness = OperationalReadinessEvaluator(config.operational_slo)
     fill_accounting = (
@@ -141,6 +156,8 @@ def _compose(
         oms_store=oms_store,
         order_mutations=mutation_store,
         dispatch_control=dispatch_control,
+        account_reconciliation_store=account_reconciliation_store,
+        account_reconciliation_gate=account_reconciliation_gate,
         order_lifecycle=lifecycle,
         order_mutation_lifecycle=mutation_lifecycle,
         reconciler=reconciler,
@@ -164,12 +181,14 @@ def build_local_product(
     oms_store = IndexedDurableOmsStore(oms_path)
     mutation_store = DurableOrderMutationStore(oms_path)
     dispatch_control = SQLitePaperDispatchControlStore(oms_path)
+    account_reconciliation_store = SQLiteAccountReconciliationTruthStore(oms_path)
     execution_facts = SQLiteExecutionFactStore(directory / "execution.sqlite")
     return _compose(
         config=config,
         oms_store=oms_store,
         mutation_store=mutation_store,
         dispatch_control=dispatch_control,
+        account_reconciliation_store=account_reconciliation_store,
         risk_journal=SQLiteRiskEvidenceJournal(directory / "risk.sqlite"),
         portfolio_store=StrictPortfolioEventStore(directory / "portfolio.sqlite"),
         execution_facts=execution_facts,
@@ -189,6 +208,7 @@ def build_postgres_product(
     oms_store = IndexedPostgresOmsStore(dsn)
     mutation_store = PostgresOrderMutationStore(dsn)
     dispatch_control = PostgresPaperDispatchControlStore(dsn)
+    account_reconciliation_store = PostgresAccountReconciliationTruthStore(dsn)
     risk_journal = PostgresRiskEvidenceJournal(dsn)
     portfolio_store = StrictPostgresPortfolioEventStore(dsn)
     execution_facts = PostgresExecutionFactStore(dsn)
@@ -196,6 +216,7 @@ def build_postgres_product(
         oms_store.migrate()
         mutation_store.migrate()
         dispatch_control.migrate()
+        account_reconciliation_store.migrate()
         risk_journal.migrate()
         portfolio_store.migrate()
         execution_facts.migrate()
@@ -204,6 +225,7 @@ def build_postgres_product(
         oms_store=oms_store,
         mutation_store=mutation_store,
         dispatch_control=dispatch_control,
+        account_reconciliation_store=account_reconciliation_store,
         risk_journal=risk_journal,
         portfolio_store=portfolio_store,
         execution_facts=execution_facts,
