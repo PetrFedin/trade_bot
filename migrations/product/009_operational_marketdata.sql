@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS astra_operational_market_bar_conflicts (
     observed_at TIMESTAMPTZ NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_operational_market_conflicts_bar
+ON astra_operational_market_bar_conflicts(bar_id, sequence);
+
 CREATE TABLE IF NOT EXISTS astra_operational_decision_tickets (
     ticket_id TEXT PRIMARY KEY,
     strategy_id TEXT NOT NULL,
