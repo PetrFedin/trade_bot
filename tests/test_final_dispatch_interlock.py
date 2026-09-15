@@ -20,6 +20,7 @@ from app.runtime.alpaca_paper_adapter_v100 import (
 )
 from app.runtime.paper_broker_contract_v99 import BrokerOrder, BrokerOrderStatus
 from app.runtime.paper_dispatch_control import DispatchBlocked, DispatchControlMode
+from tests.financial_activity_truth_support import ready_financial_activity_truth
 
 NOW = datetime(2026, 9, 12, 16, 0, tzinfo=UTC)
 
@@ -152,6 +153,7 @@ def build_cycle(tmp_path, broker: CountingBroker, provider=None):
         broker=broker,
         trade_stream=listening_stream(),
         stream_generation=1,
+        financial_activity_truth=ready_financial_activity_truth(tmp_path, now=NOW),
         operational_snapshot_provider=provider,
     )
     return runtime, cycle
