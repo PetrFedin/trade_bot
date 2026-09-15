@@ -132,7 +132,7 @@ def build_stack(tmp_path, *, with_checkpoint: bool = True):
     ticket = marketdata.record_finalized_for_strategy(
         history[2],
         strategy_id=STRATEGY,
-        recorded_at=NOW,
+        recorded_at=NOW + timedelta(seconds=1),
     )
     if with_checkpoint:
         checkpoint_id = continuity_checkpoint_id(
