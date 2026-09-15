@@ -155,7 +155,6 @@ def decision_safety_evidence_id(
         raise ValueError("decision safety identity is incomplete")
     if fencing_token < 1 or control_version < 0:
         raise ValueError("decision safety numeric identity is invalid")
-    moment = _aware(observed_at, "observed_at")
     material = json.dumps(
         {
             "ticket_id": ticket_id,
@@ -169,7 +168,7 @@ def decision_safety_evidence_id(
             "readiness_reasons": list(readiness_reasons),
             "control_mode": control_mode,
             "control_version": control_version,
-            "observed_at": moment.isoformat(),
+            "observed_at": _aware(observed_at, "observed_at").isoformat(),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -196,12 +195,7 @@ class DecisionLeaseStore(Protocol):
         policy: DecisionLeasePolicy | None = None,
     ) -> DecisionLeaseReceipt: ...
 
-    def release(
-        self,
-        receipt: DecisionLeaseReceipt,
-        *,
-        occurred_at: datetime,
-    ) -> bool: ...
+    def release(self, receipt: DecisionLeaseReceipt, *, occurred_at: datetime) -> bool: ...
 
     def record_safety(self, evidence: DecisionSafetyEvidence) -> bool: ...
 
@@ -338,19 +332,15 @@ class SQLiteDecisionLeaseStore:
                 LEFT JOIN operational_decision_completions c USING(ticket_id)
                 LEFT JOIN operational_market_bar_conflicts x ON x.bar_id=t.bar_id
                 LEFT JOIN operational_decision_leases l USING(ticket_id)
-                WHERE t.strategy_id=?
-                  AND t.created_at<=?
-                  AND c.ticket_id IS NULL
-                  AND x.bar_id IS NULL
+                WHERE t.strategy_id=? AND t.created_at<=?
+                  AND c.ticket_id IS NULL AND x.bar_id IS NULL
                   AND (l.ticket_id IS NULL OR l.lease_expires_at<=?)
-                ORDER BY t.created_at, t.ticket_id
-                LIMIT 1""",
+                ORDER BY t.created_at, t.ticket_id LIMIT 1""",
                 (normalized_strategy, moment.isoformat(), moment.isoformat()),
             ).fetchone()
             if row is None:
                 connection.execute("COMMIT")
                 return None
-
             expires = moment + resolved.lease_ttl
             prior_token = row["lease_fencing_token"]
             if prior_token is None:
@@ -449,8 +439,7 @@ class SQLiteDecisionLeaseStore:
             row = self._assert_current(
                 connection, receipt, moment=moment, require_unexpired=False
             )
-            existing_expiry = _parse_moment(row["lease_expires_at"], "lease_expires_at")
-            if existing_expiry <= moment:
+            if _parse_moment(row["lease_expires_at"], "lease_expires_at") <= moment:
                 connection.execute("COMMIT")
                 return False
             connection.execute(
@@ -518,6 +507,12 @@ class SQLiteDecisionLeaseStore:
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            existing = self._completion(connection, receipt.ticket.ticket_id)
+            if existing is not None:
+                if str(existing["outcome_id"]) != normalized_outcome:
+                    raise ValueError("OPERATIONAL_DECISION_COMPLETION_CONFLICT")
+                connection.execute("COMMIT")
+                return False
             self._assert_current(connection, receipt, moment=moment, require_unexpired=True)
             conflict = connection.execute(
                 """SELECT 1 FROM operational_market_bar_conflicts x
@@ -535,13 +530,10 @@ class SQLiteDecisionLeaseStore:
                 (receipt.ticket.ticket_id, normalized_outcome, moment.isoformat()),
             )
             if cursor.rowcount == 0:
-                row = connection.execute(
-                    "SELECT outcome_id FROM operational_decision_completions WHERE ticket_id=?",
-                    (receipt.ticket.ticket_id,),
-                ).fetchone()
-                if row is None:
+                existing = self._completion(connection, receipt.ticket.ticket_id)
+                if existing is None:
                     raise RuntimeError("decision completion idempotency lookup failed")
-                if str(row["outcome_id"]) != normalized_outcome:
+                if str(existing["outcome_id"]) != normalized_outcome:
                     raise ValueError("OPERATIONAL_DECISION_COMPLETION_CONFLICT")
                 connection.execute("COMMIT")
                 return False
@@ -567,6 +559,13 @@ class SQLiteDecisionLeaseStore:
             connection.close()
 
     @staticmethod
+    def _completion(connection: sqlite3.Connection, ticket_id: str) -> sqlite3.Row | None:
+        return connection.execute(
+            "SELECT outcome_id FROM operational_decision_completions WHERE ticket_id=?",
+            (ticket_id,),
+        ).fetchone()
+
+    @staticmethod
     def _require_ready_safety(
         connection: sqlite3.Connection,
         *,
@@ -589,9 +588,9 @@ class SQLiteDecisionLeaseStore:
         observed_at = _parse_moment(row["observed_at"], "observed_at")
         if observed_at < _aware(receipt.acquired_at, "acquired_at") or observed_at > completed_at:
             raise ValueError("DECISION_SAFETY_EVIDENCE_TIME_INVALID")
-        continuity_reasons = tuple(json.loads(str(row["continuity_reasons"])))
-        readiness_reasons = tuple(json.loads(str(row["readiness_reasons"])))
-        if continuity_reasons or readiness_reasons:
+        if tuple(json.loads(str(row["continuity_reasons"]))) or tuple(
+            json.loads(str(row["readiness_reasons"]))
+        ):
             raise ValueError("DECISION_READY_SAFETY_EVIDENCE_REQUIRED")
         if (
             row["checkpoint_id"] is None
@@ -661,8 +660,7 @@ class SQLiteDecisionLeaseStore:
     @staticmethod
     def _ticket(row: sqlite3.Row) -> OperationalDecisionTicket:
         ticket = OperationalDecisionTicket(
-            ticket_id=str(row["ticket_id"]),
-            strategy_id=str(row["strategy_id"]),
+            ticket_id=str(row["ticket_id"]), strategy_id=str(row["strategy_id"]),
             bar_id=str(row["bar_id"]),
             created_at=_parse_moment(row["created_at"], "created_at"),
         )
@@ -681,12 +679,11 @@ class SQLiteDecisionLeaseStore:
         expires_at: datetime,
     ) -> DecisionLeaseReceipt:
         receipt = DecisionLeaseReceipt(
-            ticket=cls._ticket(row),
-            provider=str(row["provider"]), venue=str(row["venue"]),
+            ticket=cls._ticket(row), provider=str(row["provider"]), venue=str(row["venue"]),
             symbol=str(row["symbol"]), interval_seconds=int(row["interval_seconds"]),
             bar_close_time=_parse_moment(row["close_time"], "close_time"),
-            owner_id=owner_id, release_identity=release_identity,
-            fencing_token=fencing_token, acquired_at=acquired_at, expires_at=expires_at,
+            owner_id=owner_id, release_identity=release_identity, fencing_token=fencing_token,
+            acquired_at=acquired_at, expires_at=expires_at,
         )
         receipt.validate()
         return receipt
@@ -695,8 +692,7 @@ class SQLiteDecisionLeaseStore:
     def _receipt(cls, row: sqlite3.Row) -> DecisionLeaseReceipt:
         return cls._receipt_from_claim(
             row,
-            owner_id=str(row["owner_id"]),
-            release_identity=str(row["release_identity"]),
+            owner_id=str(row["owner_id"]), release_identity=str(row["release_identity"]),
             fencing_token=int(row["fencing_token"]),
             acquired_at=_parse_moment(row["acquired_at"], "acquired_at"),
             expires_at=_parse_moment(row["lease_expires_at"], "lease_expires_at"),
