@@ -44,8 +44,10 @@ CREATE TABLE IF NOT EXISTS astra_operational_decision_safety_evidence (
     fencing_token BIGINT NOT NULL CHECK (fencing_token > 0),
     checkpoint_id TEXT
         REFERENCES astra_operational_market_continuity(checkpoint_id),
-    first_bar_id TEXT,
-    last_bar_id TEXT,
+    first_bar_id TEXT
+        REFERENCES astra_operational_market_bars(bar_id),
+    last_bar_id TEXT
+        REFERENCES astra_operational_market_bars(bar_id),
     continuity_reasons JSONB NOT NULL,
     readiness_reasons JSONB NOT NULL,
     control_mode TEXT NOT NULL CHECK (control_mode IN ('HALTED', 'ARMED')),
