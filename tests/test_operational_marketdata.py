@@ -120,8 +120,9 @@ def test_final_bar_duplicate_is_idempotent_and_restart_preserves_window(tmp_path
     ]
 
 
-def test_changed_final_economics_quarantines_without_second_ticket(tmp_path) -> None:
-    store = SQLiteOperationalMarketDataStore(tmp_path / "marketdata.sqlite")
+def test_changed_final_economics_quarantines_original_ticket_and_window(tmp_path) -> None:
+    path = tmp_path / "marketdata.sqlite"
+    store = SQLiteOperationalMarketDataStore(path)
     original = bar(0)
     first = store.record_finalized_for_strategy(
         original,
@@ -138,7 +139,30 @@ def test_changed_final_economics_quarantines_without_second_ticket(tmp_path) -> 
         )
 
     assert store.conflict_count() == 1
-    assert store.pending_decisions(strategy_id=STRATEGY) == (first,)
+    assert store.pending_decisions(strategy_id=STRATEGY) == ()
+    assert (
+        store.recent_bars(
+            provider="ALPACA",
+            venue="NASDAQ",
+            symbol="AAPL",
+            interval_seconds=60,
+            through_close_time=original.close_time,
+            limit=1,
+        )
+        == ()
+    )
+    with sqlite3.connect(path) as connection:
+        ticket_count = connection.execute(
+            "SELECT COUNT(*) FROM operational_decision_tickets WHERE ticket_id=?",
+            (first.ticket_id,),
+        ).fetchone()[0]
+    assert ticket_count == 1
+    with pytest.raises(ValueError, match="OPERATIONAL_DECISION_BAR_CONFLICTED"):
+        store.complete_decision(
+            first.ticket_id,
+            outcome_id="intent:must-not-run",
+            occurred_at=recorded(original, seconds=4),
+        )
 
 
 def test_same_final_bar_can_schedule_independent_strategy_identity(tmp_path) -> None:
