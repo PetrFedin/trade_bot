@@ -13,6 +13,7 @@ from app.execution.financial_activity_store import (
     FinancialProjectionState,
     aware_utc,
     canonical_payload,
+    validate_account,
     validate_scope,
 )
 
@@ -26,14 +27,14 @@ except ImportError:  # pragma: no cover - optional dependency boundary
 
 _SELECT_ACTIVITY = """SELECT f.*, p.state, p.reason, p.portfolio_event_id, p.updated_at
 FROM astra_financial_activity_facts f
-JOIN astra_financial_activity_projection p USING(activity_id)
-WHERE f.activity_id=%s"""
+JOIN astra_financial_activity_projection p USING(account_identity, activity_id)
+WHERE f.account_identity=%s AND f.activity_id=%s"""
 
 _SELECT_ACTIVITY_FOR_UPDATE = """SELECT f.*, p.state, p.reason,
        p.portfolio_event_id, p.updated_at
 FROM astra_financial_activity_facts f
-JOIN astra_financial_activity_projection p USING(activity_id)
-WHERE f.activity_id=%s
+JOIN astra_financial_activity_projection p USING(account_identity, activity_id)
+WHERE f.account_identity=%s AND f.activity_id=%s
 FOR UPDATE"""
 
 
@@ -91,7 +92,7 @@ class PostgresFinancialActivityStore:
             symbol=None if row["symbol"] is None else str(row["symbol"]),
             occurred_at=aware_utc(occurred_at, "occurred_at"),
             account_identity=str(row["account_identity"]),
-            release_identity=str(row["release_identity"]),
+            release_identity=str(row["first_seen_release_identity"]),
             source_cursor=str(row["source_cursor"]),
             canonical_payload=canonical_payload(payload),
         )
@@ -118,28 +119,30 @@ class PostgresFinancialActivityStore:
         moment = aware_utc(ingested_at, "ingested_at")
         payload = canonical_payload(activity.canonical_payload)
         digest = activity.payload_hash
+        identity = (activity.account_identity, activity.activity_id)
         with self._connect() as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
                     cursor.execute(
                         """INSERT INTO astra_financial_activity_facts
-                        (activity_id, activity_type, net_amount, currency, symbol,
-                         occurred_at, account_identity, release_identity,
-                         source_cursor, payload_hash, canonical_payload, ingested_at)
+                        (account_identity, activity_id, activity_type, net_amount,
+                         currency, symbol, occurred_at,
+                         first_seen_release_identity, source_cursor, payload_hash,
+                         canonical_payload, ingested_at)
                         VALUES (
                             %s, %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s::jsonb, %s
                         )
-                        ON CONFLICT (activity_id) DO NOTHING
+                        ON CONFLICT (account_identity, activity_id) DO NOTHING
                         RETURNING activity_id""",
                         (
+                            activity.account_identity,
                             activity.activity_id,
                             activity.activity_type,
                             activity.net_amount,
                             activity.currency,
                             activity.symbol,
                             aware_utc(activity.occurred_at, "occurred_at"),
-                            activity.account_identity,
                             activity.release_identity,
                             activity.source_cursor,
                             digest,
@@ -151,11 +154,12 @@ class PostgresFinancialActivityStore:
                     if inserted:
                         cursor.execute(
                             """INSERT INTO astra_financial_activity_projection
-                            (activity_id, state, reason, portfolio_event_id, updated_at)
-                            VALUES (%s, 'PENDING', NULL, NULL, %s)""",
-                            (activity.activity_id, moment),
+                            (account_identity, activity_id, state, reason,
+                             portfolio_event_id, updated_at)
+                            VALUES (%s, %s, 'PENDING', NULL, NULL, %s)""",
+                            (*identity, moment),
                         )
-                        cursor.execute(_SELECT_ACTIVITY, (activity.activity_id,))
+                        cursor.execute(_SELECT_ACTIVITY, identity)
                         row = cursor.fetchone()
                         if row is None:
                             raise RuntimeError(
@@ -163,10 +167,7 @@ class PostgresFinancialActivityStore:
                             )
                         return self._record(row)
 
-                    cursor.execute(
-                        _SELECT_ACTIVITY_FOR_UPDATE,
-                        (activity.activity_id,),
-                    )
+                    cursor.execute(_SELECT_ACTIVITY_FOR_UPDATE, identity)
                     existing = cursor.fetchone()
                     if existing is None:
                         raise RuntimeError(
@@ -176,10 +177,11 @@ class PostgresFinancialActivityStore:
                         return self._record(existing)
                     cursor.execute(
                         """INSERT INTO astra_financial_activity_conflicts
-                        (activity_id, existing_payload_hash,
+                        (account_identity, activity_id, existing_payload_hash,
                          observed_payload_hash, observed_payload, observed_at)
-                        VALUES (%s, %s, %s, %s::jsonb, %s)""",
+                        VALUES (%s, %s, %s, %s, %s::jsonb, %s)""",
                         (
+                            activity.account_identity,
                             activity.activity_id,
                             str(existing["payload_hash"]),
                             digest,
@@ -192,10 +194,10 @@ class PostgresFinancialActivityStore:
                         SET state='QUARANTINED',
                             reason='ACTIVITY_ID_CONFLICT',
                             updated_at=%s
-                        WHERE activity_id=%s""",
-                        (moment, activity.activity_id),
+                        WHERE account_identity=%s AND activity_id=%s""",
+                        (moment, *identity),
                     )
-                    cursor.execute(_SELECT_ACTIVITY, (activity.activity_id,))
+                    cursor.execute(_SELECT_ACTIVITY, identity)
                     row = cursor.fetchone()
                     if row is None:
                         raise RuntimeError(
@@ -207,10 +209,9 @@ class PostgresFinancialActivityStore:
         self,
         *,
         account_identity: str,
-        release_identity: str,
         limit: int = 100,
     ) -> tuple[FinancialActivityRecord, ...]:
-        validate_scope(account_identity, release_identity)
+        validate_account(account_identity)
         if limit < 1:
             raise ValueError("limit must be positive")
         with self._connect() as connection:
@@ -219,18 +220,19 @@ class PostgresFinancialActivityStore:
                     """SELECT f.*, p.state, p.reason,
                               p.portfolio_event_id, p.updated_at
                     FROM astra_financial_activity_facts f
-                    JOIN astra_financial_activity_projection p USING(activity_id)
+                    JOIN astra_financial_activity_projection p
+                      USING(account_identity, activity_id)
                     WHERE p.state='PENDING'
                       AND f.account_identity=%s
-                      AND f.release_identity=%s
                     ORDER BY f.occurred_at, f.activity_id LIMIT %s""",
-                    (account_identity, release_identity, limit),
+                    (account_identity, limit),
                 )
                 rows = cursor.fetchall()
         return tuple(self._record(row) for row in rows)
 
     def _transition(
         self,
+        account_identity: str,
         activity_id: str,
         *,
         state: FinancialProjectionState,
@@ -238,14 +240,16 @@ class PostgresFinancialActivityStore:
         portfolio_event_id: str | None,
         occurred_at: datetime,
     ) -> FinancialActivityRecord:
+        validate_account(account_identity)
         moment = aware_utc(occurred_at, "occurred_at")
+        identity = (account_identity, activity_id)
         with self._connect() as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
-                    cursor.execute(_SELECT_ACTIVITY_FOR_UPDATE, (activity_id,))
+                    cursor.execute(_SELECT_ACTIVITY_FOR_UPDATE, identity)
                     row = cursor.fetchone()
                     if row is None:
-                        raise KeyError(activity_id)
+                        raise KeyError(identity)
                     current = FinancialProjectionState(str(row["state"]))
                     if (
                         current is FinancialProjectionState.PROJECTED
@@ -265,16 +269,16 @@ class PostgresFinancialActivityStore:
                         """UPDATE astra_financial_activity_projection
                         SET state=%s, reason=%s,
                             portfolio_event_id=%s, updated_at=%s
-                        WHERE activity_id=%s""",
+                        WHERE account_identity=%s AND activity_id=%s""",
                         (
                             state.value,
                             reason,
                             portfolio_event_id,
                             moment,
-                            activity_id,
+                            *identity,
                         ),
                     )
-                    cursor.execute(_SELECT_ACTIVITY, (activity_id,))
+                    cursor.execute(_SELECT_ACTIVITY, identity)
                     updated = cursor.fetchone()
                     if updated is None:
                         raise RuntimeError(
@@ -284,6 +288,7 @@ class PostgresFinancialActivityStore:
 
     def mark_projected(
         self,
+        account_identity: str,
         activity_id: str,
         *,
         portfolio_event_id: str,
@@ -292,6 +297,7 @@ class PostgresFinancialActivityStore:
         if not portfolio_event_id.strip():
             raise ValueError("portfolio_event_id is required")
         return self._transition(
+            account_identity,
             activity_id,
             state=FinancialProjectionState.PROJECTED,
             reason=None,
@@ -301,6 +307,7 @@ class PostgresFinancialActivityStore:
 
     def quarantine(
         self,
+        account_identity: str,
         activity_id: str,
         *,
         reason: str,
@@ -309,6 +316,7 @@ class PostgresFinancialActivityStore:
         if not reason.strip():
             raise ValueError("quarantine reason is required")
         return self._transition(
+            account_identity,
             activity_id,
             state=FinancialProjectionState.QUARANTINED,
             reason=reason,
@@ -321,47 +329,31 @@ class PostgresFinancialActivityStore:
         state: FinancialProjectionState,
         *,
         account_identity: str,
-        release_identity: str,
     ) -> int:
-        validate_scope(account_identity, release_identity)
+        validate_account(account_identity)
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """SELECT COUNT(*) AS count
-                    FROM astra_financial_activity_projection p
-                    JOIN astra_financial_activity_facts f USING(activity_id)
-                    WHERE p.state=%s
-                      AND f.account_identity=%s
-                      AND f.release_identity=%s""",
-                    (state.value, account_identity, release_identity),
+                    FROM astra_financial_activity_projection
+                    WHERE state=%s AND account_identity=%s""",
+                    (state.value, account_identity),
                 )
                 row = cursor.fetchone()
         if row is None:
             raise RuntimeError("financial projection count failed")
         return int(row["count"])
 
-    def pending_count(
-        self,
-        *,
-        account_identity: str,
-        release_identity: str,
-    ) -> int:
+    def pending_count(self, *, account_identity: str) -> int:
         return self._count(
             FinancialProjectionState.PENDING,
             account_identity=account_identity,
-            release_identity=release_identity,
         )
 
-    def quarantined_count(
-        self,
-        *,
-        account_identity: str,
-        release_identity: str,
-    ) -> int:
+    def quarantined_count(self, *, account_identity: str) -> int:
         return self._count(
             FinancialProjectionState.QUARANTINED,
             account_identity=account_identity,
-            release_identity=release_identity,
         )
 
     def recovery_state(
