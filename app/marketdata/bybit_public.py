@@ -16,7 +16,9 @@ from app.marketdata.operational import (
 BYBIT_PUBLIC_LINEAR_STREAM = "wss://stream.bybit.com/v5/public/linear"
 _PROVIDER = "BYBIT"
 _VENUE = "BYBIT_LINEAR"
-_SUPPORTED_MINUTE_INTERVALS = frozenset({"1", "3", "5", "15", "30", "60", "120", "240", "360", "720"})
+_SUPPORTED_MINUTE_INTERVALS = frozenset(
+    {"1", "3", "5", "15", "30", "60", "120", "240", "360", "720"}
+)
 _SUBSCRIBE_REQUEST_ID = "astra-f22b-subscribe"
 _PING_REQUEST_ID = "astra-f22b-ping"
 
@@ -31,6 +33,12 @@ class BybitPublicProtocolError(BybitPublicMarketDataError):
 
 class BybitPublicDependencyUnavailable(BybitPublicMarketDataError):
     pass
+
+
+def _aware(value: datetime, name: str) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{name} must be timezone-aware")
+    return value.astimezone(UTC)
 
 
 @dataclass(frozen=True)
@@ -72,7 +80,9 @@ class BybitPublicMarketDataPolicy:
         if self.heartbeat_interval_seconds <= 0:
             raise ValueError("heartbeat_interval_seconds must be positive")
         if self.maximum_stream_silence_seconds < self.heartbeat_interval_seconds:
-            raise ValueError("maximum_stream_silence_seconds must cover at least one heartbeat interval")
+            raise ValueError(
+                "maximum_stream_silence_seconds must cover at least one heartbeat interval"
+            )
         if self.maximum_server_age_seconds <= 0:
             raise ValueError("maximum_server_age_seconds must be positive")
         if self.maximum_server_future_skew_seconds < 0:
@@ -116,7 +126,8 @@ class BybitPublicStreamEvidence:
                 moment = _aware(value, name)
                 if moment < opened:
                     raise ValueError(f"{name} cannot precede opened_at")
-        if self.receive_attempts < 0 or self.finalized_bars < 0 or self.in_progress_frames < 0:
+        counters = (self.receive_attempts, self.finalized_bars, self.in_progress_frames)
+        if any(value < 0 for value in counters):
             raise ValueError("stream evidence counters must be non-negative")
         if len(set(self.reasons)) != len(self.reasons):
             raise ValueError("stream evidence reasons must be unique")
@@ -149,7 +160,9 @@ class WebsocketsBybitPublicConnector:
 
     def __call__(self, url: str, *, timeout_seconds: float) -> WebSocketConnection:
         if url != BYBIT_PUBLIC_LINEAR_STREAM:
-            raise BybitPublicProtocolError("Bybit public connector rejected non-allowlisted endpoint")
+            raise BybitPublicProtocolError(
+                "Bybit public connector rejected non-allowlisted endpoint"
+            )
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         try:
@@ -176,13 +189,14 @@ class BybitPublicLinearFrameProcessor:
         *,
         subscription: BybitPublicLinearSubscription,
         store: OperationalMarketDataStore,
-        policy: BybitPublicMarketDataPolicy = BybitPublicMarketDataPolicy(),
+        policy: BybitPublicMarketDataPolicy | None = None,
     ) -> None:
+        resolved_policy = BybitPublicMarketDataPolicy() if policy is None else policy
         subscription.validate()
-        policy.validate()
+        resolved_policy.validate()
         self.subscription = subscription
         self.store = store
-        self.policy = policy
+        self.policy = resolved_policy
 
     def process(
         self,
@@ -203,7 +217,9 @@ class BybitPublicLinearFrameProcessor:
         if topic is None:
             raise BybitPublicProtocolError("unrecognized Bybit public control frame")
         if not subscription_acknowledged:
-            raise BybitPublicProtocolError("kline received before subscription acknowledgement")
+            raise BybitPublicProtocolError(
+                "kline received before subscription acknowledgement"
+            )
         if topic != self.subscription.topic:
             raise BybitPublicProtocolError("unexpected Bybit public topic")
         if payload.get("type") != "snapshot":
@@ -213,10 +229,14 @@ class BybitPublicLinearFrameProcessor:
         self._validate_server_clock(server_at=server_at, received_at=received)
         rows = payload.get("data")
         if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], Mapping):
-            raise BybitPublicProtocolError("Bybit kline frame must contain exactly one data object")
+            raise BybitPublicProtocolError(
+                "Bybit kline frame must contain exactly one data object"
+            )
         row = rows[0]
         if row.get("interval") != self.subscription.interval:
-            raise BybitPublicProtocolError("Bybit kline interval disagrees with subscription")
+            raise BybitPublicProtocolError(
+                "Bybit kline interval disagrees with subscription"
+            )
         confirm = row.get("confirm")
         if not isinstance(confirm, bool):
             raise BybitPublicProtocolError("Bybit kline confirm must be boolean")
@@ -230,52 +250,85 @@ class BybitPublicLinearFrameProcessor:
             strategy_id=self.subscription.strategy_id,
             recorded_at=received,
         )
-        return BybitPublicFrameResult(ticket=ticket, final_bar=bar, server_at=server_at)
+        return BybitPublicFrameResult(
+            ticket=ticket,
+            final_bar=bar,
+            server_at=server_at,
+        )
 
     def _subscription_ack(self, payload: Mapping[str, object]) -> BybitPublicFrameResult:
         if payload.get("success") is not True:
             raise BybitPublicProtocolError("Bybit public subscription was not accepted")
         request_id = payload.get("req_id")
         if request_id not in (None, "", _SUBSCRIBE_REQUEST_ID):
-            raise BybitPublicProtocolError("Bybit subscription acknowledgement request id mismatch")
+            raise BybitPublicProtocolError(
+                "Bybit subscription acknowledgement request id mismatch"
+            )
         ret_msg = payload.get("ret_msg")
         if ret_msg not in (None, "", "subscribe"):
-            raise BybitPublicProtocolError("unexpected Bybit subscription acknowledgement")
+            raise BybitPublicProtocolError(
+                "unexpected Bybit subscription acknowledgement"
+            )
         return BybitPublicFrameResult(subscription_acknowledged=True)
 
     @staticmethod
-    def _pong(payload: Mapping[str, object], *, received_at: datetime) -> BybitPublicFrameResult:
+    def _pong(
+        payload: Mapping[str, object],
+        *,
+        received_at: datetime,
+    ) -> BybitPublicFrameResult:
         op = payload.get("op")
         if op == "ping":
             if payload.get("success") is not True or payload.get("ret_msg") != "pong":
-                raise BybitPublicProtocolError("invalid Bybit public pong acknowledgement")
+                raise BybitPublicProtocolError(
+                    "invalid Bybit public pong acknowledgement"
+                )
         elif op != "pong":
             raise BybitPublicProtocolError("invalid Bybit pong frame")
         return BybitPublicFrameResult(pong=True, server_at=received_at)
 
-    def _validate_server_clock(self, *, server_at: datetime, received_at: datetime) -> None:
+    def _validate_server_clock(
+        self,
+        *,
+        server_at: datetime,
+        received_at: datetime,
+    ) -> None:
         if server_at - received_at > timedelta(
             seconds=self.policy.maximum_server_future_skew_seconds
         ):
             raise BybitPublicProtocolError("BYBIT_SERVER_CLOCK_IN_FUTURE")
-        if received_at - server_at > timedelta(seconds=self.policy.maximum_server_age_seconds):
+        if received_at - server_at > timedelta(
+            seconds=self.policy.maximum_server_age_seconds
+        ):
             raise BybitPublicProtocolError("BYBIT_SERVER_DATA_STALE")
 
-    def _validate_kline_boundaries(self, row: Mapping[str, object]) -> tuple[int, int]:
+    def _validate_kline_boundaries(
+        self,
+        row: Mapping[str, object],
+    ) -> tuple[int, int]:
         start_ms = _integer(row.get("start"), "start")
         end_ms = _integer(row.get("end"), "end")
         expected_end = start_ms + self.subscription.interval_seconds * 1000 - 1
         if end_ms != expected_end:
-            raise BybitPublicProtocolError("Bybit kline boundaries disagree with interval")
+            raise BybitPublicProtocolError(
+                "Bybit kline boundaries disagree with interval"
+            )
         return start_ms, end_ms
 
-    def _final_bar(self, row: Mapping[str, object], *, received_at: datetime) -> OperationalBar:
+    def _final_bar(
+        self,
+        row: Mapping[str, object],
+        *,
+        received_at: datetime,
+    ) -> OperationalBar:
         start_ms, end_ms = self._validate_kline_boundaries(row)
         source_timestamp = _milliseconds_timestamp(row.get("timestamp"), "timestamp")
         open_time = _from_milliseconds(start_ms)
         close_time = open_time + timedelta(seconds=self.subscription.interval_seconds)
         if source_timestamp < open_time or source_timestamp >= close_time:
-            raise BybitPublicProtocolError("Bybit matched-order timestamp lies outside candle")
+            raise BybitPublicProtocolError(
+                "Bybit matched-order timestamp lies outside candle"
+            )
         source_event_id = f"{self.subscription.topic}:{start_ms}:{end_ms}"
         bar = OperationalBar(
             provider=_PROVIDER,
@@ -311,19 +364,20 @@ class BybitPublicLinearSession:
         subscription: BybitPublicLinearSubscription,
         store: OperationalMarketDataStore,
         connector: WebSocketConnector,
-        policy: BybitPublicMarketDataPolicy = BybitPublicMarketDataPolicy(),
+        policy: BybitPublicMarketDataPolicy | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
+        resolved_policy = BybitPublicMarketDataPolicy() if policy is None else policy
         subscription.validate()
-        policy.validate()
+        resolved_policy.validate()
         self.subscription = subscription
-        self.policy = policy
+        self.policy = resolved_policy
         self.connector = connector
         self.clock = (lambda: datetime.now(UTC)) if clock is None else clock
         self.processor = BybitPublicLinearFrameProcessor(
             subscription=subscription,
             store=store,
-            policy=policy,
+            policy=resolved_policy,
         )
 
     def run(self, *, maximum_receive_attempts: int) -> BybitPublicStreamEvidence:
@@ -346,21 +400,23 @@ class BybitPublicLinearSession:
             timeout_seconds=self.policy.receive_timeout_seconds,
         )
         try:
-            connection.send(
-                json.dumps(
-                    {
-                        "req_id": _SUBSCRIBE_REQUEST_ID,
-                        "op": "subscribe",
-                        "args": [self.subscription.topic],
-                    },
-                    separators=(",", ":"),
-                    sort_keys=True,
-                )
-            )
+            connection.send(public_linear_subscription_message(self.subscription))
             while receive_attempts < maximum_receive_attempts:
+                before_receive = _aware(self.clock(), "clock")
+                if (
+                    not ping_outstanding
+                    and before_receive - last_ping_at
+                    >= timedelta(seconds=self.policy.heartbeat_interval_seconds)
+                ):
+                    _send_ping(connection)
+                    last_ping_at = before_receive
+                    ping_outstanding = True
+
                 receive_attempts += 1
                 try:
-                    frame = connection.recv(timeout=self.policy.receive_timeout_seconds)
+                    frame = connection.recv(
+                        timeout=self.policy.receive_timeout_seconds
+                    )
                 except TimeoutError:
                     now = _aware(self.clock(), "clock")
                     if now - (last_frame_at or opened_at) > timedelta(
@@ -368,15 +424,19 @@ class BybitPublicLinearSession:
                     ):
                         reasons.append("STREAM_SILENT")
                         break
-                    if now - last_ping_at >= timedelta(
-                        seconds=self.policy.heartbeat_interval_seconds
+                    if (
+                        not ping_outstanding
+                        and now - last_ping_at
+                        >= timedelta(seconds=self.policy.heartbeat_interval_seconds)
                     ):
                         _send_ping(connection)
                         last_ping_at = now
                         ping_outstanding = True
                     continue
                 except OSError as exc:
-                    raise BybitPublicMarketDataError("Bybit public stream transport failed") from exc
+                    raise BybitPublicMarketDataError(
+                        "Bybit public stream transport failed"
+                    ) from exc
 
                 received_at = _aware(self.clock(), "clock")
                 last_frame_at = received_at
@@ -396,13 +456,6 @@ class BybitPublicLinearSession:
                     in_progress_frames += 1
                 if result.final_bar is not None:
                     finalized_bars += 1
-
-                if received_at - last_ping_at >= timedelta(
-                    seconds=self.policy.heartbeat_interval_seconds
-                ):
-                    _send_ping(connection)
-                    last_ping_at = received_at
-                    ping_outstanding = True
         finally:
             connection.close()
 
@@ -411,9 +464,11 @@ class BybitPublicLinearSession:
             reasons.append("SUBSCRIPTION_NOT_ACKNOWLEDGED")
         if ping_outstanding:
             reasons.append("HEARTBEAT_UNACKNOWLEDGED")
-        if captured_at - (last_frame_at or opened_at) > timedelta(
-            seconds=self.policy.maximum_stream_silence_seconds
-        ) and "STREAM_SILENT" not in reasons:
+        if (
+            captured_at - (last_frame_at or opened_at)
+            > timedelta(seconds=self.policy.maximum_stream_silence_seconds)
+            and "STREAM_SILENT" not in reasons
+        ):
             reasons.append("STREAM_SILENT")
         evidence = BybitPublicStreamEvidence(
             endpoint=BYBIT_PUBLIC_LINEAR_STREAM,
@@ -456,7 +511,9 @@ def _decode_frame(frame: str | bytes) -> Mapping[str, object]:
 
 def _integer(value: object, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise BybitPublicProtocolError(f"Bybit kline {field} must be an integer")
+        raise BybitPublicProtocolError(
+            f"Bybit kline {field} must be an integer"
+        )
     return value
 
 
@@ -471,30 +528,44 @@ def _milliseconds_timestamp(value: object, field: str) -> datetime:
 def _decimal(row: Mapping[str, object], field: str) -> Decimal:
     value = row.get(field)
     if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
-        raise BybitPublicProtocolError(f"Bybit kline {field} is missing or invalid")
+        raise BybitPublicProtocolError(
+            f"Bybit kline {field} is missing or invalid"
+        )
     try:
         result = Decimal(str(value))
     except ArithmeticError as exc:
-        raise BybitPublicProtocolError(f"Bybit kline {field} is not decimal") from exc
+        raise BybitPublicProtocolError(
+            f"Bybit kline {field} is not decimal"
+        ) from exc
     if not result.is_finite() or result <= 0:
-        raise BybitPublicProtocolError(f"Bybit kline {field} must be positive and finite")
+        raise BybitPublicProtocolError(
+            f"Bybit kline {field} must be positive and finite"
+        )
     return result
 
 
 def _non_negative_decimal(row: Mapping[str, object], field: str) -> Decimal:
     value = row.get(field)
     if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
-        raise BybitPublicProtocolError(f"Bybit kline {field} is missing or invalid")
+        raise BybitPublicProtocolError(
+            f"Bybit kline {field} is missing or invalid"
+        )
     try:
         result = Decimal(str(value))
     except ArithmeticError as exc:
-        raise BybitPublicProtocolError(f"Bybit kline {field} is not decimal") from exc
+        raise BybitPublicProtocolError(
+            f"Bybit kline {field} is not decimal"
+        ) from exc
     if not result.is_finite() or result < 0:
-        raise BybitPublicProtocolError(f"Bybit kline {field} must be finite and non-negative")
+        raise BybitPublicProtocolError(
+            f"Bybit kline {field} must be finite and non-negative"
+        )
     return result
 
 
-def public_linear_subscription_message(subscription: BybitPublicLinearSubscription) -> str:
+def public_linear_subscription_message(
+    subscription: BybitPublicLinearSubscription,
+) -> str:
     subscription.validate()
     return json.dumps(
         {
