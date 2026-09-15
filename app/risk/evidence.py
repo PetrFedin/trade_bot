@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Protocol
 
 from app.domain.trading import OrderIntent
-from app.risk.pretrade import PreTradeRiskEngine, RiskContext, RiskDecision
+from app.risk.pretrade import (
+    OperationalRiskContext,
+    PreTradeRiskEngine,
+    RiskContext,
+    RiskDecision,
+    RiskEvaluationMode,
+)
 
 ZERO_DIGEST = "0" * 64
 
@@ -233,7 +239,7 @@ class SQLiteRiskEvidenceJournal:
 
 
 class RiskAdmissionService:
-    """Evaluate pre-trade risk and persist the complete immutable decision evidence."""
+    """Evaluate pre-trade risk and persist complete immutable decision evidence."""
 
     def __init__(self, *, engine: PreTradeRiskEngine, journal: RiskEvidenceJournal) -> None:
         self.engine = engine
@@ -243,16 +249,19 @@ class RiskAdmissionService:
         self,
         intent: OrderIntent,
         *,
+        mode: RiskEvaluationMode,
         current_symbol_notional: Decimal,
         current_gross_notional: Decimal,
         kill_switch_engaged: bool = False,
-        context: RiskContext | None = None,
+        context: RiskContext | OperationalRiskContext | None = None,
         evaluated_at: datetime,
     ) -> RecordedRiskDecision:
         if evaluated_at.tzinfo is None or evaluated_at.utcoffset() is None:
             raise ValueError("evaluated_at must be timezone-aware")
+        evaluation_mode = RiskEvaluationMode(mode)
         decision = self.engine.evaluate(
             intent,
+            mode=evaluation_mode,
             current_symbol_notional=current_symbol_notional,
             current_gross_notional=current_gross_notional,
             kill_switch_engaged=kill_switch_engaged,
@@ -261,6 +270,7 @@ class RiskAdmissionService:
         payload = {
             "intent": intent,
             "inputs": {
+                "mode": evaluation_mode,
                 "current_symbol_notional": current_symbol_notional,
                 "current_gross_notional": current_gross_notional,
                 "kill_switch_engaged": kill_switch_engaged,
