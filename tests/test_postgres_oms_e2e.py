@@ -21,7 +21,12 @@ from app.domain.trading import OrderIntent, Side
 from app.execution.paper_executor import PaperSubmitExecutor
 from app.oms.postgres import PostgresOmsStore
 from app.oms.store import OrderState
-from app.risk.pretrade import PreTradeRiskEngine, RiskDecision, RiskLimits
+from app.risk.pretrade import (
+    PreTradeRiskEngine,
+    RiskDecision,
+    RiskEvaluationMode,
+    RiskLimits,
+)
 from app.runtime.paper_broker_contract_v99 import BrokerOrder, BrokerOrderStatus, OrderSide
 
 NOW = datetime(2026, 8, 7, 14, 0, tzinfo=UTC)
@@ -50,6 +55,7 @@ def decision(value: OrderIntent) -> RiskDecision:
         value,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
+        mode=RiskEvaluationMode.REPLAY,
     )
 
 
