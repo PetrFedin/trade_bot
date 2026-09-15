@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover - optional dependency boundary
 
 
 class PostgresOperationalContinuityStore:
-    """Append-only PostgreSQL continuity high-water journal."""
+    """Append-only, race-safe single-chain PostgreSQL continuity journal."""
 
     def __init__(self, dsn: str) -> None:
         if not dsn.strip():
@@ -48,52 +48,31 @@ class PostgresOperationalContinuityStore:
             with connection.transaction():
                 with connection.cursor() as cursor:
                     self._verify_through_bar(cursor, checkpoint)
-                    cursor.execute(
-                        """SELECT * FROM astra_operational_market_continuity
-                        WHERE checkpoint_id=%s""",
-                        (checkpoint.checkpoint_id,),
-                    )
-                    existing = cursor.fetchone()
+                    existing = self._by_id(cursor, checkpoint.checkpoint_id)
                     if existing is not None:
-                        stored = self._checkpoint(existing)
-                        if stored.identity_payload() != checkpoint.identity_payload():
-                            raise ValueError("continuity checkpoint identity conflict")
+                        self._verify_identical(existing, checkpoint)
                         return False
 
                     if checkpoint.previous_checkpoint_id is not None:
-                        cursor.execute(
-                            """SELECT provider, venue, symbol, interval_seconds,
-                                      through_close_time
-                            FROM astra_operational_market_continuity
-                            WHERE checkpoint_id=%s FOR SHARE""",
-                            (checkpoint.previous_checkpoint_id,),
-                        )
-                        previous = cursor.fetchone()
-                        if previous is None:
-                            raise ValueError("continuity previous checkpoint is missing")
-                        if (
-                            str(previous["provider"]) != checkpoint.provider
-                            or str(previous["venue"]) != checkpoint.venue
-                            or str(previous["symbol"]) != checkpoint.symbol
-                            or int(str(previous["interval_seconds"]))
-                            != checkpoint.interval_seconds
-                        ):
-                            raise ValueError("continuity checkpoint stream identity changed")
-                        previous_close = previous["through_close_time"]
-                        if not isinstance(previous_close, datetime):
-                            previous_close = datetime.fromisoformat(str(previous_close))
-                        if _aware(previous_close, "previous through_close_time") >= _aware(
-                            checkpoint.through_close_time,
-                            "through_close_time",
-                        ):
-                            raise ValueError("continuity checkpoint did not advance")
+                        previous = self._lock_previous(cursor, checkpoint)
+                        self._verify_previous(previous, checkpoint)
+                    occupied = self._chain_slot(cursor, checkpoint)
+                    if occupied is not None:
+                        if str(occupied["checkpoint_id"]) == checkpoint.checkpoint_id:
+                            existing = self._by_id(cursor, checkpoint.checkpoint_id)
+                            if existing is None:
+                                raise RuntimeError("continuity idempotency lookup failed")
+                            self._verify_identical(existing, checkpoint)
+                            return False
+                        raise ValueError("continuity checkpoint chain fork")
 
                     cursor.execute(
                         """INSERT INTO astra_operational_market_continuity(
                             checkpoint_id, previous_checkpoint_id, provider, venue,
                             symbol, interval_seconds, through_bar_id,
                             through_close_time, established_at, evidence_source
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT DO NOTHING""",
                         (
                             checkpoint.checkpoint_id,
                             checkpoint.previous_checkpoint_id,
@@ -102,15 +81,95 @@ class PostgresOperationalContinuityStore:
                             checkpoint.symbol,
                             checkpoint.interval_seconds,
                             checkpoint.through_bar_id,
-                            _aware(
-                                checkpoint.through_close_time,
-                                "through_close_time",
-                            ),
+                            _aware(checkpoint.through_close_time, "through_close_time"),
                             _aware(checkpoint.established_at, "established_at"),
                             checkpoint.evidence_source,
                         ),
                     )
-                    return True
+                    if cursor.rowcount == 1:
+                        return True
+
+                    existing = self._by_id(cursor, checkpoint.checkpoint_id)
+                    if existing is not None:
+                        self._verify_identical(existing, checkpoint)
+                        return False
+                    occupied = self._chain_slot(cursor, checkpoint)
+                    if occupied is not None:
+                        raise ValueError("continuity checkpoint chain fork")
+                    raise RuntimeError("continuity append lost conflict resolution")
+
+    @staticmethod
+    def _by_id(cursor, checkpoint_id: str):
+        cursor.execute(
+            """SELECT * FROM astra_operational_market_continuity
+            WHERE checkpoint_id=%s""",
+            (checkpoint_id,),
+        )
+        return cursor.fetchone()
+
+    @classmethod
+    def _verify_identical(
+        cls,
+        row: Mapping[str, object],
+        checkpoint: OperationalContinuityCheckpoint,
+    ) -> None:
+        stored = cls._checkpoint(row)
+        if stored.identity_payload() != checkpoint.identity_payload():
+            raise ValueError("continuity checkpoint identity conflict")
+
+    @staticmethod
+    def _lock_previous(cursor, checkpoint: OperationalContinuityCheckpoint):
+        cursor.execute(
+            """SELECT provider, venue, symbol, interval_seconds, through_close_time
+            FROM astra_operational_market_continuity
+            WHERE checkpoint_id=%s FOR UPDATE""",
+            (checkpoint.previous_checkpoint_id,),
+        )
+        previous = cursor.fetchone()
+        if previous is None:
+            raise ValueError("continuity previous checkpoint is missing")
+        return previous
+
+    @staticmethod
+    def _verify_previous(previous, checkpoint: OperationalContinuityCheckpoint) -> None:
+        if (
+            str(previous["provider"]) != checkpoint.provider
+            or str(previous["venue"]) != checkpoint.venue
+            or str(previous["symbol"]) != checkpoint.symbol
+            or int(str(previous["interval_seconds"])) != checkpoint.interval_seconds
+        ):
+            raise ValueError("continuity checkpoint stream identity changed")
+        previous_close = previous["through_close_time"]
+        if not isinstance(previous_close, datetime):
+            previous_close = datetime.fromisoformat(str(previous_close))
+        if _aware(previous_close, "previous through_close_time") >= _aware(
+            checkpoint.through_close_time,
+            "through_close_time",
+        ):
+            raise ValueError("continuity checkpoint did not advance")
+
+    @staticmethod
+    def _chain_slot(cursor, checkpoint: OperationalContinuityCheckpoint):
+        if checkpoint.previous_checkpoint_id is None:
+            cursor.execute(
+                """SELECT checkpoint_id FROM astra_operational_market_continuity
+                WHERE previous_checkpoint_id IS NULL
+                  AND provider=%s AND venue=%s AND symbol=%s AND interval_seconds=%s
+                LIMIT 1""",
+                (
+                    checkpoint.provider,
+                    checkpoint.venue,
+                    checkpoint.symbol,
+                    checkpoint.interval_seconds,
+                ),
+            )
+        else:
+            cursor.execute(
+                """SELECT checkpoint_id FROM astra_operational_market_continuity
+                WHERE previous_checkpoint_id=%s LIMIT 1""",
+                (checkpoint.previous_checkpoint_id,),
+            )
+        return cursor.fetchone()
 
     @staticmethod
     def _verify_through_bar(cursor, checkpoint: OperationalContinuityCheckpoint) -> None:
