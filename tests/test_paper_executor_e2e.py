@@ -10,7 +10,12 @@ from app.application.order_lifecycle import PaperOrderLifecycle
 from app.domain.trading import OrderIntent, Side
 from app.execution.paper_executor import PaperSubmitExecutor
 from app.oms.store import DurableOmsStore, OrderState
-from app.risk.pretrade import PreTradeRiskEngine, RiskDecision, RiskLimits
+from app.risk.pretrade import (
+    PreTradeRiskEngine,
+    RiskDecision,
+    RiskEvaluationMode,
+    RiskLimits,
+)
 from app.runtime.paper_broker_contract_v99 import (
     BrokerMutationError,
     BrokerOrder,
@@ -43,6 +48,7 @@ def approved(value: OrderIntent) -> RiskDecision:
         )
     ).evaluate(
         value,
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
     )

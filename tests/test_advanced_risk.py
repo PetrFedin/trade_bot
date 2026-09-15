@@ -2,7 +2,12 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from app.domain.trading import OrderIntent, Side
-from app.risk.pretrade import PreTradeRiskEngine, RiskContext, RiskLimits
+from app.risk.pretrade import (
+    PreTradeRiskEngine,
+    RiskContext,
+    RiskEvaluationMode,
+    RiskLimits,
+)
 
 UTC = timezone.utc
 NOW = datetime(2026, 8, 7, 17, 0, tzinfo=UTC)
@@ -35,6 +40,7 @@ def limits() -> RiskLimits:
 def test_advanced_risk_context_can_pass_all_capacity_checks() -> None:
     result = PreTradeRiskEngine(limits()).evaluate(
         intent(),
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("500"),
         current_gross_notional=Decimal("2000"),
         context=RiskContext(
@@ -53,6 +59,7 @@ def test_advanced_risk_context_can_pass_all_capacity_checks() -> None:
 def test_liquidity_concentration_and_volatility_breaches_are_all_reported() -> None:
     result = PreTradeRiskEngine(limits()).evaluate(
         intent(),
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("1500"),
         current_gross_notional=Decimal("2000"),
         context=RiskContext(

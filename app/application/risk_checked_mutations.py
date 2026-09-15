@@ -9,7 +9,7 @@ from app.domain.trading import OrderIntent, Side
 from app.oms.order_mutations import MutationStore, OrderMutationLifecycle, OrderMutationRecord
 from app.oms.store import OrderRecord
 from app.risk.evidence import RiskAdmissionService
-from app.risk.pretrade import OperationalRiskContext
+from app.risk.pretrade import OperationalRiskContext, RiskEvaluationMode
 
 
 def replace_requires_risk_readmission(
@@ -136,10 +136,11 @@ class RiskCheckedOrderMutationLifecycle(OrderMutationLifecycle):
             )
             recorded = self.risk_admission.evaluate_and_record(
                 risk_intent,
+                mode=RiskEvaluationMode.OPERATIONAL,
                 current_symbol_notional=current_symbol_notional,
                 current_gross_notional=current_gross_notional,
                 kill_switch_engaged=kill_switch_engaged,
-                context=risk_context.to_risk_context(),
+                context=risk_context,
                 evaluated_at=occurred_at,
             )
             if not recorded.decision.approved:

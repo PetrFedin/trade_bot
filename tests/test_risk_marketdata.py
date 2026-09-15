@@ -5,7 +5,12 @@ from decimal import Decimal
 
 from app.domain.trading import Bar, OrderIntent, Side
 from app.marketdata.validation import MarketDataPolicy, validate_bar_series
-from app.risk.pretrade import PreTradeRiskEngine, RiskContext, RiskLimits
+from app.risk.pretrade import (
+    PreTradeRiskEngine,
+    RiskContext,
+    RiskEvaluationMode,
+    RiskLimits,
+)
 
 UTC = timezone.utc
 NOW = datetime(2026, 8, 7, 13, 0, tzinfo=UTC)
@@ -54,6 +59,7 @@ def test_clean_market_data_and_risk_context_are_ready() -> None:
     assert quality.ready
     decision = PreTradeRiskEngine(limits()).evaluate(
         order(),
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
         context=RiskContext(
@@ -94,6 +100,7 @@ def test_market_data_quality_fails_closed_on_time_gap_jump_and_staleness() -> No
 def test_operational_risk_context_blocks_unsafe_order() -> None:
     decision = PreTradeRiskEngine(limits()).evaluate(
         order(),
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
         context=RiskContext(
@@ -125,6 +132,7 @@ def test_operational_risk_context_blocks_unsafe_order() -> None:
 def test_buy_order_cannot_exceed_available_cash() -> None:
     decision = PreTradeRiskEngine(limits()).evaluate(
         order(),
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
         context=RiskContext(
@@ -146,6 +154,7 @@ def test_zero_available_cash_is_valid_context_and_rejects_buy() -> None:
     context.validate()
     decision = PreTradeRiskEngine(limits()).evaluate(
         order(),
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
         context=context,

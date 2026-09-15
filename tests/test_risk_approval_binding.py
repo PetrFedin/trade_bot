@@ -10,7 +10,12 @@ from app.application.order_lifecycle import PaperOrderLifecycle
 from app.domain.trading import OrderIntent, Side
 from app.oms.indexed import IndexedDurableOmsStore
 from app.oms.store import OrderState
-from app.risk.pretrade import PreTradeRiskEngine, RiskDecision, RiskLimits
+from app.risk.pretrade import (
+    PreTradeRiskEngine,
+    RiskDecision,
+    RiskEvaluationMode,
+    RiskLimits,
+)
 
 NOW = datetime(2026, 9, 12, 17, 0, tzinfo=UTC)
 
@@ -46,6 +51,7 @@ def intent(
 def approve(value: OrderIntent) -> RiskDecision:
     return engine().evaluate(
         value,
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
     )

@@ -17,7 +17,12 @@ from app.oms.reconciliation import (
 )
 from app.oms.store import DurableOmsStore, OrderState
 from app.portfolio.ledger import PortfolioLedger
-from app.risk.pretrade import PreTradeRiskEngine, RiskDecision, RiskLimits
+from app.risk.pretrade import (
+    PreTradeRiskEngine,
+    RiskDecision,
+    RiskEvaluationMode,
+    RiskLimits,
+)
 
 UTC = timezone.utc
 NOW = datetime(2026, 8, 7, 12, 0, tzinfo=UTC)
@@ -44,6 +49,7 @@ def approved(value: OrderIntent) -> RiskDecision:
         )
     ).evaluate(
         value,
+        mode=RiskEvaluationMode.REPLAY,
         current_symbol_notional=Decimal("0"),
         current_gross_notional=Decimal("0"),
     )
