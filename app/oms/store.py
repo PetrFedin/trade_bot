@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections.abc import Iterator
@@ -111,7 +112,7 @@ class OutboxMessage:
 
 
 class DurableOmsStore:
-    """Transactional SQLite OMS with append-only events and a durable submit outbox."""
+    """Transactional SQLite OMS with strict economic-idempotency semantics."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
@@ -153,6 +154,7 @@ class DurableOmsStore:
                     side TEXT NOT NULL,
                     quantity TEXT NOT NULL,
                     limit_price TEXT NOT NULL,
+                    intent_fingerprint TEXT,
                     filled_quantity TEXT NOT NULL DEFAULT '0',
                     state TEXT NOT NULL,
                     version INTEGER NOT NULL,
@@ -163,6 +165,7 @@ class DurableOmsStore:
                     intent_id TEXT NOT NULL REFERENCES oms_orders(intent_id),
                     event_type TEXT NOT NULL,
                     payload TEXT NOT NULL,
+                    event_fingerprint TEXT,
                     occurred_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS oms_outbox (
@@ -177,6 +180,16 @@ class DurableOmsStore:
                     ON oms_outbox(intent_id, topic);
                 """
             )
+            order_columns = {
+                str(row["name"]) for row in connection.execute("PRAGMA table_info(oms_orders)")
+            }
+            if "intent_fingerprint" not in order_columns:
+                connection.execute("ALTER TABLE oms_orders ADD COLUMN intent_fingerprint TEXT")
+            event_columns = {
+                str(row["name"]) for row in connection.execute("PRAGMA table_info(oms_events)")
+            }
+            if "event_fingerprint" not in event_columns:
+                connection.execute("ALTER TABLE oms_events ADD COLUMN event_fingerprint TEXT")
         finally:
             connection.close()
 
@@ -186,6 +199,45 @@ class DurableOmsStore:
         if moment.tzinfo is None or moment.utcoffset() is None:
             raise ValueError("timestamp must be timezone-aware")
         return moment.astimezone(UTC)
+
+    @staticmethod
+    def _canonical_json(value: dict[str, object]) -> str:
+        return json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+
+    @staticmethod
+    def _intent_fingerprint(intent: OrderIntent) -> str:
+        intent.validate()
+        material = {
+            "intent_id": intent.intent_id,
+            "symbol": intent.symbol,
+            "side": intent.side.value,
+            "quantity": str(intent.quantity),
+            "limit_price": str(intent.limit_price),
+            "created_at": intent.created_at.astimezone(UTC).isoformat(),
+            "strategy_id": intent.strategy_id,
+        }
+        return hashlib.sha256(DurableOmsStore._canonical_json(material).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _event_fingerprint(
+        *,
+        intent_id: str,
+        event_type: str,
+        payload: dict[str, object],
+        broker_order_id: str | None = None,
+    ) -> str:
+        material = {
+            "intent_id": intent_id,
+            "event_type": event_type,
+            "payload": payload,
+            "broker_order_id": "" if broker_order_id is None else broker_order_id.strip(),
+        }
+        return hashlib.sha256(DurableOmsStore._canonical_json(material).encode("utf-8")).hexdigest()
 
     @staticmethod
     def _row(row: sqlite3.Row) -> OrderRecord:
@@ -213,6 +265,23 @@ class DurableOmsStore:
         finally:
             connection.close()
 
+    @classmethod
+    def _assert_intent_replay(
+        cls,
+        row: sqlite3.Row,
+        *,
+        intent: OrderIntent,
+        client_order_id: str,
+    ) -> None:
+        stored = row["intent_fingerprint"]
+        expected = cls._intent_fingerprint(intent)
+        if (
+            stored is None
+            or str(stored) != expected
+            or str(row["client_order_id"]) != client_order_id
+        ):
+            raise ValueError("INTENT_ID_CONFLICT")
+
     def create(
         self, intent: OrderIntent, *, client_order_id: str, occurred_at: datetime | None = None
     ) -> OrderRecord:
@@ -220,20 +289,23 @@ class DurableOmsStore:
         if not client_order_id.strip():
             raise ValueError("client_order_id is required")
         moment = self._now(occurred_at or intent.created_at)
+        fingerprint = self._intent_fingerprint(intent)
         with self._transaction() as connection:
             existing = connection.execute(
                 "SELECT * FROM oms_orders WHERE intent_id=?", (intent.intent_id,)
             ).fetchone()
             if existing is not None:
-                record = self._row(existing)
-                if record.client_order_id != client_order_id:
-                    raise ValueError("intent already exists with different client_order_id")
-                return record
+                self._assert_intent_replay(
+                    existing,
+                    intent=intent,
+                    client_order_id=client_order_id,
+                )
+                return self._row(existing)
             connection.execute(
                 """INSERT INTO oms_orders
                 (intent_id, client_order_id, symbol, side, quantity, limit_price,
-                 filled_quantity, state, version, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, '0', ?, 1, ?)""",
+                 intent_fingerprint, filled_quantity, state, version, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, '0', ?, 1, ?)""",
                 (
                     intent.intent_id,
                     client_order_id,
@@ -241,6 +313,7 @@ class DurableOmsStore:
                     intent.side.value,
                     str(intent.quantity),
                     str(intent.limit_price),
+                    fingerprint,
                     OrderState.CREATED.value,
                     moment.isoformat(),
                 ),
@@ -250,7 +323,10 @@ class DurableOmsStore:
                 event_id=f"create:{intent.intent_id}",
                 intent_id=intent.intent_id,
                 event_type="CREATED",
-                payload={"client_order_id": client_order_id},
+                payload={
+                    "client_order_id": client_order_id,
+                    "intent_fingerprint": fingerprint,
+                },
                 occurred_at=moment,
             )
         created = self.get(intent.intent_id)
@@ -258,8 +334,37 @@ class DurableOmsStore:
             raise RuntimeError("OMS persistence invariant violated")
         return created
 
-    @staticmethod
+    @classmethod
+    def _event_replayed(
+        cls,
+        connection: sqlite3.Connection,
+        *,
+        event_id: str,
+        intent_id: str,
+        event_type: str,
+        payload: dict[str, object],
+        broker_order_id: str | None = None,
+    ) -> bool:
+        row = connection.execute(
+            "SELECT event_fingerprint FROM oms_events WHERE event_id=?",
+            (event_id,),
+        ).fetchone()
+        if row is None:
+            return False
+        expected = cls._event_fingerprint(
+            intent_id=intent_id,
+            event_type=event_type,
+            payload=payload,
+            broker_order_id=broker_order_id,
+        )
+        stored = row["event_fingerprint"]
+        if stored is None or str(stored) != expected:
+            raise ValueError("OMS_EVENT_ID_CONFLICT")
+        return True
+
+    @classmethod
     def _append_event(
+        cls,
         connection: sqlite3.Connection,
         *,
         event_id: str,
@@ -267,20 +372,38 @@ class DurableOmsStore:
         event_type: str,
         payload: dict[str, object],
         occurred_at: datetime,
+        broker_order_id: str | None = None,
     ) -> bool:
+        fingerprint = cls._event_fingerprint(
+            intent_id=intent_id,
+            event_type=event_type,
+            payload=payload,
+            broker_order_id=broker_order_id,
+        )
         cursor = connection.execute(
             """INSERT OR IGNORE INTO oms_events
-            (event_id, intent_id, event_type, payload, occurred_at)
-            VALUES (?, ?, ?, ?, ?)""",
+            (event_id, intent_id, event_type, payload, event_fingerprint, occurred_at)
+            VALUES (?, ?, ?, ?, ?, ?)""",
             (
                 event_id,
                 intent_id,
                 event_type,
-                json.dumps(payload, sort_keys=True),
+                cls._canonical_json(payload),
+                fingerprint,
                 occurred_at.isoformat(),
             ),
         )
-        return cursor.rowcount == 1
+        if cursor.rowcount == 1:
+            return True
+        cls._event_replayed(
+            connection,
+            event_id=event_id,
+            intent_id=intent_id,
+            event_type=event_type,
+            payload=payload,
+            broker_order_id=broker_order_id,
+        )
+        return False
 
     @staticmethod
     def _load_for_update(connection: sqlite3.Connection, intent_id: str) -> OrderRecord:
@@ -309,11 +432,17 @@ class DurableOmsStore:
         payload: dict[str, object] | None = None,
     ) -> OrderRecord:
         moment = self._now(occurred_at)
+        event_payload = {} if payload is None else payload
         with self._transaction() as connection:
             current = self._load_for_update(connection, intent_id)
-            if connection.execute(
-                "SELECT 1 FROM oms_events WHERE event_id=?", (event_id,)
-            ).fetchone():
+            if self._event_replayed(
+                connection,
+                event_id=event_id,
+                intent_id=intent_id,
+                event_type=target.value,
+                payload=event_payload,
+                broker_order_id=broker_order_id,
+            ):
                 return current
             self._validate_transition(current.state, target)
             broker_id = (
@@ -329,8 +458,9 @@ class DurableOmsStore:
                 event_id=event_id,
                 intent_id=intent_id,
                 event_type=target.value,
-                payload={} if payload is None else payload,
+                payload=event_payload,
                 occurred_at=moment,
+                broker_order_id=broker_order_id,
             )
         result = self.get(intent_id)
         if result is None:
@@ -348,11 +478,6 @@ class DurableOmsStore:
         moment = self._now(occurred_at)
         with self._transaction() as connection:
             current = self._load_for_update(connection, intent_id)
-            if connection.execute(
-                "SELECT 1 FROM oms_events WHERE event_id=?", (event_id,)
-            ).fetchone():
-                return current
-            self._validate_transition(current.state, OrderState.OUTBOXED)
             payload = {
                 "intent_id": current.intent_id,
                 "client_order_id": current.client_order_id,
@@ -361,6 +486,15 @@ class DurableOmsStore:
                 "quantity": str(current.quantity),
                 "limit_price": str(current.limit_price),
             }
+            if self._event_replayed(
+                connection,
+                event_id=event_id,
+                intent_id=intent_id,
+                event_type=OrderState.OUTBOXED.value,
+                payload=payload,
+            ):
+                return current
+            self._validate_transition(current.state, OrderState.OUTBOXED)
             connection.execute(
                 "UPDATE oms_orders SET state=?, version=version+1, updated_at=? WHERE intent_id=?",
                 (OrderState.OUTBOXED.value, moment.isoformat(), intent_id),
@@ -368,7 +502,7 @@ class DurableOmsStore:
             connection.execute(
                 """INSERT INTO oms_outbox(intent_id, topic, payload, created_at)
                 VALUES (?, 'paper_order_submit', ?, ?)""",
-                (intent_id, json.dumps(payload, sort_keys=True), moment.isoformat()),
+                (intent_id, self._canonical_json(payload), moment.isoformat()),
             )
             self._append_event(
                 connection,
@@ -428,11 +562,17 @@ class DurableOmsStore:
         if not cumulative_filled.is_finite() or cumulative_filled < 0:
             raise ValueError("cumulative_filled must be finite and non-negative")
         moment = self._now(occurred_at)
+        event_payload = {"cumulative_filled": str(cumulative_filled)}
         with self._transaction() as connection:
             current = self._load_for_update(connection, intent_id)
-            if connection.execute(
-                "SELECT 1 FROM oms_events WHERE event_id=?", (event_id,)
-            ).fetchone():
+            if self._event_replayed(
+                connection,
+                event_id=event_id,
+                intent_id=intent_id,
+                event_type="FILL_UPDATE",
+                payload=event_payload,
+                broker_order_id=broker_order_id,
+            ):
                 return current
             if cumulative_filled < current.filled_quantity:
                 raise ValueError("FILLED_QUANTITY_REGRESSION")
@@ -459,8 +599,9 @@ class DurableOmsStore:
                 event_id=event_id,
                 intent_id=intent_id,
                 event_type="FILL_UPDATE",
-                payload={"cumulative_filled": str(cumulative_filled), "state": target.value},
+                payload=event_payload,
                 occurred_at=moment,
+                broker_order_id=broker_order_id,
             )
         result = self.get(intent_id)
         if result is None:
