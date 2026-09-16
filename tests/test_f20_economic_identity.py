@@ -8,10 +8,25 @@ import pytest
 
 from app.application.order_lifecycle import PaperOrderLifecycle
 from app.domain.trading import OrderIntent, Side
+from app.oms.postgres import PostgresOmsStore
 from app.oms.store import DurableOmsStore, OrderState
 from app.risk.pretrade import RiskDecision, risk_intent_fingerprint
 
 NOW = datetime(2026, 9, 16, 15, 0, tzinfo=UTC)
+
+
+class _IdentityCursor:
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        self.rows = rows
+        self.query = ""
+        self.params: tuple[object, ...] = ()
+
+    def execute(self, query: str, params: tuple[object, ...]) -> None:
+        self.query = query
+        self.params = params
+
+    def fetchall(self) -> list[dict[str, object]]:
+        return self.rows
 
 
 def intent() -> OrderIntent:
@@ -94,6 +109,48 @@ def test_different_intent_cannot_alias_existing_client_order_id(tmp_path) -> Non
 
     assert store.get(original.intent_id) is not None
     assert store.get(alias.intent_id) is None
+
+
+def test_postgres_identity_row_selector_accepts_one_exact_identity() -> None:
+    row = {"intent_id": "f20-intent", "client_order_id": "f20-client"}
+    cursor = _IdentityCursor([row])
+
+    selected = PostgresOmsStore._load_identity_row_for_update(
+        cursor,
+        intent_id="f20-intent",
+        client_order_id="f20-client",
+    )
+
+    assert selected is row
+    assert cursor.params == ("f20-intent", "f20-client")
+    assert "FOR UPDATE" in cursor.query
+
+
+@pytest.mark.parametrize(
+    "rows,error",
+    (
+        ([], RuntimeError),
+        ([{"intent_id": "other", "client_order_id": "f20-client"}], ValueError),
+        (
+            [
+                {"intent_id": "f20-intent", "client_order_id": "other-client"},
+                {"intent_id": "other", "client_order_id": "f20-client"},
+            ],
+            ValueError,
+        ),
+    ),
+)
+def test_postgres_identity_row_selector_fails_closed_on_ambiguous_aliases(
+    rows,
+    error,
+) -> None:
+    cursor = _IdentityCursor(rows)
+    with pytest.raises(error, match="identity persistence invariant|INTENT_ID_CONFLICT"):
+        PostgresOmsStore._load_identity_row_for_update(
+            cursor,
+            intent_id="f20-intent",
+            client_order_id="f20-client",
+        )
 
 
 def test_same_event_id_binds_target_payload_and_declared_broker_identity(tmp_path) -> None:
