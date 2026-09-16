@@ -153,6 +153,23 @@ class SlowPlanner(FakePlanner):
         return result
 
 
+class ConflictDuringPlanner(FakePlanner):
+    def __init__(self, marketdata: SQLiteOperationalMarketDataStore) -> None:
+        super().__init__()
+        self.marketdata = marketdata
+
+    def plan_and_prepare(self, bars, **kwargs) -> PaperPlanningResult:
+        result = super().plan_and_prepare(bars, **kwargs)
+        conflicting = bar(1, close="777")
+        with pytest.raises(OperationalBarConflict):
+            self.marketdata.record_finalized_for_strategy(
+                conflicting,
+                strategy_id=STRATEGY,
+                recorded_at=NOW + timedelta(seconds=3),
+            )
+        return result
+
+
 def build_stack(tmp_path, *, with_checkpoint: bool = True):
     marketdata_path = tmp_path / "marketdata.sqlite"
     marketdata = SQLiteOperationalMarketDataStore(marketdata_path)
@@ -225,7 +242,7 @@ def worker(
 
 
 def test_ready_worker_evaluates_one_durable_ticket_once(tmp_path) -> None:
-    _, ticket, marketdata, continuity, leases, control = build_stack(tmp_path)
+    history, ticket, marketdata, continuity, leases, control = build_stack(tmp_path)
     planner = FakePlanner()
     service = worker(
         marketdata=marketdata,
@@ -241,6 +258,7 @@ def test_ready_worker_evaluates_one_durable_ticket_once(tmp_path) -> None:
     assert result is not None and result.status == "COMPLETED"
     assert result.receipt.ticket.ticket_id == ticket.ticket_id
     assert result.safety.ready_for_evaluation
+    assert result.safety.bar_ids == tuple(value.bar_id for value in history)
     assert result.safety.control_mode == "HALTED"
     assert planner.calls == 1
     assert marketdata.pending_decisions(strategy_id=STRATEGY) == ()
@@ -348,6 +366,25 @@ def test_late_conflict_after_claim_is_rechecked_and_blocks_planner(tmp_path) -> 
     assert "CONTINUITY_HIGH_WATER_CONFLICTED_OR_MISSING" in result.safety.continuity_reasons
     assert "DECISION_BAR_NOT_WINDOW_TAIL" in result.safety.continuity_reasons
     assert planner.calls == 0
+
+
+def test_middle_bar_conflict_during_planning_invalidates_completion(tmp_path) -> None:
+    _, ticket, marketdata, continuity, leases, control = build_stack(tmp_path)
+    planner = ConflictDuringPlanner(marketdata)
+    service = worker(
+        marketdata=marketdata,
+        continuity=continuity,
+        leases=leases,
+        control=control,
+        planner=planner,
+        snapshot_provider=ready_snapshot,
+    )
+
+    with pytest.raises(ValueError, match="DECISION_SAFETY_EVIDENCE_INVALIDATED"):
+        service.run_next()
+
+    assert planner.calls == 1
+    assert marketdata.pending_decisions(strategy_id=STRATEGY) == (ticket,)
 
 
 def test_slow_planner_cannot_complete_after_renewed_lease_expires(tmp_path) -> None:
