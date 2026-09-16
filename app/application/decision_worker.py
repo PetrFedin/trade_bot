@@ -146,8 +146,9 @@ class OperationalDecisionWorker:
         _, readiness_reasons, snapshot = self._readiness()
         control_state = self.control.current()
         evidence_at = self._now()
-        first_bar_id = None if not operational_bars else operational_bars[0].bar_id
-        last_bar_id = None if not operational_bars else operational_bars[-1].bar_id
+        bar_ids = tuple(bar.bar_id for bar in operational_bars)
+        first_bar_id = None if not bar_ids else bar_ids[0]
+        last_bar_id = None if not bar_ids else bar_ids[-1]
         evidence = DecisionSafetyEvidence(
             evidence_id=decision_safety_evidence_id(
                 ticket_id=receipt.ticket.ticket_id,
@@ -157,6 +158,7 @@ class OperationalDecisionWorker:
                 checkpoint_id=checkpoint_id,
                 first_bar_id=first_bar_id,
                 last_bar_id=last_bar_id,
+                bar_ids=bar_ids,
                 continuity_reasons=continuity_reasons,
                 readiness_reasons=readiness_reasons,
                 control_mode=control_state.mode.value,
@@ -170,6 +172,7 @@ class OperationalDecisionWorker:
             checkpoint_id=checkpoint_id,
             first_bar_id=first_bar_id,
             last_bar_id=last_bar_id,
+            bar_ids=bar_ids,
             continuity_reasons=continuity_reasons,
             readiness_reasons=readiness_reasons,
             control_mode=control_state.mode.value,
