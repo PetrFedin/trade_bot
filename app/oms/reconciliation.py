@@ -6,6 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
+from app.domain.trading import Side
 from app.oms.protocols import OmsStore
 from app.oms.store import OrderRecord, OrderState
 from app.portfolio.ledger import PortfolioLedger
@@ -25,12 +26,40 @@ class BrokerOrderTruth:
     broker_order_id: str
     state: BrokerOrderState
     cumulative_filled: Decimal
+    symbol: str | None = None
+    side: Side | None = None
+    quantity: Decimal | None = None
+    limit_price: Decimal | None = None
+
+    @property
+    def has_complete_economics(self) -> bool:
+        values = (self.symbol, self.side, self.quantity, self.limit_price)
+        return all(value is not None for value in values)
 
     def validate(self) -> None:
         if not self.client_order_id.strip() or not self.broker_order_id.strip():
             raise ValueError("broker order identity is required")
         if not self.cumulative_filled.is_finite() or self.cumulative_filled < 0:
             raise ValueError("cumulative_filled must be finite and non-negative")
+        economics = (self.symbol, self.side, self.quantity, self.limit_price)
+        if any(value is not None for value in economics) and not self.has_complete_economics:
+            raise ValueError("BROKER_ORDER_ECONOMICS_INCOMPLETE")
+        if not self.has_complete_economics:
+            return
+        symbol = self.symbol
+        side = self.side
+        quantity = self.quantity
+        limit_price = self.limit_price
+        if symbol is None or side is None or quantity is None or limit_price is None:
+            raise ValueError("BROKER_ORDER_ECONOMICS_INCOMPLETE")
+        if not symbol or symbol != symbol.upper():
+            raise ValueError("broker symbol must be non-empty uppercase")
+        if not isinstance(side, Side):
+            raise ValueError("broker side is invalid")
+        if not quantity.is_finite() or quantity <= 0:
+            raise ValueError("broker quantity must be positive and finite")
+        if not limit_price.is_finite() or limit_price <= 0:
+            raise ValueError("broker limit_price must be positive and finite")
 
 
 @dataclass(frozen=True)
@@ -67,6 +96,14 @@ class PortfolioReconciliationResult:
     cash_delta: Decimal
     position_deltas: tuple[tuple[str, Decimal], ...]
     reasons: tuple[str, ...]
+
+
+_F17_UNCERTAINTY_REASONS = frozenset(
+    {
+        "BROKER_SUBMIT_ECONOMICS_MISMATCH",
+        "BROKER_SUBMIT_RESPONSE_INVALID",
+    }
+)
 
 
 class OmsReconciler:
@@ -110,6 +147,8 @@ class OmsReconciler:
             raise ValueError("CLIENT_ORDER_ID_MISMATCH")
         if broker.cumulative_filled > local.quantity:
             raise ValueError("BROKER_FILL_EXCEEDS_LOCAL_ORDER")
+        if local.state is OrderState.UNCERTAIN and self._requires_f17_economic_proof(intent_id):
+            self._validate_f17_economics(local, broker)
 
         if local.state is OrderState.UNCERTAIN:
             local = self.store.transition(
@@ -160,6 +199,39 @@ class OmsReconciler:
             broker_order_id=broker.broker_order_id,
             payload={"broker_state": broker.state.value},
         )
+
+    def _requires_f17_economic_proof(self, intent_id: str) -> bool:
+        events = self.store.events(intent_id)
+        for event in reversed(events):
+            if str(event.get("event_type", "")) != OrderState.UNCERTAIN.value:
+                continue
+            payload = event.get("payload", {})
+            if not isinstance(payload, Mapping):
+                return False
+            return str(payload.get("reason", "")) in _F17_UNCERTAINTY_REASONS
+        return False
+
+    @staticmethod
+    def _validate_f17_economics(local: OrderRecord, broker: BrokerOrderTruth) -> None:
+        if not broker.has_complete_economics:
+            raise ValueError("BROKER_ECONOMICS_REQUIRED_FOR_RECONCILIATION")
+        symbol = broker.symbol
+        side = broker.side
+        quantity = broker.quantity
+        limit_price = broker.limit_price
+        if symbol is None or side is None or quantity is None or limit_price is None:
+            raise ValueError("BROKER_ECONOMICS_REQUIRED_FOR_RECONCILIATION")
+        mismatches: list[str] = []
+        if symbol != local.symbol:
+            mismatches.append("symbol")
+        if side is not local.side:
+            mismatches.append("side")
+        if quantity != local.quantity:
+            mismatches.append("quantity")
+        if limit_price != local.limit_price:
+            mismatches.append("limit_price")
+        if mismatches:
+            raise ValueError(f"BROKER_ECONOMICS_MISMATCH:{','.join(mismatches)}")
 
 
 def reconcile_portfolio(
