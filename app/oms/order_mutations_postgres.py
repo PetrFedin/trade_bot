@@ -377,11 +377,44 @@ class PostgresOrderMutationStore:
                     if cursor.rowcount != 1:
                         raise KeyError(message_id)
 
+    @staticmethod
+    def _lineage_leaf(cursor, intent_id: str):
+        cursor.execute(
+            "SELECT to_regclass('public.astra_broker_order_identities') AS relation"
+        )
+        relation = cursor.fetchone()
+        if relation is None or relation["relation"] is None:
+            return None
+        cursor.execute(
+            """SELECT broker_order_id, replace_mutation_id, generation
+            FROM astra_broker_order_identities
+            WHERE intent_id=%s ORDER BY generation DESC LIMIT 1""",
+            (intent_id,),
+        )
+        return cursor.fetchone()
+
     def current_limit_price(self, intent_id: str, *, fallback: Decimal) -> Decimal:
         if not fallback.is_finite() or fallback <= 0:
             raise ValueError("fallback must be positive and finite")
         with self._connect() as connection:
             with connection.cursor() as cursor:
+                leaf = self._lineage_leaf(cursor, intent_id)
+                if leaf is not None and int(leaf["generation"]) > 0:
+                    mutation_id = str(leaf["replace_mutation_id"] or "").strip()
+                    if not mutation_id:
+                        raise ValueError("BROKER_ORDER_LINEAGE_CONFLICT")
+                    cursor.execute(
+                        """SELECT target_limit_price FROM astra_order_mutations
+                        WHERE mutation_id=%s AND intent_id=%s AND kind='REPLACE'
+                          AND state='SUCCEEDED'""",
+                        (mutation_id, intent_id),
+                    )
+                    row = cursor.fetchone()
+                    if row is None or row["target_limit_price"] is None:
+                        raise ValueError("BROKER_ORDER_LINEAGE_CONFLICT")
+                    return Decimal(str(row["target_limit_price"]))
+                if leaf is not None:
+                    return fallback
                 cursor.execute(
                     """SELECT target_limit_price FROM astra_order_mutations
                     WHERE intent_id=%s AND kind='REPLACE' AND state='SUCCEEDED'
@@ -398,6 +431,12 @@ class PostgresOrderMutationStore:
             raise ValueError("fallback broker_order_id is required")
         with self._connect() as connection:
             with connection.cursor() as cursor:
+                leaf = self._lineage_leaf(cursor, intent_id)
+                if leaf is not None:
+                    broker_order_id = str(leaf["broker_order_id"]).strip()
+                    if not broker_order_id:
+                        raise ValueError("BROKER_ORDER_LINEAGE_CONFLICT")
+                    return broker_order_id
                 cursor.execute(
                     """SELECT broker_order_id FROM astra_order_mutations
                     WHERE intent_id=%s AND kind='REPLACE' AND state='SUCCEEDED'
