@@ -28,8 +28,8 @@
   },
   "current_boundaries": {
     "canonical_main": {
-      "sha": "043fc3003b055dc1e953854798627048d3f26960",
-      "status": "STABLE_FAIL_CLOSED_WITH_C2A0_C2A4_FOUNDATION",
+      "sha": "ff684ab85b92151c215c7d5cc85bfc527fecb5eb",
+      "status": "STABLE_FAIL_CLOSED_WITH_C2A0_C2B0_FOUNDATION",
       "broker_proven": false,
       "demo_entry_proven": false,
       "strategy_profitability_proven": false
@@ -51,14 +51,9 @@
     {
       "id": "C2A0",
       "name": "STRATEGY_FREE_BYBIT_DEMO_RUNTIME_LEASE_V119",
-      "source_preservation_pr": 110,
       "replacement_pr": 113,
       "merge_sha": "e110a4c02f5bf9b9937ff3fbf7e942859be9050d",
       "status": "EXTRACTED_AND_QUALIFIED",
-      "preservation_method": "EXACT_FIVE_GIT_BLOBS",
-      "frozen_migration_sha256": "c37a2f54cb3dd42d6732b3354988d7f73cc1d240916ccbcdcec3874933f9d52e",
-      "research_ancestry_inherited": false,
-      "strategy_dependency": false,
       "network_or_order_capability": false,
       "demo_proven": false
     },
@@ -70,7 +65,6 @@
       "status": "EXTRACTED_AND_QUALIFIED",
       "runtime_role_non_owner": true,
       "runtime_ddl_allowed": false,
-      "network_or_order_capability": false,
       "demo_proven": false
     },
     {
@@ -82,34 +76,22 @@
       "frozen_v120_001_git_blob": "b337ef19dc7da4a3fcbc0a11a8d6d7d85dff3b00",
       "frozen_v120_001_sha256": "613a21fba9142f34141cb7d6c81938b175250fb4dbda9bd37726e5627df094cf",
       "runtime_table_privileges": ["INSERT", "SELECT"],
-      "network_or_order_capability": false,
       "demo_proven": false
     },
     {
       "id": "C2A3",
       "name": "STRATEGY_FREE_V120_TYPED_PERSISTENCE",
-      "source_pr": 77,
       "replacement_pr": 121,
-      "pre_merge_head_sha": "f623bea57f0d9e27136658262d85c0579db270d3",
       "merge_sha": "090f34b11a877ce24f8a15a74b296e287aae3918",
       "status": "EXTRACTED_AND_QUALIFIED",
       "strategy_dependency": false,
       "broker_network_capability": false,
-      "market_data_dependency": false,
       "order_write_capability": false,
-      "demo_proven": false,
-      "qualification": {
-        "pre_merge_workflows_success": 10,
-        "post_merge_workflows_success": 11,
-        "canonical_security_regression_run_id": 33988217105,
-        "release_provenance_run_id": 33988217099,
-        "full_postgres_regression": "1112 passed, 2 dedicated fleet-deployment skips"
-      }
+      "demo_proven": false
     },
     {
       "id": "C2A4",
       "name": "STRATEGY_FREE_V119_ACTIVE_EXCURSION_CAS_PERSISTENCE",
-      "source_pr": 76,
       "replacement_pr": 124,
       "tracking_issue": 122,
       "pre_merge_head_sha": "00a0deffa954c70e44fb70483556746363228535",
@@ -119,41 +101,60 @@
       "broker_network_capability": false,
       "market_data_dependency": false,
       "order_write_capability": false,
-      "runtime_migration_authority": false,
       "demo_proven": false,
       "qualification": {
         "pre_merge_workflows_success": 10,
         "post_merge_workflows_success": 11,
         "canonical_security_regression_run_id": 34039454929,
-        "release_provenance_run_id": 34039454985,
-        "postgres_version": "16.15",
-        "focused_postgres_regression": "282 passed",
-        "full_postgres_regression": "1124 passed, 2 dedicated fleet-deployment skips",
-        "canonical_security_workflow_sha256": "8ff9793125804197a828fbec6f56d574882147a62fb73c6201a5cdf6b56823dc"
+        "release_provenance_run_id": 34039454985
+      }
+    },
+    {
+      "id": "C2B0",
+      "name": "STRATEGY_FREE_V121_APPEND_ONLY_CONTROL_JOURNAL_PERSISTENCE",
+      "source_pr": 80,
+      "hardening_source_pr": 88,
+      "replacement_pr": 127,
+      "tracking_issue": 125,
+      "pre_merge_head_sha": "e9df55204d5127e585166fd364612ab940d114a1",
+      "merge_sha": "ff684ab85b92151c215c7d5cc85bfc527fecb5eb",
+      "status": "EXTRACTED_AND_QUALIFIED",
+      "frozen_v121_001_git_blob": "cae1dd432050f235b94d230b2e46c862d38b58c6",
+      "frozen_v121_001_sha256": "a03a738d7036c59338ef2ebe085a28a266fd0b440d97ca8e3fae59379efe8e21",
+      "canonical_security_workflow_sha256": "5977182e1ae6fab8da08b5b1addbf7bb23a02af0477332e32f92349cd2ea61dd",
+      "reader_table_privileges": ["SELECT"],
+      "writer_table_privileges": ["INSERT", "SELECT"],
+      "writer_sequence_privileges": ["USAGE"],
+      "strategy_dependency": false,
+      "broker_network_capability": false,
+      "connected_preflight_acquisition_capability": false,
+      "order_write_capability": false,
+      "runtime_migration_authority": false,
+      "demo_proven": false,
+      "qualification": {
+        "pre_merge_workflows_success": 10,
+        "post_merge_workflows_success": 11,
+        "canonical_security_regression_run_id": 34056249717,
+        "release_provenance_run_id": 34056249725,
+        "canonical_deployment_regression_run_id": 34056249729
       }
     }
   ],
-  "supersession_records": [
-    {
-      "pull_request": 110,
-      "state": "CLOSED_NOT_MERGED",
-      "superseded_by": 113,
-      "reason": "The same five audited Git blobs were extracted onto repaired canonical main without inheriting the old branch ancestry."
-    }
-  ],
   "current_gate": {
-    "id": "C2B0",
-    "issue": 125,
-    "status": "IN_PROGRESS",
-    "goal": "STRATEGY_FREE_V121_APPEND_ONLY_CONTROL_JOURNAL_PERSISTENCE",
-    "source_pr": 80,
-    "source_sha": "f40d9dee0baadd254a6fe7425b117be709088f9d",
-    "historical_migration_blob": "cae1dd432050f235b94d230b2e46c862d38b58c6",
-    "historical_control_plane_blob": "19c5dc7f4a1f6548b967b6b3ec43ef27d6868135",
-    "runtime_order_capability_allowed": false,
-    "broker_network_capability_allowed": false,
-    "connected_preflight_dependency_allowed": false,
+    "id": "C2B1",
+    "issue": 130,
+    "status": "AUDIT_IN_PROGRESS",
+    "goal": "STRATEGY_FREE_V122_RESTART_SAFE_SESSION_RISK_PERSISTENCE",
+    "source_pr": 84,
+    "source_sha": "bdcdf7189b56b494e14ac746ad9b867c108dcd30",
+    "persistence_refinement_pr": 86,
+    "persistence_refinement_sha": "700e59e0b67329ea7df00bbd78aebd6ddfdba334",
+    "historical_migration_blob": "25f05f93cf11165416e999321ac5d4a422b9a1a3",
     "strategy_dependency_allowed": false,
+    "accounting_builder_dependency_allowed": false,
+    "broker_network_capability_allowed": false,
+    "connected_session_start_allowed": false,
+    "runtime_order_capability_allowed": false,
     "runtime_migration_authority_allowed": false
   },
   "blocked_follow_on": [
@@ -163,14 +164,14 @@
       "tracking_issue": 109
     },
     {
-      "id": "V122_SESSION_RISK_DURABILITY",
-      "status": "BLOCKED_ON_BOUNDED_STRATEGY_FREE_EXTRACTION",
-      "source_semantics": "PR_84"
-    },
-    {
       "id": "CONNECTED_SESSION_START",
       "status": "BLOCKED_ON_CANONICAL_GET_ONLY_BROKER_OBSERVABILITY_AND_C2B_FOUNDATION",
       "source_semantics": "PR_85"
+    },
+    {
+      "id": "TERMINAL_RISK_CHECKPOINT_HANDOFF",
+      "status": "BLOCKED_ON_C2B1",
+      "source_semantics": "PR_86"
     },
     {
       "id": "PROTECTED_DEMO_ENTRY",
@@ -194,8 +195,8 @@
       "id": "C2",
       "name": "CANONICAL_DURABLE_OPERATIONAL_CONTROL_PLANE",
       "status": "IN_PROGRESS",
-      "completed": ["C2A0", "C2A1", "C2A2", "C2A3", "C2A4"],
-      "next": "C2B0"
+      "completed": ["C2A0", "C2A1", "C2A2", "C2A3", "C2A4", "C2B0"],
+      "next": "C2B1"
     },
     {
       "id": "C3",
@@ -217,11 +218,12 @@
     }
   ],
   "next_required_actions": [
-    "PRESERVE_AND_AUDIT_C2B0_ISSUE_125_SOURCE_BYTES",
-    "IMPLEMENT_STRATEGY_FREE_V121_CONTROL_JOURNAL_FROM_CANONICAL_MAIN",
-    "ADD_FORWARD_V121_TRUNCATE_HARDENING_IF_AUDIT_CONFIRMS_GAP",
-    "KEEP_CONNECTED_PREFLIGHT_AND_ORDER_GUARD_OUT_OF_C2B0",
-    "KEEP_V122_STRATEGY_DERIVED_LEDGER_OUT_UNTIL_SEPARATELY_DECOMPOSED",
+    "PRESERVE_AND_AUDIT_C2B1_ISSUE_130_SOURCE_BYTES",
+    "MEASURE_FROZEN_V122_001_SHA256_ON_GITHUB_RUNNER",
+    "EXTRACT_NEUTRAL_V122_RECORDS_CODECS_AND_POSTGRES_CAS_FROM_CANONICAL_MAIN",
+    "KEEP_CRYPTO_SESSION_RISK_AND_POST_TRADE_BUILDERS_OUT_OF_C2B1",
+    "KEEP_CONNECTED_SESSION_START_PR85_OUT_OF_C2B1",
+    "KEEP_TERMINAL_RUNTIME_HANDOFF_PR86_OUTSIDE_C2B1_EXCEPT_PERSISTENCE_SAFE_LOAD_ACTIVE",
     "PRESERVE_RESEARCH_HEAD_AS_RESEARCH_ONLY",
     "KEEP_DEMO_ENTRY_BLOCKED_UNTIL_STRATEGY_AND_OPERATIONAL_PREREQUISITES_PASS"
   ]
