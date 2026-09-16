@@ -94,6 +94,30 @@ class BlockingPaperBroker:
         return self.orders.get(client_order_id)
 
 
+class PriceDriftPaperBroker:
+    paper_order_writes_enabled = True
+
+    def __init__(self) -> None:
+        self.submit_calls = 0
+
+    def submit_limit_order(self, **kwargs) -> BrokerOrder:
+        self.submit_calls += 1
+        return BrokerOrder(
+            client_order_id=kwargs["client_order_id"],
+            broker_order_id="pg-broker-price-drift",
+            instrument=kwargs["instrument"],
+            side=kwargs["side"],
+            quantity=kwargs["quantity"],
+            limit_price=Decimal("150"),
+            status=BrokerOrderStatus.ACKNOWLEDGED,
+            filled_quantity=Decimal("0"),
+            updated_at=NOW,
+        )
+
+    def get_order_by_client_order_id(self, client_order_id: str):
+        return None
+
+
 @pytest.fixture()
 def store() -> PostgresOmsStore:
     value = PostgresOmsStore(DSN)
@@ -227,6 +251,33 @@ def test_postgres_submit_claim_allows_one_worker_only(store: PostgresOmsStore) -
     assert persisted is not None
     assert persisted.state is OrderState.ACKNOWLEDGED
     assert persisted.broker_order_id == "pg-broker-race-1"
+
+
+def test_postgres_f17_price_drift_is_durable_uncertain_not_acknowledged(
+    store: PostgresOmsStore,
+) -> None:
+    value = intent()
+    PaperOrderLifecycle(store).prepare(value, decision(value), occurred_at=NOW)
+    message = store.pending_outbox()[0]
+    broker = PriceDriftPaperBroker()
+
+    result = PaperSubmitExecutor(store=PostgresOmsStore(DSN), broker=broker).execute(
+        message,
+        occurred_at=NOW,
+    )
+
+    assert result.record.state is OrderState.UNCERTAIN
+    assert result.record.broker_order_id == ""
+    assert result.record.filled_quantity == Decimal("0")
+    assert broker.submit_calls == 1
+    assert store.pending_outbox() == ()
+    events = [event for event in store.events(value.intent_id) if event["event_type"] == "UNCERTAIN"]
+    assert len(events) == 1
+    payload = events[0]["payload"]
+    assert payload["reason"] == "BROKER_SUBMIT_ECONOMICS_MISMATCH"
+    assert "limit_price" in payload["mismatches"]
+    assert payload["authorized"]["limit_price"] == "100"
+    assert payload["broker_response"]["limit_price"] == "150"
 
 
 def test_postgres_event_journal_is_append_only(store: PostgresOmsStore) -> None:
