@@ -1,0 +1,121 @@
+{
+  "schema_version": "engineering-main-qualification-v1",
+  "repository": "PetrFedin/trade_bot",
+  "subject_sha": "e27825c32261ce073dd074d975ef4ef27bc0a1a7",
+  "subject": "P0 F22D post-merge main qualification",
+  "qualified_at": "2026-09-16T12:04:20Z",
+  "scope": "ENGINEERING_CI_ONLY",
+  "source_pull_request": 172,
+  "source_pre_merge_sha": "693a3c6965db729b6033e2ec4f3a742a9151e92b",
+  "github": {
+    "event": "push",
+    "workflow_run_count": 11,
+    "check_run_count": 12,
+    "all_observed_workflows_completed": true,
+    "all_observed_workflows_success": true,
+    "all_observed_check_runs_completed": true,
+    "all_observed_check_runs_success": true,
+    "workflow_runs": [
+      {
+        "name": "canonical-security-regression",
+        "run_id": 35093627692,
+        "run_number": 1025,
+        "conclusion": "success"
+      },
+      {
+        "name": "postgres-oms-e2e",
+        "run_id": 35093627697,
+        "run_number": 422,
+        "conclusion": "success"
+      },
+      {
+        "name": "risk-marketdata",
+        "run_id": 35093627706,
+        "run_number": 1016,
+        "conclusion": "success"
+      },
+      {
+        "name": "stable-runtime-import-boundary",
+        "run_id": 35093627723,
+        "run_number": 941,
+        "conclusion": "success"
+      },
+      {
+        "name": "release-provenance",
+        "run_id": 35093627730,
+        "run_number": 69,
+        "conclusion": "success"
+      },
+      {
+        "name": "schema99-external-paper-roundtrip",
+        "run_id": 35093627750,
+        "run_number": 1674,
+        "conclusion": "success"
+      },
+      {
+        "name": "strategy-qualification",
+        "run_id": 35093627776,
+        "run_number": 1131,
+        "conclusion": "success"
+      },
+      {
+        "name": "product-composition",
+        "run_id": 35093627691,
+        "run_number": 1383,
+        "conclusion": "success"
+      },
+      {
+        "name": "ci-action-supply-chain-policy",
+        "run_id": 35093627811,
+        "conclusion": "success"
+      },
+      {
+        "name": "stable-core-quality",
+        "run_id": 35093627834,
+        "conclusion": "success"
+      },
+      {
+        "name": "release-governance",
+        "run_id": 35093627886,
+        "conclusion": "success"
+      }
+    ]
+  },
+  "qualified_capabilities": [
+    "F01_EXCLUSIVE_SUBMIT_CLAIM",
+    "F02_EXCLUSIVE_CANCEL_REPLACE_CLAIMS",
+    "F03_PENDING_BUY_RISK_RESERVATIONS",
+    "F04_F14_F16_OPERATIONAL_MARKETDATA_GATE",
+    "F05_DURABLE_ARM_HALT_FINAL_DISPATCH_GUARD",
+    "F06_EXACT_INTENT_RISK_FINGERPRINT",
+    "F07_REPLACE_REQUIRES_FRESH_RISK_ADMISSION",
+    "F08_FULL_PORTFOLIO_MARK_SNAPSHOT",
+    "F10_EXECUTION_FACTS_BEFORE_ACCOUNTING_PROJECTION",
+    "F12_VALIDATED_STREAM_PROVENANCE",
+    "F13_COMPLETE_OPERATIONAL_RISK_OBSERVATIONS",
+    "F21A_BROKER_PORTFOLIO_RECONCILIATION_GATE",
+    "F21B_DURABLE_BROKER_FINANCIAL_ACTIVITIES",
+    "F21C_FINANCIAL_ACTIVITY_TRUTH_GATE",
+    "F22A_DURABLE_FINALIZED_OPERATIONAL_MARKETDATA",
+    "F22B_BYBIT_PUBLIC_LINEAR_KLINE_WEBSOCKET",
+    "F22C_DURABLE_CONTINUITY_RECONNECT_REPAIR",
+    "F22D_FENCED_OPERATIONAL_DECISION_WORKERS"
+  ],
+  "next_vertical_gate": {
+    "issue": 138,
+    "name": "RESIDUAL_EXECUTION_OMS_INTEGRITY",
+    "required_families": ["F17", "F18", "F19", "F20"]
+  },
+  "promotion": {
+    "strategy_qualified": false,
+    "demo_trading_allowed": false,
+    "external_order_routing_allowed": false,
+    "live_trading_allowed": false,
+    "mainnet_entry_allowed": false
+  },
+  "notes": [
+    "This manifest qualifies engineering and CI behavior only.",
+    "A successful strategy-qualification workflow is not a profitability promotion.",
+    "No Demo, external routing, mainnet or live authority is granted by this manifest."
+  ]
+}

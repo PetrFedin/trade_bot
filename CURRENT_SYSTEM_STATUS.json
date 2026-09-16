@@ -1,302 +1,104 @@
 {
-  "schema_version": "current-system-status-v2",
-  "observed_at": "2026-09-06",
+  "schema_version": "current-system-status-v3",
   "authority": {
-    "human_readable": "docs/E2E_MATRIX.md",
-    "machine_readable": "CURRENT_SYSTEM_STATUS.json",
-    "historical_snapshot_root": "docs/archive/2026-09-02",
-    "rule": "No documentation artifact can authorize Demo or live trading without the separately required profitability, broker, operational, governance and production evidence."
+    "generator": "tools/system_status.py",
+    "tracked_status_is_generated": true,
+    "readme_status_block_is_generated": true,
+    "rule": "Engineering CI evidence never authorizes strategy promotion, Demo, external routing, mainnet or live trading. Those require separate explicit promotion evidence."
   },
-  "canonical_main": {
-    "branch": "main",
-    "last_qualified_sha": "043fc3003b055dc1e953854798627048d3f26960",
-    "qualification_subject": "C2A4 strategy-free v119 active-excursion CAS persistence merge SHA; infrastructure/persistence qualification only",
-    "engineering_baseline_status": "PASS",
-    "qualification": {
-      "post_merge_workflows_completed": 11,
-      "post_merge_workflows_success": 11,
-      "canonical_security_regression_run_id": 34039454929,
-      "release_provenance_run_id": 34039454985,
-      "external_roundtrip_run_id": 34039454993,
-      "focused_security_regression_result": "282 passed",
-      "full_regression_result": "1124 passed, 2 dedicated fleet-deployment skips",
-      "postgres_full_regression_enabled": true,
-      "postgres_version": "16.15",
-      "security_migration_lineage": ["v107", "v108", "v109", "v119", "v120/001", "v120/002"],
-      "postgres_operational_foundation": [
-        "v119 runtime lease",
-        "v119 least-privilege runtime role",
-        "v120 byte-preserved audit schema",
-        "v120 physical TRUNCATE hardening",
-        "v120 SELECT/INSERT-only audit-table runtime role",
-        "v120 strategy-free immutable typed persistence records and adapters",
-        "v119 strategy-free active-excursion checkpoint/CAS persistence"
-      ],
-      "release_attestation": "SLSA_AND_SBOM_SIGNED_PASS"
-    },
-    "note": "This proves the covered deterministic engineering, PostgreSQL schema/security, strategy-free v119/v120 persistence and release baseline on the C2A4 merge SHA. It does not prove broker connectivity, Demo execution, strategy profitability, soak or live readiness."
+  "repository": {
+    "observed_checkout_sha": "<runtime:git-rev-parse-head>",
+    "observed_checkout_sha_source": "GITHUB_SHA or git rev-parse HEAD",
+    "latest_engineering_qualification_manifest": "qualification/engineering/e27825c32261ce073dd074d975ef4ef27bc0a1a7.json",
+    "latest_engineering_qualified_main_sha": "e27825c32261ce073dd074d975ef4ef27bc0a1a7",
+    "engineering_qualification_scope": "ENGINEERING_CI_ONLY",
+    "checkout_relation": "<runtime:computed>"
   },
-  "canonical_operational_foundation": {
-    "id": "C2A0",
-    "component": "BYBIT_DEMO_RUNTIME_LEASE_V119",
-    "status": "EXTRACTED_AND_QUALIFIED",
-    "source_preservation_pr": 110,
-    "replacement_pr": 113,
-    "merge_sha": "e110a4c02f5bf9b9937ff3fbf7e942859be9050d",
-    "frozen_migration_sha256": "c37a2f54cb3dd42d6732b3354988d7f73cc1d240916ccbcdcec3874933f9d52e",
-    "research_ancestry_inherited": false,
-    "strategy_dependency": false,
-    "broker_network_capability": false,
-    "order_write_capability": false,
-    "demo_broker_proven": false,
-    "production_or_live_promotion_allowed": false
+  "engineering_qualification": {
+    "subject": "P0 F22D post-merge main qualification",
+    "qualified_at": "2026-09-16T12:04:20Z",
+    "source_pull_request": 172,
+    "workflow_run_count": 11,
+    "check_run_count": 12,
+    "all_workflows_success": true,
+    "all_check_runs_success": true,
+    "workflow_names": [
+      "canonical-security-regression",
+      "ci-action-supply-chain-policy",
+      "postgres-oms-e2e",
+      "product-composition",
+      "release-governance",
+      "release-provenance",
+      "risk-marketdata",
+      "schema99-external-paper-roundtrip",
+      "stable-core-quality",
+      "stable-runtime-import-boundary",
+      "strategy-qualification"
+    ],
+    "qualified_capabilities": [
+      "F01_EXCLUSIVE_SUBMIT_CLAIM",
+      "F02_EXCLUSIVE_CANCEL_REPLACE_CLAIMS",
+      "F03_PENDING_BUY_RISK_RESERVATIONS",
+      "F04_F14_F16_OPERATIONAL_MARKETDATA_GATE",
+      "F05_DURABLE_ARM_HALT_FINAL_DISPATCH_GUARD",
+      "F06_EXACT_INTENT_RISK_FINGERPRINT",
+      "F07_REPLACE_REQUIRES_FRESH_RISK_ADMISSION",
+      "F08_FULL_PORTFOLIO_MARK_SNAPSHOT",
+      "F10_EXECUTION_FACTS_BEFORE_ACCOUNTING_PROJECTION",
+      "F12_VALIDATED_STREAM_PROVENANCE",
+      "F13_COMPLETE_OPERATIONAL_RISK_OBSERVATIONS",
+      "F21A_BROKER_PORTFOLIO_RECONCILIATION_GATE",
+      "F21B_DURABLE_BROKER_FINANCIAL_ACTIVITIES",
+      "F21C_FINANCIAL_ACTIVITY_TRUTH_GATE",
+      "F22A_DURABLE_FINALIZED_OPERATIONAL_MARKETDATA",
+      "F22B_BYBIT_PUBLIC_LINEAR_KLINE_WEBSOCKET",
+      "F22C_DURABLE_CONTINUITY_RECONNECT_REPAIR",
+      "F22D_FENCED_OPERATIONAL_DECISION_WORKERS"
+    ],
+    "next_vertical_gate": {
+      "issue": 138,
+      "name": "RESIDUAL_EXECUTION_OMS_INTEGRITY",
+      "required_families": [
+        "F17",
+        "F18",
+        "F19",
+        "F20"
+      ]
+    }
   },
-  "canonical_database_security": {
-    "id": "C2A1",
-    "component": "BYBIT_DEMO_POSTGRES_RUNTIME_ROLE_V119",
-    "status": "EXTRACTED_AND_QUALIFIED",
-    "pull_request": 116,
-    "merge_sha": "fd04ad3403b7b840100006dbf1829273d9e5e4bb",
-    "runtime_role_separate_from_bootstrap": true,
-    "runtime_role_must_be_non_owner": true,
-    "runtime_database_create_allowed": false,
-    "runtime_public_schema_create_allowed": false,
-    "runtime_role_membership_allowed": false,
-    "lease_effective_privileges": ["DELETE", "INSERT", "SELECT"],
-    "excursion_effective_privileges": ["DELETE", "INSERT", "SELECT", "UPDATE"],
-    "truncate_or_ddl_authority_allowed": false,
-    "postgresql_16_proven": true,
-    "canonical_security_run_id": 33733873613,
-    "strategy_dependency": false,
-    "broker_network_capability": false,
-    "order_write_capability": false,
-    "demo_broker_proven": false,
-    "production_or_live_promotion_allowed": false
-  },
-  "canonical_append_only_audit": {
-    "id": "C2A2",
-    "component": "BYBIT_DEMO_APPEND_ONLY_AUDIT_V120",
-    "status": "EXTRACTED_AND_QUALIFIED",
-    "tracking_issue": 117,
-    "pull_request": 118,
-    "pre_merge_head_sha": "8a7b71e0f286e17d9a79307fc643ed805bb1f5ae",
-    "merge_sha": "319fb407f1b99ad76a25a04adb96b84c171b6275",
-    "frozen_v120_001_git_blob": "b337ef19dc7da4a3fcbc0a11a8d6d7d85dff3b00",
-    "frozen_v120_001_sha256": "613a21fba9142f34141cb7d6c81938b175250fb4dbda9bd37726e5627df094cf",
-    "historical_v120_001_modified": false,
-    "forward_truncate_hardening": true,
-    "owner_update_delete_truncate_rejected": true,
-    "runtime_table_privileges": ["INSERT", "SELECT"],
-    "runtime_update_delete_truncate_ddl_allowed": false,
-    "postgresql_16_proven": true,
-    "strategy_dependency": false,
-    "broker_network_capability": false,
-    "order_write_capability": false,
-    "demo_broker_proven": false,
-    "production_or_live_promotion_allowed": false
-  },
-  "canonical_v120_persistence": {
-    "id": "C2A3",
-    "component": "STRATEGY_FREE_V120_PERSISTENCE_RECORD_CONTRACTS",
-    "status": "EXTRACTED_AND_QUALIFIED",
-    "tracking_issue": 119,
-    "source_pull_request": 77,
-    "source_sha": "6d557dd4bdb555b68789db247b9a112b962e2481",
-    "replacement_pull_request": 121,
-    "pre_merge_head_sha": "f623bea57f0d9e27136658262d85c0579db270d3",
-    "merge_sha": "090f34b11a877ce24f8a15a74b296e287aae3918",
-    "typed_v120_persistence_promoted": true,
-    "immutable_record_contracts": true,
-    "postgres_runtime_role_reused": true,
-    "runtime_table_privileges": ["INSERT", "SELECT"],
-    "runtime_migration_authority_allowed": false,
-    "postgresql_16_proven": true,
-    "pre_merge_exact_head_workflows_success": 10,
-    "post_merge_workflows_success": 11,
-    "post_merge_canonical_security_run_id": 33988217105,
-    "post_merge_release_provenance_run_id": 33988217099,
-    "strategy_dependency": false,
-    "broker_network_capability": false,
-    "market_data_dependency": false,
-    "order_write_capability": false,
-    "arm_halt_capability": false,
-    "demo_broker_proven": false,
-    "production_or_live_promotion_allowed": false
-  },
-  "canonical_v119_excursion_persistence": {
-    "id": "C2A4",
-    "component": "STRATEGY_FREE_V119_ACTIVE_EXCURSION_CAS_PERSISTENCE",
-    "status": "EXTRACTED_AND_QUALIFIED",
-    "tracking_issue": 122,
-    "source_pull_request": 76,
-    "source_sha": "84b9965e5128562c49620c6164afe5f43ca343f2",
-    "replacement_pull_request": 124,
-    "pre_merge_head_sha": "00a0deffa954c70e44fb70483556746363228535",
-    "merge_sha": "043fc3003b055dc1e953854798627048d3f26960",
-    "historical_revision_semantics_preserved": true,
-    "known_revision_fixture": "80334539a80928e41f63eb771c3cb9d4a2c87331264419fd80df8821038b97a6",
-    "canonical_security_workflow_sha256": "8ff9793125804197a828fbec6f56d574882147a62fb73c6201a5cdf6b56823dc",
-    "postgres_runtime_role_reused": true,
-    "runtime_table_privileges": ["DELETE", "INSERT", "SELECT", "UPDATE"],
-    "runtime_migration_authority_allowed": false,
-    "runtime_truncate_or_ddl_allowed": false,
-    "postgresql_version_proven": "16.15",
-    "pre_merge_exact_head_workflows_success": 10,
-    "post_merge_workflows_success": 11,
-    "post_merge_canonical_security_run_id": 34039454929,
-    "post_merge_release_provenance_run_id": 34039454985,
-    "strategy_dependency": false,
-    "broker_network_capability": false,
-    "market_data_dependency": false,
-    "order_write_capability": false,
-    "arm_halt_capability": false,
-    "demo_broker_proven": false,
-    "production_or_live_promotion_allowed": false,
-    "note": "C2A4 canonicalizes only neutral active-excursion records and v119 singleton initialize/load/CAS-save/CAS-clear persistence. Historical strategy, broker, market-data and tracker builders remain excluded."
-  },
-  "next_gate_candidate": {
-    "id": "C2B0",
-    "component": "STRATEGY_FREE_V121_APPEND_ONLY_CONTROL_JOURNAL_PERSISTENCE",
-    "status": "IN_PROGRESS",
-    "tracking_issue": 125,
-    "source_pull_request": 80,
-    "source_sha": "f40d9dee0baadd254a6fe7425b117be709088f9d",
-    "purpose": "Extract neutral v121 ARM/HALT journal persistence and least-privilege read/append roles without connected preflight, order guarding, strategy or broker capability.",
-    "strategy_dependency_allowed": false,
-    "broker_network_capability_allowed": false,
-    "order_write_capability_allowed": false,
-    "connected_preflight_dependency_allowed": false,
-    "runtime_migration_authority_allowed": false,
-    "demo_broker_proven": false,
-    "production_or_live_promotion_allowed": false
-  },
-  "operational_source_boundary": {
-    "pull_request": 93,
-    "sha": "c2e6b11b8dc4abc37ed6b2c180f11c73a000ca5b",
-    "status": "HISTORICAL_DECOMPOSITION_SOURCE_DEMO_UNPROVEN",
-    "wholesale_merge_allowed": false,
-    "real_protected_demo_entry_proven": false,
-    "complete_real_broker_evidence_chain_proven": false
-  },
-  "research_head": {
-    "pull_request": 100,
-    "sha": "918dbc57c0633c6dc549f1f036d2ae659b289b46",
-    "status": "RESEARCH_ONLY",
-    "derivatives_context_evidence": "INCOMPLETE",
-    "strategy_promotion_allowed": false
-  },
-  "consolidation": {
-    "status": "IN_PROGRESS_FAIL_CLOSED",
-    "tracking_issue": 104,
-    "machine_inventory": "STACKED_PR_CONSOLIDATION_STATUS.json",
-    "human_plan": "docs/STACKED_PR_CONSOLIDATION_MAP.md",
-    "blind_merge_allowed": false,
-    "blind_close_allowed": false,
-    "branch_deletion_allowed": false,
-    "completed_gate": "C2A4_STRATEGY_FREE_V119_ACTIVE_EXCURSION_CAS_PERSISTENCE",
-    "next_gate": "C2B0_STRATEGY_FREE_V121_APPEND_ONLY_CONTROL_JOURNAL_PERSISTENCE",
-    "next_gate_issue": 125,
-    "completed_database_security_issue": 107
+  "release": {
+    "latest_immutable_release_identity": "RELEASE_IDENTITY_V109.json",
+    "schema": 109,
+    "version": "7.39.0",
+    "live_execution_status_source": "LIVE_EXECUTION_STATUS_V109.json",
+    "status": "SOURCE_AND_CI_QUALIFICATION_ONLY"
   },
   "strategy": {
+    "evidence_source": "qualification/strategy/bybit_price_only_frozen_negative.json",
     "status": "PROFITABILITY_NOT_PROVEN",
     "promotion_allowed": false,
     "latest_frozen_bybit_price_only_replay": {
       "reference_equity_usdt": "1000",
-      "trades": 102,
+      "eligible_signals": 2394,
+      "plan_eligible_signals": 792,
+      "independent_target_stop_episodes": 617,
+      "target_first": 137,
+      "stop_first": 471,
+      "neither": 9,
+      "portfolio_trades": 102,
       "wins": 36,
       "breakeven": 11,
       "losses": 55,
       "net_pnl_usdt": "-176.67",
       "net_return_fraction_approx": "-0.1767"
-    },
-    "interpretation": "The latest frozen price-only evidence is negative. Incomplete derivatives-context research cannot supersede it without a new frozen point-in-time qualification."
+    }
   },
-  "governance": {
-    "main_branch_protection": "VERIFIED_DISABLED",
-    "main_protected": false,
-    "required_status_checks_enforcement": "off",
-    "independent_live_approver_assigned": false,
-    "tracking_issue": 103
-  },
-  "live": {
-    "status": "FAIL_CLOSED",
+  "trading_authority": {
     "external_order_routing_allowed": false,
+    "demo_trading_allowed": false,
     "live_trading_allowed": false,
     "mainnet_entry_allowed": false,
-    "production_release_allowed": false
-  },
-  "current_blockers": [
-    {
-      "id": "P0-GOVERNANCE",
-      "severity": "P0",
-      "status": "BLOCKED",
-      "reason": "Server-side main branch protection and required review/status-check enforcement are verified disabled.",
-      "tracking_issue": 103
-    },
-    {
-      "id": "P1-CONSOLIDATION",
-      "severity": "P1",
-      "status": "IN_PROGRESS",
-      "reason": "C2A0 through C2A4 are canonical; later control/session/supervisor layers still require bounded ancestry-free extraction.",
-      "tracking_issue": 104,
-      "next_gate_issue": 125
-    },
-    {
-      "id": "P1-C2B0-V121-CONTROL-JOURNAL-ISOLATION",
-      "severity": "P1",
-      "status": "IN_PROGRESS",
-      "reason": "Historical v121 control-plane code mixes append-only journal persistence with connected-preflight types and an order-client guard; only the neutral journal boundary may be extracted in C2B0.",
-      "tracking_issue": 125
-    },
-    {
-      "id": "P1-V107-V109-APPEND-ONLY-TRUNCATE-HARDENING",
-      "severity": "P1",
-      "status": "IN_PROGRESS",
-      "reason": "C2A2 closes the v120 TRUNCATE gap. Canonical v107-v109 event-table physical TRUNCATE hardening remains tracked separately.",
-      "tracking_issue": 109
-    },
-    {
-      "id": "STRATEGY-EDGE",
-      "severity": "P0",
-      "status": "FAIL",
-      "reason": "Positive cost-adjusted frozen OOS trading edge is not proven; current frozen Bybit price-only replay is negative."
-    },
-    {
-      "id": "DERIVATIVES-PIT-EVIDENCE",
-      "severity": "P1",
-      "status": "BLOCKED",
-      "reason": "Authoritative point-in-time derivatives-context acquisition/qualification is incomplete."
-    },
-    {
-      "id": "BYBIT-DEMO-ENTRY",
-      "severity": "P0",
-      "status": "NOT_STARTED",
-      "reason": "No real protected one-shot Bybit Demo ENTRY through a canonical operational path has been proven."
-    },
-    {
-      "id": "EXACT-HEAD-OPERATIONAL-EVIDENCE",
-      "severity": "P0",
-      "status": "NOT_STARTED",
-      "reason": "A complete real-broker INFRA->SESSION->SUPERVISOR->ARM->ENTRY->HALT->RECOVERY chain on one exact canonical head is not proven."
-    },
-    {
-      "id": "CONNECTED-SOAK",
-      "severity": "P1",
-      "status": "NOT_STARTED",
-      "reason": "A multi-week connected Demo soak covering meaningful operational cycles and failure recovery is not proven."
-    },
-    {
-      "id": "PRODUCTION-EXTERNAL-EVIDENCE",
-      "severity": "P1",
-      "status": "BLOCKED",
-      "reason": "Production KMS/HSM, workload identity, PostgreSQL backup/restore, external audit and related production infrastructure evidence remain incomplete."
-    },
-    {
-      "id": "LIVE-PILOT-APPROVAL",
-      "severity": "P0",
-      "status": "BLOCKED",
-      "reason": "Independent live approver and controlled tiny-capital live pilot evidence are absent."
-    }
-  ]
+    "production_release_allowed": false,
+    "reason": "No separate explicit trading-promotion manifest is present."
+  }
 }
