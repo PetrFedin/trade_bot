@@ -330,6 +330,7 @@ class PaperOrderMutationExecutor:
                 and broker_order.status
                 in {
                     BrokerOrderStatus.ACKNOWLEDGED,
+                    BrokerOrderStatus.REPLACED,
                     BrokerOrderStatus.PARTIALLY_FILLED,
                     BrokerOrderStatus.FILLED,
                 }
