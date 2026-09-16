@@ -81,6 +81,7 @@ class DecisionSafetyEvidence:
     checkpoint_id: str | None
     first_bar_id: str | None
     last_bar_id: str | None
+    bar_ids: tuple[str, ...]
     continuity_reasons: tuple[str, ...]
     readiness_reasons: tuple[str, ...]
     control_mode: str
@@ -100,6 +101,15 @@ class DecisionSafetyEvidence:
             raise ValueError("fencing_token must be positive")
         if (self.first_bar_id is None) != (self.last_bar_id is None):
             raise ValueError("decision safety bar window must be complete or absent")
+        if any(not bar_id.strip() for bar_id in self.bar_ids):
+            raise ValueError("decision safety bar_ids cannot contain blanks")
+        if len(self.bar_ids) != len(set(self.bar_ids)):
+            raise ValueError("decision safety bar_ids must be unique")
+        if self.bar_ids:
+            if self.first_bar_id != self.bar_ids[0] or self.last_bar_id != self.bar_ids[-1]:
+                raise ValueError("decision safety endpoints disagree with ordered bar_ids")
+        elif self.first_bar_id is not None or self.last_bar_id is not None:
+            raise ValueError("decision safety endpoints require ordered bar_ids")
         if self.checkpoint_id is not None and not self.checkpoint_id.strip():
             raise ValueError("checkpoint_id cannot be blank")
         for reasons in (self.continuity_reasons, self.readiness_reasons):
@@ -107,11 +117,7 @@ class DecisionSafetyEvidence:
                 raise ValueError("decision safety reasons must be sorted and unique")
             if any(not reason.strip() for reason in reasons):
                 raise ValueError("decision safety reasons cannot be blank")
-        if self.ready_for_evaluation and (
-            self.checkpoint_id is None
-            or self.first_bar_id is None
-            or self.last_bar_id is None
-        ):
+        if self.ready_for_evaluation and (self.checkpoint_id is None or not self.bar_ids):
             raise ValueError("ready decision safety evidence requires checkpoint and bar window")
         if self.control_mode not in {"HALTED", "ARMED"}:
             raise ValueError("control_mode must be HALTED or ARMED")
@@ -126,6 +132,7 @@ class DecisionSafetyEvidence:
             checkpoint_id=self.checkpoint_id,
             first_bar_id=self.first_bar_id,
             last_bar_id=self.last_bar_id,
+            bar_ids=self.bar_ids,
             continuity_reasons=self.continuity_reasons,
             readiness_reasons=self.readiness_reasons,
             control_mode=self.control_mode,
@@ -145,6 +152,7 @@ def decision_safety_evidence_id(
     checkpoint_id: str | None,
     first_bar_id: str | None,
     last_bar_id: str | None,
+    bar_ids: tuple[str, ...],
     continuity_reasons: tuple[str, ...],
     readiness_reasons: tuple[str, ...],
     control_mode: str,
@@ -164,6 +172,7 @@ def decision_safety_evidence_id(
             "checkpoint_id": checkpoint_id,
             "first_bar_id": first_bar_id,
             "last_bar_id": last_bar_id,
+            "bar_ids": list(bar_ids),
             "continuity_reasons": list(continuity_reasons),
             "readiness_reasons": list(readiness_reasons),
             "control_mode": control_mode,
@@ -272,6 +281,7 @@ class SQLiteDecisionLeaseStore:
                         REFERENCES operational_market_bars(bar_id),
                     last_bar_id TEXT
                         REFERENCES operational_market_bars(bar_id),
+                    bar_ids TEXT NOT NULL,
                     continuity_reasons TEXT NOT NULL,
                     readiness_reasons TEXT NOT NULL,
                     control_mode TEXT NOT NULL CHECK (control_mode IN ('HALTED', 'ARMED')),
@@ -474,16 +484,24 @@ class SQLiteDecisionLeaseStore:
             cursor = connection.execute(
                 """INSERT OR IGNORE INTO operational_decision_safety_evidence(
                     evidence_id, ticket_id, owner_id, release_identity, fencing_token,
-                    checkpoint_id, first_bar_id, last_bar_id, continuity_reasons,
+                    checkpoint_id, first_bar_id, last_bar_id, bar_ids, continuity_reasons,
                     readiness_reasons, control_mode, control_version, observed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    evidence.evidence_id, evidence.ticket_id, evidence.owner_id,
-                    evidence.release_identity, evidence.fencing_token, evidence.checkpoint_id,
-                    evidence.first_bar_id, evidence.last_bar_id,
+                    evidence.evidence_id,
+                    evidence.ticket_id,
+                    evidence.owner_id,
+                    evidence.release_identity,
+                    evidence.fencing_token,
+                    evidence.checkpoint_id,
+                    evidence.first_bar_id,
+                    evidence.last_bar_id,
+                    json.dumps(list(evidence.bar_ids)),
                     json.dumps(list(evidence.continuity_reasons)),
-                    json.dumps(list(evidence.readiness_reasons)), evidence.control_mode,
-                    evidence.control_version, moment.isoformat(),
+                    json.dumps(list(evidence.readiness_reasons)),
+                    evidence.control_mode,
+                    evidence.control_version,
+                    moment.isoformat(),
                 ),
             )
             connection.execute("COMMIT")
@@ -514,14 +532,6 @@ class SQLiteDecisionLeaseStore:
                 connection.execute("COMMIT")
                 return False
             self._assert_current(connection, receipt, moment=moment, require_unexpired=True)
-            conflict = connection.execute(
-                """SELECT 1 FROM operational_market_bar_conflicts x
-                JOIN operational_decision_tickets t ON t.bar_id=x.bar_id
-                WHERE t.ticket_id=? LIMIT 1""",
-                (receipt.ticket.ticket_id,),
-            ).fetchone()
-            if conflict is not None:
-                raise ValueError("OPERATIONAL_DECISION_BAR_CONFLICTED")
             self._require_ready_safety(connection, receipt=receipt, completed_at=moment)
             cursor = connection.execute(
                 """INSERT OR IGNORE INTO operational_decision_completions(
@@ -573,14 +583,16 @@ class SQLiteDecisionLeaseStore:
         completed_at: datetime,
     ) -> None:
         row = connection.execute(
-            """SELECT checkpoint_id, first_bar_id, last_bar_id,
+            """SELECT checkpoint_id, first_bar_id, last_bar_id, bar_ids,
                       continuity_reasons, readiness_reasons, observed_at
             FROM operational_decision_safety_evidence
             WHERE ticket_id=? AND owner_id=? AND release_identity=? AND fencing_token=?
             ORDER BY observed_at DESC, evidence_id DESC LIMIT 1""",
             (
-                receipt.ticket.ticket_id, receipt.owner_id,
-                receipt.release_identity, receipt.fencing_token,
+                receipt.ticket.ticket_id,
+                receipt.owner_id,
+                receipt.release_identity,
+                receipt.fencing_token,
             ),
         ).fetchone()
         if row is None:
@@ -592,13 +604,75 @@ class SQLiteDecisionLeaseStore:
             json.loads(str(row["readiness_reasons"]))
         ):
             raise ValueError("DECISION_READY_SAFETY_EVIDENCE_REQUIRED")
+        bar_ids = _json_string_tuple(row["bar_ids"], "bar_ids")
         if (
             row["checkpoint_id"] is None
-            or row["first_bar_id"] is None
-            or row["last_bar_id"] is None
-            or str(row["last_bar_id"]) != receipt.ticket.bar_id
+            or not bar_ids
+            or str(row["first_bar_id"]) != bar_ids[0]
+            or str(row["last_bar_id"]) != bar_ids[-1]
+            or bar_ids[-1] != receipt.ticket.bar_id
         ):
             raise ValueError("DECISION_READY_SAFETY_EVIDENCE_REQUIRED")
+
+        placeholders = ",".join("?" for _ in bar_ids)
+        bars = connection.execute(
+            f"""SELECT b.bar_id, b.provider, b.venue, b.symbol, b.interval_seconds,
+                       b.open_time, b.close_time,
+                       EXISTS(
+                           SELECT 1 FROM operational_market_bar_conflicts x
+                           WHERE x.bar_id=b.bar_id
+                       ) AS conflicted
+                FROM operational_market_bars b
+                WHERE b.bar_id IN ({placeholders})
+                ORDER BY b.close_time, b.bar_id""",
+            bar_ids,
+        ).fetchall()
+        if tuple(str(value["bar_id"]) for value in bars) != bar_ids:
+            raise ValueError("DECISION_SAFETY_EVIDENCE_INVALIDATED")
+        previous_close: datetime | None = None
+        for value in bars:
+            if (
+                str(value["provider"]) != receipt.provider
+                or str(value["venue"]) != receipt.venue
+                or str(value["symbol"]) != receipt.symbol
+                or int(value["interval_seconds"]) != receipt.interval_seconds
+                or bool(value["conflicted"])
+            ):
+                raise ValueError("DECISION_SAFETY_EVIDENCE_INVALIDATED")
+            open_time = _parse_moment(value["open_time"], "open_time")
+            close_time = _parse_moment(value["close_time"], "close_time")
+            if previous_close is not None and previous_close != open_time:
+                raise ValueError("DECISION_SAFETY_EVIDENCE_INVALIDATED")
+            previous_close = close_time
+        if previous_close != _aware(receipt.bar_close_time, "bar_close_time"):
+            raise ValueError("DECISION_SAFETY_EVIDENCE_INVALIDATED")
+
+        checkpoint = connection.execute(
+            """SELECT c.provider, c.venue, c.symbol, c.interval_seconds,
+                      c.through_bar_id, c.through_close_time, b.close_time AS durable_close_time,
+                      EXISTS(
+                          SELECT 1 FROM operational_market_bar_conflicts x
+                          WHERE x.bar_id=c.through_bar_id
+                      ) AS conflicted
+            FROM operational_market_continuity c
+            JOIN operational_market_bars b ON b.bar_id=c.through_bar_id
+            WHERE c.checkpoint_id=?""",
+            (str(row["checkpoint_id"]),),
+        ).fetchone()
+        if checkpoint is None:
+            raise ValueError("DECISION_SAFETY_EVIDENCE_INVALIDATED")
+        through_close = _parse_moment(checkpoint["through_close_time"], "through_close_time")
+        durable_close = _parse_moment(checkpoint["durable_close_time"], "durable_close_time")
+        if (
+            str(checkpoint["provider"]) != receipt.provider
+            or str(checkpoint["venue"]) != receipt.venue
+            or str(checkpoint["symbol"]) != receipt.symbol
+            or int(checkpoint["interval_seconds"]) != receipt.interval_seconds
+            or through_close != durable_close
+            or through_close < _aware(receipt.bar_close_time, "bar_close_time")
+            or bool(checkpoint["conflicted"])
+        ):
+            raise ValueError("DECISION_SAFETY_EVIDENCE_INVALIDATED")
 
     def _receipt_for_evidence(
         self,
@@ -660,7 +734,8 @@ class SQLiteDecisionLeaseStore:
     @staticmethod
     def _ticket(row: sqlite3.Row) -> OperationalDecisionTicket:
         ticket = OperationalDecisionTicket(
-            ticket_id=str(row["ticket_id"]), strategy_id=str(row["strategy_id"]),
+            ticket_id=str(row["ticket_id"]),
+            strategy_id=str(row["strategy_id"]),
             bar_id=str(row["bar_id"]),
             created_at=_parse_moment(row["created_at"], "created_at"),
         )
@@ -679,11 +754,17 @@ class SQLiteDecisionLeaseStore:
         expires_at: datetime,
     ) -> DecisionLeaseReceipt:
         receipt = DecisionLeaseReceipt(
-            ticket=cls._ticket(row), provider=str(row["provider"]), venue=str(row["venue"]),
-            symbol=str(row["symbol"]), interval_seconds=int(row["interval_seconds"]),
+            ticket=cls._ticket(row),
+            provider=str(row["provider"]),
+            venue=str(row["venue"]),
+            symbol=str(row["symbol"]),
+            interval_seconds=int(row["interval_seconds"]),
             bar_close_time=_parse_moment(row["close_time"], "close_time"),
-            owner_id=owner_id, release_identity=release_identity, fencing_token=fencing_token,
-            acquired_at=acquired_at, expires_at=expires_at,
+            owner_id=owner_id,
+            release_identity=release_identity,
+            fencing_token=fencing_token,
+            acquired_at=acquired_at,
+            expires_at=expires_at,
         )
         receipt.validate()
         return receipt
@@ -692,7 +773,8 @@ class SQLiteDecisionLeaseStore:
     def _receipt(cls, row: sqlite3.Row) -> DecisionLeaseReceipt:
         return cls._receipt_from_claim(
             row,
-            owner_id=str(row["owner_id"]), release_identity=str(row["release_identity"]),
+            owner_id=str(row["owner_id"]),
+            release_identity=str(row["release_identity"]),
             fencing_token=int(row["fencing_token"]),
             acquired_at=_parse_moment(row["acquired_at"], "acquired_at"),
             expires_at=_parse_moment(row["lease_expires_at"], "lease_expires_at"),
@@ -709,8 +791,11 @@ class SQLiteDecisionLeaseStore:
         outcome_id: str | None,
     ) -> None:
         event_id = _event_id(
-            receipt=receipt, kind=kind, occurred_at=occurred_at,
-            lease_expires_at=lease_expires_at, outcome_id=outcome_id,
+            receipt=receipt,
+            kind=kind,
+            occurred_at=occurred_at,
+            lease_expires_at=lease_expires_at,
+            outcome_id=outcome_id,
         )
         connection.execute(
             """INSERT OR IGNORE INTO operational_decision_lease_events(
@@ -718,12 +803,17 @@ class SQLiteDecisionLeaseStore:
                 fencing_token, lease_expires_at, outcome_id, occurred_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                event_id, receipt.ticket.ticket_id, kind.value, receipt.owner_id,
-                receipt.release_identity, receipt.fencing_token,
-                None if lease_expires_at is None else _aware(
-                    lease_expires_at, "lease_expires_at"
-                ).isoformat(),
-                outcome_id, _aware(occurred_at, "occurred_at").isoformat(),
+                event_id,
+                receipt.ticket.ticket_id,
+                kind.value,
+                receipt.owner_id,
+                receipt.release_identity,
+                receipt.fencing_token,
+                None
+                if lease_expires_at is None
+                else _aware(lease_expires_at, "lease_expires_at").isoformat(),
+                outcome_id,
+                _aware(occurred_at, "occurred_at").isoformat(),
             ),
         )
 
@@ -743,9 +833,9 @@ def _event_id(
             "owner_id": receipt.owner_id,
             "release_identity": receipt.release_identity,
             "fencing_token": receipt.fencing_token,
-            "lease_expires_at": None if lease_expires_at is None else _aware(
-                lease_expires_at, "lease_expires_at"
-            ).isoformat(),
+            "lease_expires_at": None
+            if lease_expires_at is None
+            else _aware(lease_expires_at, "lease_expires_at").isoformat(),
             "outcome_id": outcome_id,
             "occurred_at": _aware(occurred_at, "occurred_at").isoformat(),
         },
@@ -753,6 +843,16 @@ def _event_id(
         separators=(",", ":"),
     )
     return hashlib.sha256(material.encode()).hexdigest()
+
+
+def _json_string_tuple(value: object, name: str) -> tuple[str, ...]:
+    decoded = json.loads(str(value))
+    if not isinstance(decoded, list) or any(not isinstance(item, str) for item in decoded):
+        raise ValueError(f"{name} must be a JSON string array")
+    result = tuple(decoded)
+    if any(not item.strip() for item in result) or len(result) != len(set(result)):
+        raise ValueError(f"{name} must contain unique non-empty strings")
+    return result
 
 
 def _required(value: str, name: str) -> str:
