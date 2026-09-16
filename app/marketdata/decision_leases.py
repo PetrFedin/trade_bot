@@ -614,19 +614,22 @@ class SQLiteDecisionLeaseStore:
         ):
             raise ValueError("DECISION_READY_SAFETY_EVIDENCE_REQUIRED")
 
-        placeholders = ",".join("?" for _ in bar_ids)
-        bars = connection.execute(
-            f"""SELECT b.bar_id, b.provider, b.venue, b.symbol, b.interval_seconds,
-                       b.open_time, b.close_time,
-                       EXISTS(
-                           SELECT 1 FROM operational_market_bar_conflicts x
-                           WHERE x.bar_id=b.bar_id
-                       ) AS conflicted
+        bars: list[sqlite3.Row] = []
+        for bar_id in bar_ids:
+            value = connection.execute(
+                """SELECT b.bar_id, b.provider, b.venue, b.symbol, b.interval_seconds,
+                          b.open_time, b.close_time,
+                          EXISTS(
+                              SELECT 1 FROM operational_market_bar_conflicts x
+                              WHERE x.bar_id=b.bar_id
+                          ) AS conflicted
                 FROM operational_market_bars b
-                WHERE b.bar_id IN ({placeholders})
-                ORDER BY b.close_time, b.bar_id""",
-            bar_ids,
-        ).fetchall()
+                WHERE b.bar_id=?""",
+                (bar_id,),
+            ).fetchone()
+            if value is None:
+                raise ValueError("DECISION_SAFETY_EVIDENCE_INVALIDATED")
+            bars.append(value)
         if tuple(str(value["bar_id"]) for value in bars) != bar_ids:
             raise ValueError("DECISION_SAFETY_EVIDENCE_INVALIDATED")
         previous_close: datetime | None = None
