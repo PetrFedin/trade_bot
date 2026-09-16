@@ -83,6 +83,19 @@ def test_identical_intent_replay_is_idempotent(tmp_path) -> None:
     assert len(store.pending_outbox()) == 1
 
 
+def test_different_intent_cannot_alias_existing_client_order_id(tmp_path) -> None:
+    store = DurableOmsStore(tmp_path / "oms.sqlite")
+    original = intent()
+    store.create(original, client_order_id="shared-client", occurred_at=NOW)
+    alias = replace(original, intent_id="f20-other-intent")
+
+    with pytest.raises(ValueError, match="INTENT_ID_CONFLICT"):
+        store.create(alias, client_order_id="shared-client", occurred_at=NOW)
+
+    assert store.get(original.intent_id) is not None
+    assert store.get(alias.intent_id) is None
+
+
 def test_same_event_id_binds_target_payload_and_declared_broker_identity(tmp_path) -> None:
     store = DurableOmsStore(tmp_path / "oms.sqlite")
     lifecycle = PaperOrderLifecycle(store)
