@@ -1,0 +1,25 @@
+{
+  "schema_version": "strategy-evidence-pointer-v1",
+  "strategy_status": "PROFITABILITY_NOT_PROVEN",
+  "promotion_allowed": false,
+  "evidence_kind": "CARRIED_FORWARD_FROZEN_NEGATIVE_RESULT",
+  "source_repository_sha": "e27825c32261ce073dd074d975ef4ef27bc0a1a7",
+  "source_paths": [
+    "README.md",
+    "CURRENT_SYSTEM_STATUS.json"
+  ],
+  "reference_equity_usdt": "1000",
+  "eligible_signals": 2394,
+  "plan_eligible_signals": 792,
+  "independent_target_stop_episodes": 617,
+  "target_first": 137,
+  "stop_first": 471,
+  "neither": 9,
+  "portfolio_trades": 102,
+  "wins": 36,
+  "breakeven": 11,
+  "losses": 55,
+  "net_pnl_usdt": "-176.67",
+  "net_return_fraction_approx": "-0.1767",
+  "interpretation": "No positive cost-adjusted frozen OOS edge is established. This pointer preserves the latest already-recorded negative result; it is not a new strategy qualification and cannot grant promotion."
+}
