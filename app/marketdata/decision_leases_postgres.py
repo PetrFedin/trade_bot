@@ -366,17 +366,20 @@ class PostgresDecisionLeaseStore:
         ):
             raise ValueError("DECISION_READY_SAFETY_EVIDENCE_REQUIRED")
 
-        placeholders = ",".join("%s" for _ in bar_ids)
-        cursor.execute(
-            f"""SELECT bar_id, provider, venue, symbol, interval_seconds,
-                       open_time, close_time
+        bars: list[Mapping[str, object]] = []
+        for bar_id in bar_ids:
+            cursor.execute(
+                """SELECT bar_id, provider, venue, symbol, interval_seconds,
+                          open_time, close_time
                 FROM astra_operational_market_bars
-                WHERE bar_id IN ({placeholders})
-                ORDER BY close_time, bar_id
+                WHERE bar_id=%s
                 FOR UPDATE""",
-            bar_ids,
-        )
-        bars = cursor.fetchall()
+                (bar_id,),
+            )
+            value = cursor.fetchone()
+            if value is None:
+                raise ValueError("DECISION_SAFETY_EVIDENCE_INVALIDATED")
+            bars.append(value)
         if tuple(str(value["bar_id"]) for value in bars) != bar_ids:
             raise ValueError("DECISION_SAFETY_EVIDENCE_INVALIDATED")
 
@@ -397,15 +400,14 @@ class PostgresDecisionLeaseStore:
         if previous_close != _aware(receipt.bar_close_time, "bar_close_time"):
             raise ValueError("DECISION_SAFETY_EVIDENCE_INVALIDATED")
 
-        cursor.execute(
-            f"""SELECT 1
-                FROM astra_operational_market_bar_conflicts
-                WHERE bar_id IN ({placeholders})
-                LIMIT 1""",
-            bar_ids,
-        )
-        if cursor.fetchone() is not None:
-            raise ValueError("DECISION_SAFETY_EVIDENCE_INVALIDATED")
+        for bar_id in bar_ids:
+            cursor.execute(
+                """SELECT 1 FROM astra_operational_market_bar_conflicts
+                WHERE bar_id=%s LIMIT 1""",
+                (bar_id,),
+            )
+            if cursor.fetchone() is not None:
+                raise ValueError("DECISION_SAFETY_EVIDENCE_INVALIDATED")
 
         cursor.execute(
             """SELECT c.provider, c.venue, c.symbol, c.interval_seconds,
