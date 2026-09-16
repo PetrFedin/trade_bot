@@ -89,6 +89,7 @@ class EvidencePaperBroker:
 
 
 def prepared(tmp_path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     store = DurableOmsStore(tmp_path / "f17.sqlite")
     value = intent()
     PaperOrderLifecycle(store).prepare(value, approved(value), occurred_at=NOW)
