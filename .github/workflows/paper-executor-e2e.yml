@@ -8,6 +8,7 @@ on:
       - 'app/oms/**'
       - 'app/application/order_lifecycle.py'
       - 'tests/test_paper_executor_e2e.py'
+      - 'tests/test_f17_broker_submit_economics.py'
       - '.github/workflows/paper-executor-e2e.yml'
   pull_request:
     paths:
@@ -15,6 +16,7 @@ on:
       - 'app/oms/**'
       - 'app/application/order_lifecycle.py'
       - 'tests/test_paper_executor_e2e.py'
+      - 'tests/test_f17_broker_submit_economics.py'
       - '.github/workflows/paper-executor-e2e.yml'
 
 permissions:
@@ -35,8 +37,8 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: python -m pip install --disable-pip-version-check '.[test]'
-      - name: At-most-once paper executor E2E
-        run: pytest -q tests/test_paper_executor_e2e.py
+      - name: At-most-once paper executor and F17 broker-economics E2E
+        run: pytest -q tests/test_paper_executor_e2e.py tests/test_f17_broker_submit_economics.py
       - name: Durable OMS regression
         run: pytest -q tests/test_durable_oms_e2e.py
       - name: Full regression
