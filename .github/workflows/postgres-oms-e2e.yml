@@ -18,6 +18,7 @@ on:
       - 'tests/test_postgres_dispatch_control.py'
       - 'tests/test_pending_risk_reservations.py'
       - 'tests/test_final_dispatch_interlock.py'
+      - 'tests/test_f20_economic_identity.py'
       - 'pyproject.toml'
       - '.github/workflows/postgres-oms-e2e.yml'
   pull_request:
@@ -36,6 +37,7 @@ on:
       - 'tests/test_postgres_dispatch_control.py'
       - 'tests/test_pending_risk_reservations.py'
       - 'tests/test_final_dispatch_interlock.py'
+      - 'tests/test_f20_economic_identity.py'
       - 'pyproject.toml'
       - '.github/workflows/postgres-oms-e2e.yml'
 
@@ -76,7 +78,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check '.[test,postgresql]'
           python -m pip check
-      - name: PostgreSQL durable OMS E2E
+      - name: PostgreSQL durable OMS and F20 economic identity E2E
         run: pytest -q tests/test_postgres_oms_e2e.py
       - name: PostgreSQL execution facts E2E
         run: pytest -q tests/test_postgres_execution_facts.py
@@ -89,6 +91,6 @@ jobs:
       - name: SQLite reservation parity regression
         run: pytest -q tests/test_pending_risk_reservations.py
       - name: SQLite OMS parity regression
-        run: pytest -q tests/test_durable_oms_e2e.py
+        run: pytest -q tests/test_durable_oms_e2e.py tests/test_f20_economic_identity.py
       - name: Compile OMS, dispatch and execution boundaries
         run: python -m compileall -q app/oms app/application app/runtime/paper_dispatch_control.py app/runtime/paper_final_dispatch.py app/execution/execution_facts.py app/execution/paper_executor.py

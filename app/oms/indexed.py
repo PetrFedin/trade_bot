@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Protocol
 
@@ -27,6 +28,40 @@ _RISK_RESERVING_STATES = (
     OrderState.MANUAL,
 )
 _POSTGRES_RISK_RESERVATION_LOCK_KEY = 0x41535452
+
+
+def _reservation_request(
+    record: OrderRecord,
+    budget: RiskReservationBudget,
+) -> dict[str, object]:
+    return {
+        "intent_id": record.intent_id,
+        "symbol": record.symbol,
+        "side": record.side.value,
+        "quantity": str(record.quantity),
+        "limit_price": str(record.limit_price),
+        "available_cash": None if budget.available_cash is None else str(budget.available_cash),
+        "current_symbol_notional": str(budget.current_symbol_notional),
+        "current_gross_notional": str(budget.current_gross_notional),
+        "maximum_symbol_notional": str(budget.maximum_symbol_notional),
+        "maximum_gross_notional": str(budget.maximum_gross_notional),
+    }
+
+
+def _validate_reservation_replay(
+    *,
+    stored_intent_id: object,
+    stored_event_type: object,
+    stored_payload: dict[str, object],
+    intent_id: str,
+    request: dict[str, object],
+) -> None:
+    if (
+        str(stored_intent_id) != intent_id
+        or str(stored_event_type) != OrderState.RISK_APPROVED.value
+        or stored_payload.get("reservation_request") != request
+    ):
+        raise ValueError("OMS_EVENT_ID_CONFLICT")
 
 
 class IndexedOmsStore(OmsStore, Protocol):
@@ -92,9 +127,23 @@ class IndexedDurableOmsStore(DurableOmsStore):
         states = tuple(state.value for state in _RISK_RESERVING_STATES)
         with self._transaction() as connection:
             current = self._load_for_update(connection, intent_id)
-            if connection.execute(
-                "SELECT 1 FROM oms_events WHERE event_id=?", (event_id,)
-            ).fetchone():
+            request = _reservation_request(current, budget)
+            existing = connection.execute(
+                "SELECT intent_id, event_type, payload FROM oms_events WHERE event_id=?",
+                (event_id,),
+            ).fetchone()
+            if existing is not None:
+                try:
+                    stored_payload = dict(json.loads(str(existing["payload"])))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    raise ValueError("OMS_EVENT_ID_CONFLICT") from None
+                _validate_reservation_replay(
+                    stored_intent_id=existing["intent_id"],
+                    stored_event_type=existing["event_type"],
+                    stored_payload=stored_payload,
+                    intent_id=intent_id,
+                    request=request,
+                )
                 return current
             self._validate_transition(current.state, OrderState.RISK_APPROVED)
             if current.side is Side.BUY:
@@ -123,6 +172,7 @@ class IndexedDurableOmsStore(DurableOmsStore):
                 payload = evaluation.event_payload()
             else:
                 payload = {"reservation": {"approved": True, "kind": "SELL_NO_CAPACITY_CREDIT"}}
+            payload["reservation_request"] = request
             connection.execute(
                 """UPDATE oms_orders
                 SET state=?, version=version+1, updated_at=? WHERE intent_id=?""",
@@ -193,7 +243,21 @@ class IndexedPostgresOmsStore(PostgresOmsStore):
                         (_POSTGRES_RISK_RESERVATION_LOCK_KEY,),
                     )
                     current = self._load_for_update(cursor, intent_id)
-                    if self._event_exists(cursor, event_id):
+                    request = _reservation_request(current, budget)
+                    cursor.execute(
+                        """SELECT intent_id, event_type, payload
+                        FROM astra_oms_events WHERE event_id=%s""",
+                        (event_id,),
+                    )
+                    existing = cursor.fetchone()
+                    if existing is not None:
+                        _validate_reservation_replay(
+                            stored_intent_id=existing["intent_id"],
+                            stored_event_type=existing["event_type"],
+                            stored_payload=dict(existing["payload"]),
+                            intent_id=intent_id,
+                            request=request,
+                        )
                         return current
                     DurableOmsStore._validate_transition(
                         current.state, OrderState.RISK_APPROVED
@@ -230,6 +294,7 @@ class IndexedPostgresOmsStore(PostgresOmsStore):
                                 "kind": "SELL_NO_CAPACITY_CREDIT",
                             }
                         }
+                    payload["reservation_request"] = request
                     cursor.execute(
                         """UPDATE astra_oms_orders
                         SET state=%s, version=version+1, updated_at=%s
