@@ -46,17 +46,19 @@ class BrokerOrderTruth:
             raise ValueError("BROKER_ORDER_ECONOMICS_INCOMPLETE")
         if not self.has_complete_economics:
             return
-        assert self.symbol is not None
-        assert self.side is not None
-        assert self.quantity is not None
-        assert self.limit_price is not None
-        if not self.symbol or self.symbol != self.symbol.upper():
+        symbol = self.symbol
+        side = self.side
+        quantity = self.quantity
+        limit_price = self.limit_price
+        if symbol is None or side is None or quantity is None or limit_price is None:
+            raise ValueError("BROKER_ORDER_ECONOMICS_INCOMPLETE")
+        if not symbol or symbol != symbol.upper():
             raise ValueError("broker symbol must be non-empty uppercase")
-        if not isinstance(self.side, Side):
+        if not isinstance(side, Side):
             raise ValueError("broker side is invalid")
-        if not self.quantity.is_finite() or self.quantity <= 0:
+        if not quantity.is_finite() or quantity <= 0:
             raise ValueError("broker quantity must be positive and finite")
-        if not self.limit_price.is_finite() or self.limit_price <= 0:
+        if not limit_price.is_finite() or limit_price <= 0:
             raise ValueError("broker limit_price must be positive and finite")
 
 
@@ -213,18 +215,20 @@ class OmsReconciler:
     def _validate_f17_economics(local: OrderRecord, broker: BrokerOrderTruth) -> None:
         if not broker.has_complete_economics:
             raise ValueError("BROKER_ECONOMICS_REQUIRED_FOR_RECONCILIATION")
-        assert broker.symbol is not None
-        assert broker.side is not None
-        assert broker.quantity is not None
-        assert broker.limit_price is not None
+        symbol = broker.symbol
+        side = broker.side
+        quantity = broker.quantity
+        limit_price = broker.limit_price
+        if symbol is None or side is None or quantity is None or limit_price is None:
+            raise ValueError("BROKER_ECONOMICS_REQUIRED_FOR_RECONCILIATION")
         mismatches: list[str] = []
-        if broker.symbol != local.symbol:
+        if symbol != local.symbol:
             mismatches.append("symbol")
-        if broker.side is not local.side:
+        if side is not local.side:
             mismatches.append("side")
-        if broker.quantity != local.quantity:
+        if quantity != local.quantity:
             mismatches.append("quantity")
-        if broker.limit_price != local.limit_price:
+        if limit_price != local.limit_price:
             mismatches.append("limit_price")
         if mismatches:
             raise ValueError(f"BROKER_ECONOMICS_MISMATCH:{','.join(mismatches)}")
