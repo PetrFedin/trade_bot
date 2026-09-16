@@ -7,14 +7,6 @@ from decimal import Decimal
 
 import pytest
 
-psycopg = pytest.importorskip("psycopg")
-DSN = os.environ.get("ASTRA_TEST_POSTGRES_DSN")
-if not DSN:
-    pytest.skip(
-        "PostgreSQL F18 lineage tests require ASTRA_TEST_POSTGRES_DSN",
-        allow_module_level=True,
-    )
-
 from app.application.order_lifecycle import PaperOrderLifecycle
 from app.domain.trading import OrderIntent, Side
 from app.oms.indexed import IndexedPostgresOmsStore
@@ -26,6 +18,14 @@ from app.risk.pretrade import (
     RiskEvaluationMode,
     RiskLimits,
 )
+
+psycopg = pytest.importorskip("psycopg")
+DSN = os.environ.get("ASTRA_TEST_POSTGRES_DSN")
+if not DSN:
+    pytest.skip(
+        "PostgreSQL F18 lineage tests require ASTRA_TEST_POSTGRES_DSN",
+        allow_module_level=True,
+    )
 
 NOW = datetime(2026, 9, 16, 19, 0, tzinfo=UTC)
 
