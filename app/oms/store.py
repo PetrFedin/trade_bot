@@ -291,10 +291,17 @@ class DurableOmsStore:
         moment = self._now(occurred_at or intent.created_at)
         fingerprint = self._intent_fingerprint(intent)
         with self._transaction() as connection:
-            existing = connection.execute(
-                "SELECT * FROM oms_orders WHERE intent_id=?", (intent.intent_id,)
-            ).fetchone()
-            if existing is not None:
+            identity_rows = connection.execute(
+                """SELECT * FROM oms_orders
+                WHERE intent_id=? OR client_order_id=? ORDER BY intent_id""",
+                (intent.intent_id, client_order_id),
+            ).fetchall()
+            if identity_rows:
+                if len(identity_rows) != 1:
+                    raise ValueError("INTENT_ID_CONFLICT")
+                existing = identity_rows[0]
+                if str(existing["intent_id"]) != intent.intent_id:
+                    raise ValueError("INTENT_ID_CONFLICT")
                 self._assert_intent_replay(
                     existing,
                     intent=intent,
