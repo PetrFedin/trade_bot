@@ -147,6 +147,7 @@ class OmsReconciler:
             raise ValueError("CLIENT_ORDER_ID_MISMATCH")
         if broker.cumulative_filled > local.quantity:
             raise ValueError("BROKER_FILL_EXCEEDS_LOCAL_ORDER")
+        self._validate_broker_identity(local, broker.broker_order_id)
         if local.state is OrderState.UNCERTAIN and self._requires_f17_economic_proof(intent_id):
             self._validate_f17_economics(local, broker)
 
@@ -199,6 +200,17 @@ class OmsReconciler:
             broker_order_id=broker.broker_order_id,
             payload={"broker_state": broker.state.value},
         )
+
+    def _validate_broker_identity(self, local: OrderRecord, broker_order_id: str) -> None:
+        normalized = broker_order_id.strip()
+        if not local.broker_order_id.strip() or normalized == local.broker_order_id:
+            return
+        resolver = getattr(self.store, "get_by_broker_order_id", None)
+        if resolver is None:
+            raise ValueError("BROKER_ORDER_ID_DRIFT")
+        resolved = resolver(normalized)
+        if resolved is None or resolved.intent_id != local.intent_id:
+            raise ValueError("BROKER_ORDER_ID_DRIFT")
 
     def _requires_f17_economic_proof(self, intent_id: str) -> bool:
         events = self.store.events(intent_id)
