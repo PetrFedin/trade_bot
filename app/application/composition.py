@@ -24,6 +24,8 @@ from app.marketdata.continuity_postgres import (
     PostgresOperationalContinuityStore,
     PostgresOperationalRepairBarStore,
 )
+from app.marketdata.decision_leases import DecisionLeaseStore, SQLiteDecisionLeaseStore
+from app.marketdata.decision_leases_postgres import PostgresDecisionLeaseStore
 from app.marketdata.operational import (
     OperationalMarketDataStore,
     SQLiteOperationalMarketDataStore,
@@ -85,6 +87,7 @@ class ProductRuntime:
     operational_marketdata: OperationalMarketDataStore
     marketdata_continuity: OperationalContinuityStore
     marketdata_repair: OperationalRepairBarStore
+    decision_leases: DecisionLeaseStore
     oms_store: IndexedOmsStore
     order_mutations: MutationStore
     dispatch_control: PaperDispatchControlStore
@@ -123,6 +126,7 @@ def _compose(
     operational_marketdata: OperationalMarketDataStore,
     marketdata_continuity: OperationalContinuityStore,
     marketdata_repair: OperationalRepairBarStore,
+    decision_leases: DecisionLeaseStore,
     fee_provider: PaperFillFeeProvider | None,
 ) -> ProductRuntime:
     config.validate()
@@ -171,6 +175,7 @@ def _compose(
         operational_marketdata=operational_marketdata,
         marketdata_continuity=marketdata_continuity,
         marketdata_repair=marketdata_repair,
+        decision_leases=decision_leases,
         oms_store=oms_store,
         order_mutations=mutation_store,
         dispatch_control=dispatch_control,
@@ -205,6 +210,7 @@ def build_local_product(
     marketdata_store = SQLiteOperationalMarketDataStore(marketdata_path)
     continuity_store = SQLiteOperationalContinuityStore(marketdata_path)
     repair_store = SQLiteOperationalRepairBarStore(marketdata_path)
+    decision_leases = SQLiteDecisionLeaseStore(marketdata_path)
     return _compose(
         config=config,
         oms_store=oms_store,
@@ -217,6 +223,7 @@ def build_local_product(
         operational_marketdata=marketdata_store,
         marketdata_continuity=continuity_store,
         marketdata_repair=repair_store,
+        decision_leases=decision_leases,
         fee_provider=fee_provider,
     )
 
@@ -240,6 +247,7 @@ def build_postgres_product(
     marketdata_store = PostgresOperationalMarketDataStore(dsn)
     continuity_store = PostgresOperationalContinuityStore(dsn)
     repair_store = PostgresOperationalRepairBarStore(dsn)
+    decision_leases = PostgresDecisionLeaseStore(dsn)
     if migrate:
         oms_store.migrate()
         mutation_store.migrate()
@@ -250,6 +258,7 @@ def build_postgres_product(
         reconciliation_store.migrate()
         marketdata_store.migrate()
         continuity_store.migrate()
+        decision_leases.migrate()
     return _compose(
         config=config,
         oms_store=oms_store,
@@ -262,5 +271,6 @@ def build_postgres_product(
         operational_marketdata=marketdata_store,
         marketdata_continuity=continuity_store,
         marketdata_repair=repair_store,
+        decision_leases=decision_leases,
         fee_provider=fee_provider,
     )

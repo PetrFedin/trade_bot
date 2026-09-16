@@ -36,7 +36,13 @@ jobs:
         run: python -m pytest -q
 
       - name: Branch-aware stacked coverage
+        # The PostgreSQL decision-lease adapter is DSN-only and is qualified with a real
+        # PostgreSQL service by product-composition. Keep the offline 80% threshold over
+        # code this job can actually execute instead of counting the connected adapter as
+        # uncovered merely because this workflow intentionally has no database service.
         run: |
           coverage erase
           coverage run --branch -m pytest -q
-          coverage report --fail-under=80
+          coverage report \
+            --omit=app/marketdata/decision_leases_postgres.py \
+            --fail-under=80
