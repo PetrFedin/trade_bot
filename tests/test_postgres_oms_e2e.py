@@ -270,6 +270,20 @@ def test_postgres_f20_same_intent_id_with_changed_economics_conflicts(
     assert store.get(original.intent_id) == first
 
 
+def test_postgres_f20_different_intent_cannot_alias_client_order_id(
+    store: PostgresOmsStore,
+) -> None:
+    original = intent()
+    store.create(original, client_order_id="pg-shared-client", occurred_at=NOW)
+    alias = replace(original, intent_id="pg-intent-alias")
+
+    with pytest.raises(ValueError, match="INTENT_ID_CONFLICT"):
+        store.create(alias, client_order_id="pg-shared-client", occurred_at=NOW)
+
+    assert store.get(original.intent_id) is not None
+    assert store.get(alias.intent_id) is None
+
+
 def test_postgres_f20_event_id_binds_target_payload_and_broker_identity(
     store: PostgresOmsStore,
 ) -> None:
