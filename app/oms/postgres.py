@@ -77,6 +77,32 @@ class PostgresOmsStore:
         return row
 
     @staticmethod
+    def _load_identity_row_for_update(
+        cursor,
+        *,
+        intent_id: str,
+        client_order_id: str,
+    ) -> dict[str, object]:
+        cursor.execute(
+            """SELECT * FROM astra_oms_orders
+            WHERE intent_id=%s OR client_order_id=%s
+            ORDER BY intent_id FOR UPDATE""",
+            (intent_id, client_order_id),
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            raise RuntimeError("OMS identity persistence invariant violated")
+        if len(rows) != 1:
+            raise ValueError("INTENT_ID_CONFLICT")
+        row = rows[0]
+        if (
+            str(row["intent_id"]) != intent_id
+            or str(row["client_order_id"]) != client_order_id
+        ):
+            raise ValueError("INTENT_ID_CONFLICT")
+        return row
+
+    @staticmethod
     def _load_for_update(cursor, intent_id: str) -> OrderRecord:
         return PostgresOmsStore._row(PostgresOmsStore._load_row_for_update(cursor, intent_id))
 
@@ -185,7 +211,7 @@ class PostgresOmsStore:
                         (intent_id, client_order_id, symbol, side, quantity, limit_price,
                          intent_fingerprint, filled_quantity, state, version, updated_at)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, 0, %s, 1, %s)
-                        ON CONFLICT (intent_id) DO NOTHING""",
+                        ON CONFLICT DO NOTHING""",
                         (
                             intent.intent_id,
                             client_order_id,
@@ -199,13 +225,13 @@ class PostgresOmsStore:
                         ),
                     )
                     inserted = cursor.rowcount == 1
-                    row = self._load_row_for_update(cursor, intent.intent_id)
+                    row = self._load_identity_row_for_update(
+                        cursor,
+                        intent_id=intent.intent_id,
+                        client_order_id=client_order_id,
+                    )
                     stored = row.get("intent_fingerprint")
-                    if (
-                        stored is None
-                        or str(stored) != fingerprint
-                        or str(row["client_order_id"]) != client_order_id
-                    ):
+                    if stored is None or str(stored) != fingerprint:
                         raise ValueError("INTENT_ID_CONFLICT")
                     record = self._row(row)
                     if inserted:
