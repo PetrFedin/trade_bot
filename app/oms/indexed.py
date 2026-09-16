@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from app.domain.trading import Side
-from app.oms.postgres import PostgresOmsStore
+from app.oms.postgres import PostgresOmsStore, psycopg
 from app.oms.protocols import OmsStore
 from app.oms.risk_reservations import (
     PendingBuyExposure,
