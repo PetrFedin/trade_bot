@@ -46,16 +46,6 @@ class MutationOmsStore(Protocol):
         broker_order_id: str | None = None,
     ) -> OrderRecord: ...
 
-    def register_replace_successor(
-        self,
-        *,
-        intent_id: str,
-        mutation_id: str,
-        predecessor_broker_order_id: str,
-        successor_broker_order_id: str,
-        occurred_at: datetime,
-    ) -> None: ...
-
 
 @dataclass(frozen=True)
 class MutationExecutionResult:
@@ -350,7 +340,7 @@ class PaperOrderMutationExecutor:
                     occurred_at=occurred_at,
                     broker_order_id=broker_order.broker_order_id,
                 )
-                self.oms.register_replace_successor(
+                self._register_replace_successor(
                     intent_id=mutation.intent_id,
                     mutation_id=mutation.mutation_id,
                     predecessor_broker_order_id=mutation.broker_order_id,
@@ -498,6 +488,54 @@ class PaperOrderMutationExecutor:
             break
         raise ValueError("REPLACE_PREDECESSOR_NOT_PROVEN")
 
+    def _register_replace_successor(
+        self,
+        *,
+        intent_id: str,
+        mutation_id: str,
+        predecessor_broker_order_id: str,
+        successor_broker_order_id: str,
+        occurred_at: datetime,
+    ) -> None:
+        registrar = getattr(self.oms, "register_replace_successor", None)
+        if registrar is not None:
+            registrar(
+                intent_id=intent_id,
+                mutation_id=mutation_id,
+                predecessor_broker_order_id=predecessor_broker_order_id,
+                successor_broker_order_id=successor_broker_order_id,
+                occurred_at=occurred_at,
+            )
+            return
+
+        path = getattr(self.oms, "path", None)
+        if isinstance(path, str) and path:
+            from app.oms.indexed import IndexedDurableOmsStore
+
+            IndexedDurableOmsStore(path).register_replace_successor(
+                intent_id=intent_id,
+                mutation_id=mutation_id,
+                predecessor_broker_order_id=predecessor_broker_order_id,
+                successor_broker_order_id=successor_broker_order_id,
+                occurred_at=occurred_at,
+            )
+            return
+
+        dsn = getattr(self.oms, "dsn", None)
+        if isinstance(dsn, str) and dsn:
+            from app.oms.indexed import IndexedPostgresOmsStore
+
+            IndexedPostgresOmsStore(dsn).register_replace_successor(
+                intent_id=intent_id,
+                mutation_id=mutation_id,
+                predecessor_broker_order_id=predecessor_broker_order_id,
+                successor_broker_order_id=successor_broker_order_id,
+                occurred_at=occurred_at,
+            )
+            return
+
+        raise ValueError("BROKER_ORDER_LINEAGE_STORE_REQUIRED")
+
     def _ensure_replace_lineage(
         self,
         mutation: OrderMutationRecord,
@@ -507,7 +545,7 @@ class PaperOrderMutationExecutor:
         if mutation.kind is not MutationKind.REPLACE or mutation.state is not MutationState.SUCCEEDED:
             return
         predecessor = self._mutation_predecessor(mutation.mutation_id)
-        self.oms.register_replace_successor(
+        self._register_replace_successor(
             intent_id=mutation.intent_id,
             mutation_id=mutation.mutation_id,
             predecessor_broker_order_id=predecessor,
