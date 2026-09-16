@@ -66,6 +66,7 @@ def safety(receipt, *, observed_at: datetime) -> DecisionSafetyEvidence:
         checkpoint_id=None,
         first_bar_id=None,
         last_bar_id=None,
+        bar_ids=(),
         continuity_reasons=("CONTINUITY_CHECKPOINT_REQUIRED",),
         readiness_reasons=(),
         control_mode="HALTED",
@@ -81,6 +82,7 @@ def safety(receipt, *, observed_at: datetime) -> DecisionSafetyEvidence:
         checkpoint_id=None,
         first_bar_id=None,
         last_bar_id=None,
+        bar_ids=(),
         continuity_reasons=("CONTINUITY_CHECKPOINT_REQUIRED",),
         readiness_reasons=(),
         control_mode="HALTED",
@@ -125,11 +127,12 @@ def test_active_lease_is_exclusive_and_expired_lease_reclaims_with_new_fence(tmp
             outcome_id="planning:stale",
             occurred_at=NOW + timedelta(seconds=5),
         )
-    assert leases.complete(
-        second,
-        outcome_id="planning:current",
-        occurred_at=NOW + timedelta(seconds=5, milliseconds=1),
-    )
+    with pytest.raises(ValueError, match="DECISION_READY_SAFETY_EVIDENCE_REQUIRED"):
+        leases.complete(
+            second,
+            outcome_id="planning:current",
+            occurred_at=NOW + timedelta(seconds=5, milliseconds=1),
+        )
     assert leases.claim_next(
         strategy_id=STRATEGY,
         owner_id="worker-c",
