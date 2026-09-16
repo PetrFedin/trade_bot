@@ -9,6 +9,7 @@ on:
       - 'app/oms/indexed.py'
       - 'app/oms/reconciliation.py'
       - 'app/execution/order_mutation_executor.py'
+      - 'app/execution/trade_fills.py'
       - 'app/oms/store.py'
       - 'app/oms/postgres.py'
       - 'app/runtime/paper_broker_contract_v99.py'
@@ -17,6 +18,8 @@ on:
       - 'tests/test_order_mutation_e2e.py'
       - 'tests/test_postgres_order_mutation_e2e.py'
       - 'tests/test_f18_broker_order_lineage.py'
+      - 'tests/test_f18_broker_order_lineage_edges.py'
+      - 'tests/test_f18_postgres_lineage_unit.py'
       - 'tests/test_postgres_f18_broker_order_lineage.py'
       - '.github/workflows/order-mutation-e2e.yml'
   pull_request:
@@ -26,6 +29,7 @@ on:
       - 'app/oms/indexed.py'
       - 'app/oms/reconciliation.py'
       - 'app/execution/order_mutation_executor.py'
+      - 'app/execution/trade_fills.py'
       - 'app/oms/store.py'
       - 'app/oms/postgres.py'
       - 'app/runtime/paper_broker_contract_v99.py'
@@ -34,6 +38,8 @@ on:
       - 'tests/test_order_mutation_e2e.py'
       - 'tests/test_postgres_order_mutation_e2e.py'
       - 'tests/test_f18_broker_order_lineage.py'
+      - 'tests/test_f18_broker_order_lineage_edges.py'
+      - 'tests/test_f18_postgres_lineage_unit.py'
       - 'tests/test_postgres_f18_broker_order_lineage.py'
       - '.github/workflows/order-mutation-e2e.yml'
   workflow_dispatch:
@@ -109,9 +115,12 @@ jobs:
             app/oms/indexed.py \
             app/oms/reconciliation.py \
             app/execution/order_mutation_executor.py \
+            app/execution/trade_fills.py \
             tests/test_order_mutation_e2e.py \
             tests/test_postgres_order_mutation_e2e.py \
             tests/test_f18_broker_order_lineage.py \
+            tests/test_f18_broker_order_lineage_edges.py \
+            tests/test_f18_postgres_lineage_unit.py \
             tests/test_postgres_f18_broker_order_lineage.py
 
       - name: SQLite and real PostgreSQL mutation and lineage qualification
@@ -120,6 +129,8 @@ jobs:
             tests/test_order_mutation_e2e.py \
             tests/test_postgres_order_mutation_e2e.py \
             tests/test_f18_broker_order_lineage.py \
+            tests/test_f18_broker_order_lineage_edges.py \
+            tests/test_f18_postgres_lineage_unit.py \
             tests/test_postgres_f18_broker_order_lineage.py
 
       - name: Branch-aware focused coverage
@@ -131,6 +142,8 @@ jobs:
             tests/test_order_mutation_e2e.py \
             tests/test_postgres_order_mutation_e2e.py \
             tests/test_f18_broker_order_lineage.py \
+            tests/test_f18_broker_order_lineage_edges.py \
+            tests/test_f18_postgres_lineage_unit.py \
             tests/test_postgres_f18_broker_order_lineage.py
           coverage report --fail-under=75
 
@@ -146,13 +159,15 @@ jobs:
             app/oms/order_mutations_postgres.py \
             app/oms/indexed.py \
             app/oms/reconciliation.py \
-            app/execution/order_mutation_executor.py
+            app/execution/order_mutation_executor.py \
+            app/execution/trade_fills.py
           python -m compileall -q \
             app/oms/order_mutations.py \
             app/oms/order_mutations_postgres.py \
             app/oms/indexed.py \
             app/oms/reconciliation.py \
-            app/execution/order_mutation_executor.py
+            app/execution/order_mutation_executor.py \
+            app/execution/trade_fills.py
 
       - name: Verify PostgreSQL fencing and append-only contracts
         run: |
