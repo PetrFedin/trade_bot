@@ -543,7 +543,10 @@ class PaperOrderMutationExecutor:
         *,
         occurred_at: datetime,
     ) -> None:
-        if mutation.kind is not MutationKind.REPLACE or mutation.state is not MutationState.SUCCEEDED:
+        if (
+            mutation.kind is not MutationKind.REPLACE
+            or mutation.state is not MutationState.SUCCEEDED
+        ):
             return
         predecessor = self._mutation_predecessor(mutation.mutation_id)
         self._register_replace_successor(
