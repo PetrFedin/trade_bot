@@ -9,9 +9,11 @@ on:
       - 'app/application/order_lifecycle.py'
       - 'app/application/paper_pipeline.py'
       - 'app/application/composition.py'
+      - 'app/application/paper_cycle.py'
       - 'tests/test_paper_executor_e2e.py'
       - 'tests/test_f17_broker_submit_economics.py'
       - 'tests/test_f19_immediate_submit_accounting.py'
+      - 'tests/test_f19_paper_cycle_integration.py'
       - '.github/workflows/paper-executor-e2e.yml'
   pull_request:
     paths:
@@ -20,9 +22,11 @@ on:
       - 'app/application/order_lifecycle.py'
       - 'app/application/paper_pipeline.py'
       - 'app/application/composition.py'
+      - 'app/application/paper_cycle.py'
       - 'tests/test_paper_executor_e2e.py'
       - 'tests/test_f17_broker_submit_economics.py'
       - 'tests/test_f19_immediate_submit_accounting.py'
+      - 'tests/test_f19_paper_cycle_integration.py'
       - '.github/workflows/paper-executor-e2e.yml'
 
 permissions:
@@ -49,6 +53,7 @@ jobs:
           tests/test_paper_executor_e2e.py
           tests/test_f17_broker_submit_economics.py
           tests/test_f19_immediate_submit_accounting.py
+          tests/test_f19_paper_cycle_integration.py
       - name: Durable OMS regression
         run: pytest -q tests/test_durable_oms_e2e.py
       - name: Full regression
