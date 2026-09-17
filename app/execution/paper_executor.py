@@ -7,6 +7,13 @@ from decimal import Decimal
 from typing import Protocol
 from uuid import uuid4
 
+from app.domain.trading import Side
+from app.execution.execution_checkpoints import (
+    ExecutionCheckpoint,
+    ExecutionCheckpointStore,
+    canonical_execution_checkpoint_id,
+)
+from app.execution.execution_facts import ExecutionFactStore
 from app.oms.store import OrderRecord, OrderState, OutboxMessage
 from app.runtime.paper_broker_contract_v99 import (
     BrokerMutationError,
@@ -61,22 +68,22 @@ class ExecutionResult:
 
 
 class PaperSubmitExecutor:
-    """At-most-one paper submit executor with fail-closed broker truth adoption.
+    """At-most-one paper submit executor with fail-closed execution convergence.
 
     Every execution attempt uses a unique claim event for the transactional
     ``OUTBOXED -> SUBMIT_STARTED`` transition. Exactly one concurrent caller can
     own that transition; stale readers lose the claim and therefore never POST.
 
-    The durable submit outbox is validated against the authoritative OMS order
-    before any broker mutation. After a POST or GET recovery, broker-returned
-    identity/economics are validated before broker id, state or fills are adopted.
-    A response that cannot be proven to describe the authorized order becomes
-    durable ``UNCERTAIN`` evidence instead of a successful acknowledgement.
+    Durable submit economics are validated before mutation. Broker-returned order
+    identity/economics are validated before local adoption. A submit response that
+    already reports cumulative execution is recorded as a durable checkpoint, never
+    converted into a fabricated exact fill. Exact stream/activity executions later
+    enter ``PaperTradeFillAccounting`` and resolve that barrier only after durable
+    portfolio projection.
 
-    When a final-dispatch authorizer is configured it is evaluated immediately
-    before the submit claim. A blocked dispatch therefore leaves the order
-    OUTBOXED and the outbox message unpublished. A fresh ``SUBMIT_STARTED`` marker
-    is protected by a bounded recovery grace; stale restart recovery is GET-only.
+    BUY dispatch is blocked while either exact execution facts or aggregate execution
+    checkpoints are unresolved. This closes the race where a second outbox item was
+    prepared before the first order's execution/accounting divergence became visible.
     """
 
     def __init__(
@@ -86,6 +93,8 @@ class PaperSubmitExecutor:
         broker: PaperBrokerV99,
         started_recovery_grace_seconds: float = 30.0,
         dispatch_authorizer: DispatchAuthorizer | None = None,
+        execution_facts: ExecutionFactStore | None = None,
+        execution_checkpoints: ExecutionCheckpointStore | None = None,
     ) -> None:
         grace = float(started_recovery_grace_seconds)
         if not math.isfinite(grace) or grace < 0:
@@ -94,6 +103,8 @@ class PaperSubmitExecutor:
         self.broker = broker
         self.started_recovery_grace_seconds = grace
         self.dispatch_authorizer = dispatch_authorizer
+        self.execution_facts = execution_facts
+        self.execution_checkpoints = execution_checkpoints
 
     @staticmethod
     def _time(value: datetime) -> datetime:
@@ -162,12 +173,20 @@ class PaperSubmitExecutor:
             mismatches.append("side")
         if order.quantity != local.quantity:
             mismatches.append("quantity")
-        # The current broker contract has no venue-specific normalization policy.
-        # Economic equality is therefore exact; a future tolerance must be explicit
-        # and separately qualified rather than inferred here.
         if order.limit_price != local.limit_price:
             mismatches.append("limit_price")
         return tuple(mismatches), validation_error
+
+    def _execution_convergence_gate(self, record: OrderRecord) -> None:
+        if record.side is not Side.BUY:
+            return
+        if self.execution_facts is not None and self.execution_facts.unresolved_count() > 0:
+            raise RuntimeError("EXECUTION_ACCOUNTING_NOT_CONVERGED")
+        if (
+            self.execution_checkpoints is not None
+            and self.execution_checkpoints.unresolved_count() > 0
+        ):
+            raise RuntimeError("EXECUTION_ACCOUNTING_NOT_CONVERGED")
 
     def execute(self, message: OutboxMessage, *, occurred_at: datetime) -> ExecutionResult:
         moment = self._time(occurred_at)
@@ -179,6 +198,7 @@ class PaperSubmitExecutor:
 
         if record.state is OrderState.OUTBOXED:
             self._validate_submit_message(record, message)
+            self._execution_convergence_gate(record)
             if self.dispatch_authorizer is not None:
                 self.dispatch_authorizer(record, occurred_at=moment)
             try:
@@ -334,7 +354,27 @@ class PaperSubmitExecutor:
                 occurred_at=occurred_at,
             )
 
+        checkpoint_failure = self._checkpoint_broker_execution(
+            local,
+            order,
+            event_prefix=event_prefix,
+            occurred_at=occurred_at,
+        )
+        if checkpoint_failure is not None:
+            return checkpoint_failure
+
         if order.status is BrokerOrderStatus.REJECTED:
+            if order.filled_quantity > 0:
+                return self.store.transition(
+                    intent_id,
+                    OrderState.UNCERTAIN,
+                    event_id=f"{event_prefix}:execution-status-conflict",
+                    occurred_at=occurred_at,
+                    payload={
+                        "reason": "BROKER_EXECUTION_STATUS_CONFLICT",
+                        "broker_response": self._broker_order_evidence(order),
+                    },
+                )
             return self.store.transition(
                 intent_id,
                 OrderState.REJECTED,
@@ -352,14 +392,11 @@ class PaperSubmitExecutor:
                 broker_order_id=order.broker_order_id,
             )
 
-        if order.filled_quantity > local.filled_quantity:
-            local = self.store.apply_cumulative_fill(
-                intent_id,
-                event_id=f"{event_prefix}:fill:{order.filled_quantity}",
-                cumulative_filled=order.filled_quantity,
-                occurred_at=occurred_at,
-                broker_order_id=order.broker_order_id,
-            )
+        # Aggregate order truth does not contain exact execution identity/fee. Once a
+        # cumulative execution has been checkpointed, leave exact OMS fill progression
+        # to PaperTradeFillAccounting so OMS and portfolio advance from one fact source.
+        if order.filled_quantity > 0:
+            return local
 
         if order.status is BrokerOrderStatus.CANCELLED and local.state is not OrderState.CANCELLED:
             local = self.store.transition(
@@ -370,6 +407,66 @@ class PaperSubmitExecutor:
                 broker_order_id=order.broker_order_id,
             )
         return local
+
+    def _checkpoint_broker_execution(
+        self,
+        local: OrderRecord,
+        order: BrokerOrder,
+        *,
+        event_prefix: str,
+        occurred_at: datetime,
+    ) -> OrderRecord | None:
+        if order.filled_quantity <= 0:
+            return None
+        if self.execution_checkpoints is None:
+            return self.store.transition(
+                local.intent_id,
+                OrderState.UNCERTAIN,
+                event_id=f"{event_prefix}:execution-checkpoint-required",
+                occurred_at=occurred_at,
+                payload={
+                    "reason": "EXECUTION_CHECKPOINT_STORE_REQUIRED",
+                    "broker_response": self._broker_order_evidence(order),
+                },
+            )
+        checkpoint = ExecutionCheckpoint(
+            checkpoint_id=canonical_execution_checkpoint_id(
+                intent_id=local.intent_id,
+                broker_order_id=order.broker_order_id,
+                cumulative_quantity=order.filled_quantity,
+                observed_at=order.updated_at,
+            ),
+            intent_id=local.intent_id,
+            broker_order_id=order.broker_order_id,
+            client_order_id=order.client_order_id,
+            symbol=order.instrument,
+            side=local.side,
+            order_quantity=order.quantity,
+            cumulative_quantity=order.filled_quantity,
+            broker_status=order.status.value,
+            observed_avg_price=order.filled_avg_price,
+            observed_at=order.updated_at,
+        )
+        try:
+            self.execution_checkpoints.append(checkpoint)
+        except ValueError as exc:
+            if str(exc) != "EXECUTION_CHECKPOINT_CONFLICT":
+                raise
+            return self.store.transition(
+                local.intent_id,
+                OrderState.UNCERTAIN,
+                event_id=f"{event_prefix}:execution-checkpoint-conflict",
+                occurred_at=occurred_at,
+                payload={
+                    "reason": "EXECUTION_CHECKPOINT_CONFLICT",
+                    "broker_response": self._broker_order_evidence(order),
+                },
+            )
+        self.execution_checkpoints.resolve_from_projected_facts(
+            intent_id=local.intent_id,
+            occurred_at=occurred_at,
+        )
+        return None
 
     def _quarantine_broker_truth(
         self,

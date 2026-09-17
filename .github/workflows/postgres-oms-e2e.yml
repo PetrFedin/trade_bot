@@ -7,18 +7,24 @@ on:
       - 'app/oms/**'
       - 'app/application/order_lifecycle.py'
       - 'app/application/paper_cycle.py'
+      - 'app/application/paper_pipeline.py'
+      - 'app/application/composition.py'
       - 'app/execution/execution_facts.py'
+      - 'app/execution/execution_checkpoints.py'
       - 'app/execution/paper_executor.py'
+      - 'app/execution/trade_fills.py'
       - 'app/runtime/paper_dispatch_control.py'
       - 'app/runtime/paper_final_dispatch.py'
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
       - 'tests/test_postgres_execution_facts.py'
+      - 'tests/test_postgres_execution_checkpoints.py'
       - 'tests/test_postgres_risk_reservations.py'
       - 'tests/test_postgres_dispatch_control.py'
       - 'tests/test_pending_risk_reservations.py'
       - 'tests/test_final_dispatch_interlock.py'
       - 'tests/test_f20_economic_identity.py'
+      - 'tests/test_f19_immediate_submit_accounting.py'
       - 'pyproject.toml'
       - '.github/workflows/postgres-oms-e2e.yml'
   pull_request:
@@ -26,18 +32,24 @@ on:
       - 'app/oms/**'
       - 'app/application/order_lifecycle.py'
       - 'app/application/paper_cycle.py'
+      - 'app/application/paper_pipeline.py'
+      - 'app/application/composition.py'
       - 'app/execution/execution_facts.py'
+      - 'app/execution/execution_checkpoints.py'
       - 'app/execution/paper_executor.py'
+      - 'app/execution/trade_fills.py'
       - 'app/runtime/paper_dispatch_control.py'
       - 'app/runtime/paper_final_dispatch.py'
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
       - 'tests/test_postgres_execution_facts.py'
+      - 'tests/test_postgres_execution_checkpoints.py'
       - 'tests/test_postgres_risk_reservations.py'
       - 'tests/test_postgres_dispatch_control.py'
       - 'tests/test_pending_risk_reservations.py'
       - 'tests/test_final_dispatch_interlock.py'
       - 'tests/test_f20_economic_identity.py'
+      - 'tests/test_f19_immediate_submit_accounting.py'
       - 'pyproject.toml'
       - '.github/workflows/postgres-oms-e2e.yml'
 
@@ -82,10 +94,14 @@ jobs:
         run: pytest -q tests/test_postgres_oms_e2e.py
       - name: PostgreSQL execution facts E2E
         run: pytest -q tests/test_postgres_execution_facts.py
+      - name: PostgreSQL F19 execution checkpoint E2E
+        run: pytest -q tests/test_postgres_execution_checkpoints.py
       - name: PostgreSQL pending-risk reservation E2E
         run: pytest -q tests/test_postgres_risk_reservations.py
       - name: PostgreSQL final-dispatch control E2E
         run: pytest -q tests/test_postgres_dispatch_control.py
+      - name: SQLite F19 convergence parity regression
+        run: pytest -q tests/test_f19_immediate_submit_accounting.py
       - name: SQLite final-dispatch parity regression
         run: pytest -q tests/test_final_dispatch_interlock.py
       - name: SQLite reservation parity regression
@@ -93,4 +109,13 @@ jobs:
       - name: SQLite OMS parity regression
         run: pytest -q tests/test_durable_oms_e2e.py tests/test_f20_economic_identity.py
       - name: Compile OMS, dispatch and execution boundaries
-        run: python -m compileall -q app/oms app/application app/runtime/paper_dispatch_control.py app/runtime/paper_final_dispatch.py app/execution/execution_facts.py app/execution/paper_executor.py
+        run: >-
+          python -m compileall -q
+          app/oms
+          app/application
+          app/runtime/paper_dispatch_control.py
+          app/runtime/paper_final_dispatch.py
+          app/execution/execution_facts.py
+          app/execution/execution_checkpoints.py
+          app/execution/paper_executor.py
+          app/execution/trade_fills.py

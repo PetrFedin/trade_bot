@@ -8,6 +8,7 @@ from threading import Event
 
 from app.application.order_lifecycle import PaperOrderLifecycle
 from app.domain.trading import OrderIntent, Side
+from app.execution.execution_checkpoints import SQLiteExecutionCheckpointStore
 from app.execution.paper_executor import PaperSubmitExecutor
 from app.oms.store import DurableOmsStore, OrderState
 from app.risk.pretrade import (
@@ -221,15 +222,24 @@ def test_two_workers_share_one_submit_claim_and_only_winner_can_post(tmp_path) -
     assert store.pending_outbox() == ()
 
 
-def test_submit_truth_can_adopt_partial_fill_monotonically(tmp_path) -> None:
+def test_submit_truth_with_partial_fill_creates_barrier_without_fake_fill(tmp_path) -> None:
     store, message = prepared_store(tmp_path)
+    checkpoints = SQLiteExecutionCheckpointStore(tmp_path / "execution.sqlite")
     broker = FakePaperBroker()
     broker.submit_status = BrokerOrderStatus.PARTIALLY_FILLED
     broker.submit_filled = Decimal("4")
-    result = PaperSubmitExecutor(store=store, broker=broker).execute(message, occurred_at=NOW)
-    assert result.record.state is OrderState.PARTIALLY_FILLED
-    assert result.record.filled_quantity == Decimal("4")
+    result = PaperSubmitExecutor(
+        store=store,
+        broker=broker,
+        execution_checkpoints=checkpoints,
+    ).execute(message, occurred_at=NOW)
+    assert result.record.state is OrderState.ACKNOWLEDGED
+    assert result.record.filled_quantity == Decimal("0")
     assert broker.submit_calls == 1
+    assert checkpoints.unresolved_count() == 1
+    checkpoint = checkpoints.unresolved()[0]
+    assert checkpoint.cumulative_quantity == Decimal("4")
+    assert checkpoint.broker_status == BrokerOrderStatus.PARTIALLY_FILLED.value
 
 
 def test_restart_can_adopt_existing_broker_order_without_post(tmp_path) -> None:

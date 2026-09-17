@@ -7,12 +7,18 @@ from pathlib import Path
 from app.application.order_lifecycle import PaperOrderLifecycle
 from app.application.paper_pipeline import PaperTradingPipeline, PlanningMode
 from app.application.risk_checked_mutations import RiskCheckedOrderMutationLifecycle
+from app.execution.execution_checkpoints import (
+    ExecutionCheckpointStore,
+    PostgresExecutionCheckpointStore,
+    SQLiteExecutionCheckpointStore,
+)
 from app.execution.execution_facts import (
     ExecutionFactStore,
     PostgresExecutionFactStore,
     SQLiteExecutionFactStore,
 )
 from app.execution.order_mutation_executor import PaperOrderMutationExecutor
+from app.execution.paper_executor import DispatchAuthorizer, PaperSubmitExecutor
 from app.execution.trade_fills import PaperFillFeeProvider, PaperTradeFillAccounting
 from app.marketdata.continuity import (
     OperationalContinuityStore,
@@ -84,6 +90,7 @@ class ProductRuntime:
     portfolio_store: PortfolioStore
     portfolio_reconciliation: PortfolioReconciliationStore
     execution_facts: ExecutionFactStore
+    execution_checkpoints: ExecutionCheckpointStore
     operational_marketdata: OperationalMarketDataStore
     marketdata_continuity: OperationalContinuityStore
     marketdata_repair: OperationalRepairBarStore
@@ -102,6 +109,24 @@ class ProductRuntime:
         if self.fill_accounting is None:
             raise RuntimeError("paper fill fee provider is not configured")
         return self.fill_accounting
+
+    def build_submit_executor(
+        self,
+        broker: PaperBrokerV99,
+        *,
+        started_recovery_grace_seconds: float = 30.0,
+        dispatch_authorizer: DispatchAuthorizer | None = None,
+    ) -> PaperSubmitExecutor:
+        """Bind submit authority to the product's convergence barriers."""
+
+        return PaperSubmitExecutor(
+            store=self.oms_store,
+            broker=broker,
+            started_recovery_grace_seconds=started_recovery_grace_seconds,
+            dispatch_authorizer=dispatch_authorizer,
+            execution_facts=self.execution_facts,
+            execution_checkpoints=self.execution_checkpoints,
+        )
 
     def build_order_mutation_executor(self, broker: PaperBrokerV99) -> PaperOrderMutationExecutor:
         """Bind a broker to the already-composed durable OMS/mutation stores."""
@@ -123,6 +148,7 @@ def _compose(
     portfolio_store: PortfolioStore,
     portfolio_reconciliation: PortfolioReconciliationStore,
     execution_facts: ExecutionFactStore,
+    execution_checkpoints: ExecutionCheckpointStore,
     operational_marketdata: OperationalMarketDataStore,
     marketdata_continuity: OperationalContinuityStore,
     marketdata_repair: OperationalRepairBarStore,
@@ -148,6 +174,7 @@ def _compose(
         mode=PlanningMode.OPERATIONAL,
         risk_admission=risk_admission,
         execution_facts=execution_facts,
+        execution_checkpoints=execution_checkpoints,
         portfolio_reconciliation=portfolio_reconciliation,
     )
     readiness = OperationalReadinessEvaluator(config.operational_slo)
@@ -158,6 +185,7 @@ def _compose(
             oms=oms_store,
             portfolio=portfolio_store,
             execution_facts=execution_facts,
+            execution_checkpoints=execution_checkpoints,
             opening_cash=config.opening_cash,
             fee_provider=fee_provider,
             runtime_ledger=portfolio,
@@ -172,6 +200,7 @@ def _compose(
         portfolio_store=portfolio_store,
         portfolio_reconciliation=portfolio_reconciliation,
         execution_facts=execution_facts,
+        execution_checkpoints=execution_checkpoints,
         operational_marketdata=operational_marketdata,
         marketdata_continuity=marketdata_continuity,
         marketdata_repair=marketdata_repair,
@@ -200,10 +229,12 @@ def build_local_product(
     directory.mkdir(parents=True, exist_ok=True)
     oms_path = directory / "oms.sqlite"
     marketdata_path = directory / "marketdata.sqlite"
+    execution_path = directory / "execution.sqlite"
     oms_store = IndexedDurableOmsStore(oms_path)
     mutation_store = DurableOrderMutationStore(oms_path)
     dispatch_control = SQLitePaperDispatchControlStore(oms_path)
-    execution_facts = SQLiteExecutionFactStore(directory / "execution.sqlite")
+    execution_facts = SQLiteExecutionFactStore(execution_path)
+    execution_checkpoints = SQLiteExecutionCheckpointStore(execution_path)
     reconciliation_store = SQLitePortfolioReconciliationStore(
         directory / "portfolio_reconciliation.sqlite"
     )
@@ -220,6 +251,7 @@ def build_local_product(
         portfolio_store=StrictPortfolioEventStore(directory / "portfolio.sqlite"),
         portfolio_reconciliation=reconciliation_store,
         execution_facts=execution_facts,
+        execution_checkpoints=execution_checkpoints,
         operational_marketdata=marketdata_store,
         marketdata_continuity=continuity_store,
         marketdata_repair=repair_store,
@@ -244,6 +276,7 @@ def build_postgres_product(
     portfolio_store = StrictPostgresPortfolioEventStore(dsn)
     reconciliation_store = PostgresPortfolioReconciliationStore(dsn)
     execution_facts = PostgresExecutionFactStore(dsn)
+    execution_checkpoints = PostgresExecutionCheckpointStore(dsn)
     marketdata_store = PostgresOperationalMarketDataStore(dsn)
     continuity_store = PostgresOperationalContinuityStore(dsn)
     repair_store = PostgresOperationalRepairBarStore(dsn)
@@ -255,6 +288,7 @@ def build_postgres_product(
         risk_journal.migrate()
         portfolio_store.migrate()
         execution_facts.migrate()
+        execution_checkpoints.migrate()
         reconciliation_store.migrate()
         marketdata_store.migrate()
         continuity_store.migrate()
@@ -268,6 +302,7 @@ def build_postgres_product(
         portfolio_store=portfolio_store,
         portfolio_reconciliation=reconciliation_store,
         execution_facts=execution_facts,
+        execution_checkpoints=execution_checkpoints,
         operational_marketdata=marketdata_store,
         marketdata_continuity=continuity_store,
         marketdata_repair=repair_store,

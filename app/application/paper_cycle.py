@@ -15,7 +15,7 @@ from app.execution.alpaca_fill_backfill import (
     PaperFillBackfillService,
 )
 from app.execution.financial_activity_gate import FinancialActivityTruthProvider
-from app.execution.paper_executor import ExecutionResult, PaperSubmitExecutor
+from app.execution.paper_executor import ExecutionResult
 from app.oms.portfolio_reconciliation import build_portfolio_reconciliation_evidence
 from app.oms.reconciliation import (
     BrokerOrderTruth,
@@ -88,9 +88,8 @@ class PaperCycleService:
             financial_activity_truth=financial_activity_truth,
             portfolio_reconciliation=runtime.portfolio_reconciliation,
         )
-        self.executor = PaperSubmitExecutor(
-            store=runtime.oms_store,
-            broker=broker,
+        self.executor = runtime.build_submit_executor(
+            broker,
             dispatch_authorizer=self.final_dispatch.authorize,
         )
         accounting = runtime.require_fill_accounting()

@@ -8,6 +8,7 @@ from decimal import Decimal
 from enum import StrEnum
 
 from app.domain.trading import Bar, OrderIntent, Side, TargetPosition
+from app.execution.execution_checkpoints import ExecutionCheckpointStore
 from app.execution.execution_facts import ExecutionFactStore
 from app.execution.financial_activity_gate import (
     FinancialActivityTruthProvider,
@@ -51,6 +52,7 @@ class PaperTradingPipeline:
         market_data_policy: MarketDataPolicy | None = None,
         risk_admission: RiskAdmissionService | None = None,
         execution_facts: ExecutionFactStore | None = None,
+        execution_checkpoints: ExecutionCheckpointStore | None = None,
         portfolio_reconciliation: PortfolioReconciliationStore | None = None,
     ) -> None:
         if risk_admission is not None and risk_admission.engine is not risk:
@@ -65,6 +67,7 @@ class PaperTradingPipeline:
         self.market_data_policy.validate()
         self.risk_admission = risk_admission
         self.execution_facts = execution_facts
+        self.execution_checkpoints = execution_checkpoints
         self.portfolio_reconciliation = portfolio_reconciliation
         self.last_recorded_risk: RecordedRiskDecision | None = None
 
@@ -78,6 +81,11 @@ class PaperTradingPipeline:
         financial_activity_truth: FinancialActivityTruthProvider | None = None,
     ) -> tuple[TargetPosition, OrderIntent | None, RiskDecision | None]:
         if self.execution_facts is not None and self.execution_facts.unresolved_count() > 0:
+            raise RuntimeError("EXECUTION_ACCOUNTING_NOT_CONVERGED")
+        if (
+            self.execution_checkpoints is not None
+            and self.execution_checkpoints.unresolved_count() > 0
+        ):
             raise RuntimeError("EXECUTION_ACCOUNTING_NOT_CONVERGED")
 
         operational_clock = self._operational_market_data_gate(bars, decision_time=decision_time)
