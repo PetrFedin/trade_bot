@@ -317,7 +317,7 @@ def test_postgres_financial_evidence_rejects_update_delete_and_truncate() -> Non
     store.ingest(activity("pg-fenced", "CSD", "11"), ingested_at=NOW)
 
     with psycopg.connect(DSN) as connection:
-        with pytest.raises(psycopg.errors.RaiseException, match="APPEND_ONLY"):
+        with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
             connection.execute(
                 "UPDATE astra_financial_activity_facts SET net_amount=999 "
                 "WHERE account_identity=%s AND activity_id='pg-fenced'",
@@ -326,7 +326,7 @@ def test_postgres_financial_evidence_rejects_update_delete_and_truncate() -> Non
         connection.rollback()
 
     with psycopg.connect(DSN) as connection:
-        with pytest.raises(psycopg.errors.RaiseException, match="APPEND_ONLY"):
+        with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
             connection.execute(
                 "DELETE FROM astra_financial_activity_conflicts "
                 "WHERE account_identity=%s AND activity_id='pg-fenced'",
