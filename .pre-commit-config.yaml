@@ -30,4 +30,4 @@ repos:
     hooks:
       - id: ruff-check
         name: ruff (paths CI keeps clean)
-        files: '^(app/(domain|marketdata|strategy|risk|portfolio|oms|application|execution|observability)/|tools/(bootstrap_db|status_tracker_sync)\.py)'
+        files: '^(app/(domain|marketdata|strategy|risk|portfolio|oms|application|execution|observability)/|tools/(bootstrap_db|status_tracker_sync|status_dashboard)\.py)'

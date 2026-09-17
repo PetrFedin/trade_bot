@@ -41,3 +41,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python tools/status_tracker_sync.py
+
+      # The operator console is generated from the same status surface, so it cannot
+      # drift from what it reports. A hand edit fails here.
+      - name: Verify the generated operator console
+        run: python tools/status_dashboard.py --check
