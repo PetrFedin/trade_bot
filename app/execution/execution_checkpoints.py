@@ -113,6 +113,13 @@ class ExecutionCheckpointStore(Protocol):
         occurred_at: datetime,
     ) -> int: ...
 
+    def resolve_from_projected_facts(
+        self,
+        *,
+        intent_id: str,
+        occurred_at: datetime,
+    ) -> int: ...
+
     def unresolved(self) -> tuple[ExecutionCheckpoint, ...]: ...
 
     def unresolved_count(self) -> int: ...
@@ -319,6 +326,48 @@ class SQLiteExecutionCheckpointStore:
                 resolved += int(cursor.rowcount == 1)
         return resolved
 
+    def resolve_from_projected_facts(
+        self,
+        *,
+        intent_id: str,
+        occurred_at: datetime,
+    ) -> int:
+        intent = intent_id.strip()
+        if not intent:
+            raise ValueError("intent_id is required")
+        connection = self._connect()
+        try:
+            tables = {
+                str(row["name"])
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            if not {"execution_facts", "execution_projection_events"}.issubset(tables):
+                return 0
+            rows = connection.execute(
+                """SELECT f.payload FROM execution_facts f
+                WHERE EXISTS (
+                    SELECT 1 FROM execution_projection_events e
+                    WHERE e.execution_fact_id=f.execution_fact_id AND e.state='PROJECTED'
+                )"""
+            ).fetchall()
+        finally:
+            connection.close()
+        projected: list[Decimal] = []
+        for row in rows:
+            payload = dict(json.loads(str(row["payload"])))
+            if str(payload.get("intent_id", "")) != intent:
+                continue
+            projected.append(Decimal(str(payload["cumulative_quantity"])))
+        if not projected:
+            return 0
+        return self.resolve_through(
+            intent_id=intent,
+            cumulative_quantity=max(projected),
+            occurred_at=occurred_at,
+        )
+
 
 class PostgresExecutionCheckpointStore:
     """PostgreSQL parity for durable aggregate-execution convergence barriers."""
@@ -489,3 +538,48 @@ class PostgresExecutionCheckpointStore:
                         )
                         resolved += int(cursor.rowcount == 1)
         return resolved
+
+    def resolve_from_projected_facts(
+        self,
+        *,
+        intent_id: str,
+        occurred_at: datetime,
+    ) -> int:
+        intent = intent_id.strip()
+        if not intent:
+            raise ValueError("intent_id is required")
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT to_regclass('astra_execution_facts') AS facts,
+                        to_regclass('astra_execution_projection_events') AS events"""
+                )
+                tables = cursor.fetchone()
+                if tables is None or tables["facts"] is None or tables["events"] is None:
+                    return 0
+                cursor.execute(
+                    """SELECT f.payload FROM astra_execution_facts f
+                    WHERE EXISTS (
+                        SELECT 1 FROM astra_execution_projection_events e
+                        WHERE e.execution_fact_id=f.execution_fact_id
+                          AND e.state='PROJECTED'
+                    )"""
+                )
+                rows = cursor.fetchall()
+        projected: list[Decimal] = []
+        for row in rows:
+            payload = row["payload"]
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            if not isinstance(payload, dict):
+                raise RuntimeError("invalid execution fact payload")
+            if str(payload.get("intent_id", "")) != intent:
+                continue
+            projected.append(Decimal(str(payload["cumulative_quantity"])))
+        if not projected:
+            return 0
+        return self.resolve_through(
+            intent_id=intent,
+            cumulative_quantity=max(projected),
+            occurred_at=occurred_at,
+        )
