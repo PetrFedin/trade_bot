@@ -386,7 +386,10 @@ class PostgresExecutionCheckpointStore:
             raise RuntimeError("PostgreSQL dependency is unavailable")
         return psycopg.connect(self.dsn, row_factory=dict_row, autocommit=False)
 
-    def migrate(self, path: str | Path = "migrations/product/013_execution_checkpoints.sql") -> None:
+    def migrate(
+        self,
+        path: str | Path = "migrations/product/013_execution_checkpoints.sql",
+    ) -> None:
         sql = Path(path).read_text(encoding="utf-8")
         with self._connect() as connection:
             with connection.cursor() as cursor:
