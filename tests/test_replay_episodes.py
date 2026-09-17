@@ -118,3 +118,37 @@ def test_entry_never_uses_the_close_that_produced_the_signal() -> None:
 def test_too_short_a_series_is_rejected() -> None:
     with pytest.raises(ValueError):
         replay.replay([bar(i, 100.0 + i) for i in range(5)])
+
+
+def test_random_entries_ignore_the_signal() -> None:
+    """The control arm must enter where the signal would not, or it controls nothing."""
+    bars = [bar(i, 100.0, high=100.4, low=99.6) for i in range(200)]
+    signalled = replay.replay(bars)
+    controlled = replay.replay(bars, random_entries=20)
+    assert signalled["episodes"] == 0
+    assert controlled["episodes"] > 0
+
+
+def test_random_entries_are_reproducible() -> None:
+    bars = [bar(i, 100.0 + i * 0.3, high=100.0 + i * 0.3 + 0.4, low=100.0 + i * 0.3 - 0.4)
+            for i in range(200)]
+    first = replay.replay(bars, random_entries=25, seed=5)
+    second = replay.replay(bars, random_entries=25, seed=5)
+    assert first == second
+
+
+def test_different_seeds_draw_different_entries() -> None:
+    bars = [bar(i, 100.0 + i * 0.3, high=100.0 + i * 0.3 + 0.4, low=100.0 + i * 0.3 - 0.4)
+            for i in range(300)]
+    first = replay.replay(bars, random_entries=30, seed=1)
+    second = replay.replay(bars, random_entries=30, seed=2)
+    assert first != second
+
+
+def test_random_entries_respect_the_exit_policy() -> None:
+    """Only the entry is replaced; every exit rule must still apply."""
+    bars = [bar(i, 100.0 + i * 0.3, high=100.0 + i * 0.3 + 0.4, low=100.0 + i * 0.3 - 0.4)
+            for i in range(300)]
+    report = replay.replay(bars, random_entries=30)
+    assert report["under_shipped_policy"]["resolved"] + report["under_shipped_policy"]["neither"] \
+        == report["episodes"]

@@ -119,8 +119,17 @@ def replay(
     policy: PositionManagementPolicy | None = None,
     strategy: RegimeAwareMomentumStrategy | None = None,
     cost_fraction: Decimal = DEFAULT_COST_FRACTION,
+    random_entries: int | None = None,
+    seed: int = 20260917,
 ) -> dict:
-    """Walk the bars once, entering on the shipped signal and exiting on the shipped policy."""
+    """Walk the bars once, entering on the shipped signal and exiting on the shipped policy.
+
+    Passing random_entries replaces the signal with that many uniformly drawn entry
+    points, leaving every exit rule untouched. A long-only strategy in a market that
+    rose over the window collects that rise whether or not its entry carries
+    information, so the random arm is what separates the two: a signal that does not
+    beat it is contributing nothing but exposure.
+    """
     policy = policy or PositionManagementPolicy()
     policy.validate()
     strategy = strategy or RegimeAwareMomentumStrategy()
@@ -136,12 +145,26 @@ def replay(
     closes = [Bar(symbol=b.symbol, timestamp=b.timestamp, close=b.close) for b in bars]
     episodes: list[Episode] = []
     eligible_signals = 0
+
+    chosen: set[int] | None = None
+    if random_entries is not None:
+        import random as _random
+
+        span = range(history, len(bars) - 1)
+        rng = _random.Random(seed)
+        chosen = set(rng.sample(list(span), min(random_entries, len(span))))
+
     index = history
     while index < len(bars) - 1:
-        signal = strategy.signal(closes[max(0, index - history * 3) : index + 1])
-        if not signal.eligible:
-            index += 1
-            continue
+        if chosen is not None:
+            if index not in chosen:
+                index += 1
+                continue
+        else:
+            signal = strategy.signal(closes[max(0, index - history * 3) : index + 1])
+            if not signal.eligible:
+                index += 1
+                continue
         eligible_signals += 1
 
         entry_index = index + 1
