@@ -42,6 +42,7 @@ DEFAULT_COST_FRACTION = Decimal("0.0016")
 
 
 class Verdict:
+    BASELINE_UNDETERMINED = "BASELINE_UNDETERMINED"
     WORSE_THAN_RANDOM = "WORSE_THAN_RANDOM"
     INDISTINGUISHABLE = "INDISTINGUISHABLE_FROM_RANDOM"
     EDGE_PRESENT = "EDGE_PRESENT"
@@ -84,6 +85,90 @@ def policy_geometry() -> Geometry:
         stop_fraction=policy.stop_loss_fraction,
         target_fraction=policy.take_profit_fraction,
     )
+
+
+def policy_has_trailing_stop() -> bool:
+    """Report whether the shipped policy moves the protective level while in profit."""
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from app.strategy.position_management import PositionManagementPolicy
+
+    policy = PositionManagementPolicy()
+    return policy.trailing_activation_fraction < policy.take_profit_fraction
+
+
+def simulate_baseline(bar_sigma: float, *, episodes: int = 20000, seed: int = 20260917) -> float:
+    """Measure the driftless target-first rate of the shipped exit policy.
+
+    The closed form stop/(stop+target) describes two barriers that never move. The
+    shipped policy moves one: once the position is ahead by the activation fraction the
+    protective level rises to peak*(1 - trailing_fraction), so a position can be closed
+    near breakeven without ever reaching the target. A bar where both levels are
+    reachable is also resolved to the protective side. Both effects push the coin-flip
+    rate well below the closed form, and neither is expressible in it.
+
+    This runs driftless geometric Brownian paths through the production exit evaluator
+    rather than a re-implementation, so the baseline reflects the policy that ships.
+    """
+    import random
+    from datetime import UTC, datetime, timedelta
+
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from app.marketdata.ohlcv import OhlcvBar
+    from app.strategy.ohlcv_exit import (
+        IntrabarExitReason,
+        IntrabarPositionState,
+        evaluate_long_intrabar_exit,
+    )
+    from app.strategy.position_management import PositionManagementPolicy
+
+    if not 0 < bar_sigma < 1:
+        raise ValueError("bar_sigma must be within (0, 1)")
+
+    policy = PositionManagementPolicy()
+    policy.validate()
+    rng = random.Random(seed)
+    entry = Decimal("100")
+    substeps = 24
+    step_sigma = bar_sigma / (substeps**0.5)
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+
+    target_first = 0
+    stop_first = 0
+    for _ in range(episodes):
+        state = IntrabarPositionState(peak_completed_price=entry)
+        previous_close = 100.0
+        for index in range(policy.maximum_holding_bars):
+            price = previous_close
+            high = low = price
+            for _ in range(substeps):
+                price *= 1.0 + rng.gauss(0.0, step_sigma)
+                high = max(high, price)
+                low = min(low, price)
+            bar = OhlcvBar(
+                symbol="SIM",
+                timestamp=start + timedelta(days=index),
+                open=Decimal(str(round(previous_close, 8))),
+                high=Decimal(str(round(high, 8))),
+                low=Decimal(str(round(low, 8))),
+                close=Decimal(str(round(price, 8))),
+                volume=1,
+                trade_count=1,
+            )
+            decision = evaluate_long_intrabar_exit(
+                average_cost=entry, bar=bar, state=state, policy=policy
+            )
+            if decision.exit_now:
+                if decision.reason == IntrabarExitReason.TAKE_PROFIT:
+                    target_first += 1
+                else:
+                    stop_first += 1
+                break
+            state = decision.state
+            previous_close = price
+    decided = target_first + stop_first
+    return target_first / decided if decided else 0.0
 
 
 def _display(path: Path) -> str:
@@ -130,9 +215,20 @@ def diagnose(
     *,
     cost_fraction: Decimal = DEFAULT_COST_FRACTION,
     alpha: float = 0.01,
+    bar_sigma: float | None = None,
+    trailing_active: bool | None = None,
 ) -> dict:
-    """Return a verdict on one frozen evidence record."""
+    """Return a verdict on one frozen evidence record.
+
+    When the shipped policy moves its protective level while in profit, the closed-form
+    baseline does not describe it and a per-bar volatility is required to measure the
+    baseline by simulation instead. Without one the verdict is BASELINE_UNDETERMINED:
+    comparing against a baseline that does not match the policy produces a confident
+    answer in whichever direction the mismatch happens to point.
+    """
     geometry.validate()
+    if trailing_active is None:
+        trailing_active = policy_has_trailing_stop()
 
     target_first = int(evidence["target_first"])
     stop_first = int(evidence["stop_first"])
@@ -140,7 +236,32 @@ def diagnose(
     if decided <= 0:
         raise SystemExit("EVIDENCE_EMPTY: no resolved target/stop episodes")
 
-    baseline = geometry.baseline_target_first
+    if trailing_active and bar_sigma is None:
+        return {
+            "verdict": Verdict.BASELINE_UNDETERMINED,
+            "promotion_allowed": False,
+            "reason": (
+                "The shipped policy moves its protective level while in profit, so the "
+                "closed-form baseline stop/(stop+target) does not describe it. Supply "
+                "--bar-sigma to measure the baseline by simulating the real policy."
+            ),
+            "geometry": {
+                "stop_fraction": str(geometry.stop_fraction),
+                "target_fraction": str(geometry.target_fraction),
+                "reward_to_risk": round(geometry.reward_to_risk, 4),
+                "trailing_stop_active": True,
+            },
+            "episodes": {
+                "target_first": target_first,
+                "stop_first": stop_first,
+                "resolved": decided,
+            },
+            "rates": {"observed_target_first": round(target_first / decided, 6)},
+        }
+
+    baseline = (
+        simulate_baseline(bar_sigma) if bar_sigma is not None else geometry.baseline_target_first
+    )
     observed = target_first / decided
     standard_error = math.sqrt(baseline * (1 - baseline) / decided)
     z_score = (observed - baseline) / standard_error if standard_error else 0.0
@@ -169,7 +290,10 @@ def diagnose(
             "stop_fraction": str(geometry.stop_fraction),
             "target_fraction": str(geometry.target_fraction),
             "reward_to_risk": round(geometry.reward_to_risk, 4),
+            "trailing_stop_active": trailing_active,
         },
+        "baseline_method": "simulated" if bar_sigma is not None else "closed-form",
+        "bar_sigma": bar_sigma,
         "episodes": {
             "target_first": target_first,
             "stop_first": stop_first,
@@ -196,6 +320,18 @@ def diagnose(
 
 
 def _format(report: dict, source: str) -> str:
+    if report["verdict"] == Verdict.BASELINE_UNDETERMINED:
+        episodes = report["episodes"]
+        return "\n".join(
+            [
+                f"evidence      : {source}",
+                f"episodes      : {episodes['resolved']} resolved "
+                f"({episodes['target_first']} target-first, {episodes['stop_first']} stop-first)",
+                f"observed rate : {report['rates']['observed_target_first']:.4f}",
+                f"VERDICT       : {report['verdict']}",
+                f"reason        : {report['reason']}",
+            ]
+        )
     rates = report["rates"]
     significance = report["significance"]
     expectancy = report["expectancy_per_unit_risk"]
@@ -234,6 +370,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--target-fraction", type=Decimal)
     parser.add_argument("--cost-fraction", type=Decimal, default=DEFAULT_COST_FRACTION)
     parser.add_argument("--alpha", type=float, default=0.01)
+    parser.add_argument(
+        "--bar-sigma",
+        type=float,
+        help=(
+            "per-bar volatility used to simulate the baseline of the real exit policy; "
+            "required whenever the policy carries a trailing stop"
+        ),
+    )
     parser.add_argument("--json", action="store_true", help="emit the report as JSON")
     parser.add_argument(
         "--require-edge",
@@ -275,6 +419,7 @@ def main(argv: list[str] | None = None) -> int:
             geometry,
             cost_fraction=args.cost_fraction,
             alpha=args.alpha,
+            bar_sigma=args.bar_sigma,
         )
         report["evidence_path"] = _display(path)
         report["declared_promotion_allowed"] = bool(evidence.get("promotion_allowed", False))
