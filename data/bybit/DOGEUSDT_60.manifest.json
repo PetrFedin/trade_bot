@@ -1,0 +1,15 @@
+{
+  "schema_version": "bybit-kline-manifest-v1",
+  "source_classification": "PUBLIC_VENUE_DATA_NON_AUTHORITATIVE",
+  "endpoint": "https://api.bybit.com/v5/market/kline",
+  "category": "linear",
+  "symbol": "DOGEUSDT",
+  "interval": "60",
+  "requested_start": "2023-09-18T14:41:30.930662+00:00",
+  "requested_end": "2026-09-17T14:41:30.930662+00:00",
+  "bar_count": 26280,
+  "first_bar": "2023-09-18T15:00:00+00:00",
+  "last_bar": "2026-09-17T14:00:00+00:00",
+  "dataset_file": "DOGEUSDT_60.csv",
+  "limitations": "Public venue data retrieved without authentication. Gaps, revisions and listing history are not asserted; the venue may omit bars with no trades."
+}
