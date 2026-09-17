@@ -202,7 +202,8 @@ def test_malformed_mutation_outbox_cannot_prove_lineage(tmp_path) -> None:
     )
     with sqlite3.connect(db) as connection:
         connection.execute(
-            "UPDATE oms_order_mutation_outbox SET payload='not-json' WHERE mutation_id='malformed-proof'"
+            "UPDATE oms_order_mutation_outbox SET payload='not-json' "
+            "WHERE mutation_id='malformed-proof'"
         )
     with pytest.raises(ValueError, match="REPLACE_LINEAGE_NOT_PROVEN"):
         oms.register_replace_successor(
@@ -304,14 +305,22 @@ def test_same_broker_id_replace_is_proven_but_creates_no_fake_generation(tmp_pat
     )
     with sqlite3.connect(db) as connection:
         rows = connection.execute(
-            "SELECT broker_order_id, generation FROM oms_broker_order_identities WHERE intent_id='edge-intent'"
+            "SELECT broker_order_id, generation FROM oms_broker_order_identities "
+            "WHERE intent_id='edge-intent'"
         ).fetchall()
     assert rows == [("broker-A", 0)]
 
 
 def test_existing_successor_cannot_be_reused_for_different_lineage_edge(tmp_path) -> None:
     _, oms, mutations, lifecycle = lineage_db(tmp_path)
-    successful_replace(oms, mutations, lifecycle, mutation_id="replace-A-B", target="101", successor="broker-B")
+    successful_replace(
+        oms,
+        mutations,
+        lifecycle,
+        mutation_id="replace-A-B",
+        target="101",
+        successor="broker-B",
+    )
     successful_replace(
         oms,
         mutations,
@@ -347,7 +356,14 @@ def test_existing_successor_cannot_be_reused_for_different_lineage_edge(tmp_path
 
 def test_second_successor_from_same_predecessor_fails_closed(tmp_path) -> None:
     db, oms, mutations, lifecycle = lineage_db(tmp_path)
-    successful_replace(oms, mutations, lifecycle, mutation_id="replace-A-B", target="101", successor="broker-B")
+    successful_replace(
+        oms,
+        mutations,
+        lifecycle,
+        mutation_id="replace-A-B",
+        target="101",
+        successor="broker-B",
+    )
     mutations.request(
         mutation_id="replace-A-C",
         intent_id="edge-intent",
@@ -374,7 +390,8 @@ def test_second_successor_from_same_predecessor_fails_closed(tmp_path) -> None:
         )
     with sqlite3.connect(db) as connection:
         successors = connection.execute(
-            "SELECT broker_order_id FROM oms_broker_order_identities WHERE predecessor_broker_order_id='broker-A'"
+            "SELECT broker_order_id FROM oms_broker_order_identities "
+            "WHERE predecessor_broker_order_id='broker-A'"
         ).fetchall()
     assert successors == [("broker-B",)]
 
