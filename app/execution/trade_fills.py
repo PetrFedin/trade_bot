@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Protocol
 
 from app.domain.trading import Fill, Side
+from app.execution.execution_checkpoints import ExecutionCheckpointStore
 from app.execution.execution_facts import ExecutionFact, ExecutionFactStore
 from app.oms.protocols import OmsStore
 from app.oms.store import OrderRecord, OrderState
@@ -227,12 +228,14 @@ class PaperTradeFillAccounting:
         opening_cash: Decimal,
         fee_provider: PaperFillFeeProvider,
         runtime_ledger: PortfolioLedger | None = None,
+        execution_checkpoints: ExecutionCheckpointStore | None = None,
     ) -> None:
         if not opening_cash.is_finite() or opening_cash < 0:
             raise ValueError("opening_cash must be finite and non-negative")
         self.oms = oms
         self.portfolio = portfolio
         self.execution_facts = execution_facts
+        self.execution_checkpoints = execution_checkpoints
         self.opening_cash = opening_cash
         self.fee_provider = fee_provider
         self.runtime_ledger = runtime_ledger
@@ -331,6 +334,16 @@ class PaperTradeFillAccounting:
         appended = self.portfolio.append_fill(domain_fill)
         if self.runtime_ledger is not None:
             self.runtime_ledger.apply_fill(domain_fill)
+
+        # Resolve aggregate submit observations only after the exact execution has been
+        # durably accepted by the portfolio. Keep the exact fact unresolved until after
+        # this step so every crash boundary retains at least one convergence blocker.
+        if self.execution_checkpoints is not None:
+            self.execution_checkpoints.resolve_through(
+                intent_id=fact.intent_id,
+                cumulative_quantity=fact.cumulative_quantity,
+                occurred_at=fact.occurred_at,
+            )
 
         self.execution_facts.mark_projected(
             fact.execution_fact_id,
