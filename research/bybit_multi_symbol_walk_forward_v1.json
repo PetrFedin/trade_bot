@@ -1,0 +1,95 @@
+{
+  "schema_version": "strategy-research-measurement-v1",
+  "research_only": true,
+  "strategy_promotion_allowed": false,
+  "provider": "bybit",
+  "category": "linear",
+  "window": {
+    "start": "2023-09-19",
+    "end": "2026-09-17",
+    "interval": "D"
+  },
+  "cost_fraction_round_trip": "0.0016",
+  "tooling": [
+    "tools/fetch_bybit_klines.py",
+    "tools/replay_episodes.py",
+    "tools/walk_forward.py"
+  ],
+  "narrow_universe": {
+    "note": "Six majors chosen by the author for liquidity. Retained to show the effect of that choice.",
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "XRPUSDT",
+      "BNBUSDT",
+      "DOGEUSDT"
+    ],
+    "full_window": {
+      "symbols": 6,
+      "episodes": 632,
+      "gross_mean_return_per_episode": 0.00288007,
+      "net_mean_return_per_episode": 0.00128007,
+      "t_statistic": 1.2482
+    },
+    "walk_forward": {
+      "tuned_in_sample": {
+        "folds": 36,
+        "mean_return_per_episode": 0.00229856,
+        "t_statistic": 3.0373,
+        "positive_folds": 25
+      },
+      "tuned_out_of_sample": {
+        "folds": 36,
+        "mean_return_per_episode": 0.0010733,
+        "t_statistic": 1.1116,
+        "positive_folds": 20
+      },
+      "fixed_out_of_sample": {
+        "folds": 36,
+        "mean_return_per_episode": 0.00283154,
+        "t_statistic": 2.3918,
+        "positive_folds": 22
+      }
+    }
+  },
+  "broad_universe": {
+    "note": "Twenty-one liquid linear perpetuals. The narrow result does not survive here.",
+    "symbol_count": 21,
+    "full_window": {
+      "symbols": 21,
+      "episodes": 1809,
+      "gross_mean_return_per_episode": 0.00128666,
+      "net_mean_return_per_episode": -0.00031334,
+      "t_statistic": -0.5138
+    },
+    "walk_forward": {
+      "tuned_in_sample": {
+        "folds": 125,
+        "mean_return_per_episode": 0.00062119,
+        "t_statistic": 1.5098,
+        "positive_folds": 68
+      },
+      "tuned_out_of_sample": {
+        "folds": 125,
+        "mean_return_per_episode": -0.00136412,
+        "t_statistic": -1.7793,
+        "positive_folds": 55
+      },
+      "fixed_out_of_sample": {
+        "folds": 125,
+        "mean_return_per_episode": -0.00056222,
+        "t_statistic": -0.6478,
+        "positive_folds": 63
+      }
+    }
+  },
+  "interpretation": "No positive cost-adjusted edge is established on daily bars. The encouraging narrow-universe figure does not survive expansion to a broader symbol set, which identifies it as symbol selection rather than edge. Parameter tuning underperforms the shipped configuration out of sample in both universes. Shorter timeframes are separately and decisively negative, with gross return indistinguishable from zero. This is a research measurement and cannot grant promotion.",
+  "limitations": [
+    "In-sample symbol universe chosen by the author; broad set is liquidity-ranked, not exhaustive.",
+    "Perpetual funding is not modelled and is material over three years.",
+    "Slippage beyond a flat 0.16% round trip is not modelled.",
+    "Venue gaps, revisions and listing history are not asserted.",
+    "Shipped defaults were not chosen by this study and may themselves reflect prior fitting."
+  ]
+}
