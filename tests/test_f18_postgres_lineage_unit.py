@@ -7,10 +7,18 @@ from pathlib import Path
 
 import pytest
 
+import app.oms.postgres as postgres_module
 from app.oms.indexed import IndexedPostgresOmsStore
 from app.oms.postgres import PostgresOmsStore
 
 NOW = datetime(2026, 9, 16, 21, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _allow_offline_postgres_constructor(monkeypatch) -> None:
+    """Keep these scripted unit tests independent of the optional psycopg extra."""
+
+    monkeypatch.setattr(postgres_module, "psycopg", object())
 
 
 def order_row(intent_id: str = "intent-1", broker_id: str = "broker-A") -> dict[str, object]:
@@ -158,7 +166,11 @@ def test_postgres_lookup_contract_uses_lineage_then_current_fallback(monkeypatch
 
 def test_postgres_lineage_registration_validates_inputs_before_db(monkeypatch) -> None:
     store = IndexedPostgresOmsStore("postgresql://offline-unit")
-    monkeypatch.setattr(store, "_connect", lambda: (_ for _ in ()).throw(AssertionError("db used")))
+    monkeypatch.setattr(
+        store,
+        "_connect",
+        lambda: (_ for _ in ()).throw(AssertionError("db used")),
+    )
 
     with pytest.raises(ValueError, match="intent_id and mutation_id are required"):
         register(store, intent_id="")
@@ -201,7 +213,11 @@ def test_postgres_lineage_bootstraps_missing_root_and_inserts_successor(monkeypa
     register(store)
 
     assert connection.cursor_value.steps == []
-    insert_sql = [sql for sql, _ in connection.cursor_value.executed if "INSERT INTO astra_broker_order_identities" in sql]
+    insert_sql = [
+        sql
+        for sql, _ in connection.cursor_value.executed
+        if "INSERT INTO astra_broker_order_identities" in sql
+    ]
     assert len(insert_sql) == 2
 
 
@@ -322,4 +338,5 @@ def test_postgres_migrate_dispatches_base_and_lineage_scripts(monkeypatch) -> No
     store.migrate()
     assert calls[-1] == "migrations/product/001_durable_oms.sql"
     assert connection.commits == 1
-    assert "CREATE TABLE IF NOT EXISTS astra_broker_order_identities" in connection.cursor_value.executed[0][0]
+    sql = connection.cursor_value.executed[0][0]
+    assert "CREATE TABLE IF NOT EXISTS astra_broker_order_identities" in sql
