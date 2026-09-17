@@ -59,14 +59,19 @@ class PostgresFinancialActivityStore:
             autocommit=False,
         )
 
-    def migrate(
-        self,
-        path: str | Path = "migrations/product/008_financial_activities.sql",
-    ) -> None:
-        sql = Path(path).read_text(encoding="utf-8")
+    def migrate(self, path: str | Path | None = None) -> None:
+        paths = (
+            (
+                Path("migrations/product/008_financial_activities.sql"),
+                Path("migrations/product/014_financial_activity_evidence_fencing.sql"),
+            )
+            if path is None
+            else (Path(path),)
+        )
         with self._connect() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(sql)
+                for migration_path in paths:
+                    cursor.execute(migration_path.read_text(encoding="utf-8"))
             connection.commit()
 
     @staticmethod
@@ -168,22 +173,29 @@ class PostgresFinancialActivityStore:
                         return self._record(row)
 
                     cursor.execute(_SELECT_ACTIVITY_FOR_UPDATE, identity)
-                    existing = cursor.fetchone()
-                    if existing is None:
-                        raise RuntimeError(
-                            "financial activity conflict row is unavailable"
-                        )
-                    if str(existing["payload_hash"]) == digest:
-                        return self._record(existing)
+                    row = cursor.fetchone()
+                    if row is None:
+                        raise RuntimeError("financial activity conflict lookup failed")
+                    existing = self._record(row)
+                    if existing.activity.payload_hash == digest:
+                        return existing
+
+                    conflict_event_id = (
+                        f"financial-activity-conflict:{activity.account_identity}:"
+                        f"{activity.activity_id}:{digest}"
+                    )
                     cursor.execute(
                         """INSERT INTO astra_financial_activity_conflicts
-                        (account_identity, activity_id, existing_payload_hash,
-                         observed_payload_hash, observed_payload, observed_at)
-                        VALUES (%s, %s, %s, %s, %s::jsonb, %s)""",
+                        (conflict_event_id, account_identity, activity_id,
+                         existing_payload_hash, conflicting_payload_hash,
+                         conflicting_payload, observed_at)
+                        VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s)
+                        ON CONFLICT (conflict_event_id) DO NOTHING""",
                         (
+                            conflict_event_id,
                             activity.account_identity,
                             activity.activity_id,
-                            str(existing["payload_hash"]),
+                            existing.activity.payload_hash,
                             digest,
                             payload,
                             moment,
@@ -191,19 +203,31 @@ class PostgresFinancialActivityStore:
                     )
                     cursor.execute(
                         """UPDATE astra_financial_activity_projection
-                        SET state='QUARANTINED',
-                            reason='ACTIVITY_ID_CONFLICT',
-                            updated_at=%s
+                        SET state='QUARANTINED', reason='ACTIVITY_ID_CONFLICT',
+                            portfolio_event_id=NULL, updated_at=%s
                         WHERE account_identity=%s AND activity_id=%s""",
                         (moment, *identity),
                     )
                     cursor.execute(_SELECT_ACTIVITY, identity)
-                    row = cursor.fetchone()
-                    if row is None:
-                        raise RuntimeError(
-                            "financial activity conflict lookup failed"
-                        )
-                    return self._record(row)
+                    conflicted = cursor.fetchone()
+                    if conflicted is None:
+                        raise RuntimeError("financial activity quarantine lookup failed")
+                    return self._record(conflicted)
+
+    def get(
+        self,
+        account_identity: str,
+        activity_id: str,
+    ) -> FinancialActivityRecord | None:
+        account = validate_account(account_identity)
+        activity = activity_id.strip()
+        if not activity:
+            raise ValueError("activity_id is required")
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(_SELECT_ACTIVITY, (account, activity))
+                row = cursor.fetchone()
+        return None if row is None else self._record(row)
 
     def pending(
         self,
@@ -211,150 +235,157 @@ class PostgresFinancialActivityStore:
         account_identity: str,
         limit: int = 100,
     ) -> tuple[FinancialActivityRecord, ...]:
-        validate_account(account_identity)
+        account = validate_account(account_identity)
         if limit < 1:
             raise ValueError("limit must be positive")
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """SELECT f.*, p.state, p.reason,
-                              p.portfolio_event_id, p.updated_at
+                    """SELECT f.*, p.state, p.reason, p.portfolio_event_id,
+                              p.updated_at
                     FROM astra_financial_activity_facts f
                     JOIN astra_financial_activity_projection p
                       USING(account_identity, activity_id)
-                    WHERE p.state='PENDING'
-                      AND f.account_identity=%s
-                    ORDER BY f.occurred_at, f.activity_id LIMIT %s""",
-                    (account_identity, limit),
+                    WHERE f.account_identity=%s AND p.state='PENDING'
+                    ORDER BY f.occurred_at, f.activity_id
+                    LIMIT %s""",
+                    (account, limit),
                 )
                 rows = cursor.fetchall()
         return tuple(self._record(row) for row in rows)
 
-    def _transition(
-        self,
-        account_identity: str,
-        activity_id: str,
-        *,
-        state: FinancialProjectionState,
-        reason: str | None,
-        portfolio_event_id: str | None,
-        occurred_at: datetime,
-    ) -> FinancialActivityRecord:
-        validate_account(account_identity)
-        moment = aware_utc(occurred_at, "occurred_at")
-        identity = (account_identity, activity_id)
-        with self._connect() as connection:
-            with connection.transaction():
-                with connection.cursor() as cursor:
-                    cursor.execute(_SELECT_ACTIVITY_FOR_UPDATE, identity)
-                    row = cursor.fetchone()
-                    if row is None:
-                        raise KeyError(identity)
-                    current = FinancialProjectionState(str(row["state"]))
-                    if (
-                        current is FinancialProjectionState.PROJECTED
-                        and state is FinancialProjectionState.PROJECTED
-                    ):
-                        if str(row["portfolio_event_id"]) != str(portfolio_event_id):
-                            raise ValueError("FINANCIAL_PROJECTION_CONFLICT")
-                        return self._record(row)
-                    if (
-                        current is FinancialProjectionState.QUARANTINED
-                        and state is not FinancialProjectionState.QUARANTINED
-                    ):
-                        raise ValueError(
-                            "QUARANTINED_FINANCIAL_ACTIVITY_CANNOT_ADVANCE"
-                        )
-                    cursor.execute(
-                        """UPDATE astra_financial_activity_projection
-                        SET state=%s, reason=%s,
-                            portfolio_event_id=%s, updated_at=%s
-                        WHERE account_identity=%s AND activity_id=%s""",
-                        (
-                            state.value,
-                            reason,
-                            portfolio_event_id,
-                            moment,
-                            *identity,
-                        ),
-                    )
-                    cursor.execute(_SELECT_ACTIVITY, identity)
-                    updated = cursor.fetchone()
-                    if updated is None:
-                        raise RuntimeError(
-                            "financial projection update lookup failed"
-                        )
-                    return self._record(updated)
-
-    def mark_projected(
-        self,
-        account_identity: str,
-        activity_id: str,
-        *,
-        portfolio_event_id: str,
-        occurred_at: datetime,
-    ) -> FinancialActivityRecord:
-        if not portfolio_event_id.strip():
-            raise ValueError("portfolio_event_id is required")
-        return self._transition(
-            account_identity,
-            activity_id,
-            state=FinancialProjectionState.PROJECTED,
-            reason=None,
-            portfolio_event_id=portfolio_event_id,
-            occurred_at=occurred_at,
-        )
-
-    def quarantine(
-        self,
-        account_identity: str,
-        activity_id: str,
-        *,
-        reason: str,
-        occurred_at: datetime,
-    ) -> FinancialActivityRecord:
-        if not reason.strip():
-            raise ValueError("quarantine reason is required")
-        return self._transition(
-            account_identity,
-            activity_id,
-            state=FinancialProjectionState.QUARANTINED,
-            reason=reason,
-            portfolio_event_id=None,
-            occurred_at=occurred_at,
-        )
-
-    def _count(
-        self,
-        state: FinancialProjectionState,
-        *,
-        account_identity: str,
-    ) -> int:
-        validate_account(account_identity)
+    def unresolved_count(self, *, account_identity: str) -> int:
+        account = validate_account(account_identity)
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """SELECT COUNT(*) AS count
+                    """SELECT count(*) AS unresolved
                     FROM astra_financial_activity_projection
-                    WHERE state=%s AND account_identity=%s""",
-                    (state.value, account_identity),
+                    WHERE account_identity=%s AND state!='PROJECTED'""",
+                    (account,),
                 )
                 row = cursor.fetchone()
-        if row is None:
-            raise RuntimeError("financial projection count failed")
-        return int(row["count"])
-
-    def pending_count(self, *, account_identity: str) -> int:
-        return self._count(
-            FinancialProjectionState.PENDING,
-            account_identity=account_identity,
-        )
+                if row is None:
+                    raise RuntimeError("financial activity count lookup failed")
+        return int(row["unresolved"])
 
     def quarantined_count(self, *, account_identity: str) -> int:
-        return self._count(
-            FinancialProjectionState.QUARANTINED,
-            account_identity=account_identity,
-        )
+        account = validate_account(account_identity)
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT count(*) AS quarantined
+                    FROM astra_financial_activity_projection
+                    WHERE account_identity=%s AND state='QUARANTINED'""",
+                    (account,),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    raise RuntimeError("financial activity count lookup failed")
+        return int(row["quarantined"])
+
+    def projection_counts(self, *, account_identity: str) -> dict[str, int]:
+        account = validate_account(account_identity)
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT state, count(*) AS count
+                    FROM astra_financial_activity_projection
+                    WHERE account_identity=%s GROUP BY state""",
+                    (account,),
+                )
+                rows = cursor.fetchall()
+        result = {
+            FinancialProjectionState.PENDING.value: 0,
+            FinancialProjectionState.PROJECTED.value: 0,
+            FinancialProjectionState.QUARANTINED.value: 0,
+        }
+        for row in rows:
+            result[str(row["state"])] = int(row["count"])
+        return result
+
+    def mark_projected(
+        self,
+        *,
+        account_identity: str,
+        activity_id: str,
+        portfolio_event_id: str,
+        occurred_at: datetime,
+    ) -> FinancialActivityRecord:
+        account = validate_account(account_identity)
+        activity = activity_id.strip()
+        event_id = portfolio_event_id.strip()
+        if not activity or not event_id:
+            raise ValueError("activity_id and portfolio_event_id are required")
+        moment = aware_utc(occurred_at, "occurred_at")
+        with self._connect() as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute(_SELECT_ACTIVITY_FOR_UPDATE, (account, activity))
+                    row = cursor.fetchone()
+                    if row is None:
+                        raise KeyError(activity)
+                    current = self._record(row)
+                    if current.state is FinancialProjectionState.QUARANTINED:
+                        raise ValueError("QUARANTINED_ACTIVITY_CANNOT_PROJECT")
+                    if current.state is FinancialProjectionState.PROJECTED:
+                        if current.portfolio_event_id != event_id:
+                            raise ValueError("PORTFOLIO_EVENT_ID_CONFLICT")
+                        return current
+                    cursor.execute(
+                        """UPDATE astra_financial_activity_projection
+                        SET state='PROJECTED', reason=NULL,
+                            portfolio_event_id=%s, updated_at=%s
+                        WHERE account_identity=%s AND activity_id=%s""",
+                        (event_id, moment, account, activity),
+                    )
+                    cursor.execute(_SELECT_ACTIVITY, (account, activity))
+                    projected = cursor.fetchone()
+                    if projected is None:
+                        raise RuntimeError("financial activity projection lookup failed")
+                    return self._record(projected)
+
+    def mark_quarantined(
+        self,
+        *,
+        account_identity: str,
+        activity_id: str,
+        reason: str,
+        occurred_at: datetime,
+    ) -> FinancialActivityRecord:
+        account = validate_account(account_identity)
+        activity = activity_id.strip()
+        normalized_reason = reason.strip()
+        if not activity or not normalized_reason:
+            raise ValueError("activity_id and reason are required")
+        moment = aware_utc(occurred_at, "occurred_at")
+        with self._connect() as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute(_SELECT_ACTIVITY_FOR_UPDATE, (account, activity))
+                    row = cursor.fetchone()
+                    if row is None:
+                        raise KeyError(activity)
+                    current = self._record(row)
+                    if current.state is FinancialProjectionState.PROJECTED:
+                        raise ValueError("PROJECTED_ACTIVITY_CANNOT_QUARANTINE")
+                    if (
+                        current.state is FinancialProjectionState.QUARANTINED
+                        and current.reason == normalized_reason
+                    ):
+                        return current
+                    cursor.execute(
+                        """UPDATE astra_financial_activity_projection
+                        SET state='QUARANTINED', reason=%s,
+                            portfolio_event_id=NULL, updated_at=%s
+                        WHERE account_identity=%s AND activity_id=%s""",
+                        (normalized_reason, moment, account, activity),
+                    )
+                    cursor.execute(_SELECT_ACTIVITY, (account, activity))
+                    quarantined = cursor.fetchone()
+                    if quarantined is None:
+                        raise RuntimeError("financial activity quarantine lookup failed")
+                    return self._record(quarantined)
 
     def recovery_state(
         self,
@@ -362,97 +393,187 @@ class PostgresFinancialActivityStore:
         account_identity: str,
         release_identity: str,
     ) -> FinancialActivityRecoveryState | None:
-        validate_scope(account_identity, release_identity)
+        account, release = validate_scope(account_identity, release_identity)
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """SELECT * FROM astra_financial_activity_recovery
+                    """SELECT account_identity, release_identity,
+                              safe_cursor, safe_observed_at,
+                              last_recovery_started_at, last_recovery_completed_at,
+                              last_recovery_complete, last_error,
+                              updated_at
+                    FROM astra_financial_activity_recovery
                     WHERE account_identity=%s AND release_identity=%s""",
-                    (account_identity, release_identity),
+                    (account, release),
                 )
                 row = cursor.fetchone()
         if row is None:
             return None
-        recovered = row["recovered_through"]
-        updated = row["updated_at"]
-        if not isinstance(recovered, datetime):
-            recovered = datetime.fromisoformat(str(recovered))
-        if not isinstance(updated, datetime):
-            updated = datetime.fromisoformat(str(updated))
         return FinancialActivityRecoveryState(
             account_identity=str(row["account_identity"]),
             release_identity=str(row["release_identity"]),
-            recovered_through=aware_utc(recovered, "recovered_through"),
-            updated_at=aware_utc(updated, "updated_at"),
+            safe_cursor=str(row["safe_cursor"]),
+            safe_observed_at=aware_utc(
+                row["safe_observed_at"],
+                "safe_observed_at",
+            ),
+            last_recovery_started_at=aware_utc(
+                row["last_recovery_started_at"],
+                "last_recovery_started_at",
+            ),
+            last_recovery_completed_at=(
+                None
+                if row["last_recovery_completed_at"] is None
+                else aware_utc(
+                    row["last_recovery_completed_at"],
+                    "last_recovery_completed_at",
+                )
+            ),
+            last_recovery_complete=bool(row["last_recovery_complete"]),
+            last_error=None if row["last_error"] is None else str(row["last_error"]),
+            updated_at=aware_utc(row["updated_at"], "updated_at"),
         )
 
-    def advance_recovery(
+    def mark_recovery_started(
         self,
         *,
         account_identity: str,
         release_identity: str,
-        recovered_through: datetime,
         occurred_at: datetime,
     ) -> FinancialActivityRecoveryState:
-        validate_scope(account_identity, release_identity)
-        watermark = aware_utc(recovered_through, "recovered_through")
+        account, release = validate_scope(account_identity, release_identity)
         moment = aware_utc(occurred_at, "occurred_at")
-        if watermark > moment:
-            raise ValueError("recovered_through cannot exceed occurred_at")
         with self._connect() as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
                     cursor.execute(
                         """INSERT INTO astra_financial_activity_recovery
                         (account_identity, release_identity,
-                         recovered_through, updated_at)
-                        VALUES (%s, %s, %s, %s)
-                        ON CONFLICT (account_identity, release_identity)
-                        DO NOTHING
-                        RETURNING recovered_through""",
-                        (
-                            account_identity,
-                            release_identity,
-                            watermark,
-                            moment,
-                        ),
+                         safe_cursor, safe_observed_at,
+                         last_recovery_started_at, last_recovery_completed_at,
+                         last_recovery_complete, last_error, updated_at)
+                        VALUES (%s, %s, '', %s, %s, NULL, FALSE, NULL, %s)
+                        ON CONFLICT (account_identity, release_identity) DO UPDATE SET
+                            last_recovery_started_at=EXCLUDED.last_recovery_started_at,
+                            last_recovery_complete=FALSE,
+                            last_error=NULL,
+                            updated_at=EXCLUDED.updated_at""",
+                        (account, release, moment, moment, moment),
                     )
-                    inserted = cursor.fetchone() is not None
-                    if not inserted:
-                        cursor.execute(
-                            """SELECT recovered_through
-                            FROM astra_financial_activity_recovery
-                            WHERE account_identity=%s AND release_identity=%s
-                            FOR UPDATE""",
-                            (account_identity, release_identity),
-                        )
-                        row = cursor.fetchone()
-                        if row is None:
-                            raise RuntimeError(
-                                "financial recovery row unavailable"
-                            )
-                        existing = row["recovered_through"]
-                        if not isinstance(existing, datetime):
-                            existing = datetime.fromisoformat(str(existing))
-                        if watermark < aware_utc(existing, "recovered_through"):
-                            raise ValueError(
-                                "FINANCIAL_ACTIVITY_WATERMARK_REGRESSION"
-                            )
-                        cursor.execute(
-                            """UPDATE astra_financial_activity_recovery
-                            SET recovered_through=%s, updated_at=%s
-                            WHERE account_identity=%s AND release_identity=%s""",
-                            (
-                                watermark,
-                                moment,
-                                account_identity,
-                                release_identity,
-                            ),
-                        )
         state = self.recovery_state(
-            account_identity=account_identity,
-            release_identity=release_identity,
+            account_identity=account,
+            release_identity=release,
         )
         if state is None:
-            raise RuntimeError("financial recovery state persistence failed")
+            raise RuntimeError("financial recovery start persistence failed")
         return state
+
+    def mark_recovery_completed(
+        self,
+        *,
+        account_identity: str,
+        release_identity: str,
+        safe_cursor: str,
+        safe_observed_at: datetime,
+        occurred_at: datetime,
+    ) -> FinancialActivityRecoveryState:
+        account, release = validate_scope(account_identity, release_identity)
+        cursor = safe_cursor.strip()
+        if not cursor:
+            raise ValueError("safe_cursor is required")
+        observed = aware_utc(safe_observed_at, "safe_observed_at")
+        moment = aware_utc(occurred_at, "occurred_at")
+        with self._connect() as connection:
+            with connection.transaction():
+                with connection.cursor() as db_cursor:
+                    db_cursor.execute(
+                        """SELECT safe_observed_at, safe_cursor
+                        FROM astra_financial_activity_recovery
+                        WHERE account_identity=%s AND release_identity=%s
+                        FOR UPDATE""",
+                        (account, release),
+                    )
+                    row = db_cursor.fetchone()
+                    if row is not None:
+                        existing_observed = aware_utc(
+                            row["safe_observed_at"],
+                            "safe_observed_at",
+                        )
+                        existing_cursor = str(row["safe_cursor"])
+                        if (observed, cursor) < (existing_observed, existing_cursor):
+                            raise ValueError("RECOVERY_CURSOR_REGRESSION")
+                    db_cursor.execute(
+                        """INSERT INTO astra_financial_activity_recovery
+                        (account_identity, release_identity,
+                         safe_cursor, safe_observed_at,
+                         last_recovery_started_at, last_recovery_completed_at,
+                         last_recovery_complete, last_error, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, TRUE, NULL, %s)
+                        ON CONFLICT (account_identity, release_identity) DO UPDATE SET
+                            safe_cursor=EXCLUDED.safe_cursor,
+                            safe_observed_at=EXCLUDED.safe_observed_at,
+                            last_recovery_completed_at=EXCLUDED.last_recovery_completed_at,
+                            last_recovery_complete=TRUE,
+                            last_error=NULL,
+                            updated_at=EXCLUDED.updated_at""",
+                        (account, release, cursor, observed, moment, moment, moment),
+                    )
+        state = self.recovery_state(
+            account_identity=account,
+            release_identity=release,
+        )
+        if state is None:
+            raise RuntimeError("financial recovery completion persistence failed")
+        return state
+
+    def mark_recovery_failed(
+        self,
+        *,
+        account_identity: str,
+        release_identity: str,
+        error: str,
+        occurred_at: datetime,
+    ) -> FinancialActivityRecoveryState:
+        account, release = validate_scope(account_identity, release_identity)
+        message = error.strip()
+        if not message:
+            raise ValueError("error is required")
+        moment = aware_utc(occurred_at, "occurred_at")
+        with self._connect() as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """INSERT INTO astra_financial_activity_recovery
+                        (account_identity, release_identity,
+                         safe_cursor, safe_observed_at,
+                         last_recovery_started_at, last_recovery_completed_at,
+                         last_recovery_complete, last_error, updated_at)
+                        VALUES (%s, %s, '', %s, %s, NULL, FALSE, %s, %s)
+                        ON CONFLICT (account_identity, release_identity) DO UPDATE SET
+                            last_recovery_complete=FALSE,
+                            last_error=EXCLUDED.last_error,
+                            updated_at=EXCLUDED.updated_at""",
+                        (account, release, moment, moment, message, moment),
+                    )
+        state = self.recovery_state(
+            account_identity=account,
+            release_identity=release,
+        )
+        if state is None:
+            raise RuntimeError("financial recovery failure persistence failed")
+        return state
+
+    def reset_for_test(self) -> None:
+        """Delete integration-test state; never use this from runtime code."""
+
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """TRUNCATE TABLE
+                    astra_financial_activity_conflicts,
+                    astra_financial_activity_recovery,
+                    astra_financial_activity_projection,
+                    astra_financial_activity_facts
+                    RESTART IDENTITY CASCADE"""
+                )
+            connection.commit()
