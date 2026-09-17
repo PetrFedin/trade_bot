@@ -7,10 +7,15 @@ on:
       - 'app/application/order_lifecycle.py'
       - 'app/execution/paper_executor.py'
       - 'app/execution/order_mutation_executor.py'
+      - 'app/execution/trade_fills.py'
       - 'app/oms/store.py'
       - 'app/oms/postgres.py'
+      - 'app/oms/indexed.py'
       - 'app/oms/order_mutations.py'
       - 'app/oms/order_mutations_postgres.py'
+      - 'migrations/product/001_durable_oms.sql'
+      - 'migrations/product/004_order_mutations.sql'
+      - 'migrations/product/012_broker_order_lineage.sql'
       - 'migrations/v107/**'
       - 'migrations/v108/**'
       - 'migrations/v109/**'
@@ -20,6 +25,8 @@ on:
       - 'tests/test_paper_executor_e2e.py'
       - 'tests/test_order_mutation_e2e.py'
       - 'tests/test_postgres_order_mutation_e2e.py'
+      - 'tests/test_f18_broker_order_lineage.py'
+      - 'tests/test_postgres_f18_broker_order_lineage.py'
       - 'tests/test_postgres_remote_signer_repository_v109.py'
       - 'requirements.lock'
       - '.github/workflows/order-lifecycle-fault-campaign.yml'
@@ -28,10 +35,15 @@ on:
       - 'app/application/order_lifecycle.py'
       - 'app/execution/paper_executor.py'
       - 'app/execution/order_mutation_executor.py'
+      - 'app/execution/trade_fills.py'
       - 'app/oms/store.py'
       - 'app/oms/postgres.py'
+      - 'app/oms/indexed.py'
       - 'app/oms/order_mutations.py'
       - 'app/oms/order_mutations_postgres.py'
+      - 'migrations/product/001_durable_oms.sql'
+      - 'migrations/product/004_order_mutations.sql'
+      - 'migrations/product/012_broker_order_lineage.sql'
       - 'migrations/v107/**'
       - 'migrations/v108/**'
       - 'migrations/v109/**'
@@ -41,6 +53,8 @@ on:
       - 'tests/test_paper_executor_e2e.py'
       - 'tests/test_order_mutation_e2e.py'
       - 'tests/test_postgres_order_mutation_e2e.py'
+      - 'tests/test_f18_broker_order_lineage.py'
+      - 'tests/test_postgres_f18_broker_order_lineage.py'
       - 'tests/test_postgres_remote_signer_repository_v109.py'
       - 'requirements.lock'
       - '.github/workflows/order-lifecycle-fault-campaign.yml'
@@ -114,6 +128,23 @@ jobs:
           done
           echo "SQLITE_CYCLES=$CYCLES" >> "$GITHUB_ENV"
 
+      - name: Apply PostgreSQL OMS, mutation and broker-lineage schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          migrations=(
+            migrations/product/001_durable_oms.sql
+            migrations/product/004_order_mutations.sql
+            migrations/product/012_broker_order_lineage.sql
+          )
+          for pass in 1 2; do
+            echo "Product mutation schema pass ${pass}/2"
+            for migration in "${migrations[@]}"; do
+              psql -h 127.0.0.1 -p 5432 -U astra -d astra \
+                -v ON_ERROR_STOP=1 -f "$migration"
+            done
+          done
+
       - name: Repeated PostgreSQL mutation durability and fencing campaign
         shell: bash
         run: |
@@ -125,7 +156,9 @@ jobs:
           fi
           for cycle in $(seq 1 "$CYCLES"); do
             echo "PostgreSQL fault cycle ${cycle}/${CYCLES}"
-            pytest -q tests/test_postgres_order_mutation_e2e.py
+            pytest -q \
+              tests/test_postgres_order_mutation_e2e.py \
+              tests/test_postgres_f18_broker_order_lineage.py
           done
           echo "POSTGRES_CYCLES=$CYCLES" >> "$GITHUB_ENV"
 
@@ -161,22 +194,28 @@ jobs:
               'sqlite_cycles': int(os.environ['SQLITE_CYCLES']),
               'postgres_cycles': int(os.environ['POSTGRES_CYCLES']),
               'postgres_full_regression_enabled': bool(os.environ.get('ASTRA_TEST_POSTGRES_DSN')),
+              'product_mutation_schema': ['001_durable_oms', '004_order_mutations', '012_broker_order_lineage'],
+              'product_mutation_schema_idempotency_passes': 2,
               'security_migration_lineage_applied': ['v107', 'v108', 'v109'],
               'security_migration_idempotency_passes': 2,
               'submit_fault_suite': 'tests/test_paper_executor_e2e.py',
               'mutation_fault_suite': 'tests/test_order_mutation_e2e.py',
               'postgres_mutation_suite': 'tests/test_postgres_order_mutation_e2e.py',
+              'postgres_lineage_suite': 'tests/test_postgres_f18_broker_order_lineage.py',
               'invariants': [
                   'at-most-one submit attempt',
                   'at-most-one cancel/replace attempt',
                   'GET-only ambiguity/restart recovery',
                   'monotonic partial/full fill adoption',
                   'durable mutation fencing and restart truth',
+                  'replace successor requires durable lineage proof',
+                  'broker lineage remains append-only and unambiguous',
               ],
           }
           assert evidence['sqlite_cycles'] >= 25
           assert evidence['postgres_cycles'] >= 8
           assert evidence['postgres_full_regression_enabled'] is True
+          assert evidence['product_mutation_schema_idempotency_passes'] == 2
           assert evidence['security_migration_idempotency_passes'] == 2
           Path('fault-campaign-evidence/summary.json').write_text(
               json.dumps(evidence, indent=2, sort_keys=True) + '\n',

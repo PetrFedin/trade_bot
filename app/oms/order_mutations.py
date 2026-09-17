@@ -660,11 +660,45 @@ class DurableOrderMutationStore:
             if cursor.rowcount != 1:
                 raise KeyError(message_id)
 
+    @staticmethod
+    def _lineage_leaf(
+        connection: sqlite3.Connection,
+        intent_id: str,
+    ) -> sqlite3.Row | None:
+        table = connection.execute(
+            """SELECT 1 FROM sqlite_master
+            WHERE type='table' AND name='oms_broker_order_identities'"""
+        ).fetchone()
+        if table is None:
+            return None
+        return connection.execute(
+            """SELECT broker_order_id, replace_mutation_id, generation
+            FROM oms_broker_order_identities
+            WHERE intent_id=? ORDER BY generation DESC LIMIT 1""",
+            (intent_id,),
+        ).fetchone()
+
     def current_limit_price(self, intent_id: str, *, fallback: Decimal) -> Decimal:
         if not fallback.is_finite() or fallback <= 0:
             raise ValueError("fallback must be positive and finite")
         connection = self._connect()
         try:
+            leaf = self._lineage_leaf(connection, intent_id)
+            if leaf is not None and int(leaf["generation"]) > 0:
+                mutation_id = str(leaf["replace_mutation_id"] or "").strip()
+                if not mutation_id:
+                    raise ValueError("BROKER_ORDER_LINEAGE_CONFLICT")
+                row = connection.execute(
+                    """SELECT target_limit_price FROM oms_order_mutations
+                    WHERE mutation_id=? AND intent_id=? AND kind='REPLACE'
+                      AND state='SUCCEEDED'""",
+                    (mutation_id, intent_id),
+                ).fetchone()
+                if row is None or row["target_limit_price"] is None:
+                    raise ValueError("BROKER_ORDER_LINEAGE_CONFLICT")
+                return Decimal(str(row["target_limit_price"]))
+            if leaf is not None:
+                return fallback
             row = connection.execute(
                 """SELECT target_limit_price FROM oms_order_mutations
                 WHERE intent_id=? AND kind='REPLACE' AND state='SUCCEEDED'
@@ -682,6 +716,12 @@ class DurableOrderMutationStore:
             raise ValueError("fallback broker_order_id is required")
         connection = self._connect()
         try:
+            leaf = self._lineage_leaf(connection, intent_id)
+            if leaf is not None:
+                broker_order_id = str(leaf["broker_order_id"]).strip()
+                if not broker_order_id:
+                    raise ValueError("BROKER_ORDER_LINEAGE_CONFLICT")
+                return broker_order_id
             row = connection.execute(
                 """SELECT broker_order_id FROM oms_order_mutations
                 WHERE intent_id=? AND kind='REPLACE' AND state='SUCCEEDED'

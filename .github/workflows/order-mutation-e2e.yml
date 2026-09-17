@@ -6,25 +6,41 @@ on:
     paths:
       - 'app/oms/order_mutations.py'
       - 'app/oms/order_mutations_postgres.py'
+      - 'app/oms/indexed.py'
+      - 'app/oms/reconciliation.py'
       - 'app/execution/order_mutation_executor.py'
+      - 'app/execution/trade_fills.py'
       - 'app/oms/store.py'
       - 'app/oms/postgres.py'
       - 'app/runtime/paper_broker_contract_v99.py'
       - 'migrations/product/004_order_mutations.sql'
+      - 'migrations/product/012_broker_order_lineage.sql'
       - 'tests/test_order_mutation_e2e.py'
       - 'tests/test_postgres_order_mutation_e2e.py'
+      - 'tests/test_f18_broker_order_lineage.py'
+      - 'tests/test_f18_broker_order_lineage_edges.py'
+      - 'tests/test_f18_postgres_lineage_unit.py'
+      - 'tests/test_postgres_f18_broker_order_lineage.py'
       - '.github/workflows/order-mutation-e2e.yml'
   pull_request:
     paths:
       - 'app/oms/order_mutations.py'
       - 'app/oms/order_mutations_postgres.py'
+      - 'app/oms/indexed.py'
+      - 'app/oms/reconciliation.py'
       - 'app/execution/order_mutation_executor.py'
+      - 'app/execution/trade_fills.py'
       - 'app/oms/store.py'
       - 'app/oms/postgres.py'
       - 'app/runtime/paper_broker_contract_v99.py'
       - 'migrations/product/004_order_mutations.sql'
+      - 'migrations/product/012_broker_order_lineage.sql'
       - 'tests/test_order_mutation_e2e.py'
       - 'tests/test_postgres_order_mutation_e2e.py'
+      - 'tests/test_f18_broker_order_lineage.py'
+      - 'tests/test_f18_broker_order_lineage_edges.py'
+      - 'tests/test_f18_postgres_lineage_unit.py'
+      - 'tests/test_postgres_f18_broker_order_lineage.py'
       - '.github/workflows/order-mutation-e2e.yml'
   workflow_dispatch:
 
@@ -80,29 +96,42 @@ jobs:
             sudo apt-get install -y -qq postgresql-client
           fi
 
-      - name: Apply OMS and mutation migrations twice
+      - name: Apply OMS, mutation and broker-lineage migrations twice
         run: |
           for pass in 1 2; do
             psql --host=127.0.0.1 --port=5432 --username=astra --dbname=astra \
               --set=ON_ERROR_STOP=1 --file=migrations/product/001_durable_oms.sql
             psql --host=127.0.0.1 --port=5432 --username=astra --dbname=astra \
               --set=ON_ERROR_STOP=1 --file=migrations/product/004_order_mutations.sql
+            psql --host=127.0.0.1 --port=5432 --username=astra --dbname=astra \
+              --set=ON_ERROR_STOP=1 --file=migrations/product/012_broker_order_lineage.sql
           done
 
-      - name: Ruff focused mutation surface
+      - name: Ruff focused mutation and lineage surface
         run: |
           ruff check \
             app/oms/order_mutations.py \
             app/oms/order_mutations_postgres.py \
+            app/oms/indexed.py \
+            app/oms/reconciliation.py \
             app/execution/order_mutation_executor.py \
+            app/execution/trade_fills.py \
             tests/test_order_mutation_e2e.py \
-            tests/test_postgres_order_mutation_e2e.py
+            tests/test_postgres_order_mutation_e2e.py \
+            tests/test_f18_broker_order_lineage.py \
+            tests/test_f18_broker_order_lineage_edges.py \
+            tests/test_f18_postgres_lineage_unit.py \
+            tests/test_postgres_f18_broker_order_lineage.py
 
-      - name: SQLite and real PostgreSQL mutation qualification
+      - name: SQLite and real PostgreSQL mutation and lineage qualification
         run: |
           pytest -q \
             tests/test_order_mutation_e2e.py \
-            tests/test_postgres_order_mutation_e2e.py
+            tests/test_postgres_order_mutation_e2e.py \
+            tests/test_f18_broker_order_lineage.py \
+            tests/test_f18_broker_order_lineage_edges.py \
+            tests/test_f18_postgres_lineage_unit.py \
+            tests/test_postgres_f18_broker_order_lineage.py
 
       - name: Branch-aware focused coverage
         run: |
@@ -111,7 +140,11 @@ jobs:
             --source=app.oms.order_mutations,app.oms.order_mutations_postgres,app.execution.order_mutation_executor \
             -m pytest -q \
             tests/test_order_mutation_e2e.py \
-            tests/test_postgres_order_mutation_e2e.py
+            tests/test_postgres_order_mutation_e2e.py \
+            tests/test_f18_broker_order_lineage.py \
+            tests/test_f18_broker_order_lineage_edges.py \
+            tests/test_f18_postgres_lineage_unit.py \
+            tests/test_postgres_f18_broker_order_lineage.py
           coverage report --fail-under=75
 
       - name: Complete deterministic regression without shared PostgreSQL state
@@ -124,11 +157,17 @@ jobs:
           bandit -q -r \
             app/oms/order_mutations.py \
             app/oms/order_mutations_postgres.py \
-            app/execution/order_mutation_executor.py
+            app/oms/indexed.py \
+            app/oms/reconciliation.py \
+            app/execution/order_mutation_executor.py \
+            app/execution/trade_fills.py
           python -m compileall -q \
             app/oms/order_mutations.py \
             app/oms/order_mutations_postgres.py \
-            app/execution/order_mutation_executor.py
+            app/oms/indexed.py \
+            app/oms/reconciliation.py \
+            app/execution/order_mutation_executor.py \
+            app/execution/trade_fills.py
 
       - name: Verify PostgreSQL fencing and append-only contracts
         run: |
@@ -139,6 +178,8 @@ jobs:
             active_index integer;
             event_trigger integer;
             trigger_events text[];
+            lineage_trigger integer;
+            lineage_events text[];
           BEGIN
             SELECT count(*) INTO active_index
             FROM pg_indexes
@@ -166,6 +207,21 @@ jobs:
                 'mutation append-only trigger mismatch: triggers=% events=%',
                 event_trigger,
                 trigger_events;
+            END IF;
+
+            SELECT
+              count(DISTINCT trigger_name),
+              array_agg(DISTINCT event_manipulation::text ORDER BY event_manipulation::text)
+            INTO lineage_trigger, lineage_events
+            FROM information_schema.triggers
+            WHERE event_object_schema = 'public'
+              AND event_object_table = 'astra_broker_order_identities'
+              AND trigger_name = 'astra_broker_order_identities_no_update_delete';
+            IF lineage_trigger <> 1 OR lineage_events <> ARRAY['DELETE', 'UPDATE']::text[] THEN
+              RAISE EXCEPTION
+                'broker lineage append-only trigger mismatch: triggers=% events=%',
+                lineage_trigger,
+                lineage_events;
             END IF;
           END
           $$;

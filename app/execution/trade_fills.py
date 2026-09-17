@@ -350,11 +350,20 @@ class PaperTradeFillAccounting:
             return exc.__class__.__name__
         return text[:160]
 
-    @staticmethod
-    def _validate_fact_identity(record: OrderRecord, fact: ExecutionFact) -> None:
+    def _broker_identity_is_proven(self, record: OrderRecord, broker_order_id: str) -> bool:
+        normalized = broker_order_id.strip()
+        if not record.broker_order_id or record.broker_order_id == normalized:
+            return True
+        resolver = getattr(self.oms, "get_by_broker_order_id", None)
+        if resolver is None:
+            return False
+        resolved = resolver(normalized)
+        return resolved is not None and resolved.intent_id == record.intent_id
+
+    def _validate_fact_identity(self, record: OrderRecord, fact: ExecutionFact) -> None:
         if record.client_order_id != fact.client_order_id:
             raise ValueError("BROKER_CLIENT_ORDER_ID_MISMATCH")
-        if record.broker_order_id and record.broker_order_id != fact.broker_order_id:
+        if not self._broker_identity_is_proven(record, fact.broker_order_id):
             raise ValueError("BROKER_ORDER_ID_MISMATCH")
         if record.symbol != fact.symbol:
             raise ValueError("BROKER_SYMBOL_MISMATCH")
@@ -363,11 +372,10 @@ class PaperTradeFillAccounting:
         if record.quantity != fact.order_quantity:
             raise ValueError("BROKER_QUANTITY_MISMATCH")
 
-    @staticmethod
-    def _validate_identity(record: OrderRecord, broker_fill: ExactBrokerFill) -> None:
+    def _validate_identity(self, record: OrderRecord, broker_fill: ExactBrokerFill) -> None:
         if record.client_order_id != broker_fill.client_order_id:
             raise ValueError("BROKER_CLIENT_ORDER_ID_MISMATCH")
-        if record.broker_order_id and record.broker_order_id != broker_fill.broker_order_id:
+        if not self._broker_identity_is_proven(record, broker_fill.broker_order_id):
             raise ValueError("BROKER_ORDER_ID_MISMATCH")
         if record.symbol != broker_fill.symbol:
             raise ValueError("BROKER_SYMBOL_MISMATCH")

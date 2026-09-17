@@ -63,6 +63,10 @@ class PaperOrderMutationExecutor:
     capability. Contenders observing a fresh STARTED marker do not perform broker
     reads while the owner may still be inside the network mutation. After the
     bounded grace, recovery is GET-only and the mutation is never repeated.
+
+    Broker identity changes are not inferred from a response alone. A new broker
+    order id is accepted only after an exact successful REPLACE mutation exists and
+    the OMS has registered the immutable predecessor -> successor lineage edge.
     """
 
     def __init__(
@@ -135,6 +139,8 @@ class PaperOrderMutationExecutor:
             MutationState.FAILED,
             MutationState.UNCERTAIN,
         }:
+            if mutation.state is MutationState.SUCCEEDED and mutation.kind is MutationKind.REPLACE:
+                self._ensure_replace_lineage(mutation, occurred_at=occurred_at)
             self.mutations.mark_outbox_published(message.message_id, occurred_at=occurred_at)
             order = self._order(mutation.intent_id)
             return MutationExecutionResult(
@@ -169,6 +175,8 @@ class PaperOrderMutationExecutor:
             return self._recover(mutation, occurred_at=moment)
         if mutation.state is MutationState.UNCERTAIN:
             return self._recover(mutation, occurred_at=moment)
+        if mutation.state is MutationState.SUCCEEDED and mutation.kind is MutationKind.REPLACE:
+            self._ensure_replace_lineage(mutation, occurred_at=moment)
         return MutationExecutionResult(
             record=self._order(mutation.intent_id),
             mutation=mutation,
@@ -300,8 +308,62 @@ class PaperOrderMutationExecutor:
         occurred_at: datetime,
         ambiguous_context: bool,
     ) -> MutationExecutionResult:
-        order = self._validate_broker_truth(mutation.intent_id, broker_order)
-        order = self._adopt_fill(order, broker_order, mutation, occurred_at=occurred_at)
+        order = self._validate_broker_truth(mutation, broker_order)
+
+        if (
+            mutation.kind is MutationKind.CANCEL
+            and broker_order.broker_order_id != mutation.broker_order_id
+        ):
+            uncertain = self._mark_uncertain_if_needed(
+                mutation,
+                outcome="BROKER_ORDER_ID_DRIFT",
+                occurred_at=occurred_at,
+            )
+            return MutationExecutionResult(order, uncertain, False, True)
+
+        if mutation.kind is MutationKind.REPLACE:
+            target = mutation.target_limit_price
+            if target is None:
+                raise ValueError("REPLACE_TARGET_MISSING")
+            if (
+                broker_order.limit_price == target
+                and broker_order.status
+                in {
+                    BrokerOrderStatus.ACKNOWLEDGED,
+                    BrokerOrderStatus.REPLACED,
+                    BrokerOrderStatus.PARTIALLY_FILLED,
+                    BrokerOrderStatus.FILLED,
+                }
+            ):
+                succeeded = self.mutations.mark_succeeded(
+                    mutation.mutation_id,
+                    outcome="REPLACED",
+                    occurred_at=occurred_at,
+                    broker_order_id=broker_order.broker_order_id,
+                )
+                self._register_replace_successor(
+                    intent_id=mutation.intent_id,
+                    mutation_id=mutation.mutation_id,
+                    predecessor_broker_order_id=mutation.broker_order_id,
+                    successor_broker_order_id=broker_order.broker_order_id,
+                    occurred_at=occurred_at,
+                )
+                order = self._adopt_fill(
+                    order,
+                    broker_order,
+                    mutation,
+                    occurred_at=occurred_at,
+                    successor_proven=True,
+                )
+                return MutationExecutionResult(order, succeeded, False, ambiguous_context)
+
+        order = self._adopt_fill(
+            order,
+            broker_order,
+            mutation,
+            occurred_at=occurred_at,
+            successor_proven=False,
+        )
 
         if broker_order.status is BrokerOrderStatus.FILLED:
             failed = self.mutations.mark_failed(
@@ -320,12 +382,17 @@ class PaperOrderMutationExecutor:
                 )
                 return MutationExecutionResult(order, failed, False, ambiguous_context)
             if order.state is not OrderState.CANCELLED:
+                broker_id = (
+                    broker_order.broker_order_id
+                    if broker_order.broker_order_id == mutation.broker_order_id
+                    else None
+                )
                 order = self.oms.transition(
                     order.intent_id,
                     OrderState.CANCELLED,
                     event_id=f"mutation:{mutation.mutation_id}:cancelled",
                     occurred_at=occurred_at,
-                    broker_order_id=broker_order.broker_order_id,
+                    broker_order_id=broker_id,
                 )
             if mutation.kind is MutationKind.CANCEL:
                 succeeded = self.mutations.mark_succeeded(
@@ -351,17 +418,6 @@ class PaperOrderMutationExecutor:
             return MutationExecutionResult(order, failed, False, ambiguous_context)
 
         if mutation.kind is MutationKind.REPLACE:
-            target = mutation.target_limit_price
-            if target is None:
-                raise ValueError("REPLACE_TARGET_MISSING")
-            if broker_order.limit_price == target:
-                succeeded = self.mutations.mark_succeeded(
-                    mutation.mutation_id,
-                    outcome="REPLACED",
-                    occurred_at=occurred_at,
-                    broker_order_id=broker_order.broker_order_id,
-                )
-                return MutationExecutionResult(order, succeeded, False, ambiguous_context)
             uncertain = self._mark_uncertain_if_needed(
                 mutation,
                 outcome="REPLACE_PRICE_NOT_CONFIRMED",
@@ -383,8 +439,15 @@ class PaperOrderMutationExecutor:
         mutation: OrderMutationRecord,
         *,
         occurred_at: datetime,
+        successor_proven: bool,
     ) -> OrderRecord:
         if broker_order.filled_quantity <= order.filled_quantity:
+            return order
+        if (
+            mutation.kind is MutationKind.REPLACE
+            and broker_order.broker_order_id != mutation.broker_order_id
+            and not successor_proven
+        ):
             return order
         return self.oms.apply_cumulative_fill(
             order.intent_id,
@@ -396,9 +459,13 @@ class PaperOrderMutationExecutor:
             broker_order_id=broker_order.broker_order_id,
         )
 
-    def _validate_broker_truth(self, intent_id: str, broker_order: BrokerOrder) -> OrderRecord:
+    def _validate_broker_truth(
+        self,
+        mutation: OrderMutationRecord,
+        broker_order: BrokerOrder,
+    ) -> OrderRecord:
         broker_order.validate()
-        order = self._order(intent_id)
+        order = self._order(mutation.intent_id)
         if broker_order.client_order_id != order.client_order_id:
             raise ValueError("BROKER_CLIENT_ORDER_ID_MISMATCH")
         if broker_order.instrument != order.symbol:
@@ -408,6 +475,87 @@ class PaperOrderMutationExecutor:
         if broker_order.quantity != order.quantity:
             raise ValueError("BROKER_QUANTITY_MISMATCH")
         return order
+
+    def _mutation_predecessor(self, mutation_id: str) -> str:
+        for event in self.mutations.events(mutation_id):
+            if str(event.get("event_type", "")) != MutationState.REQUESTED.value:
+                continue
+            payload = event.get("payload", {})
+            if not isinstance(payload, dict):
+                break
+            predecessor = str(payload.get("broker_order_id", "")).strip()
+            if predecessor:
+                return predecessor
+            break
+        raise ValueError("REPLACE_PREDECESSOR_NOT_PROVEN")
+
+    def _register_replace_successor(
+        self,
+        *,
+        intent_id: str,
+        mutation_id: str,
+        predecessor_broker_order_id: str,
+        successor_broker_order_id: str,
+        occurred_at: datetime,
+    ) -> None:
+        registrar = getattr(self.oms, "register_replace_successor", None)
+        if registrar is not None:
+            registrar(
+                intent_id=intent_id,
+                mutation_id=mutation_id,
+                predecessor_broker_order_id=predecessor_broker_order_id,
+                successor_broker_order_id=successor_broker_order_id,
+                occurred_at=occurred_at,
+            )
+            return
+
+        path = getattr(self.oms, "path", None)
+        if isinstance(path, str) and path:
+            from app.oms.indexed import IndexedDurableOmsStore
+
+            IndexedDurableOmsStore(path).register_replace_successor(
+                intent_id=intent_id,
+                mutation_id=mutation_id,
+                predecessor_broker_order_id=predecessor_broker_order_id,
+                successor_broker_order_id=successor_broker_order_id,
+                occurred_at=occurred_at,
+            )
+            return
+
+        dsn = getattr(self.oms, "dsn", None)
+        if isinstance(dsn, str) and dsn:
+            from app.oms.indexed import IndexedPostgresOmsStore
+
+            IndexedPostgresOmsStore(dsn).register_replace_successor(
+                intent_id=intent_id,
+                mutation_id=mutation_id,
+                predecessor_broker_order_id=predecessor_broker_order_id,
+                successor_broker_order_id=successor_broker_order_id,
+                occurred_at=occurred_at,
+            )
+            return
+
+        raise ValueError("BROKER_ORDER_LINEAGE_STORE_REQUIRED")
+
+    def _ensure_replace_lineage(
+        self,
+        mutation: OrderMutationRecord,
+        *,
+        occurred_at: datetime,
+    ) -> None:
+        if (
+            mutation.kind is not MutationKind.REPLACE
+            or mutation.state is not MutationState.SUCCEEDED
+        ):
+            return
+        predecessor = self._mutation_predecessor(mutation.mutation_id)
+        self._register_replace_successor(
+            intent_id=mutation.intent_id,
+            mutation_id=mutation.mutation_id,
+            predecessor_broker_order_id=predecessor,
+            successor_broker_order_id=mutation.broker_order_id,
+            occurred_at=occurred_at,
+        )
 
     def _order(self, intent_id: str) -> OrderRecord:
         order = self.oms.get(intent_id)
