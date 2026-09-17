@@ -1,0 +1,15 @@
+{
+  "schema_version": "bybit-kline-manifest-v1",
+  "source_classification": "PUBLIC_VENUE_DATA_NON_AUTHORITATIVE",
+  "endpoint": "https://api.bybit.com/v5/market/kline",
+  "category": "linear",
+  "symbol": "XRPUSDT",
+  "interval": "15",
+  "requested_start": "2024-09-17T15:09:24.357308+00:00",
+  "requested_end": "2026-09-17T15:09:24.357308+00:00",
+  "bar_count": 70080,
+  "first_bar": "2024-09-17T15:15:00+00:00",
+  "last_bar": "2026-09-17T15:00:00+00:00",
+  "dataset_file": "XRPUSDT_15.csv",
+  "limitations": "Public venue data retrieved without authentication. Gaps, revisions and listing history are not asserted; the venue may omit bars with no trades."
+}
