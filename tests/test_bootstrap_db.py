@@ -67,3 +67,13 @@ def test_remote_reset_is_rejected_before_database_connection(monkeypatch) -> Non
 def test_every_packaged_platform_copy_matches_source() -> None:
     drift = bootstrap.verify(bootstrap.lineage())
     assert drift == []
+
+
+def test_packaging_coverage_does_not_count_missing_copies_as_verified() -> None:
+    migrations = bootstrap.lineage()
+    packaged_count, missing = bootstrap.packaging_coverage(migrations)
+    assert packaged_count + len(missing) == len(migrations)
+    assert all(bootstrap.packaged_copy(path) is None for path in missing)
+    assert packaged_count == sum(
+        bootstrap.packaged_copy(path) is not None for path in migrations
+    )
