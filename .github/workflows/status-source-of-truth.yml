@@ -47,4 +47,6 @@ jobs:
       # The operator console is generated from the same status surface, so it cannot
       # drift from what it reports. A hand edit fails here.
       - name: Verify the generated operator console
-        run: python tools/status_dashboard.py --check
+        run: |
+          python tools/status_dashboard.py --write
+          git diff --exit-code -- docs/status-console.html
