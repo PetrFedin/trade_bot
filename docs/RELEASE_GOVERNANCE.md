@@ -17,15 +17,15 @@ Repository-side controls are implemented and executable:
 
 ## Verified server-side branch state
 
-The GitHub branch summary for `main` currently reports:
+The GitHub branch summary for `main` observed on 2026-09-18 reports:
 
-- `protected=false`;
-- `protection.enabled=false`;
+- `protected=true`;
+- `protection.enabled=true`;
 - required status-check enforcement `off`.
 
-Accordingly, the machine contract records `branch_protection_verification=VERIFIED_DISABLED`. This is stronger evidence than the earlier `UNVERIFIED_INTEGRATION_FORBIDDEN` state: the branch is currently known **not** to be protected.
+Accordingly, the machine contract records `branch_protection_verification=VERIFIED_ENABLED`, but this is only a **partial** closure of #103. The server now reports branch protection enabled; it does **not** report required status checks as enforced.
 
-The dedicated branch-protection detail endpoint remains unavailable to the current integration, so this repository does not claim detailed review/ruleset configuration beyond what the branch summary exposes. In particular, required CODEOWNER review, force-push restrictions and detailed repository-ruleset state are not claimed as enabled.
+The dedicated branch-protection detail endpoint remains unavailable to the current integration, so this repository does not claim detailed review/ruleset configuration beyond what the branch summary exposes. Required PR review, CODEOWNER review, force-push restrictions, bypass policy and detailed repository-ruleset state remain unproven unless independently observable. No live authority follows from the `protected=true` summary alone.
 
 ## Assigned technical ownership
 
@@ -34,22 +34,17 @@ The repository-side ownership contract is machine-readable and fail-closed:
 - artifact release owner: `@PetrFedin`;
 - rollback owner: `@PetrFedin`;
 - independent live approver: **unassigned**;
-- branch-protection verification: `VERIFIED_DISABLED`;
-- expected `main` protection: disabled;
+- branch-protection verification: `VERIFIED_ENABLED`;
+- expected `main` protection: enabled;
 - expected required status-check enforcement: `off`;
 - artifact release allowed: `true`;
 - live release allowed: `false`.
 
 The same person may own artifact release and technical rollback while the product is still paper-only. That assignment is **not** treated as independent live approval. The validator rejects a future live-release claim unless branch protection is verified as enabled and a distinct independent live approver is assigned.
 
-Canonical `main` ownership and branch-state evidence:
+The previously retained evidence for `VERIFIED_DISABLED` remains historical evidence for the state observed at that time. The current machine contract is intentionally updated only to fields exposed by the live GitHub branch summary: protection enabled, with required status-check enforcement still `off`.
 
-- commit: `9cf92a9993d9fd54896e5696115f673633d3ac2a`;
-- workflow run: `31440945455`;
-- retained evidence artifact: `9082811204`;
-- artifact digest: `sha256:deb125851a0ca2db9486c342b723cb957cde2b87cb759d3d510423a8c1d5f672`.
-
-That run performs the live GitHub branch-summary comparison and writes the observed current `main` SHA, protection state and required-status-check enforcement into the evidence artifact. Future qualifying runs fail if the observed GitHub state drifts from the committed machine contract.
+Every `release-governance` qualification re-reads the live GitHub branch summary, writes the observed `main` SHA/protection state/status-check enforcement into its evidence artifact, and fails on drift from this committed machine contract.
 
 ## Trusted build evidence
 
@@ -82,7 +77,7 @@ A release candidate must satisfy all repository-side requirements below before i
 12. Server-side branch protection and required-review state must be enabled and independently verified before any release process relies on them as enforcement controls.
 13. A live release additionally requires a distinct independent live approver; repository-side artifact ownership alone does not satisfy that requirement.
 
-At present item 12 is **not satisfied**: the current branch summary reports protection disabled.
+At present item 12 is **still not satisfied in full**: the current branch summary reports protection enabled, but required status-check enforcement remains `off` and required-review/bypass details are not independently proven.
 
 ## Tag and artifact immutability
 
@@ -99,4 +94,4 @@ Rollback is a source-control and deployment decision, not an artifact mutation:
 - do not overwrite previously attested distributions;
 - keep live/external execution disabled unless the separate operational approval path explicitly permits it.
 
-Technical release and rollback ownership are assigned and machine-validated. Independent live approval remains deliberately unassigned, and `main` server-side protection is currently verified disabled; neither gap is hidden by repository-side governance.
+Technical release and rollback ownership are assigned and machine-validated. Independent live approval remains deliberately unassigned. `main` server-side protection is now observed as enabled, while required status-check enforcement remains off; the remaining #103 gap is kept explicit rather than treated as release authorization.
