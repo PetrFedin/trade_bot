@@ -51,7 +51,7 @@ def packaged_copy(migration: Path) -> Path | None:
 
 
 def verify(migrations: list[Path]) -> list[str]:
-    """Return a drift report for migrations whose packaged copy differs."""
+    """Return a drift report for migrations whose existing packaged copy differs."""
     drift: list[str] = []
     for migration in migrations:
         copy = packaged_copy(migration)
@@ -62,6 +62,12 @@ def verify(migrations: list[Path]) -> list[str]:
                 f"MIGRATION_DRIFT: {migration.relative_to(ROOT)} != {copy.relative_to(ROOT)}"
             )
     return drift
+
+
+def packaging_coverage(migrations: list[Path]) -> tuple[int, tuple[Path, ...]]:
+    """Report platform migration copies without claiming source-only files are packaged."""
+    missing = tuple(migration for migration in migrations if packaged_copy(migration) is None)
+    return len(migrations) - len(missing), missing
 
 
 _LOCAL_RESET_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "postgres"})
@@ -156,7 +162,20 @@ def main(argv: list[str] | None = None) -> int:
         for line in drift:
             print(line, file=sys.stderr)
         return 1
-    print(f"verified {len(migrations)} migrations against their packaged copies")
+    packaged_count, unpackaged = packaging_coverage(migrations)
+    print(
+        f"verified {packaged_count}/{len(migrations)} existing packaged migration copies"
+    )
+    if unpackaged:
+        print(
+            f"source-only platform migrations not packaged: {len(unpackaged)}",
+            file=sys.stderr,
+        )
+        for migration in unpackaged:
+            print(
+                f"  UNPACKAGED_MIGRATION: {migration.relative_to(ROOT)}",
+                file=sys.stderr,
+            )
 
     if args.verify_only:
         for migration in migrations:
