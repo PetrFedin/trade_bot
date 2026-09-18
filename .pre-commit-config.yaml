@@ -1,0 +1,33 @@
+# Blocking hygiene gate. Mirrored by .github/workflows/secret-and-hygiene-gate.yml so a
+# contributor who has not installed the hooks still cannot merge past it.
+#
+# Hooks here are non-mutating on purpose: the repository carries a large ungated backlog
+# (ruff reports ~1294 findings outside the paths CI keeps clean), and a reformatting hook
+# would rewrite files that no gate has ever checked. ruff is scoped to the same paths CI
+# already keeps clean, so this gate can only tighten, never silently rewrite.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e # v8.30.1
+    hooks:
+      - id: gitleaks
+        name: gitleaks (secrets)
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ['--maxkb=2048']
+      - id: check-yaml
+        name: check workflow and config yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-case-conflict
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 39d9ac5938dadb73df0564a45f163e25ff9fa6e2 # v0.16.1
+    hooks:
+      - id: ruff-check
+        name: ruff (paths CI keeps clean)
+        files: '^(app/(domain|marketdata|strategy|risk|portfolio|oms|application|execution|observability)/|tools/(bootstrap_db|status_tracker_sync|status_dashboard)\.py)'
