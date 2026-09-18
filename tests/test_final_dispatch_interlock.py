@@ -9,7 +9,8 @@ import pytest
 
 from app.application.composition import ProductConfig, build_local_product
 from app.application.paper_cycle import PaperCycleService
-from app.domain.trading import Bar
+from app.domain.trading import Bar, Side
+from app.execution.execution_facts import ExecutionFact
 from app.execution.trade_fills import ExplicitZeroPaperFeeModel
 from app.observability.readiness import OperationalSnapshot
 from app.oms.store import OrderState
@@ -253,3 +254,45 @@ def test_expired_arm_cannot_authorize_outbox(tmp_path) -> None:
     assert broker.submit_calls == 0
     assert runtime.oms_store.get(planning.intent.intent_id).state is OrderState.OUTBOXED
     assert len(runtime.oms_store.pending_outbox()) == 1
+
+
+def test_unresolved_execution_fact_blocks_existing_buy_outbox_before_post(tmp_path) -> None:
+    broker = CountingBroker()
+    runtime, cycle = build_cycle(tmp_path, broker, ready_snapshot)
+    runtime.dispatch_control.arm(
+        operator_id="operator-f19",
+        reason="qualification arm",
+        occurred_at=NOW,
+    )
+    planning = cycle.plan_and_prepare(
+        bars(), decision_time=NOW, risk_context=risk_context(runtime)
+    )
+    assert planning.prepared is not None
+    assert planning.prepared.record.state is OrderState.OUTBOXED
+
+    fact = ExecutionFact(
+        execution_fact_id="f19-unresolved-dispatch",
+        intent_id="prior-intent",
+        broker_order_id="prior-broker",
+        client_order_id="prior-client",
+        symbol="AAPL",
+        side=Side.BUY,
+        order_quantity=Decimal("1"),
+        cumulative_quantity=Decimal("1"),
+        quantity=Decimal("1"),
+        price=Decimal("100"),
+        fee=Decimal("0"),
+        occurred_at=NOW,
+    )
+    assert runtime.execution_facts.append(
+        fact,
+        source_execution_id="f19-unresolved-dispatch-source",
+    )
+
+    with pytest.raises(DispatchBlocked) as blocked:
+        cycle.execute_next_submit(occurred_at=NOW + timedelta(seconds=1))
+    assert blocked.value.reasons == ("EXECUTION_ACCOUNTING_NOT_CONVERGED",)
+    assert broker.submit_calls == 0
+    assert runtime.oms_store.get(planning.intent.intent_id).state is OrderState.OUTBOXED
+    assert len(runtime.oms_store.pending_outbox()) == 1
+    assert runtime.dispatch_control.current().mode is DispatchControlMode.ARMED
