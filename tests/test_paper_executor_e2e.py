@@ -8,8 +8,11 @@ from threading import Event
 
 from app.application.order_lifecycle import PaperOrderLifecycle
 from app.domain.trading import OrderIntent, Side
+from app.execution.execution_facts import SQLiteExecutionFactStore
 from app.execution.paper_executor import PaperSubmitExecutor
+from app.execution.trade_fills import ExplicitZeroPaperFeeModel, PaperTradeFillAccounting
 from app.oms.store import DurableOmsStore, OrderState
+from app.portfolio.store import PortfolioEventStore
 from app.risk.pretrade import (
     PreTradeRiskEngine,
     RiskDecision,
@@ -65,6 +68,7 @@ class FakePaperBroker:
         self.persist_ambiguous_order = True
         self.submit_status = BrokerOrderStatus.ACKNOWLEDGED
         self.submit_filled = Decimal("0")
+        self.submit_filled_avg_price: Decimal | None = None
 
     def submit_limit_order(self, **kwargs) -> BrokerOrder:
         self.submit_calls += 1
@@ -78,6 +82,7 @@ class FakePaperBroker:
             status=self.submit_status,
             filled_quantity=self.submit_filled,
             updated_at=NOW,
+            filled_avg_price=self.submit_filled_avg_price,
         )
         if not self.ambiguous_submit or self.persist_ambiguous_order:
             self.orders[order.client_order_id] = order
@@ -109,6 +114,19 @@ def prepared_store(tmp_path):
     PaperOrderLifecycle(store).prepare(value, approved(value), occurred_at=NOW)
     message = store.pending_outbox()[0]
     return store, message
+
+
+def accounting_service(tmp_path, store: DurableOmsStore):
+    portfolio = PortfolioEventStore(tmp_path / "executor-portfolio.sqlite")
+    facts = SQLiteExecutionFactStore(tmp_path / "executor-execution.sqlite")
+    service = PaperTradeFillAccounting(
+        oms=store,
+        portfolio=portfolio,
+        execution_facts=facts,
+        opening_cash=Decimal("10000"),
+        fee_provider=ExplicitZeroPaperFeeModel(),
+    )
+    return portfolio, facts, service
 
 
 def test_normal_submit_is_attempted_once_and_persisted(tmp_path) -> None:
@@ -223,12 +241,37 @@ def test_two_workers_share_one_submit_claim_and_only_winner_can_post(tmp_path) -
 
 def test_submit_truth_can_adopt_partial_fill_monotonically(tmp_path) -> None:
     store, message = prepared_store(tmp_path)
+    portfolio, facts, accounting = accounting_service(tmp_path, store)
     broker = FakePaperBroker()
     broker.submit_status = BrokerOrderStatus.PARTIALLY_FILLED
     broker.submit_filled = Decimal("4")
-    result = PaperSubmitExecutor(store=store, broker=broker).execute(message, occurred_at=NOW)
+    broker.submit_filled_avg_price = Decimal("99")
+    result = PaperSubmitExecutor(
+        store=store,
+        broker=broker,
+        fill_accounting=accounting,
+    ).execute(message, occurred_at=NOW)
     assert result.record.state is OrderState.PARTIALLY_FILLED
     assert result.record.filled_quantity == Decimal("4")
+    assert broker.submit_calls == 1
+    assert facts.unresolved_count() == 0
+    ledger = portfolio.replay(opening_cash=Decimal("10000"))
+    assert ledger.position("AAPL").quantity == Decimal("4")
+    assert ledger.cash == Decimal("9604")
+
+
+def test_submit_fill_without_accounting_fails_closed(tmp_path) -> None:
+    store, message = prepared_store(tmp_path)
+    broker = FakePaperBroker()
+    broker.submit_status = BrokerOrderStatus.FILLED
+    broker.submit_filled = Decimal("10")
+    broker.submit_filled_avg_price = Decimal("99")
+    result = PaperSubmitExecutor(store=store, broker=broker).execute(
+        message,
+        occurred_at=NOW,
+    )
+    assert result.record.state is OrderState.UNCERTAIN
+    assert result.record.filled_quantity == Decimal("0")
     assert broker.submit_calls == 1
 
 
