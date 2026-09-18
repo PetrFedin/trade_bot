@@ -81,19 +81,22 @@ class PaperCycleService:
         self.trade_stream = trade_stream
         self.stream_generation = stream_generation
         self.financial_activity_truth = financial_activity_truth
+        accounting = runtime.require_fill_accounting()
+        accounting.recover_unresolved()
         self.final_dispatch = PaperFinalDispatchGuard(
             control=runtime.dispatch_control,
             readiness=runtime.operational_readiness,
             snapshot_provider=operational_snapshot_provider,
             financial_activity_truth=financial_activity_truth,
             portfolio_reconciliation=runtime.portfolio_reconciliation,
+            execution_facts=runtime.execution_facts,
         )
         self.executor = PaperSubmitExecutor(
             store=runtime.oms_store,
             broker=broker,
             dispatch_authorizer=self.final_dispatch.authorize,
+            fill_accounting=accounting,
         )
-        accounting = runtime.require_fill_accounting()
         self.trade_updates = PaperTradeUpdateProcessor(
             stream=trade_stream,
             oms=runtime.oms_store,
