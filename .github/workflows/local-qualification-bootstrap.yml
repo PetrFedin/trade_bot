@@ -1,0 +1,74 @@
+name: local-qualification-bootstrap
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/bootstrap_db.py'
+      - 'tests/test_bootstrap_db.py'
+      - 'migrations/v*/**'
+      - 'app/platform_assets/**'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - 'Makefile'
+      - '.env.example'
+      - '.github/workflows/local-qualification-bootstrap.yml'
+  pull_request:
+    paths:
+      - 'tools/bootstrap_db.py'
+      - 'tests/test_bootstrap_db.py'
+      - 'migrations/v*/**'
+      - 'app/platform_assets/**'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - 'Makefile'
+      - '.env.example'
+      - '.github/workflows/local-qualification-bootstrap.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16.4-alpine
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra
+          POSTGRES_DB: astra
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ASTRA_POSTGRES_DSN: postgresql://astra:astra@127.0.0.1:5432/astra
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check '.[test,postgresql]'
+          python -m pip check
+      - name: Verify migration source/package parity
+        run: python tools/bootstrap_db.py --verify-only
+      - name: Apply platform lineage twice and prove replay idempotency
+        run: |
+          python tools/bootstrap_db.py
+          python tools/bootstrap_db.py
+      - name: Bootstrap safety and lineage unit tests
+        run: pytest -q tests/test_bootstrap_db.py
+      - name: Lint and compile bootstrap boundary
+        run: |
+          ruff check tools/bootstrap_db.py tests/test_bootstrap_db.py
+          python -m compileall -q tools/bootstrap_db.py
+      - name: Validate Compose qualification graph
+        run: docker compose config >/dev/null
