@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from app.domain.trading import OrderIntent, Side
-from app.execution.execution_facts import SQLiteExecutionFactStore
+from app.execution.execution_facts import ExecutionFact, SQLiteExecutionFactStore
 from app.execution.trade_fills import (
+    ExactBrokerFill,
     ExplicitZeroPaperFeeModel,
     PaperTradeFillAccounting,
     TradeFillProtocolError,
@@ -263,3 +264,149 @@ def test_identity_mismatch_fails_before_portfolio_mutation(tmp_path: Path) -> No
         service.apply("intent-fill-accounting", wrong_symbol)
     ledger = portfolio.replay(opening_cash=Decimal("1000"))
     assert ledger.positions() == ()
+
+
+def test_submit_snapshot_coverage_prevents_late_exact_fill_double_count(tmp_path: Path) -> None:
+    oms, portfolio, service = accounting(tmp_path)
+    aggregate = ExactBrokerFill(
+        execution_id="submit-snapshot",
+        broker_order_id="broker-fill",
+        client_order_id="client-fill",
+        symbol="AAPL",
+        side=Side.BUY,
+        order_quantity=Decimal("2"),
+        cumulative_quantity=Decimal("2"),
+        quantity=Decimal("2"),
+        price=Decimal("101"),
+        occurred_at=NOW + timedelta(seconds=1),
+    )
+    first = service.apply("intent-fill-accounting", aggregate)
+    assert first.portfolio_event_appended
+    assert first.record.state is OrderState.FILLED
+
+    exact_first = ExactBrokerFill(
+        execution_id="stream-exec-1",
+        broker_order_id="broker-fill",
+        client_order_id="client-fill",
+        symbol="AAPL",
+        side=Side.BUY,
+        order_quantity=Decimal("2"),
+        cumulative_quantity=Decimal("1"),
+        quantity=Decimal("1"),
+        price=Decimal("100"),
+        occurred_at=NOW + timedelta(seconds=2),
+    )
+    exact_second = ExactBrokerFill(
+        execution_id="stream-exec-2",
+        broker_order_id="broker-fill",
+        client_order_id="client-fill",
+        symbol="AAPL",
+        side=Side.BUY,
+        order_quantity=Decimal("2"),
+        cumulative_quantity=Decimal("2"),
+        quantity=Decimal("1"),
+        price=Decimal("102"),
+        occurred_at=NOW + timedelta(seconds=3),
+    )
+    late_first = service.apply("intent-fill-accounting", exact_first)
+    late_second = service.apply("intent-fill-accounting", exact_second)
+    assert not late_first.portfolio_event_appended
+    assert not late_second.portfolio_event_appended
+    assert not late_first.oms_advanced
+    assert not late_second.oms_advanced
+
+    ledger = portfolio.replay(opening_cash=Decimal("1000"))
+    assert ledger.position("AAPL").quantity == Decimal("2")
+    assert ledger.position("AAPL").average_cost == Decimal("101")
+    assert ledger.cash == Decimal("798")
+
+
+def test_partial_execution_interval_overlap_fails_closed(tmp_path: Path) -> None:
+    oms = DurableOmsStore(tmp_path / "oms.sqlite")
+    portfolio = PortfolioEventStore(tmp_path / "portfolio.sqlite")
+    facts = SQLiteExecutionFactStore(tmp_path / "execution.sqlite")
+    prepare_acknowledged(oms)
+    service = PaperTradeFillAccounting(
+        oms=oms,
+        portfolio=portfolio,
+        execution_facts=facts,
+        opening_cash=Decimal("1000"),
+        fee_provider=ExplicitZeroPaperFeeModel(),
+    )
+    aggregate = ExactBrokerFill(
+        execution_id="aggregate-1",
+        broker_order_id="broker-fill",
+        client_order_id="client-fill",
+        symbol="AAPL",
+        side=Side.BUY,
+        order_quantity=Decimal("2"),
+        cumulative_quantity=Decimal("1.5"),
+        quantity=Decimal("1.5"),
+        price=Decimal("100"),
+        occurred_at=NOW + timedelta(seconds=1),
+    )
+    service.apply("intent-fill-accounting", aggregate)
+
+    overlapping = ExactBrokerFill(
+        execution_id="exact-overlap",
+        broker_order_id="broker-fill",
+        client_order_id="client-fill",
+        symbol="AAPL",
+        side=Side.BUY,
+        order_quantity=Decimal("2"),
+        cumulative_quantity=Decimal("2"),
+        quantity=Decimal("1"),
+        price=Decimal("101"),
+        occurred_at=NOW + timedelta(seconds=2),
+    )
+    with pytest.raises(ValueError, match="EXECUTION_CUMULATIVE_OVERLAP_CONFLICT"):
+        service.apply("intent-fill-accounting", overlapping)
+
+    assert oms.get("intent-fill-accounting").filled_quantity == Decimal("1.5")
+    ledger = portfolio.replay(opening_cash=Decimal("1000"))
+    assert ledger.position("AAPL").quantity == Decimal("1.5")
+    assert ledger.cash == Decimal("850.0")
+    assert facts.unresolved_count() == 1
+
+
+def test_restart_after_portfolio_append_does_not_double_runtime_ledger(tmp_path: Path) -> None:
+    oms = DurableOmsStore(tmp_path / "oms.sqlite")
+    portfolio = PortfolioEventStore(tmp_path / "portfolio.sqlite")
+    facts = SQLiteExecutionFactStore(tmp_path / "execution.sqlite")
+    prepare_acknowledged(oms)
+    fact = ExecutionFact(
+        execution_fact_id="crash-window-fact",
+        intent_id="intent-fill-accounting",
+        broker_order_id="broker-fill",
+        client_order_id="client-fill",
+        symbol="AAPL",
+        side=Side.BUY,
+        order_quantity=Decimal("2"),
+        cumulative_quantity=Decimal("1"),
+        quantity=Decimal("1"),
+        price=Decimal("100"),
+        fee=Decimal("0"),
+        occurred_at=NOW + timedelta(seconds=1),
+    )
+    assert facts.append(fact, source_execution_id="crash-window-source")
+    assert portfolio.append_fill(fact.to_fill())
+    runtime_ledger = portfolio.replay(opening_cash=Decimal("1000"))
+    assert runtime_ledger.position("AAPL").quantity == Decimal("1")
+
+    recovered = PaperTradeFillAccounting(
+        oms=oms,
+        portfolio=portfolio,
+        execution_facts=facts,
+        opening_cash=Decimal("1000"),
+        fee_provider=ExplicitZeroPaperFeeModel(),
+        runtime_ledger=runtime_ledger,
+    ).recover_unresolved()
+
+    assert len(recovered) == 1
+    assert recovered[0].portfolio_event_appended is False
+    assert recovered[0].oms_advanced is True
+    assert facts.unresolved_count() == 0
+    assert runtime_ledger.position("AAPL").quantity == Decimal("1")
+    replayed = portfolio.replay(opening_cash=Decimal("1000"))
+    assert replayed.position("AAPL").quantity == Decimal("1")
+    assert replayed.cash == Decimal("900")
