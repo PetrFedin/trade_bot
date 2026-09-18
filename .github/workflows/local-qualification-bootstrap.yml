@@ -9,6 +9,7 @@ on:
       - 'migrations/v*/**'
       - 'app/platform_assets/**'
       - 'Dockerfile'
+      - '.dockerignore'
       - 'docker-compose.yml'
       - 'Makefile'
       - '.env.example'
@@ -20,6 +21,7 @@ on:
       - 'migrations/v*/**'
       - 'app/platform_assets/**'
       - 'Dockerfile'
+      - '.dockerignore'
       - 'docker-compose.yml'
       - 'Makefile'
       - '.env.example'
@@ -72,3 +74,7 @@ jobs:
           python -m compileall -q tools/bootstrap_db.py
       - name: Validate Compose qualification graph
         run: docker compose config >/dev/null
+      - name: Build qualification image
+        run: docker build --tag astra-qualification:test .
+      - name: Smoke bootstrap boundary inside image
+        run: docker run --rm astra-qualification:test python tools/bootstrap_db.py --verify-only
