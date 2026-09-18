@@ -1,0 +1,48 @@
+# Local qualification environment.
+#
+#   docker compose up -d postgres     # database only
+#   docker compose run --rm migrate   # apply the platform lineage twice
+#   docker compose run --rm tests     # full suite, PostgreSQL modules included
+#
+# This file provisions a database and runs the suite against it. It does not start
+# a trading process: the runtime has no long-lived entry point, and trading
+# authority is carried by release artifacts rather than by a container.
+
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-astra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-astra}
+      POSTGRES_DB: ${POSTGRES_DB:-astra}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - astra-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-astra} -d ${POSTGRES_DB:-astra}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASTRA_POSTGRES_DSN: postgresql://${POSTGRES_USER:-astra}:${POSTGRES_PASSWORD:-astra}@postgres:5432/${POSTGRES_DB:-astra}
+    command: ["python", "tools/bootstrap_db.py"]
+
+  tests:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASTRA_TEST_POSTGRES_DSN: postgresql://${POSTGRES_USER:-astra}:${POSTGRES_PASSWORD:-astra}@postgres:5432/${POSTGRES_DB:-astra}
+      ASTRA_TEST_FLEET_DEPLOYMENT_DSN: postgresql://${POSTGRES_USER:-astra}:${POSTGRES_PASSWORD:-astra}@postgres:5432/${POSTGRES_DB:-astra}
+    command: ["pytest", "-q"]
+
+volumes:
+  astra-pgdata:
