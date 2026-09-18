@@ -3,13 +3,13 @@
   "artifact_release_owner": "@PetrFedin",
   "rollback_owner": "@PetrFedin",
   "independent_live_approver": null,
-  "branch_protection_verification": "VERIFIED_DISABLED",
+  "branch_protection_verification": "VERIFIED_ENABLED",
   "branch_protection_evidence": {
     "source": "github_branch_summary",
     "repository": "PetrFedin/trade_bot",
     "branch": "main",
-    "protected": false,
-    "protection_enabled": false,
+    "protected": true,
+    "protection_enabled": true,
     "required_status_checks_enforcement": "off"
   },
   "artifact_release_allowed": true,
