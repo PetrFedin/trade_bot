@@ -294,6 +294,22 @@ class PaperTradeFillAccounting:
             raise KeyError(fact.intent_id)
         self._validate_fact_identity(record, fact)
 
+        coverage = self._projection_coverage(fact)
+        if coverage == "COVERED":
+            domain_fill = fact.to_fill()
+            self.execution_facts.mark_projected(
+                fact.execution_fact_id,
+                occurred_at=fact.occurred_at,
+            )
+            return FillAccountingResult(
+                record=record,
+                fill=domain_fill,
+                portfolio_event_appended=False,
+                oms_advanced=False,
+            )
+        if coverage == "PARTIAL":
+            raise ValueError("EXECUTION_CUMULATIVE_OVERLAP_CONFLICT")
+
         if record.state is OrderState.SUBMIT_STARTED:
             record = self.oms.transition(
                 fact.intent_id,
@@ -329,7 +345,7 @@ class PaperTradeFillAccounting:
         candidate.apply_fill(domain_fill)
 
         appended = self.portfolio.append_fill(domain_fill)
-        if self.runtime_ledger is not None:
+        if appended and self.runtime_ledger is not None:
             self.runtime_ledger.apply_fill(domain_fill)
 
         self.execution_facts.mark_projected(
@@ -342,6 +358,32 @@ class PaperTradeFillAccounting:
             portfolio_event_appended=appended,
             oms_advanced=advanced,
         )
+
+    @staticmethod
+    def _execution_interval(fact: ExecutionFact) -> tuple[Decimal, Decimal]:
+        return fact.cumulative_quantity - fact.quantity, fact.cumulative_quantity
+
+    def _projection_coverage(self, fact: ExecutionFact) -> str:
+        target_start, target_end = self._execution_interval(fact)
+        intersections: list[tuple[Decimal, Decimal]] = []
+        for projected in self.execution_facts.projected(fact.intent_id):
+            start, end = self._execution_interval(projected)
+            overlap_start = max(start, target_start)
+            overlap_end = min(end, target_end)
+            if overlap_start < overlap_end:
+                intersections.append((overlap_start, overlap_end))
+        if not intersections:
+            return "NONE"
+
+        cursor = target_start
+        for start, end in sorted(intersections):
+            if start > cursor:
+                return "PARTIAL"
+            if end > cursor:
+                cursor = end
+            if cursor >= target_end:
+                return "COVERED"
+        return "PARTIAL"
 
     @staticmethod
     def _projection_reason(exc: Exception) -> str:
