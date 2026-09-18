@@ -219,3 +219,12 @@ def test_apply_reports_migration_provenance_on_failure(tmp_path, monkeypatch) ->
     assert "MIGRATION_FAILED pass=1" in message
     assert "migrations/v999/001.sql" in message
     assert "database rejected statement" in message
+
+
+def test_zero_pass_bootstrap_is_rejected_before_any_work(capsys) -> None:
+    assert bootstrap.main(["--verify-only", "--passes", "0"]) == 2
+    assert "PASSES_REQUIRED" in capsys.readouterr().err
+
+
+def test_reset_identifier_quoting_escapes_embedded_quotes() -> None:
+    assert bootstrap._quoted_identifier('odd"schema') == '"odd""schema"'
