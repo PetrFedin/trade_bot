@@ -4,6 +4,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 from app.domain.trading import Side
+from app.execution.execution_facts import ExecutionFactStore
 from app.execution.financial_activity_gate import (
     FinancialActivityTruthProvider,
     financial_activity_truth_block_reasons,
@@ -42,6 +43,7 @@ class PaperFinalDispatchGuard:
         snapshot_provider: OperationalSnapshotProvider | None,
         financial_activity_truth: FinancialActivityTruthProvider,
         portfolio_reconciliation: PortfolioReconciliationStore | None = None,
+        execution_facts: ExecutionFactStore | None = None,
     ) -> None:
         if financial_activity_truth is None:
             raise ValueError("financial_activity_truth is required")
@@ -50,6 +52,7 @@ class PaperFinalDispatchGuard:
         self.snapshot_provider = snapshot_provider
         self.financial_activity_truth = financial_activity_truth
         self.portfolio_reconciliation = portfolio_reconciliation
+        self.execution_facts = execution_facts
 
     @staticmethod
     def _time(value: datetime) -> datetime:
@@ -64,6 +67,7 @@ class PaperFinalDispatchGuard:
         occurred_at: datetime,
     ) -> DispatchAuthorization:
         moment = self._time(occurred_at)
+        self._execution_accounting_gate(record)
         self._known_reconciliation_gate(record)
         self._financial_activity_gate(record, occurred_at=moment)
         if self.snapshot_provider is None:
@@ -88,6 +92,12 @@ class PaperFinalDispatchGuard:
             intent_id=record.intent_id,
             occurred_at=moment,
         )
+
+    def _execution_accounting_gate(self, record: OrderRecord) -> None:
+        if record.side is not Side.BUY or self.execution_facts is None:
+            return
+        if self.execution_facts.unresolved_count() > 0:
+            raise DispatchBlocked(("EXECUTION_ACCOUNTING_NOT_CONVERGED",))
 
     def _known_reconciliation_gate(self, record: OrderRecord) -> None:
         if record.side is not Side.BUY or self.portfolio_reconciliation is None:
