@@ -11,6 +11,8 @@ on:
       - 'app/application/composition.py'
       - 'app/execution/execution_facts.py'
       - 'app/execution/execution_checkpoints.py'
+      - 'app/execution/financial_activity_postgres.py'
+      - 'app/execution/financial_activity_store.py'
       - 'app/execution/paper_executor.py'
       - 'app/execution/trade_fills.py'
       - 'app/runtime/paper_dispatch_control.py'
@@ -19,6 +21,7 @@ on:
       - 'tests/test_postgres_oms_e2e.py'
       - 'tests/test_postgres_execution_facts.py'
       - 'tests/test_postgres_execution_checkpoints.py'
+      - 'tests/test_postgres_financial_activities.py'
       - 'tests/test_postgres_risk_reservations.py'
       - 'tests/test_postgres_dispatch_control.py'
       - 'tests/test_pending_risk_reservations.py'
@@ -36,6 +39,8 @@ on:
       - 'app/application/composition.py'
       - 'app/execution/execution_facts.py'
       - 'app/execution/execution_checkpoints.py'
+      - 'app/execution/financial_activity_postgres.py'
+      - 'app/execution/financial_activity_store.py'
       - 'app/execution/paper_executor.py'
       - 'app/execution/trade_fills.py'
       - 'app/runtime/paper_dispatch_control.py'
@@ -44,6 +49,7 @@ on:
       - 'tests/test_postgres_oms_e2e.py'
       - 'tests/test_postgres_execution_facts.py'
       - 'tests/test_postgres_execution_checkpoints.py'
+      - 'tests/test_postgres_financial_activities.py'
       - 'tests/test_postgres_risk_reservations.py'
       - 'tests/test_postgres_dispatch_control.py'
       - 'tests/test_pending_risk_reservations.py'
@@ -96,6 +102,8 @@ jobs:
         run: pytest -q tests/test_postgres_execution_facts.py
       - name: PostgreSQL F19 execution checkpoint E2E
         run: pytest -q tests/test_postgres_execution_checkpoints.py
+      - name: PostgreSQL financial activity truth and evidence fencing E2E
+        run: pytest -q tests/test_postgres_financial_activities.py
       - name: PostgreSQL pending-risk reservation E2E
         run: pytest -q tests/test_postgres_risk_reservations.py
       - name: PostgreSQL final-dispatch control E2E
@@ -117,5 +125,7 @@ jobs:
           app/runtime/paper_final_dispatch.py
           app/execution/execution_facts.py
           app/execution/execution_checkpoints.py
+          app/execution/financial_activity_postgres.py
+          app/execution/financial_activity_store.py
           app/execution/paper_executor.py
           app/execution/trade_fills.py
