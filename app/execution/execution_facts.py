@@ -118,6 +118,8 @@ class ExecutionFactStore(Protocol):
         occurred_at: datetime,
     ) -> None: ...
 
+    def projected(self, intent_id: str) -> tuple[ExecutionFact, ...]: ...
+
     def unresolved_count(self) -> int: ...
 
     def unresolved(self) -> tuple[StoredExecutionFact, ...]: ...
@@ -320,6 +322,26 @@ class SQLiteExecutionFactStore:
             fee=Decimal(str(payload["fee"])),
             occurred_at=datetime.fromisoformat(str(row["occurred_at"])),
         )
+
+    def projected(self, intent_id: str) -> tuple[ExecutionFact, ...]:
+        normalized = intent_id.strip()
+        if not normalized:
+            raise ValueError("intent_id is required")
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                """SELECT f.execution_fact_id, f.payload, f.occurred_at
+                FROM execution_facts f
+                WHERE json_extract(f.payload, '$.intent_id')=?
+                  AND COALESCE((SELECT e.state FROM execution_projection_events e
+                        WHERE e.execution_fact_id=f.execution_fact_id
+                        ORDER BY e.sequence DESC LIMIT 1), 'PENDING')='PROJECTED'
+                ORDER BY f.occurred_at, f.execution_fact_id""",
+                (normalized,),
+            ).fetchall()
+        finally:
+            connection.close()
+        return tuple(self._fact(row) for row in rows)
 
     def unresolved(self) -> tuple[StoredExecutionFact, ...]:
         connection = self._connect()
@@ -534,6 +556,26 @@ class PostgresExecutionFactStore:
             fee=Decimal(str(payload["fee"])),
             occurred_at=occurred_at,
         )
+
+    def projected(self, intent_id: str) -> tuple[ExecutionFact, ...]:
+        normalized = intent_id.strip()
+        if not normalized:
+            raise ValueError("intent_id is required")
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT f.execution_fact_id, f.payload, f.occurred_at
+                    FROM astra_execution_facts f
+                    WHERE f.payload->>'intent_id'=%s
+                      AND COALESCE((SELECT e.state
+                            FROM astra_execution_projection_events e
+                            WHERE e.execution_fact_id=f.execution_fact_id
+                            ORDER BY e.sequence DESC LIMIT 1), 'PENDING')='PROJECTED'
+                    ORDER BY f.occurred_at, f.execution_fact_id""",
+                    (normalized,),
+                )
+                rows = cursor.fetchall()
+        return tuple(self._fact(dict(row)) for row in rows)
 
     def unresolved(self) -> tuple[StoredExecutionFact, ...]:
         with self._connect() as connection:
