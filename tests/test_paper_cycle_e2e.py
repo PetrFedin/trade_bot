@@ -8,6 +8,7 @@ from app.application.composition import ProductConfig, build_local_product
 from app.application.paper_cycle import PaperCycleService
 from app.domain.trading import Bar, Side
 from app.execution.alpaca_fill_backfill import AlpacaFillActivity, FillActivityPage
+from app.execution.execution_facts import ExecutionFact
 from app.execution.trade_fills import ExplicitZeroPaperFeeModel
 from app.observability.readiness import OperationalSnapshot
 from app.oms.reconciliation import BrokerPortfolioTruth, BrokerPositionTruth
@@ -112,6 +113,8 @@ class FakeCycleBroker:
     def __init__(self) -> None:
         self.submit_calls = 0
         self.orders: dict[str, BrokerOrder] = {}
+        self.immediate_fill = False
+        self.fill_price = Decimal("101")
 
     def submit_limit_order(self, **kwargs) -> BrokerOrder:
         self.submit_calls += 1
@@ -122,9 +125,14 @@ class FakeCycleBroker:
             side=kwargs["side"],
             quantity=kwargs["quantity"],
             limit_price=kwargs["limit_price"],
-            status=BrokerOrderStatus.ACKNOWLEDGED,
-            filled_quantity=Decimal("0"),
+            status=(
+                BrokerOrderStatus.FILLED
+                if self.immediate_fill
+                else BrokerOrderStatus.ACKNOWLEDGED
+            ),
+            filled_quantity=kwargs["quantity"] if self.immediate_fill else Decimal("0"),
             updated_at=NOW,
+            filled_avg_price=self.fill_price if self.immediate_fill else None,
         )
         self.orders[order.client_order_id] = order
         return order
@@ -340,3 +348,90 @@ def test_cycle_rejects_buy_above_replayed_available_cash_before_outbox(tmp_path)
     evidence = runtime.risk_admission.journal.verify()
     assert len(evidence) == 1
     assert evidence[0].payload["decision"]["approved"] is False
+
+
+def test_immediate_submit_fill_converges_before_next_planning_cycle(tmp_path) -> None:
+    broker = FakeCycleBroker()
+    broker.immediate_fill = True
+    runtime, cycle = build_cycle(tmp_path, broker)
+    planning = cycle.plan_and_prepare(
+        bars(), decision_time=NOW, risk_context=operational_context(runtime)
+    )
+    assert planning.prepared is not None
+
+    execution = cycle.execute_next_submit(occurred_at=NOW)
+    assert execution is not None
+    assert execution.record.state is OrderState.FILLED
+    assert execution.record.filled_quantity == Decimal("1")
+    assert runtime.execution_facts.unresolved_count() == 0
+    assert runtime.portfolio.position("AAPL").quantity == Decimal("1")
+    assert runtime.portfolio.position("AAPL").average_cost == Decimal("101")
+    assert runtime.portfolio.cash == Decimal("9899")
+    assert broker.submit_calls == 1
+
+    late = cycle.process_trade_update(
+        fill_frame(client_order_id=planning.prepared.client_order_id),
+        received_at=NOW + timedelta(seconds=1),
+    )
+    assert late.fill_accounting is not None
+    assert late.fill_accounting.portfolio_event_appended is False
+    assert runtime.portfolio.position("AAPL").quantity == Decimal("1")
+    assert runtime.portfolio.cash == Decimal("9899")
+
+    no_second_buy = cycle.plan_and_prepare(
+        bars(), decision_time=NOW, risk_context=operational_context(runtime)
+    )
+    assert no_second_buy.intent is None
+    assert not no_second_buy.order_ready
+    assert broker.submit_calls == 1
+
+
+def test_restart_recovers_durable_submit_execution_fact_without_second_post(tmp_path) -> None:
+    broker = FakeCycleBroker()
+    runtime, cycle = build_cycle(tmp_path, broker)
+    planning = cycle.plan_and_prepare(
+        bars(), decision_time=NOW, risk_context=operational_context(runtime)
+    )
+    assert planning.prepared is not None
+    intent_id = planning.intent.intent_id
+    runtime.oms_store.transition(
+        intent_id,
+        OrderState.SUBMIT_STARTED,
+        event_id="f19-crash-submit-started",
+        occurred_at=NOW,
+    )
+    fact = ExecutionFact(
+        execution_fact_id="f19-crash-fact",
+        intent_id=intent_id,
+        broker_order_id="broker-cycle-1",
+        client_order_id=planning.prepared.client_order_id,
+        symbol="AAPL",
+        side=Side.BUY,
+        order_quantity=Decimal("1"),
+        cumulative_quantity=Decimal("1"),
+        quantity=Decimal("1"),
+        price=Decimal("101"),
+        fee=Decimal("0"),
+        occurred_at=NOW + timedelta(seconds=1),
+    )
+    assert runtime.execution_facts.append(
+        fact,
+        source_execution_id="f19-crash-source",
+    )
+    assert runtime.execution_facts.unresolved_count() == 1
+    assert runtime.portfolio.position("AAPL").quantity == 0
+
+    restarted_runtime, restarted_cycle = build_cycle(tmp_path, broker)
+    assert restarted_runtime.execution_facts.unresolved_count() == 0
+    assert restarted_runtime.portfolio.position("AAPL").quantity == Decimal("1")
+    assert restarted_runtime.portfolio.cash == Decimal("9899")
+    recovered_order = restarted_runtime.oms_store.get(intent_id)
+    assert recovered_order is not None and recovered_order.state is OrderState.FILLED
+
+    cleared = restarted_cycle.execute_next_submit(
+        occurred_at=NOW + timedelta(seconds=2)
+    )
+    assert cleared is not None
+    assert not cleared.mutation_attempted
+    assert broker.submit_calls == 0
+    assert restarted_runtime.oms_store.pending_outbox() == ()
