@@ -7,6 +7,8 @@ from decimal import Decimal
 from typing import Protocol
 from uuid import uuid4
 
+from app.domain.trading import Side
+from app.execution.trade_fills import ExactBrokerFill, PaperTradeFillAccounting
 from app.oms.store import OrderRecord, OrderState, OutboxMessage
 from app.runtime.paper_broker_contract_v99 import (
     BrokerMutationError,
@@ -86,6 +88,7 @@ class PaperSubmitExecutor:
         broker: PaperBrokerV99,
         started_recovery_grace_seconds: float = 30.0,
         dispatch_authorizer: DispatchAuthorizer | None = None,
+        fill_accounting: PaperTradeFillAccounting | None = None,
     ) -> None:
         grace = float(started_recovery_grace_seconds)
         if not math.isfinite(grace) or grace < 0:
@@ -94,6 +97,7 @@ class PaperSubmitExecutor:
         self.broker = broker
         self.started_recovery_grace_seconds = grace
         self.dispatch_authorizer = dispatch_authorizer
+        self.fill_accounting = fill_accounting
 
     @staticmethod
     def _time(value: datetime) -> datetime:
@@ -343,20 +347,54 @@ class PaperSubmitExecutor:
                 broker_order_id=order.broker_order_id,
             )
 
-        if local.state is OrderState.SUBMIT_STARTED:
+        if order.filled_quantity > local.filled_quantity:
+            if local.filled_quantity != 0:
+                return self._quarantine_execution_accounting(
+                    local,
+                    order,
+                    reason="BROKER_SUBMIT_INCREMENTAL_FILL_ECONOMICS_UNPROVEN",
+                    event_prefix=event_prefix,
+                    occurred_at=occurred_at,
+                )
+            if self.fill_accounting is None:
+                return self._quarantine_execution_accounting(
+                    local,
+                    order,
+                    reason="EXECUTION_ACCOUNTING_REQUIRED",
+                    event_prefix=event_prefix,
+                    occurred_at=occurred_at,
+                )
+            if order.filled_avg_price is None:
+                return self._quarantine_execution_accounting(
+                    local,
+                    order,
+                    reason="BROKER_SUBMIT_FILL_ECONOMICS_REQUIRED",
+                    event_prefix=event_prefix,
+                    occurred_at=occurred_at,
+                )
+            snapshot_time = order.updated_at.astimezone(UTC)
+            fill = ExactBrokerFill(
+                execution_id=(
+                    f"submit-snapshot:{order.broker_order_id}:"
+                    f"{order.filled_quantity}:{order.filled_avg_price}:"
+                    f"{snapshot_time.isoformat()}"
+                ),
+                broker_order_id=order.broker_order_id,
+                client_order_id=order.client_order_id,
+                symbol=order.instrument,
+                side=Side(order.side.value),
+                order_quantity=order.quantity,
+                cumulative_quantity=order.filled_quantity,
+                quantity=order.filled_quantity,
+                price=order.filled_avg_price,
+                occurred_at=snapshot_time,
+            )
+            local = self.fill_accounting.apply(intent_id, fill).record
+        elif local.state is OrderState.SUBMIT_STARTED:
             local = self.store.transition(
                 intent_id,
                 OrderState.ACKNOWLEDGED,
                 event_id=f"{event_prefix}:ack",
-                occurred_at=occurred_at,
-                broker_order_id=order.broker_order_id,
-            )
-
-        if order.filled_quantity > local.filled_quantity:
-            local = self.store.apply_cumulative_fill(
-                intent_id,
-                event_id=f"{event_prefix}:fill:{order.filled_quantity}",
-                cumulative_filled=order.filled_quantity,
                 occurred_at=occurred_at,
                 broker_order_id=order.broker_order_id,
             )
@@ -370,6 +408,26 @@ class PaperSubmitExecutor:
                 broker_order_id=order.broker_order_id,
             )
         return local
+
+    def _quarantine_execution_accounting(
+        self,
+        local: OrderRecord,
+        order: BrokerOrder,
+        *,
+        reason: str,
+        event_prefix: str,
+        occurred_at: datetime,
+    ) -> OrderRecord:
+        return self.store.transition(
+            local.intent_id,
+            OrderState.UNCERTAIN,
+            event_id=f"{event_prefix}:execution-accounting-uncertain",
+            occurred_at=occurred_at,
+            payload={
+                "reason": reason,
+                "broker_response": self._broker_order_evidence(order),
+            },
+        )
 
     def _quarantine_broker_truth(
         self,
