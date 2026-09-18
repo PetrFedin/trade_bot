@@ -19,14 +19,14 @@ def disabled_evidence() -> dict[str, object]:
     }
 
 
-def enabled_evidence() -> dict[str, object]:
+def enabled_evidence(*, enforcement: str = "everyone") -> dict[str, object]:
     return {
         "source": "github_branch_summary",
         "repository": "PetrFedin/trade_bot",
         "branch": "main",
         "protected": True,
         "protection_enabled": True,
-        "required_status_checks_enforcement": "everyone",
+        "required_status_checks_enforcement": enforcement,
     }
 
 
@@ -81,3 +81,21 @@ def test_load_rejects_invalid_release_owner(tmp_path: Path) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="beginning with @"):
         load_release_ownership(path)
+
+
+def test_artifact_release_accepts_enabled_protection_without_status_enforcement() -> None:
+    data = baseline()
+    data["branch_protection_verification"] = "VERIFIED_ENABLED"
+    data["branch_protection_evidence"] = enabled_evidence(enforcement="off")
+    validate_release_ownership(data)
+    assert data["live_release_allowed"] is False
+
+
+def test_verified_enabled_evidence_requires_actual_protection() -> None:
+    data = baseline()
+    data["branch_protection_verification"] = "VERIFIED_ENABLED"
+    evidence = enabled_evidence(enforcement="off")
+    evidence["protection_enabled"] = False
+    data["branch_protection_evidence"] = evidence
+    with pytest.raises(ValueError, match="must prove protection is enabled"):
+        validate_release_ownership(data)
