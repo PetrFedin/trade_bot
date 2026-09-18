@@ -119,7 +119,7 @@ def test_main_requires_dsn_when_apply_is_requested(monkeypatch, capsys, tmp_path
     migration.write_text("SELECT 1;")
     monkeypatch.setattr(bootstrap, "lineage", lambda: [migration])
     monkeypatch.setattr(bootstrap, "verify", lambda _migrations: [])
-    monkeypatch.setattr(bootstrap, "packaging_coverage", lambda _migrations: (0, (migration,)))
+    monkeypatch.setattr(bootstrap, "packaging_coverage", lambda _migrations: (1, ()))
     monkeypatch.delenv("ASTRA_POSTGRES_DSN", raising=False)
     monkeypatch.delenv("ASTRA_TEST_POSTGRES_DSN", raising=False)
 
