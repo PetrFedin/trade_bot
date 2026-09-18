@@ -7,11 +7,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Dependency metadata first, so edits to source do not invalidate the wheel cache.
-COPY pyproject.toml requirements.lock ./
-COPY app/__init__.py app/__init__.py
-
-RUN pip install --no-cache-dir '.[test,postgresql,marketdata]' \
+# Use the same hash-locked qualification graph as strict CI before copying source,
+# so source edits do not invalidate the dependency layer and the image cannot resolve
+# a different compatible version from broad pyproject ranges.
+COPY requirements.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock \
     && pip check
 
 COPY . .
