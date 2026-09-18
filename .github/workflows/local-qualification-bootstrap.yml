@@ -54,6 +54,7 @@ jobs:
           --health-retries 10
     env:
       ASTRA_POSTGRES_DSN: postgresql://astra:astra@127.0.0.1:5432/astra
+      ASTRA_TEST_POSTGRES_DSN: postgresql://astra:astra@127.0.0.1:5432/astra
     steps:
       - name: Checkout exact PR head or push SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
@@ -73,8 +74,11 @@ jobs:
         run: |
           python tools/bootstrap_db.py
           python tools/bootstrap_db.py
-      - name: Bootstrap safety and lineage unit tests
-        run: pytest -q tests/test_bootstrap_db.py
+      - name: Bootstrap safety and persistent-DB regression
+        run: >-
+          pytest -q
+          tests/test_bootstrap_db.py
+          tests/test_postgres_portfolio_reconciliation.py
       - name: Lint and compile bootstrap boundary
         run: |
           ruff check tools/bootstrap_db.py tests/test_bootstrap_db.py
