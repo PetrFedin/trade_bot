@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: read
 
 concurrency:
   group: status-source-${{ github.event.pull_request.number || github.ref }}
@@ -32,3 +33,16 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest -v tests/test_system_status.py
+
+      # system_status.py validates the status surface against sources that all live in
+      # this repository, so a gate stays advertised as "next" after its issue is closed.
+      # This step is the only one that consults the tracker.
+      - name: Verify the declared vertical gate is still open
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/status_tracker_sync.py
+
+      # The operator console is generated from the same status surface, so it cannot
+      # drift from what it reports. A hand edit fails here.
+      - name: Verify the generated operator console
+        run: python tools/status_dashboard.py --check

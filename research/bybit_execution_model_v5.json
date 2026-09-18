@@ -1,0 +1,71 @@
+{
+  "schema_version": "strategy-research-measurement-v5",
+  "research_only": true,
+  "strategy_promotion_allowed": false,
+  "question": "Does passive execution change the conclusion? Every earlier measurement charged a taker round trip.",
+  "window": {
+    "start": "2023-09-19",
+    "end": "2026-09-17",
+    "interval": "D",
+    "symbols": 21
+  },
+  "fees": {
+    "taker_round_trip": 0.0016,
+    "maker_round_trip": 0.0004,
+    "realistic_mixed_round_trip": 0.00075,
+    "note": "A hard stop crosses the book by construction, so a fully passive round trip is not available to this policy."
+  },
+  "tooling": [
+    "tools/execution_model.py"
+  ],
+  "taker_cross_at_open": {
+    "mean": 0.00049887,
+    "t": 0.7008
+  },
+  "passive_entry_by_offset": [
+    {
+      "offset": 0.001,
+      "fill_rate": 0.9737,
+      "maker_when_filled": 0.00171024,
+      "maker_t": 2.3697,
+      "missed_mean": 0.02075362,
+      "missed_episodes": 33,
+      "per_signal_realistic_cost": 0.00132629
+    },
+    {
+      "offset": 0.002,
+      "fill_rate": 0.9506,
+      "maker_when_filled": 0.00206106,
+      "maker_t": 2.8139,
+      "missed_mean": 0.02258441,
+      "missed_episodes": 72,
+      "per_signal_realistic_cost": 0.00161822
+    },
+    {
+      "offset": 0.005,
+      "fill_rate": 0.8705,
+      "maker_when_filled": 0.00186396,
+      "maker_t": 2.4373,
+      "missed_mean": 0.02315342,
+      "missed_episodes": 196,
+      "per_signal_realistic_cost": 0.00129119
+    },
+    {
+      "offset": 0.01,
+      "fill_rate": 0.7315,
+      "maker_when_filled": 0.00158435,
+      "maker_t": 1.9235,
+      "missed_mean": 0.02154587,
+      "missed_episodes": 391,
+      "per_signal_realistic_cost": 0.00087201
+    }
+  ],
+  "interpretation": "Yes, materially. Crossing at the open returns +0.0499% per signal at t = 0.70. A bid resting 0.2% below the reference close fills 95.1% of the time and returns +0.162% per signal once the missed 4.9% are counted as zero and the exit is charged at the taker rate, because a hard stop must cross. Roughly a third of the gain survives even at full taker fees, since entering lower is a better price regardless of the fee schedule. Adverse selection is real and measured: the unfilled attempts would have returned +2.26% each at t = 11.50, so the resting order misses precisely the moves that ran. It does not outweigh the saving at these offsets. Every earlier measurement in this research understated the strategy by assuming it crosses the spread.",
+  "limitations": [
+    "Fill is modelled as any touch of the limit price; queue position and partial fills are not.",
+    "The offset is fixed rather than sized to spread or volatility.",
+    "No order-book data: touch is inferred from the bar low.",
+    "Funding is still unmodelled.",
+    "t on the filled arm is about 2.3 at realistic fees, below the one-percent threshold the diagnostics gate requires."
+  ]
+}

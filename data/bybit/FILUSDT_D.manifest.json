@@ -1,0 +1,15 @@
+{
+  "schema_version": "bybit-kline-manifest-v1",
+  "source_classification": "PUBLIC_VENUE_DATA_NON_AUTHORITATIVE",
+  "endpoint": "https://api.bybit.com/v5/market/kline",
+  "category": "linear",
+  "symbol": "FILUSDT",
+  "interval": "D",
+  "requested_start": "2023-09-18T14:52:32.887121+00:00",
+  "requested_end": "2026-09-17T14:52:32.887121+00:00",
+  "bar_count": 1095,
+  "first_bar": "2023-09-19T00:00:00+00:00",
+  "last_bar": "2026-09-17T00:00:00+00:00",
+  "dataset_file": "FILUSDT_D.csv",
+  "limitations": "Public venue data retrieved without authentication. Gaps, revisions and listing history are not asserted; the venue may omit bars with no trades."
+}

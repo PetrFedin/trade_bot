@@ -1,0 +1,18 @@
+# gitleaks configuration for ASTRA.
+#
+# The default ruleset is kept in full. One literal is allowlisted: the static audit tools
+# carry the dangerous constructs they search for as plain strings, and
+# tools/static_audit_v*.py lists "live_trading_allowed=True" in its FORBIDDEN tuple, which
+# the generic-api-key rule matches.
+#
+# The allowlist matches that literal and nothing else. It deliberately carries no path
+# condition: a path entry allowlists every finding in the matching files, which would
+# leave the static audit tools unscanned for real secrets.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Forbidden-construct literal carried by the static audit tools"
+regexTarget = "match"
+regexes = ['''live_trading_allowed=True''']

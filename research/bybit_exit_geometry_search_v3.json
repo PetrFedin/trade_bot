@@ -1,0 +1,54 @@
+{
+  "schema_version": "strategy-research-measurement-v3",
+  "research_only": true,
+  "strategy_promotion_allowed": false,
+  "window": {
+    "start": "2023-09-19",
+    "end": "2026-09-17",
+    "interval": "D",
+    "symbols": 21,
+    "development_fraction": 0.7
+  },
+  "cost_fraction_round_trip": "0.0016",
+  "grid_size": 24,
+  "tooling": [
+    "tools/exit_geometry_search.py",
+    "tools/replay_episodes.py"
+  ],
+  "geometry_selection": {
+    "selected_on_development": "4%/8% trail 3.0%->2.5% x20",
+    "beat_shipped_on_holdout": false,
+    "development_to_holdout_correlation": -0.1343,
+    "holdout_spread": {
+      "min": -0.00195646,
+      "max": 0.00086156,
+      "stdev": 0.00067302
+    },
+    "conclusion": "Ranking geometries on history does not predict their holdout result."
+  },
+  "signal_alpha_over_random_entry": {
+    "range": [
+      0.00586659,
+      0.00991681
+    ],
+    "median": 0.00736389,
+    "geometries_significant_holm_1pct": 24,
+    "geometries_tested": 24,
+    "shipped_geometry": {
+      "signal": -3.385e-05,
+      "random_control": -0.00653217,
+      "alpha": 0.00649832,
+      "bootstrap_ci95": [
+        0.0034032,
+        0.00963201
+      ]
+    }
+  },
+  "interpretation": "Exit geometry cannot be chosen from this data: development ranking and holdout result correlate at -0.13, and the geometry selected on development failed to beat the shipped one on holdout. The entry signal's alpha over a random entry is by contrast robust to geometry - between 0.587% and 0.992% per episode, significant for all 24 grid entries after Holm correction. On the shipped geometry the holdout random arm returned -0.653% per episode while the signal arm returned -0.003%, so the signal converted a losing environment into a flat one without producing profit. The strategy is structurally long-only and the median instrument fell 17.7% over the window, which is where the alpha is going.",
+  "limitations": [
+    "A single holdout window; its regime may not represent others.",
+    "Random control draws entries uniformly, a weaker benchmark than matched exposure.",
+    "Perpetual funding and maker fill risk remain unmodelled.",
+    "No short side exists in the codebase, so market-neutral capture was not testable."
+  ]
+}
