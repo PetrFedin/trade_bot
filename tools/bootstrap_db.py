@@ -73,6 +73,10 @@ def packaging_coverage(migrations: list[Path]) -> tuple[int, tuple[Path, ...]]:
 _LOCAL_RESET_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "postgres"})
 
 
+def _quoted_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
 def local_reset_dsn(dsn: str) -> bool:
     """Return whether destructive reset is confined to the local qualification zone."""
     try:
@@ -104,7 +108,9 @@ def reset(dsn: str) -> list[str]:
         ).fetchall()
         names = [str(row[0]) for row in rows]
         for name in names:
-            connection.execute(f'DROP SCHEMA IF EXISTS "{name}" CASCADE')
+            connection.execute(
+                f"DROP SCHEMA IF EXISTS {_quoted_identifier(name)} CASCADE"
+            )
         connection.execute("CREATE SCHEMA IF NOT EXISTS public")
     return sorted(names)
 
@@ -151,6 +157,10 @@ def main(argv: list[str] | None = None) -> int:
         help="how many times to apply the lineage (default 2, proving idempotency)",
     )
     args = parser.parse_args(argv)
+
+    if args.passes < 1:
+        print("PASSES_REQUIRED: --passes must be at least 1", file=sys.stderr)
+        return 2
 
     migrations = lineage()
     if not migrations:
