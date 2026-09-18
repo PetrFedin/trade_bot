@@ -21,6 +21,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = ROOT / "migrations"
@@ -61,6 +62,21 @@ def verify(migrations: list[Path]) -> list[str]:
                 f"MIGRATION_DRIFT: {migration.relative_to(ROOT)} != {copy.relative_to(ROOT)}"
             )
     return drift
+
+
+_LOCAL_RESET_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "postgres"})
+
+
+def local_reset_dsn(dsn: str) -> bool:
+    """Return whether destructive reset is confined to the local qualification zone."""
+    try:
+        parsed = urlparse(dsn)
+    except ValueError:
+        return False
+    return (
+        parsed.scheme in {"postgres", "postgresql"}
+        and parsed.hostname in _LOCAL_RESET_HOSTS
+    )
 
 
 def reset(dsn: str) -> list[str]:
@@ -155,6 +171,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.reset:
+        if not local_reset_dsn(args.dsn):
+            print(
+                "RESET_REFUSED: --reset is restricted to the local qualification zone",
+                file=sys.stderr,
+            )
+            return 2
         dropped = reset(args.dsn)
         print(f"dropped {len(dropped)} schema(s): {', '.join(dropped)}")
 
