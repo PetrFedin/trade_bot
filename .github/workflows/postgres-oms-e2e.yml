@@ -14,6 +14,7 @@ on:
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
       - 'tests/test_postgres_execution_facts.py'
+      - 'tests/test_postgres_f19_immediate_submit_convergence.py'
       - 'tests/test_postgres_risk_reservations.py'
       - 'tests/test_postgres_dispatch_control.py'
       - 'tests/test_pending_risk_reservations.py'
@@ -33,6 +34,7 @@ on:
       - 'migrations/product/**'
       - 'tests/test_postgres_oms_e2e.py'
       - 'tests/test_postgres_execution_facts.py'
+      - 'tests/test_postgres_f19_immediate_submit_convergence.py'
       - 'tests/test_postgres_risk_reservations.py'
       - 'tests/test_postgres_dispatch_control.py'
       - 'tests/test_pending_risk_reservations.py'
@@ -80,8 +82,11 @@ jobs:
           python -m pip check
       - name: PostgreSQL durable OMS and F20 economic identity E2E
         run: pytest -q tests/test_postgres_oms_e2e.py
-      - name: PostgreSQL execution facts E2E
-        run: pytest -q tests/test_postgres_execution_facts.py
+      - name: PostgreSQL execution facts and F19 immediate-submit convergence E2E
+        run: >-
+          pytest -q
+          tests/test_postgres_execution_facts.py
+          tests/test_postgres_f19_immediate_submit_convergence.py
       - name: PostgreSQL pending-risk reservation E2E
         run: pytest -q tests/test_postgres_risk_reservations.py
       - name: PostgreSQL final-dispatch control E2E
