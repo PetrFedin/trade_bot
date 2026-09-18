@@ -75,11 +75,13 @@ def test_postgres_execution_fact_is_durable_idempotent_and_projectable(
     assert fact.execution_fact_id not in {
         item.fact.execution_fact_id for item in store.unresolved()
     }
+    assert store.projected(fact.intent_id) == (fact,)
 
     reopened = PostgresExecutionFactStore(DSN)
     assert fact.execution_fact_id not in {
         item.fact.execution_fact_id for item in reopened.unresolved()
     }
+    assert reopened.projected(fact.intent_id) == (fact,)
 
 
 def test_postgres_execution_fact_conflicts_fail_closed(
