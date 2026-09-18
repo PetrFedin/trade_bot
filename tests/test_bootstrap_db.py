@@ -140,8 +140,10 @@ def test_reset_drops_only_returned_non_system_schemas(monkeypatch) -> None:
         def execute(self, statement: str):
             statements.append(statement)
             if statement.startswith("SELECT nspname"):
-                return [("public",), ("astra_v999",)]
-            return []
+                return SimpleNamespace(
+                    fetchall=lambda: [("public",), ("astra_v999",)]
+                )
+            return None
 
     monkeypatch.setitem(
         sys.modules,
