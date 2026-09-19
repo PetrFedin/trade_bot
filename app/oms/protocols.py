@@ -14,6 +14,10 @@ class OmsStore(Protocol):
 
     def get(self, intent_id: str) -> OrderRecord | None: ...
 
+    def operational_blocking_count(self) -> int:
+        """Count orders requiring reconciliation or manual intervention."""
+        ...
+
     def create(
         self,
         intent: OrderIntent,

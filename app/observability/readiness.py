@@ -56,6 +56,10 @@ class OperationalSnapshot:
     stream_ready: bool
     broker_connected: bool
     portfolio_reconciled: bool
+    market_data_conflicts: int = 0
+    unresolved_execution_facts: int = 0
+    unresolved_execution_checkpoints: int = 0
+    authority_reasons: tuple[str, ...] = ()
     external_order_routing_allowed: bool = False
     live_trading_allowed: bool = False
 
@@ -77,6 +81,18 @@ class OperationalSnapshot:
             raise ValueError("broker_error_fraction must be within [0, 1]")
         if self.uncertain_orders < 0 or self.position_mismatches < 0:
             raise ValueError("counts must be non-negative")
+        for name, value in (
+            ("market_data_conflicts", self.market_data_conflicts),
+            ("unresolved_execution_facts", self.unresolved_execution_facts),
+            ("unresolved_execution_checkpoints", self.unresolved_execution_checkpoints),
+        ):
+            if value < 0:
+                raise ValueError(f"{name} must be non-negative")
+        if not isinstance(self.authority_reasons, tuple) or any(
+            not isinstance(reason, str) or not reason.strip()
+            for reason in self.authority_reasons
+        ):
+            raise ValueError("authority_reasons must contain non-empty strings")
         if self.external_order_routing_allowed or self.live_trading_allowed:
             raise ValueError("operational qualification cannot enable external/live routing")
 
@@ -98,7 +114,7 @@ class OperationalReadinessEvaluator:
 
     def evaluate(self, snapshot: OperationalSnapshot) -> OperationalReadiness:
         snapshot.validate()
-        reasons: set[str] = set()
+        reasons: set[str] = set(snapshot.authority_reasons)
         if not snapshot.market_data_ready:
             reasons.add("MARKET_DATA_NOT_READY")
         if snapshot.market_data_age_seconds > self.policy.maximum_market_data_age_seconds:
@@ -115,6 +131,13 @@ class OperationalReadinessEvaluator:
             reasons.add("BROKER_ERROR_SLO_BREACH")
         if snapshot.uncertain_orders > self.policy.maximum_uncertain_orders:
             reasons.add("UNCERTAIN_ORDERS_PRESENT")
+        if snapshot.market_data_conflicts > 0:
+            reasons.add("MARKET_DATA_CONFLICT_PRESENT")
+        if (
+            snapshot.unresolved_execution_facts > 0
+            or snapshot.unresolved_execution_checkpoints > 0
+        ):
+            reasons.add("EXECUTION_ACCOUNTING_NOT_CONVERGED")
         if snapshot.reconciliation_age_seconds > self.policy.maximum_reconciliation_age_seconds:
             reasons.add("RECONCILIATION_STALE")
         if not snapshot.portfolio_reconciled:
