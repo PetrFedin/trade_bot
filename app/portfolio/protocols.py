@@ -5,12 +5,18 @@ from decimal import Decimal
 from typing import Protocol
 
 from app.domain.trading import Fill
-from app.portfolio.ledger import CashAdjustmentKind, PortfolioLedger
+from app.portfolio.ledger import (
+    AccountGenesisMismatch,  # noqa: F401 - re-exported
+    CashAdjustmentKind,
+    PortfolioLedger,
+)
 from app.portfolio.store import PersistedPortfolioSnapshot
 
 
 class PortfolioStore(Protocol):
     """Persistence port shared by local and PostgreSQL portfolio journals."""
+
+    def bind_genesis(self, opening_cash: Decimal) -> Decimal: ...
 
     def append_fill(self, fill: Fill) -> bool: ...
 

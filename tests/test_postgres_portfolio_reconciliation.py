@@ -76,6 +76,15 @@ def evidence(runtime, *, broker_cash: Decimal, at: datetime):
 
 
 def test_postgres_reconciliation_is_restart_safe_idempotent_and_conflict_aware() -> None:
+    # One database is one account. Other modules in this suite open the same database at
+    # a different opening cash, and the genesis binding refuses a reopen once the journal
+    # has history, so the journal is cleared before this module claims the account. The
+    # clear runs before any build, because the build is what the binding refuses.
+    with psycopg.connect(DSN, autocommit=True) as connection:
+        try:
+            connection.execute("TRUNCATE astra_portfolio_events RESTART IDENTITY CASCADE")
+        except psycopg.errors.UndefinedTable:
+            pass  # first module to touch a fresh database; migrate creates it below
     runtime = build_postgres_product(config=config(), dsn=DSN, migrate=True)
     now = fresh_start()
     mismatch = evidence(

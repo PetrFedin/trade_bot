@@ -6,7 +6,12 @@ from decimal import Decimal
 from pathlib import Path
 
 from app.domain.trading import Fill, Side
-from app.portfolio.ledger import CashAdjustmentKind, PortfolioLedger, PortfolioSnapshot
+from app.portfolio.ledger import (
+    AccountGenesisMismatch,
+    CashAdjustmentKind,
+    PortfolioLedger,
+    PortfolioSnapshot,
+)
 from app.portfolio.store import PersistedPortfolioSnapshot
 
 try:
@@ -32,11 +37,15 @@ class PostgresPortfolioEventStore:
             raise RuntimeError("PostgreSQL dependency is unavailable")
         return psycopg.connect(self.dsn, row_factory=dict_row, autocommit=False)
 
-    def migrate(self, path: str | Path = "migrations/product/003_portfolio_events.sql") -> None:
-        sql = Path(path).read_text(encoding="utf-8")
+    def migrate(
+        self,
+        path: str | Path = "migrations/product/003_portfolio_events.sql",
+        genesis_path: str | Path = "migrations/product/015_account_genesis.sql",
+    ) -> None:
         with self._connect() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(sql)
+                for script in (path, genesis_path):
+                    cursor.execute(Path(script).read_text(encoding="utf-8"))
             connection.commit()
 
     @staticmethod
@@ -146,6 +155,40 @@ class PostgresPortfolioEventStore:
             },
             occurred_at=occurred_at,
         )
+
+    def bind_genesis(self, opening_cash: Decimal) -> Decimal:
+        """Record the account's opening cash once, and refuse a later disagreement.
+
+        See AccountGenesisMismatch: the opening cash anchors every figure measured from
+        it, and until it was bound a configuration change could silently restate them.
+        """
+        if not opening_cash.is_finite() or opening_cash <= 0:
+            raise ValueError("opening_cash must be positive and finite")
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT opening_cash FROM astra_account_genesis")
+                row = cursor.fetchone()
+                cursor.execute("SELECT 1 FROM astra_portfolio_events LIMIT 1")
+                has_history = cursor.fetchone() is not None
+                if row is None or not has_history:
+                    # Until something has been measured from it there is nothing to
+                    # restate, so an account with an empty journal takes whatever it is
+                    # opened with. The binding becomes binding when history exists.
+                    cursor.execute("DELETE FROM astra_account_genesis")
+                    cursor.execute(
+                        "INSERT INTO astra_account_genesis (opening_cash, bound_at)"
+                        " VALUES (%s, %s)",
+                        (opening_cash, datetime.now(UTC)),
+                    )
+                    connection.commit()
+                    return opening_cash
+                bound = Decimal(str(row["opening_cash"] if "opening_cash" in row else row[0]))
+        if bound != opening_cash:
+            raise AccountGenesisMismatch(
+                f"account opened with {bound} and cannot be reopened with {opening_cash}; "
+                f"record a cash adjustment instead of changing the configured opening cash"
+            )
+        return bound
 
     def replay(self, *, opening_cash: Decimal) -> PortfolioLedger:
         ledger = PortfolioLedger(opening_cash=opening_cash)

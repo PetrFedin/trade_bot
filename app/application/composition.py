@@ -72,8 +72,10 @@ class ProductConfig:
     def validate(self) -> None:
         if not self.opening_cash.is_finite() or self.opening_cash <= 0:
             raise ValueError("opening_cash must be positive and finite")
-        if not self.target_quantity.is_finite() or self.target_quantity < 0:
-            raise ValueError("target_quantity must be finite and non-negative")
+        # Construction rejects a zero target, so accepting it here promised something the
+        # product then refused: a configuration that validates must be one that builds.
+        if not self.target_quantity.is_finite() or self.target_quantity <= 0:
+            raise ValueError("target_quantity must be positive and finite")
         self.risk_limits.validate()
         self.operational_slo.validate()
 
@@ -159,7 +161,11 @@ def _compose(
     strategy = LongOnlyMomentumStrategy(target_quantity=config.target_quantity)
     risk_engine = PreTradeRiskEngine(config.risk_limits)
     risk_admission = RiskAdmissionService(engine=risk_engine, journal=risk_journal)
-    portfolio = portfolio_store.replay(opening_cash=config.opening_cash)
+    # Bind the account genesis before replaying: reopening durable state under a
+    # different configured opening cash restates every figure measured from it, and is
+    # refused here rather than absorbed silently.
+    bound_opening_cash = portfolio_store.bind_genesis(config.opening_cash)
+    portfolio = portfolio_store.replay(opening_cash=bound_opening_cash)
     lifecycle = PaperOrderLifecycle(oms_store)
     mutation_lifecycle = RiskCheckedOrderMutationLifecycle(
         oms=oms_store,
