@@ -73,6 +73,10 @@ class IndexedOmsStore(OmsStore, Protocol):
 
     def get_by_broker_order_id(self, broker_order_id: str) -> OrderRecord | None: ...
 
+    def operational_blocking_count(self) -> int:
+        """Count OMS states that require operator/reconciliation attention."""
+        ...
+
     def register_replace_successor(
         self,
         *,
@@ -211,6 +215,26 @@ class IndexedDurableOmsStore(DurableOmsStore):
             if len(rows) > 1:
                 raise ValueError("OMS_BROKER_ORDER_ID_CONFLICT")
             return None if not rows else self._row(rows[0])
+        finally:
+            connection.close()
+
+    def operational_blocking_count(self) -> int:
+        blocking = tuple(
+            state.value
+            for state in (
+                OrderState.UNCERTAIN,
+                OrderState.RECONCILING,
+                OrderState.MANUAL,
+            )
+        )
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                """SELECT COUNT(*) AS count FROM oms_orders
+                WHERE state IN (?, ?, ?)""",
+                blocking,
+            ).fetchone()
+            return 0 if row is None else int(row["count"])
         finally:
             connection.close()
 
@@ -455,6 +479,22 @@ class IndexedPostgresOmsStore(PostgresOmsStore):
                 if len(rows) > 1:
                     raise ValueError("OMS_BROKER_ORDER_ID_CONFLICT")
                 return None if not rows else self._row(rows[0])
+
+    def operational_blocking_count(self) -> int:
+        blocking = (
+            OrderState.UNCERTAIN.value,
+            OrderState.RECONCILING.value,
+            OrderState.MANUAL.value,
+        )
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT COUNT(*) AS count FROM astra_oms_orders
+                    WHERE state IN (%s, %s, %s)""",
+                    blocking,
+                )
+                row = cursor.fetchone()
+                return 0 if row is None else int(row["count"])
 
     def register_replace_successor(
         self,
