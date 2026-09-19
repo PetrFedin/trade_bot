@@ -26,12 +26,13 @@ that produced it.
 from __future__ import annotations
 
 import argparse
+import bisect
 import csv
 import json
 import statistics
 import sys
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -50,6 +51,39 @@ from app.strategy.position_management import PositionManagementPolicy  # noqa: E
 from app.strategy.regime_momentum import RegimeAwareMomentumStrategy  # noqa: E402
 
 DEFAULT_COST_FRACTION = Decimal("0.0016")
+
+# Perpetual funding settles every eight hours. A long pays when the rate is positive,
+# which is the ordinary state of these instruments, so ignoring it flatters a long-only
+# strategy by the whole carry it was actually paying.
+FUNDING_SETTLEMENT = timedelta(hours=8)
+
+
+def load_funding(path: Path) -> list[tuple[datetime, float]]:
+    """Read a funding csv written by tools/fetch_bybit_funding.py, oldest first."""
+    rows: list[tuple[datetime, float]] = []
+    with path.open() as handle:
+        for row in csv.DictReader(handle):
+            rows.append(
+                (datetime.fromisoformat(row["timestamp"]), float(row["funding_rate"]))
+            )
+    rows.sort(key=lambda item: item[0])
+    return rows
+
+
+def funding_paid(
+    schedule: list[tuple[datetime, float]], opened: datetime, closed: datetime
+) -> float:
+    """Return the fraction of notional a long paid between two instants.
+
+    Only settlements strictly inside the holding interval are charged: a position opened
+    after a settlement did not pay it, and one closed before the next does not pay that.
+    """
+    if not schedule or closed <= opened:
+        return 0.0
+    stamps = [item[0] for item in schedule]
+    start = bisect.bisect_right(stamps, opened)
+    end = bisect.bisect_right(stamps, closed)
+    return sum(rate for _, rate in schedule[start:end])
 
 
 @dataclass(frozen=True)
@@ -121,6 +155,7 @@ def replay(
     cost_fraction: Decimal = DEFAULT_COST_FRACTION,
     random_entries: int | None = None,
     seed: int = 20260917,
+    funding: list[tuple[datetime, float]] | None = None,
 ) -> dict:
     """Walk the bars once, entering on the shipped signal and exiting on the shipped policy.
 
@@ -145,6 +180,7 @@ def replay(
     closes = [Bar(symbol=b.symbol, timestamp=b.timestamp, close=b.close) for b in bars]
     episodes: list[Episode] = []
     eligible_signals = 0
+    funding_charged = 0.0
 
     chosen: set[int] | None = None
     if random_entries is not None:
@@ -184,14 +220,25 @@ def replay(
             if decision.exit_now:
                 exit_price = decision.exit_price_before_costs or bars[position].close
                 realised = (exit_price - entry) / entry - cost_fraction
+                carry = funding_paid(
+                    funding or [], bars[entry_index].timestamp, bars[position].timestamp
+                )
+                realised -= Decimal(str(carry))
+                funding_charged += carry
                 outcome = (
                     "target" if decision.reason == IntrabarExitReason.TAKE_PROFIT else "stop"
                 )
                 break
             state = decision.state
         else:
-            last = bars[min(entry_index + policy.maximum_holding_bars - 1, len(bars) - 1)]
+            closing = min(entry_index + policy.maximum_holding_bars - 1, len(bars) - 1)
+            last = bars[closing]
             realised = (last.close - entry) / entry - cost_fraction
+            carry = funding_paid(
+                funding or [], bars[entry_index].timestamp, last.timestamp
+            )
+            realised -= Decimal(str(carry))
+            funding_charged += carry
 
         episodes.append(
             Episode(
@@ -232,6 +279,14 @@ def replay(
         "episodes": len(episodes),
         "under_shipped_policy": tally("policy_outcome"),
         "under_fixed_levels": tally("fixed_outcome"),
+        "funding": {
+            "applied": funding is not None,
+            "settlements_available": len(funding) if funding else 0,
+            "total_charged": round(funding_charged, 8),
+            "mean_per_episode": (
+                round(funding_charged / len(episodes), 8) if episodes else None
+            ),
+        },
         "realised": {
             "cost_fraction": str(cost_fraction),
             "mean_return_per_episode": round(total / len(returns), 8) if returns else None,

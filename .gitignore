@@ -16,3 +16,4 @@ venv/
 
 # Fetched public market data: manifests are committed, bars are not.
 data/bybit/*.csv
+data/bybit_funding/*.csv
