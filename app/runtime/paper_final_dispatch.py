@@ -66,7 +66,10 @@ class PaperFinalDispatchGuard:
             raise DispatchBlocked(reasons)
 
         try:
-            snapshot = self.snapshot_authority.assemble(now=moment)
+            snapshot = self.snapshot_authority.assemble(
+                now=moment,
+                new_risk=record.side is Side.BUY,
+            )
             result = self.readiness.evaluate(snapshot)
         except Exception as exc:
             reasons = ("OPERATIONAL_SNAPSHOT_INVALID",)
