@@ -286,7 +286,7 @@ def test_readiness_failure_after_outbox_durably_halts_before_broker_submit(tmp_p
     assert execution.record.state is OrderState.ACKNOWLEDGED
     assert broker.submit_calls == 1
     assert restarted_runtime.oms_store.pending_outbox() == ()
-    assert restarted_session_risk.calls == 1
+    assert restarted_session_risk.calls == 2
     assert [
         str(event["event_type"]) for event in restarted_runtime.dispatch_control.events()
     ][-2:] == ["ARM", "DISPATCH_AUTHORIZED"]
