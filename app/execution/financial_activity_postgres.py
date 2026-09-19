@@ -59,14 +59,19 @@ class PostgresFinancialActivityStore:
             autocommit=False,
         )
 
-    def migrate(
-        self,
-        path: str | Path = "migrations/product/008_financial_activities.sql",
-    ) -> None:
-        sql = Path(path).read_text(encoding="utf-8")
+    def migrate(self, path: str | Path | None = None) -> None:
+        paths = (
+            (
+                Path("migrations/product/008_financial_activities.sql"),
+                Path("migrations/product/014_financial_activity_evidence_fencing.sql"),
+            )
+            if path is None
+            else (Path(path),)
+        )
         with self._connect() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(sql)
+                for migration_path in paths:
+                    cursor.execute(migration_path.read_text(encoding="utf-8"))
             connection.commit()
 
     @staticmethod

@@ -70,7 +70,17 @@ def activity(
 
 
 def reset_tables() -> None:
+    """Owner-only fixture reset; normal migrated schema keeps evidence fenced."""
+
     with psycopg.connect(DSN, autocommit=True) as connection:
+        connection.execute(
+            "DROP TRIGGER IF EXISTS astra_financial_activity_facts_no_truncate "
+            "ON astra_financial_activity_facts"
+        )
+        connection.execute(
+            "DROP TRIGGER IF EXISTS astra_financial_activity_conflicts_no_truncate "
+            "ON astra_financial_activity_conflicts"
+        )
         connection.execute(
             """TRUNCATE astra_financial_activity_conflicts,
             astra_financial_activity_projection,
@@ -85,8 +95,9 @@ def stack():
     portfolio = StrictPostgresPortfolioEventStore(DSN)
     portfolio.migrate()
     store = PostgresFinancialActivityStore(DSN)
-    store.migrate()
+    store.migrate("migrations/product/008_financial_activities.sql")
     reset_tables()
+    store.migrate("migrations/product/014_financial_activity_evidence_fencing.sql")
     ledger = PortfolioLedger(opening_cash=Decimal("1000"))
     projector = FinancialActivityProjector(
         store=store,
@@ -298,3 +309,43 @@ def test_postgres_financial_truth_gate_is_release_scoped_and_fail_closed() -> No
         "FINANCIAL_ACTIVITY_QUARANTINED",
         "FINANCIAL_ACTIVITY_RECOVERY_STALE",
     }
+
+
+def test_postgres_financial_evidence_rejects_update_delete_and_truncate() -> None:
+    store, _, _, _ = stack()
+    store.ingest(activity("pg-fenced", "CSD", "10"), ingested_at=NOW)
+    store.ingest(activity("pg-fenced", "CSD", "11"), ingested_at=NOW)
+
+    with psycopg.connect(DSN) as connection:
+        with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
+            connection.execute(
+                "UPDATE astra_financial_activity_facts SET net_amount=999 "
+                "WHERE account_identity=%s AND activity_id='pg-fenced'",
+                (ACCOUNT,),
+            )
+        connection.rollback()
+
+    with psycopg.connect(DSN) as connection:
+        with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
+            connection.execute(
+                "DELETE FROM astra_financial_activity_conflicts "
+                "WHERE account_identity=%s AND activity_id='pg-fenced'",
+                (ACCOUNT,),
+            )
+        connection.rollback()
+
+    with psycopg.connect(DSN) as connection:
+        with pytest.raises(
+            psycopg.errors.RaiseException,
+            match="EVIDENCE_TRUNCATE_FORBIDDEN",
+        ):
+            connection.execute("TRUNCATE astra_financial_activity_conflicts")
+        connection.rollback()
+
+    with psycopg.connect(DSN) as connection:
+        with pytest.raises(
+            psycopg.errors.RaiseException,
+            match="EVIDENCE_TRUNCATE_FORBIDDEN",
+        ):
+            connection.execute("TRUNCATE astra_financial_activity_facts CASCADE")
+        connection.rollback()

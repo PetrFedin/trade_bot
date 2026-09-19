@@ -26,7 +26,7 @@ def test_current_system_status_is_generated_fail_closed_and_not_profitable() -> 
     assert repository["observed_checkout_sha"] == "<runtime:git-rev-parse-head>"
     assert repository["checkout_relation"] == "<runtime:computed>"
     assert repository["latest_engineering_qualified_main_sha"] == (
-        "e27825c32261ce073dd074d975ef4ef27bc0a1a7"
+        "c50ea8794843050e0bf6baec6026f2ddd1421c9f"
     )
     assert repository["engineering_qualification_scope"] == "ENGINEERING_CI_ONLY"
 
@@ -56,12 +56,15 @@ def test_engineering_qualification_manifest_is_exact_and_cannot_promote() -> Non
         status["repository"]["latest_engineering_qualified_main_sha"]
     )
     assert manifest["scope"] == "ENGINEERING_CI_ONLY"
-    assert manifest["source_pull_request"] == 172
-    assert manifest["github"]["workflow_run_count"] == 11
-    assert manifest["github"]["check_run_count"] == 12
+    assert manifest["source_pull_request"] == 182
+    assert manifest["github"]["workflow_run_count"] == 6
+    assert manifest["github"]["check_run_count"] == 7
     assert manifest["github"]["all_observed_workflows_success"] is True
     assert manifest["github"]["all_observed_check_runs_success"] is True
     assert "F22D_FENCED_OPERATIONAL_DECISION_WORKERS" in manifest[
+        "qualified_capabilities"
+    ]
+    assert "MAIN_BRANCH_PROTECTION_OBSERVED_ENABLED_PARTIAL" in manifest[
         "qualified_capabilities"
     ]
     assert all(value is False for value in manifest["promotion"].values())
@@ -85,13 +88,17 @@ def test_stale_c2_current_state_is_not_republished_as_current_truth() -> None:
     assert stale_current_keys.isdisjoint(status)
 
 
-def test_next_vertical_gate_is_residual_execution_oms_integrity() -> None:
+def test_next_vertical_gate_is_server_side_main_protection_enforcement() -> None:
     status = load_status()
     gate = status["engineering_qualification"]["next_vertical_gate"]
 
-    assert gate["issue"] == 138
-    assert gate["name"] == "RESIDUAL_EXECUTION_OMS_INTEGRITY"
-    assert gate["required_families"] == ["F17", "F18", "F19", "F20"]
+    assert gate["issue"] == 103
+    assert gate["name"] == "SERVER_SIDE_MAIN_PROTECTION_ENFORCEMENT"
+    assert gate["required_families"] == [
+        "REQUIRED_STATUS_CHECKS",
+        "PR_REVIEW_ENFORCEMENT",
+        "BYPASS_AND_FORCE_PUSH_POLICY",
+    ]
 
 
 def test_frozen_strategy_evidence_is_explicitly_carried_forward_and_negative() -> None:

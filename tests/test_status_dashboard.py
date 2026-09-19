@@ -20,6 +20,12 @@ def test_render_is_deterministic() -> None:
     assert status_dashboard.render(SOURCE) == status_dashboard.render(SOURCE)
 
 
+def test_render_has_no_external_network_dependency() -> None:
+    document = status_dashboard.render(SOURCE)
+    assert "http://" not in document
+    assert "https://" not in document
+
+
 def test_closed_authority_renders_as_closed() -> None:
     document = status_dashboard.render(SOURCE)
     assert document.count('class="pill shut"') == len(status_dashboard.AUTHORITIES)

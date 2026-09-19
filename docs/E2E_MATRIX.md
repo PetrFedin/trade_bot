@@ -18,7 +18,7 @@ This is the **current** human-readable readiness authority. Historical detail th
 | Historical operational source boundary | PR #93 / `c2e6b11b8dc4abc37ed6b2c180f11c73a000ca5b` | `DECOMPOSITION_SOURCE_DEMO_UNPROVEN` | Preservation/decomposition source only |
 | Active research head | PR #100 / `918dbc57c0633c6dc549f1f036d2ae659b289b46` | `RESEARCH_ONLY` | Derivatives-context research incomplete; no strategy-promotion authority |
 | Strategy profitability | frozen Bybit price-only evidence | `FAIL / NOT PROVEN` | 102 trades, 36 WIN / 11 BE / 55 LOSS, about `-176.67 USDT` on 1,000 USDT |
-| GitHub governance | current server state | `VERIFIED_DISABLED` | `main` protection / required-status enforcement disabled; #103 |
+| GitHub governance | current server state | `VERIFIED_ENABLED_PARTIAL` | `main` protection is enabled, but required-status enforcement remains `off`; #103 stays open |
 | Live/mainnet | canonical fail-closed flags | `FAIL_CLOSED` | External routing, live trading and mainnet entry disabled |
 
 ## Current capability matrix
@@ -37,7 +37,7 @@ This is the **current** human-readable readiness authority. Historical detail th
 | Exact-head operational evidence | NOT PROVEN | No real canonical INFRA→SESSION→SUPERVISOR→ARM→ENTRY→HALT→RECOVERY chain |
 | Reliability / soak | NOT PROVEN CONNECTED | Multi-week connected Demo soak absent |
 | Supply-chain / release provenance | PASS FOR C2A4 MERGE SHA | Signed SLSA provenance and signed SBOM attestation on `043fc300...` |
-| GitHub governance | BLOCKED | `main` protection verified disabled under #103 |
+| GitHub governance | PARTIAL / BLOCKED | `main` protection is observed enabled, but required status checks / review enforcement are not yet proven under #103 |
 | Live trading readiness | BLOCKED | Strategy, Demo, exact-head evidence, soak, governance and production external proof incomplete |
 
 The matrix is diagnostic only; no row can grant a release gate by itself.
@@ -145,7 +145,7 @@ This does not support strategy promotion.
 
 ### P0
 
-- `main` branch protection / required review enforcement — #103;
+- `main` required status-check / review enforcement and remaining protection details — #103;
 - positive strategy edge — FAIL / not proven;
 - real protected Demo entry — not proven;
 - exact-head real-broker evidence — not proven;

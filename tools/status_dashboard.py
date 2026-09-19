@@ -66,12 +66,7 @@ def _pill(allowed: bool) -> str:
     return f'<span class="pill {state}">{label}</span>'
 
 
-FONTS = (
-    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
-    "family=Archivo:wght@500;600;700&"
-    "family=IBM+Plex+Sans:wght@400;500;600&"
-    'family=IBM+Plex+Mono:wght@400;500&display=swap">'
-)
+FONTS = ""
 
 PALETTE_LIGHT = """
   --bg:#eef1f4; --surface:#fff; --surface2:#e4e9ed; --sunk:#f6f8f9;
@@ -97,29 +92,33 @@ STYLE = """
 *{box-sizing:border-box}
 body{
   margin:0;background:var(--bg);color:var(--text);
-  font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,sans-serif;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
   font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;
 }
 .wrap{
   max-width:900px;margin:0 auto;
   padding-block:36px 64px;padding-left:20px;padding-right:20px;
 }
-h1,h2{font-family:Archivo,"IBM Plex Sans",sans-serif;text-wrap:balance;margin:0}
+h1,h2{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+  text-wrap:balance;margin:0;
+}
 h1{
   font-size:clamp(26px,4.6vw,37px);font-weight:700;
   letter-spacing:-.022em;line-height:1.12;
 }
 h2{font-size:20px;font-weight:600;letter-spacing:-.012em}
 p{margin:0}
-code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.87em}
+code{font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;font-size:.87em}
 .eyebrow{
-  font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:500;
+  font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
+  font-size:11px;font-weight:500;
   letter-spacing:.15em;text-transform:uppercase;color:var(--accent);
 }
 .lede{font-size:16px;color:var(--text2);max-width:64ch;margin-top:12px}
 header{border-bottom:2px solid var(--text);padding-bottom:24px;margin-bottom:28px}
 .generated{
-  font-family:"IBM Plex Mono",monospace;font-size:11.5px;
+  font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;font-size:11.5px;
   color:var(--text3);margin-top:14px;
 }
 section{margin-top:38px}
@@ -127,12 +126,18 @@ section{margin-top:38px}
   display:flex;align-items:baseline;gap:12px;margin-bottom:16px;
   border-bottom:1px solid var(--line);padding-bottom:8px;
 }
-.shead .n{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--text3)}
+.shead .n{
+  font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
+  font-size:12px;color:var(--text3);
+}
 .verdict{
   border:2px solid var(--crit);background:var(--surface);padding:18px 20px;
   display:flex;flex-direction:column;gap:8px;
 }
-.verdict .t{font-family:Archivo,sans-serif;font-weight:700;font-size:17px;color:var(--crit)}
+.verdict .t{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+  font-weight:700;font-size:17px;color:var(--crit);
+}
 .verdict p{font-size:14.5px;color:var(--text2)}
 .auths{
   display:flex;flex-direction:column;gap:1px;
@@ -144,7 +149,8 @@ section{margin-top:38px}
 }
 .auth .k{font-size:14.5px}
 .pill{
-  font-family:"IBM Plex Mono",monospace;font-size:11.5px;padding:3px 10px;
+  font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
+  font-size:11.5px;padding:3px 10px;
   border-radius:3px;border:1px solid;white-space:nowrap;
 }
 .pill.shut{background:var(--critbg);color:var(--crit);border-color:var(--crit)}
@@ -155,7 +161,8 @@ section{margin-top:38px}
 }
 .cell{background:var(--surface);padding:13px 15px}
 .cell .v{
-  font-family:Archivo,sans-serif;font-size:23px;font-weight:700;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+  font-size:23px;font-weight:700;
   letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.15;
 }
 .cell .k{font-size:12px;color:var(--text3);margin-top:3px}
@@ -169,7 +176,7 @@ td{
 }
 tr:last-child td{border-bottom:none}
 td.num{
-  text-align:right;font-family:"IBM Plex Mono",monospace;
+  text-align:right;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
   font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap;
 }
 td.num.neg{color:var(--crit)}
@@ -191,7 +198,10 @@ ul.plain{
   background:var(--warnbg);border-left:3px solid var(--warn);padding:15px 17px;
   display:flex;flex-direction:column;gap:7px;margin-top:14px;
 }
-.gatebox .t{font-family:Archivo,sans-serif;font-weight:600;color:var(--warn);font-size:14.5px}
+.gatebox .t{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+  font-weight:600;color:var(--warn);font-size:14.5px;
+}
 .gatebox p{font-size:13.5px;color:var(--text2)}
 .rule{
   background:var(--accent2);border-left:3px solid var(--accent);
@@ -199,7 +209,8 @@ ul.plain{
 }
 footer{
   margin-top:46px;padding-top:16px;border-top:1px solid var(--line);
-  font-size:12px;color:var(--text3);font-family:"IBM Plex Mono",monospace;
+  font-size:12px;color:var(--text3);
+  font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
 }
 @media(max-width:560px){
   .auth{flex-direction:column;align-items:flex-start;gap:6px}

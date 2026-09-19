@@ -20,7 +20,29 @@ from app.oms.portfolio_reconciliation import build_portfolio_reconciliation_evid
 from app.oms.reconciliation import BrokerPortfolioTruth, BrokerPositionTruth, reconcile_portfolio
 from app.risk.pretrade import RiskLimits
 
-NOW = datetime(2026, 9, 14, 18, 45, tzinfo=UTC)
+
+def fresh_start() -> datetime:
+    """Return an instant later than every reconciliation already stored.
+
+    reconciliation_id is derived solely from occurred_at, and
+    astra_portfolio_reconciliations is append-only behind a BEFORE TRUNCATE guard
+    (ASTRA_PORTFOLIO_RECONCILIATION_TRUNCATE_FORBIDDEN), so rows written by earlier
+    runs cannot be cleared. Against a persistent database a fixed instant collides on
+    re-run, and wall-clock alone is not enough because this test also writes a row one
+    second ahead of its start. Starting past the newest stored row keeps each run
+    isolated, and keeps latest() pointing at this run, without weakening append-only.
+    """
+    with psycopg.connect(DSN, autocommit=True) as connection:
+        row = connection.execute(
+            "SELECT max(occurred_at) FROM astra_portfolio_reconciliations"
+        ).fetchone()
+    newest = row[0] if row else None
+    now = datetime.now(UTC)
+    if newest is None:
+        return now
+    if newest.tzinfo is None:
+        newest = newest.replace(tzinfo=UTC)
+    return max(now, newest.astimezone(UTC) + timedelta(seconds=5))
 
 
 def config() -> ProductConfig:
@@ -55,10 +77,11 @@ def evidence(runtime, *, broker_cash: Decimal, at: datetime):
 
 def test_postgres_reconciliation_is_restart_safe_idempotent_and_conflict_aware() -> None:
     runtime = build_postgres_product(config=config(), dsn=DSN, migrate=True)
+    now = fresh_start()
     mismatch = evidence(
         runtime,
         broker_cash=runtime.portfolio.cash - Decimal("10"),
-        at=NOW,
+        at=now,
     )
     assert mismatch.reasons == ("CASH_MISMATCH",)
     assert runtime.portfolio_reconciliation.append(mismatch)
@@ -79,7 +102,7 @@ def test_postgres_reconciliation_is_restart_safe_idempotent_and_conflict_aware()
     matched = evidence(
         restarted,
         broker_cash=restarted.portfolio.cash,
-        at=NOW + timedelta(seconds=1),
+        at=now + timedelta(seconds=1),
     )
     assert matched.matched
     assert restarted.portfolio_reconciliation.append(matched)

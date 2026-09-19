@@ -191,6 +191,22 @@ class PostgresOmsStore:
                 row = cursor.fetchone()
                 return None if row is None else self._row(row)
 
+    def operational_blocking_count(self) -> int:
+        blocking = (
+            OrderState.UNCERTAIN.value,
+            OrderState.RECONCILING.value,
+            OrderState.MANUAL.value,
+        )
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT COUNT(*) AS count FROM astra_oms_orders
+                    WHERE state IN (%s, %s, %s)""",
+                    blocking,
+                )
+                row = cursor.fetchone()
+                return 0 if row is None else int(row["count"])
+
     def create(
         self,
         intent: OrderIntent,

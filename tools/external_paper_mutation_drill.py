@@ -70,8 +70,17 @@ class MutationDrillInputs:
             raise MutationDrillError("REPLACEMENT_NOTIONAL_LIMIT_EXCEEDED")
 
 
-def load_readonly_evidence(path: Path) -> dict[str, Any]:
-    data = json.loads(path.read_text(encoding="utf-8"))
+def _validate_account_fingerprint(value: object) -> str:
+    if not isinstance(value, str):
+        raise MutationDrillError("READONLY_ACCOUNT_FINGERPRINT_MISSING")
+    fingerprint = value.strip()
+    is_lower_hex = all(char in "0123456789abcdef" for char in fingerprint)
+    if len(fingerprint) != 16 or not is_lower_hex:
+        raise MutationDrillError("READONLY_ACCOUNT_FINGERPRINT_INVALID")
+    return fingerprint
+
+
+def validate_readonly_evidence(data: object) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise MutationDrillError("READONLY_EVIDENCE_NOT_OBJECT")
     if data.get("provider") != "alpaca":
@@ -91,6 +100,9 @@ def load_readonly_evidence(path: Path) -> dict[str, Any]:
         raise MutationDrillError("READONLY_EVIDENCE_REASONS_INVALID")
     if str(data.get("account_status", "")).upper() != "ACTIVE":
         raise MutationDrillError("READONLY_ACCOUNT_NOT_ACTIVE")
+    if str(data.get("account_currency", "")).upper() != "USD":
+        raise MutationDrillError("READONLY_ACCOUNT_CURRENCY_MISMATCH")
+    _validate_account_fingerprint(data.get("account_fingerprint"))
     if data.get("trading_blocked") is True:
         raise MutationDrillError("READONLY_ACCOUNT_TRADING_BLOCKED")
     if data.get("stream_authenticated") is not True:
@@ -100,6 +112,10 @@ def load_readonly_evidence(path: Path) -> dict[str, Any]:
     if reasons:
         raise MutationDrillError("READONLY_PROBE_HAS_REASONS")
     return data
+
+
+def load_readonly_evidence(path: Path) -> dict[str, Any]:
+    return validate_readonly_evidence(json.loads(path.read_text(encoding="utf-8")))
 
 
 def inputs_from_environment(
@@ -138,8 +154,16 @@ def execute_drill(
     if current.tzinfo is None or current.utcoffset() is None:
         raise MutationDrillError("CURRENT_TIME_MUST_BE_AWARE")
 
+    readonly_evidence = validate_readonly_evidence(readonly_evidence)
+    readonly_account_fingerprint = _validate_account_fingerprint(
+        readonly_evidence.get("account_fingerprint")
+    )
+
     account = broker.get_account()
     account.validate()
+    account_fingerprint = sha256_digest({"account_id": account.account_id})[:16]
+    if account_fingerprint != readonly_account_fingerprint:
+        raise MutationDrillError("READONLY_MUTATION_ACCOUNT_MISMATCH")
     if account.status.upper() != "ACTIVE":
         raise MutationDrillError("PAPER_ACCOUNT_NOT_ACTIVE")
     if account.currency.upper() != "USD":
@@ -228,7 +252,6 @@ def execute_drill(
     result = service.execute(now=current, expected_generation=inputs.generation)
     journal_events = journal.load()
     journal_states = [event.state.value for event in journal_events]
-    account_fingerprint = sha256_digest({"account_id": account.account_id})[:16]
     return {
         "qualification": "PASS" if result.success else "FAIL",
         "provider": "alpaca",

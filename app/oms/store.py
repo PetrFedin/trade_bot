@@ -265,6 +265,23 @@ class DurableOmsStore:
         finally:
             connection.close()
 
+    def operational_blocking_count(self) -> int:
+        blocking = (
+            OrderState.UNCERTAIN.value,
+            OrderState.RECONCILING.value,
+            OrderState.MANUAL.value,
+        )
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                """SELECT COUNT(*) AS count FROM oms_orders
+                WHERE state IN (?, ?, ?)""",
+                blocking,
+            ).fetchone()
+            return 0 if row is None else int(row["count"])
+        finally:
+            connection.close()
+
     @classmethod
     def _assert_intent_replay(
         cls,
