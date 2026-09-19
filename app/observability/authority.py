@@ -10,7 +10,7 @@ from app.execution.execution_facts import ExecutionFactStore
 from app.marketdata.continuity import OperationalContinuityStore
 from app.marketdata.operational import OperationalMarketDataStore
 from app.observability.readiness import OperationalSnapshot
-from app.oms.indexed import IndexedOmsStore
+from app.oms.protocols import OmsStore
 from app.oms.portfolio_reconciliation import PortfolioReconciliationStore
 
 
@@ -114,7 +114,7 @@ class AuthoritativeOperationalSnapshotAssembler:
         market_scope: OperationalMarketScope,
         marketdata: OperationalMarketDataStore,
         continuity: OperationalContinuityStore,
-        oms: IndexedOmsStore,
+        oms: OmsStore,
         reconciliation: PortfolioReconciliationStore,
         execution_facts: ExecutionFactStore,
         execution_checkpoints: ExecutionCheckpointStore,
