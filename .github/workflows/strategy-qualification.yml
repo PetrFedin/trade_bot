@@ -63,6 +63,8 @@ jobs:
     steps:
       - name: Checkout exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
@@ -281,6 +283,15 @@ jobs:
           assert state['external_order_routing_allowed'] is False
           assert state['live_trading_allowed'] is False
           PY
+
+      # A target-first rate means nothing on its own: whether it is good depends entirely
+      # on how far apart the stop and the target sit. This compares every frozen record
+      # against the baseline its own exit geometry implies. The absence of an edge is a
+      # finding, not a breakage, so only an overclaimed promotion fails the job.
+      - name: Diagnose frozen strategy evidence against its geometry baseline
+        run: |
+          python tools/strategy_diagnostics.py
+          python tools/strategy_diagnostics.py --enforce-declared-promotion
 
       - name: Upload strategy qualification evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

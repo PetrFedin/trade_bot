@@ -9,31 +9,26 @@
   "repository": {
     "observed_checkout_sha": "<runtime:git-rev-parse-head>",
     "observed_checkout_sha_source": "GITHUB_SHA or git rev-parse HEAD",
-    "latest_engineering_qualification_manifest": "qualification/engineering/e27825c32261ce073dd074d975ef4ef27bc0a1a7.json",
-    "latest_engineering_qualified_main_sha": "e27825c32261ce073dd074d975ef4ef27bc0a1a7",
+    "latest_engineering_qualification_manifest": "qualification/engineering/c50ea8794843050e0bf6baec6026f2ddd1421c9f.json",
+    "latest_engineering_qualified_main_sha": "c50ea8794843050e0bf6baec6026f2ddd1421c9f",
     "engineering_qualification_scope": "ENGINEERING_CI_ONLY",
     "checkout_relation": "<runtime:computed>"
   },
   "engineering_qualification": {
-    "subject": "P0 F22D post-merge main qualification",
-    "qualified_at": "2026-09-16T12:04:20Z",
-    "source_pull_request": 172,
-    "workflow_run_count": 11,
-    "check_run_count": 12,
+    "subject": "P0 governance protection-state repair post-merge main qualification",
+    "qualified_at": "2026-09-18T15:53:54Z",
+    "source_pull_request": 182,
+    "workflow_run_count": 6,
+    "check_run_count": 7,
     "all_workflows_success": true,
     "all_check_runs_success": true,
     "workflow_names": [
       "canonical-security-regression",
       "ci-action-supply-chain-policy",
-      "postgres-oms-e2e",
-      "product-composition",
       "release-governance",
       "release-provenance",
-      "risk-marketdata",
       "schema99-external-paper-roundtrip",
-      "stable-core-quality",
-      "stable-runtime-import-boundary",
-      "strategy-qualification"
+      "status-source-of-truth"
     ],
     "qualified_capabilities": [
       "F01_EXCLUSIVE_SUBMIT_CLAIM",
@@ -47,22 +42,28 @@
       "F10_EXECUTION_FACTS_BEFORE_ACCOUNTING_PROJECTION",
       "F12_VALIDATED_STREAM_PROVENANCE",
       "F13_COMPLETE_OPERATIONAL_RISK_OBSERVATIONS",
+      "F17_BROKER_SUBMIT_ECONOMIC_IDENTITY",
+      "F18_BROKER_ORDER_REPLACEMENT_LINEAGE",
+      "F19_IMMEDIATE_SUBMIT_EXECUTION_CONVERGENCE",
+      "F20_IMMUTABLE_INTENT_ECONOMIC_IDENTITY",
       "F21A_BROKER_PORTFOLIO_RECONCILIATION_GATE",
       "F21B_DURABLE_BROKER_FINANCIAL_ACTIVITIES",
       "F21C_FINANCIAL_ACTIVITY_TRUTH_GATE",
+      "F21D_IMMUTABLE_FINANCIAL_ACTIVITY_EVIDENCE_FENCING",
       "F22A_DURABLE_FINALIZED_OPERATIONAL_MARKETDATA",
       "F22B_BYBIT_PUBLIC_LINEAR_KLINE_WEBSOCKET",
       "F22C_DURABLE_CONTINUITY_RECONNECT_REPAIR",
-      "F22D_FENCED_OPERATIONAL_DECISION_WORKERS"
+      "F22D_FENCED_OPERATIONAL_DECISION_WORKERS",
+      "PHASE0_LOCAL_POSTGRES_QUALIFICATION_BOOTSTRAP",
+      "MAIN_BRANCH_PROTECTION_OBSERVED_ENABLED_PARTIAL"
     ],
     "next_vertical_gate": {
-      "issue": 138,
-      "name": "RESIDUAL_EXECUTION_OMS_INTEGRITY",
+      "issue": 103,
+      "name": "SERVER_SIDE_MAIN_PROTECTION_ENFORCEMENT",
       "required_families": [
-        "F17",
-        "F18",
-        "F19",
-        "F20"
+        "REQUIRED_STATUS_CHECKS",
+        "PR_REVIEW_ENFORCEMENT",
+        "BYPASS_AND_FORCE_PUSH_POLICY"
       ]
     }
   },

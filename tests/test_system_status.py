@@ -13,9 +13,14 @@ class SystemStatusContractTests(unittest.TestCase):
             status["repository"]["observed_checkout_sha"],
             system_status.RUNTIME_SHA_MARKER,
         )
+        manifest_path, manifest = system_status._latest_engineering_qualification()
         self.assertEqual(
             status["repository"]["latest_engineering_qualified_main_sha"],
-            "e27825c32261ce073dd074d975ef4ef27bc0a1a7",
+            manifest["subject_sha"],
+        )
+        self.assertEqual(
+            status["repository"]["latest_engineering_qualification_manifest"],
+            str(manifest_path.relative_to(system_status.ROOT)),
         )
         self.assertEqual(
             status["repository"]["engineering_qualification_scope"],
@@ -57,9 +62,14 @@ class SystemStatusContractTests(unittest.TestCase):
 
         self.assertEqual(block.count(system_status.README_BEGIN), 1)
         self.assertEqual(block.count(system_status.README_END), 1)
-        self.assertIn("e27825c32261ce073dd074d975ef4ef27bc0a1a7", block)
+        self.assertIn(
+            status["repository"]["latest_engineering_qualified_main_sha"],
+            block,
+        )
         self.assertIn("PROFITABILITY_NOT_PROVEN", block)
-        self.assertIn("issue #138", block)
+        gate = status["engineering_qualification"]["next_vertical_gate"]
+        self.assertIn(f"issue #{gate['issue']}", block)
+        self.assertIn(gate["name"], block)
         self.assertIn("external routing, Demo, mainnet and live remain", block)
 
     def test_committed_generated_artifacts_are_current(self) -> None:
