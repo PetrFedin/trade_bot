@@ -37,6 +37,12 @@ from app.marketdata.operational import (
     SQLiteOperationalMarketDataStore,
 )
 from app.marketdata.operational_postgres import PostgresOperationalMarketDataStore
+from app.observability.authority import (
+    AuthoritativeOperationalSnapshotAssembler,
+    OperationalMarketScope,
+    RuntimeTelemetryProvider,
+    SessionRiskTruthProvider,
+)
 from app.observability.readiness import OperationalReadinessEvaluator, OperationalSloPolicy
 from app.oms.indexed import IndexedDurableOmsStore, IndexedOmsStore, IndexedPostgresOmsStore
 from app.oms.order_mutations import DurableOrderMutationStore, MutationStore
@@ -109,6 +115,27 @@ class ProductRuntime:
         if self.fill_accounting is None:
             raise RuntimeError("paper fill fee provider is not configured")
         return self.fill_accounting
+
+    def build_operational_snapshot_assembler(
+        self,
+        *,
+        market_scope: OperationalMarketScope,
+        runtime_telemetry: RuntimeTelemetryProvider | None,
+        session_risk: SessionRiskTruthProvider | None,
+    ) -> AuthoritativeOperationalSnapshotAssembler:
+        """Bind readiness to this runtime's canonical durable authorities."""
+
+        return AuthoritativeOperationalSnapshotAssembler(
+            market_scope=market_scope,
+            marketdata=self.operational_marketdata,
+            continuity=self.marketdata_continuity,
+            oms=self.oms_store,
+            reconciliation=self.portfolio_reconciliation,
+            execution_facts=self.execution_facts,
+            execution_checkpoints=self.execution_checkpoints,
+            runtime_telemetry=runtime_telemetry,
+            session_risk=session_risk,
+        )
 
     def build_submit_executor(
         self,
