@@ -173,6 +173,44 @@ def test_postgres_order_lifecycle_is_durable_and_idempotent(store: PostgresOmsSt
     assert persisted.broker_order_id == "pg-broker-1"
 
 
+def test_postgres_operational_blocking_count_tracks_uncertain_and_manual(
+    store: PostgresOmsStore,
+) -> None:
+    value = intent()
+    PaperOrderLifecycle(store).prepare(value, decision(value), occurred_at=NOW)
+    assert store.operational_blocking_count() == 0
+
+    store.transition(
+        value.intent_id,
+        OrderState.SUBMIT_STARTED,
+        event_id="blocking-submit-started",
+        occurred_at=NOW,
+    )
+    store.transition(
+        value.intent_id,
+        OrderState.UNCERTAIN,
+        event_id="blocking-uncertain",
+        occurred_at=NOW,
+    )
+    assert store.operational_blocking_count() == 1
+
+    store.transition(
+        value.intent_id,
+        OrderState.RECONCILING,
+        event_id="blocking-reconciling",
+        occurred_at=NOW,
+    )
+    assert store.operational_blocking_count() == 1
+
+    store.transition(
+        value.intent_id,
+        OrderState.MANUAL,
+        event_id="blocking-manual",
+        occurred_at=NOW,
+    )
+    assert store.operational_blocking_count() == 1
+
+
 def test_postgres_row_lock_and_event_key_make_duplicate_fill_at_most_once(
     store: PostgresOmsStore,
 ) -> None:
