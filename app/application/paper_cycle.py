@@ -16,6 +16,11 @@ from app.execution.alpaca_fill_backfill import (
 )
 from app.execution.financial_activity_gate import FinancialActivityTruthProvider
 from app.execution.paper_executor import ExecutionResult
+from app.observability.authority import (
+    OperationalMarketScope,
+    RuntimeTelemetryProvider,
+    SessionRiskTruthProvider,
+)
 from app.oms.portfolio_reconciliation import build_portfolio_reconciliation_evidence
 from app.oms.reconciliation import (
     BrokerOrderTruth,
@@ -28,10 +33,7 @@ from app.oms.store import OrderRecord
 from app.risk.pretrade import OperationalRiskContext, RiskDecision
 from app.runtime.alpaca_paper_adapter_v100 import AlpacaTradeUpdateStreamV100
 from app.runtime.paper_broker_contract_v99 import PaperBrokerV99
-from app.runtime.paper_final_dispatch import (
-    OperationalSnapshotProvider,
-    PaperFinalDispatchGuard,
-)
+from app.runtime.paper_final_dispatch import PaperFinalDispatchGuard
 
 
 @dataclass(frozen=True)
@@ -70,12 +72,29 @@ class PaperCycleService:
         financial_activity_truth: FinancialActivityTruthProvider,
         fill_activity_source: FillActivitySource | None = None,
         fill_backfill_policy: FillBackfillPolicy | None = None,
-        operational_snapshot_provider: OperationalSnapshotProvider | None = None,
+        operational_market_scope: OperationalMarketScope | None = None,
+        runtime_telemetry: RuntimeTelemetryProvider | None = None,
+        session_risk: SessionRiskTruthProvider | None = None,
     ) -> None:
         if stream_generation < 1:
             raise ValueError("stream_generation must be positive")
         if financial_activity_truth is None:
             raise ValueError("financial_activity_truth is required")
+        if operational_market_scope is None and (
+            runtime_telemetry is not None or session_risk is not None
+        ):
+            raise ValueError(
+                "operational_market_scope is required for runtime readiness authorities"
+            )
+        snapshot_authority = (
+            None
+            if operational_market_scope is None
+            else runtime.build_operational_snapshot_assembler(
+                market_scope=operational_market_scope,
+                runtime_telemetry=runtime_telemetry,
+                session_risk=session_risk,
+            )
+        )
         self.runtime = runtime
         self.broker = broker
         self.trade_stream = trade_stream
@@ -84,7 +103,7 @@ class PaperCycleService:
         self.final_dispatch = PaperFinalDispatchGuard(
             control=runtime.dispatch_control,
             readiness=runtime.operational_readiness,
-            snapshot_provider=operational_snapshot_provider,
+            snapshot_authority=snapshot_authority,
             financial_activity_truth=financial_activity_truth,
             portfolio_reconciliation=runtime.portfolio_reconciliation,
         )
