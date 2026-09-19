@@ -8,6 +8,7 @@ import pytest
 from app.application.composition import ProductConfig, build_local_product
 from app.domain.trading import Bar, Fill, Side
 from app.execution.trade_fills import ExplicitZeroPaperFeeModel
+from app.observability.authority import OperationalMarketScope
 from app.observability.readiness import OperationalSnapshot
 from app.oms.order_mutations import MutationState
 from app.oms.store import OrderState
@@ -141,6 +142,32 @@ def test_local_composition_wires_one_coherent_product_graph(tmp_path) -> None:
     with pytest.raises(ValueError, match="PAPER_ORDER_WRITES_DISABLED"):
         executor.execute(message, occurred_at=NOW)
     assert runtime.order_mutations.get(mutation.mutation_id).state is MutationState.REQUESTED
+
+
+def test_local_composition_builds_snapshot_assembler_from_runtime_authorities(
+    tmp_path,
+) -> None:
+    runtime = build_local_product(config=config(), state_directory=tmp_path)
+    scope = OperationalMarketScope(
+        provider="ALPACA",
+        venue="PAPER",
+        symbol="AAPL",
+        interval_seconds=60,
+    )
+
+    authority = runtime.build_operational_snapshot_assembler(
+        market_scope=scope,
+        runtime_telemetry=None,
+        session_risk=None,
+    )
+
+    assert authority.market_scope is scope
+    assert authority.marketdata is runtime.operational_marketdata
+    assert authority.continuity is runtime.marketdata_continuity
+    assert authority.oms is runtime.oms_store
+    assert authority.reconciliation is runtime.portfolio_reconciliation
+    assert authority.execution_facts is runtime.execution_facts
+    assert authority.execution_checkpoints is runtime.execution_checkpoints
 
 
 def test_local_composition_replace_increase_has_no_permissive_context_defaults(tmp_path) -> None:

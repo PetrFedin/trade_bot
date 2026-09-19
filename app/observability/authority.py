@@ -137,7 +137,12 @@ class AuthoritativeOperationalSnapshotAssembler:
     def __call__(self) -> OperationalSnapshot:
         return self.assemble(now=self.clock())
 
-    def assemble(self, *, now: datetime) -> OperationalSnapshot:
+    def assemble(
+        self,
+        *,
+        now: datetime,
+        new_risk: bool = True,
+    ) -> OperationalSnapshot:
         current = _aware_utc(now, "now")
         reasons: set[str] = set()
 
@@ -163,12 +168,18 @@ class AuthoritativeOperationalSnapshotAssembler:
             reasons,
         )
 
-        (
-            reconciliation_age_seconds,
-            cash_mismatch,
-            position_mismatches,
-            portfolio_reconciled,
-        ) = self._reconciliation_state(current, reasons)
+        if new_risk:
+            (
+                reconciliation_age_seconds,
+                cash_mismatch,
+                position_mismatches,
+                portfolio_reconciled,
+            ) = self._reconciliation_state(current, reasons)
+        else:
+            reconciliation_age_seconds = Decimal("0")
+            cash_mismatch = Decimal("0")
+            position_mismatches = 0
+            portfolio_reconciled = True
 
         (
             stream_silence_seconds,
