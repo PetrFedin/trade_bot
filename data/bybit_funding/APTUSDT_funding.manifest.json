@@ -1,0 +1,15 @@
+{
+  "schema_version": "bybit-funding-manifest-v1",
+  "source_classification": "PUBLIC_VENUE_DATA_NON_AUTHORITATIVE",
+  "endpoint": "https://api.bybit.com/v5/market/funding/history",
+  "category": "linear",
+  "symbol": "APTUSDT",
+  "settlement_hours": 8,
+  "requested_start": "2023-09-20T19:21:16.631440+00:00",
+  "requested_end": "2026-09-19T19:21:16.631440+00:00",
+  "settlement_count": 3285,
+  "mean_rate": 1.577e-05,
+  "positive_share": 0.673973,
+  "dataset_file": "APTUSDT_funding.csv",
+  "limitations": "A positive rate means longs pay shorts. Settlements with no printed rate are absent rather than zero, and the venue may revise history."
+}

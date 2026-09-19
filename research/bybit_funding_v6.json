@@ -1,0 +1,53 @@
+{
+  "schema_version": "strategy-research-measurement-v6",
+  "research_only": true,
+  "strategy_promotion_allowed": false,
+  "question": "Does perpetual funding change the conclusion? Every earlier measurement ignored it.",
+  "window": {
+    "start": "2023-09-19",
+    "end": "2026-09-19",
+    "interval": "D",
+    "symbols": 21
+  },
+  "tooling": [
+    "tools/fetch_bybit_funding.py",
+    "tools/replay_episodes.py"
+  ],
+  "funding_rates": {
+    "settlement_hours": 8,
+    "settlements_per_symbol": 3285,
+    "all_symbols_positive": true,
+    "annualised_range": [
+      "+1.15%",
+      "+9.65%"
+    ],
+    "note": "A positive rate means longs pay shorts, which was the state of every instrument."
+  },
+  "holding_period": {
+    "mean_bars": 1.51,
+    "share_closing_in_first_bar": 0.682,
+    "policy_maximum_bars": 10,
+    "note": "The ten-bar maximum is almost never reached; a 2% stop against a 3.4% daily sigma sits inside one standard deviation."
+  },
+  "impact": {
+    "without_funding": {
+      "episodes": 1809,
+      "mean": -0.00031334,
+      "t": -0.5138
+    },
+    "with_funding": {
+      "episodes": 1809,
+      "mean": -0.00038963,
+      "t": -0.6395
+    },
+    "mean_funding_per_episode": 6.406e-05,
+    "upper_bound_full_days": 0.000272,
+    "share_of_measured_alpha": "2% to 8%"
+  },
+  "interpretation": "No. Funding was expected to be material because the policy allows a ten-bar hold, but 68.2% of episodes close in the first bar and the mean hold is 1.51 bars, so the carry never accrues. Charging only settlements strictly inside the holding interval costs 0.0064% per episode; charging full days as an upper bound costs 0.0272%. Against a measured alpha of 0.359% that is two to eight percent, and the sign of every earlier conclusion is unchanged. The finding that does matter is the holding distribution itself: the stop is inside one daily standard deviation, so most positions are resolved by noise on their first day.",
+  "limitations": [
+    "Bar resolution cannot say when inside a bar a position closed, so the charged figure is a lower bound and the full-day figure an upper one.",
+    "Funding is charged at the settlement rate with no premium or cap modelling.",
+    "Short-side funding income is not modelled because no short side exists."
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "schema_version": "strategy-research-measurement-v2",
+  "research_only": true,
+  "strategy_promotion_allowed": false,
+  "provider": "bybit",
+  "category": "linear",
+  "window": {
+    "start": "2023-09-19",
+    "end": "2026-09-17",
+    "interval": "D",
+    "symbols": 21
+  },
+  "cost_fraction_round_trip": "0.0016",
+  "tooling": [
+    "tools/fetch_bybit_klines.py",
+    "tools/replay_episodes.py",
+    "tools/walk_forward.py",
+    "tools/predictability_audit.py"
+  ],
+  "signal_arm": {
+    "episodes": 1809,
+    "net_mean_return_per_episode": -0.00031334
+  },
+  "random_entry_control": {
+    "episodes": 7850,
+    "seeds": 5,
+    "net_mean_return_per_episode": -0.00390384,
+    "note": "Identical exit rules; only the entry is replaced by uniform draws."
+  },
+  "signal_alpha": {
+    "mean_return_per_episode": 0.00359049,
+    "standard_error": 0.00066963,
+    "t_statistic": 5.3619,
+    "significant_at_one_percent": true
+  },
+  "predictability": {
+    "method": "Lo-MacKinlay variance ratio, heteroskedasticity-robust",
+    "result": "RANDOM_WALK at every tested timeframe and horizon",
+    "timeframes": [
+      "1m",
+      "1h",
+      "4h",
+      "1d"
+    ],
+    "horizons": [
+      2,
+      4,
+      8,
+      16
+    ]
+  },
+  "interpretation": "The entry signal carries significant selection value: it beats a random entry under identical exit rules by 0.359% per episode at t = 5.36. It is still not enough. The random-entry baseline under the shipped exit policy is -0.390% per episode, so the signal lifts the result to roughly breakeven rather than to profit. Returns themselves are indistinguishable from a random walk at every timeframe tested, so the value is in cross-sectional selection rather than in serial dependence. No positive cost-adjusted edge is established and promotion remains disallowed.",
+  "limitations": [
+    "Random control draws entries uniformly, which is a weaker benchmark than a matched buy-and-hold.",
+    "Perpetual funding is not modelled and is material over three years.",
+    "Maker execution is not simulated; a resting limit order may not fill on the move it was sized for.",
+    "The exit policy's own negative baseline is where the loss sits and has not been re-engineered."
+  ]
+}
