@@ -13,6 +13,7 @@ on:
       - 'app/runtime/paper_dispatch_control.py'
       - 'app/runtime/paper_final_dispatch.py'
       - 'tests/test_operational_readiness.py'
+      - 'tests/test_authoritative_operational_snapshot.py'
       - 'tests/test_final_dispatch_interlock.py'
       - '.github/workflows/operational-readiness.yml'
   pull_request:
@@ -26,6 +27,7 @@ on:
       - 'app/runtime/paper_dispatch_control.py'
       - 'app/runtime/paper_final_dispatch.py'
       - 'tests/test_operational_readiness.py'
+      - 'tests/test_authoritative_operational_snapshot.py'
       - 'tests/test_final_dispatch_interlock.py'
       - '.github/workflows/operational-readiness.yml'
 
@@ -47,8 +49,11 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: python -m pip install --disable-pip-version-check '.[test]'
-      - name: Operational health and SLO gate
-        run: pytest -q tests/test_operational_readiness.py
+      - name: Operational health, authority and SLO gate
+        run: |
+          pytest -q \
+            tests/test_operational_readiness.py \
+            tests/test_authoritative_operational_snapshot.py
       - name: Final dispatch HALT/readiness interlock
         run: pytest -q tests/test_final_dispatch_interlock.py
       - name: Risk and reconciliation regression
