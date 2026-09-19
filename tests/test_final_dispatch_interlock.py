@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -11,7 +10,17 @@ from app.application.composition import ProductConfig, build_local_product
 from app.application.paper_cycle import PaperCycleService
 from app.domain.trading import Bar
 from app.execution.trade_fills import ExplicitZeroPaperFeeModel
-from app.observability.readiness import OperationalSnapshot
+from app.marketdata.continuity import (
+    OperationalContinuityCheckpoint,
+    continuity_checkpoint_id,
+)
+from app.marketdata.operational import OperationalBar
+from app.observability.authority import (
+    OperationalMarketScope,
+    RuntimeTelemetry,
+    SessionRiskTruth,
+)
+from app.oms.reconciliation import BrokerPortfolioTruth
 from app.oms.store import OrderState
 from app.risk.pretrade import OperationalRiskContext, RiskLimits
 from app.runtime.alpaca_paper_adapter_v100 import (
@@ -23,6 +32,12 @@ from app.runtime.paper_dispatch_control import DispatchBlocked, DispatchControlM
 from tests.financial_activity_truth_support import ready_financial_activity_truth
 
 NOW = datetime(2026, 9, 12, 16, 0, tzinfo=UTC)
+MARKET_SCOPE = OperationalMarketScope(
+    provider="ALPACA",
+    venue="PAPER",
+    symbol="AAPL",
+    interval_seconds=60,
+)
 
 
 def config() -> ProductConfig:
@@ -66,26 +81,6 @@ def risk_context(runtime) -> OperationalRiskContext:
     )
 
 
-def ready_snapshot() -> OperationalSnapshot:
-    return OperationalSnapshot(
-        market_data_age_seconds=Decimal("0"),
-        stream_silence_seconds=Decimal("0"),
-        broker_latency_ms=Decimal("1"),
-        broker_error_fraction=Decimal("0"),
-        uncertain_orders=0,
-        reconciliation_age_seconds=Decimal("0"),
-        cash_mismatch=Decimal("0"),
-        position_mismatches=0,
-        daily_pnl=Decimal("0"),
-        drawdown=Decimal("0"),
-        kill_switch_engaged=False,
-        market_data_ready=True,
-        stream_ready=True,
-        broker_connected=True,
-        portfolio_reconciled=True,
-    )
-
-
 def listening_stream() -> AlpacaTradeUpdateStreamV100:
     credentials = AlpacaPaperCredentialsV100(key_id="paper-key", secret_key="paper-secret")
     stream = AlpacaTradeUpdateStreamV100(generation=1, credentials=credentials)
@@ -103,14 +98,75 @@ def listening_stream() -> AlpacaTradeUpdateStreamV100:
     return stream
 
 
-class MutableSnapshotProvider:
-    def __init__(self, snapshot: OperationalSnapshot) -> None:
-        self.snapshot = snapshot
+class MutableSessionRisk:
+    def __init__(self, *, kill_switch_engaged: bool = False) -> None:
+        self.kill_switch_engaged = kill_switch_engaged
         self.calls = 0
 
-    def __call__(self) -> OperationalSnapshot:
+    def __call__(self) -> SessionRiskTruth:
         self.calls += 1
-        return self.snapshot
+        return SessionRiskTruth(
+            daily_pnl=Decimal("0"),
+            drawdown=Decimal("0"),
+            kill_switch_engaged=self.kill_switch_engaged,
+        )
+
+
+def ready_runtime_telemetry() -> RuntimeTelemetry:
+    return RuntimeTelemetry(
+        stream_ready=True,
+        stream_last_message_at=NOW,
+        broker_connected=True,
+        broker_latency_ms=Decimal("1"),
+        broker_error_fraction=Decimal("0"),
+    )
+
+
+def seed_market_authority(runtime) -> None:
+    bar = OperationalBar(
+        provider=MARKET_SCOPE.provider,
+        venue=MARKET_SCOPE.venue,
+        symbol=MARKET_SCOPE.symbol,
+        interval_seconds=MARKET_SCOPE.interval_seconds,
+        open_time=NOW - timedelta(seconds=MARKET_SCOPE.interval_seconds),
+        close_time=NOW,
+        source_timestamp=NOW - timedelta(seconds=1),
+        received_at=NOW,
+        source_event_id="final-dispatch-authority-bar",
+        is_final=True,
+        open=Decimal("100"),
+        high=Decimal("103"),
+        low=Decimal("99"),
+        close=Decimal("102"),
+        volume=Decimal("10"),
+    )
+    runtime.operational_marketdata.record_finalized_for_strategy(
+        bar,
+        strategy_id="final-dispatch-authority",
+        recorded_at=NOW,
+    )
+    checkpoint = OperationalContinuityCheckpoint(
+        checkpoint_id=continuity_checkpoint_id(
+            previous_checkpoint_id=None,
+            provider=bar.provider,
+            venue=bar.venue,
+            symbol=bar.symbol,
+            interval_seconds=bar.interval_seconds,
+            through_bar_id=bar.bar_id,
+            through_close_time=bar.close_time,
+            evidence_source="final-dispatch-authority",
+        ),
+        previous_checkpoint_id=None,
+        provider=bar.provider,
+        venue=bar.venue,
+        symbol=bar.symbol,
+        interval_seconds=bar.interval_seconds,
+        through_bar_id=bar.bar_id,
+        through_close_time=bar.close_time,
+        established_at=NOW,
+        evidence_source="final-dispatch-authority",
+    )
+    runtime.marketdata_continuity.append(checkpoint)
 
 
 class CountingBroker:
@@ -142,27 +198,46 @@ class CountingBroker:
         return self.orders.get(client_order_id)
 
 
-def build_cycle(tmp_path, broker: CountingBroker, provider=None):
+def build_cycle(
+    tmp_path,
+    broker: CountingBroker,
+    *,
+    with_authority: bool = True,
+    session_risk: MutableSessionRisk | None = None,
+):
     runtime = build_local_product(
         config=config(),
         state_directory=tmp_path,
         fee_provider=ExplicitZeroPaperFeeModel(),
     )
+    resolved_session_risk = (
+        MutableSessionRisk() if session_risk is None else session_risk
+    )
+    if with_authority:
+        seed_market_authority(runtime)
     cycle = PaperCycleService(
         runtime=runtime,
         broker=broker,
         trade_stream=listening_stream(),
         stream_generation=1,
         financial_activity_truth=ready_financial_activity_truth(tmp_path, now=NOW),
-        operational_snapshot_provider=provider,
+        operational_market_scope=MARKET_SCOPE if with_authority else None,
+        runtime_telemetry=ready_runtime_telemetry if with_authority else None,
+        session_risk=resolved_session_risk if with_authority else None,
     )
-    return runtime, cycle
+    if with_authority:
+        reconciliation = cycle.reconcile_portfolio(
+            BrokerPortfolioTruth(cash=runtime.portfolio.cash, positions=()),
+            occurred_at=NOW,
+        )
+        assert reconciliation.matched
+    return runtime, cycle, resolved_session_risk
 
 
 def test_readiness_failure_after_outbox_durably_halts_before_broker_submit(tmp_path) -> None:
     broker = CountingBroker()
-    provider = MutableSnapshotProvider(ready_snapshot())
-    runtime, cycle = build_cycle(tmp_path, broker, provider)
+    session_risk = MutableSessionRisk()
+    runtime, cycle, _ = build_cycle(tmp_path, broker, session_risk=session_risk)
     runtime.dispatch_control.arm(
         operator_id="operator-f05",
         reason="qualification arm",
@@ -175,7 +250,7 @@ def test_readiness_failure_after_outbox_durably_halts_before_broker_submit(tmp_p
     assert planning.prepared.record.state is OrderState.OUTBOXED
     assert len(runtime.oms_store.pending_outbox()) == 1
 
-    provider.snapshot = replace(ready_snapshot(), kill_switch_engaged=True)
+    session_risk.kill_switch_engaged = True
     with pytest.raises(DispatchBlocked) as blocked:
         cycle.execute_next_submit(occurred_at=NOW + timedelta(seconds=1))
     assert blocked.value.reasons == ("KILL_SWITCH_ENGAGED",)
@@ -186,9 +261,14 @@ def test_readiness_failure_after_outbox_durably_halts_before_broker_submit(tmp_p
     assert runtime.dispatch_control.current().mode is DispatchControlMode.HALTED
     event_types = [str(event["event_type"]) for event in runtime.dispatch_control.events()]
     assert event_types == ["ARM", "HALT"]
+    assert session_risk.calls == 1
 
-    restarted_provider = MutableSnapshotProvider(ready_snapshot())
-    restarted_runtime, restarted_cycle = build_cycle(tmp_path, broker, restarted_provider)
+    restarted_session_risk = MutableSessionRisk()
+    restarted_runtime, restarted_cycle, _ = build_cycle(
+        tmp_path,
+        broker,
+        session_risk=restarted_session_risk,
+    )
     assert restarted_runtime.dispatch_control.current().mode is DispatchControlMode.HALTED
     with pytest.raises(DispatchBlocked) as still_blocked:
         restarted_cycle.execute_next_submit(occurred_at=NOW + timedelta(seconds=2))
@@ -206,6 +286,7 @@ def test_readiness_failure_after_outbox_durably_halts_before_broker_submit(tmp_p
     assert execution.record.state is OrderState.ACKNOWLEDGED
     assert broker.submit_calls == 1
     assert restarted_runtime.oms_store.pending_outbox() == ()
+    assert restarted_session_risk.calls == 1
     assert [
         str(event["event_type"]) for event in restarted_runtime.dispatch_control.events()
     ][-2:] == ["ARM", "DISPATCH_AUTHORIZED"]
@@ -213,7 +294,7 @@ def test_readiness_failure_after_outbox_durably_halts_before_broker_submit(tmp_p
 
 def test_missing_operational_snapshot_fails_closed_and_persists_halt(tmp_path) -> None:
     broker = CountingBroker()
-    runtime, cycle = build_cycle(tmp_path, broker)
+    runtime, cycle, _ = build_cycle(tmp_path, broker, with_authority=False)
     runtime.dispatch_control.arm(
         operator_id="operator-f05",
         reason="qualification arm",
@@ -234,8 +315,7 @@ def test_missing_operational_snapshot_fails_closed_and_persists_halt(tmp_path) -
 
 def test_expired_arm_cannot_authorize_outbox(tmp_path) -> None:
     broker = CountingBroker()
-    provider = MutableSnapshotProvider(ready_snapshot())
-    runtime, cycle = build_cycle(tmp_path, broker, provider)
+    runtime, cycle, _ = build_cycle(tmp_path, broker)
     runtime.dispatch_control.arm(
         operator_id="operator-f05",
         reason="short qualification arm",
