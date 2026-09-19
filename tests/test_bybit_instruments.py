@@ -131,3 +131,42 @@ def test_acceptance_12_module_exposes_no_mutating_call() -> None:
 def test_acceptance_12_only_the_public_market_endpoint_is_referenced() -> None:
     assert venue.ENDPOINT == "https://api.bybit.com/v5/market/instruments-info"
     assert "order" not in venue.ENDPOINT
+
+
+def test_the_module_opens_no_sockets() -> None:
+    """Transport is injected here as it is everywhere else under app/.
+
+    A module that reaches the network on its own cannot be exercised from a recorded
+    payload, and it puts a url-opening call inside the surface the security scan gates.
+    """
+    import ast
+    from pathlib import Path as _Path
+
+    tree = ast.parse(_Path(venue.__file__).read_text())
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+    assert not imported & {"urllib", "socket", "http", "requests", "httpx", "aiohttp"}
+
+
+def test_load_instrument_uses_the_supplied_source() -> None:
+    calls: list[tuple[str, str]] = []
+
+    def source(*, category: str, symbol: str) -> dict:
+        calls.append((category, symbol))
+        return {"retCode": 0, "result": {"list": [PAYLOAD]}}
+
+    spec = venue.load_instrument(source, "BTCUSDT", observed_at=OBSERVED)
+    assert calls == [("linear", "BTCUSDT")]
+    assert spec.symbol == "BTCUSDT"
+
+
+def test_load_instrument_refuses_an_empty_list() -> None:
+    def source(*, category: str, symbol: str) -> dict:
+        return {"retCode": 0, "result": {"list": []}}
+
+    with pytest.raises(venue.BybitInstrumentError, match="no rules"):
+        venue.load_instrument(source, "NOPEUSDT")
