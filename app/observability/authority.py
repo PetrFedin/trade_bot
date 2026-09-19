@@ -10,8 +10,8 @@ from app.execution.execution_facts import ExecutionFactStore
 from app.marketdata.continuity import OperationalContinuityStore
 from app.marketdata.operational import OperationalMarketDataStore
 from app.observability.readiness import OperationalSnapshot
-from app.oms.protocols import OmsStore
 from app.oms.portfolio_reconciliation import PortfolioReconciliationStore
+from app.oms.protocols import OmsStore
 
 
 def _utc_now() -> datetime:
