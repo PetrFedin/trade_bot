@@ -1,0 +1,129 @@
+{
+  "schema_version": "strategy-research-measurement-v7",
+  "research_only": true,
+  "strategy_promotion_allowed": false,
+  "question": "Does a stop expressed in the instrument's own volatility behave better than a fixed fraction?",
+  "window": {
+    "start": "2023-09-19",
+    "end": "2026-09-19",
+    "interval": "D",
+    "symbols": 21
+  },
+  "design": {
+    "prediction_tested_before_returns": true,
+    "statement": "A volatility-scaled stop should make the first-bar exit rate consistent across instruments; a fixed fraction should not.",
+    "reward_to_risk_held_constant": 2.0,
+    "volatility_window_bars": 20
+  },
+  "prediction_result": {
+    "held": true,
+    "fixed_first_bar_spread_across_symbols": 0.182454,
+    "best_scaled_spread": 0.041045
+  },
+  "arms_full_window": {
+    "fixed (shipped)": {
+      "episodes": 1777,
+      "mean_stop": 0.02,
+      "first_bar_exit_rate": 0.731764,
+      "net_return": -0.00047888,
+      "t": -0.7745
+    },
+    "sigma x0.5": {
+      "episodes": 1949,
+      "mean_stop": 0.015577,
+      "first_bar_exit_rate": 0.823318,
+      "net_return": -0.00272498,
+      "t": -5.5827
+    },
+    "sigma x1": {
+      "episodes": 1608,
+      "mean_stop": 0.031184,
+      "first_bar_exit_rate": 0.448994,
+      "net_return": -0.0002272,
+      "t": -0.2251
+    },
+    "sigma x1.5": {
+      "episodes": 1353,
+      "mean_stop": 0.048027,
+      "first_bar_exit_rate": 0.211975,
+      "net_return": 2.16e-05,
+      "t": 0.0134
+    },
+    "sigma x2": {
+      "episodes": 1183,
+      "mean_stop": 0.065045,
+      "first_bar_exit_rate": 0.097028,
+      "net_return": -0.00097731,
+      "t": -0.4485
+    }
+  },
+  "split_sample": {
+    "fixed": {
+      "development": {
+        "episodes": 1283,
+        "mean": -0.00089777,
+        "t": -1.2288
+      },
+      "holdout": {
+        "episodes": 465,
+        "mean": 0.00040834,
+        "t": 0.3443
+      }
+    },
+    "sigma_x0.5": {
+      "development": {
+        "episodes": 1382,
+        "mean": -0.00300339,
+        "t": -4.9574
+      },
+      "holdout": {
+        "episodes": 542,
+        "mean": -0.00243054,
+        "t": -3.128
+      }
+    },
+    "sigma_x1.0": {
+      "development": {
+        "episodes": 1124,
+        "mean": 0.00103472,
+        "t": 0.8111
+      },
+      "holdout": {
+        "episodes": 462,
+        "mean": -0.00189557,
+        "t": -1.221
+      }
+    },
+    "sigma_x1.5": {
+      "development": {
+        "episodes": 943,
+        "mean": 0.00448932,
+        "t": 2.1828
+      },
+      "holdout": {
+        "episodes": 388,
+        "mean": -0.00677752,
+        "t": -2.9411
+      }
+    },
+    "sigma_x2.0": {
+      "development": {
+        "episodes": 835,
+        "mean": 0.00337886,
+        "t": 1.2436
+      },
+      "holdout": {
+        "episodes": 326,
+        "mean": -0.00499153,
+        "t": -1.4846
+      }
+    }
+  },
+  "interpretation": "The structural prediction held and the return improvement did not. Scaling the stop to trailing volatility cut the spread of first-bar exit rates across instruments from 0.182 to 0.041, so the stop does come to mean the same thing everywhere. But the multiple that led the development window, 1.5x, returned +0.449% there at t = 2.18 and -0.678% on the holdout at t = -2.94, a complete reversal. Choosing a multiple from history is the same noise as choosing a geometry from history, which this work has now reproduced four times. One result replicates in both windows: a tight stop at 0.5x sigma loses -0.300% and -0.243% at t = -4.96 and -3.13. The shipped 2% stop sits in that regime, closing 73% of episodes in their first bar.",
+  "limitations": [
+    "Four multiples were tested; the best on development is expected to flatter itself.",
+    "Episode counts differ between arms because a wider stop changes which signals resolve, so arms are not paired.",
+    "Trailing sigma over twenty bars is one estimator among many and was not varied.",
+    "A single holdout window."
+  ]
+}
