@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ruff check *)",
+      "Bash(bandit *)",
+      "Bash(mypy *)",
+      "Bash(make lint)",
+      "Bash(make lint-all)",
+      "Bash(make status)"
+    ]
+  }
+}
