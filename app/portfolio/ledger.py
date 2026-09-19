@@ -8,6 +8,15 @@ from enum import StrEnum
 from app.domain.trading import Fill, Side
 
 
+class AccountGenesisMismatch(ValueError):
+    """Raised when durable state is reopened under a different opening cash.
+
+    Changing the configured opening cash of an account that already has history is not
+    a configuration change; it restates every figure measured from it. The supported way
+    to move capital is a cash adjustment, which leaves an event behind.
+    """
+
+
 class CashAdjustmentKind(StrEnum):
     EXTERNAL_FLOW = "EXTERNAL_FLOW"
     INCOME = "INCOME"

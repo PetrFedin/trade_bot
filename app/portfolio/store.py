@@ -8,7 +8,12 @@ from decimal import Decimal
 from pathlib import Path
 
 from app.domain.trading import Fill, Side
-from app.portfolio.ledger import CashAdjustmentKind, PortfolioLedger, PortfolioSnapshot
+from app.portfolio.ledger import (
+    AccountGenesisMismatch,
+    CashAdjustmentKind,
+    PortfolioLedger,
+    PortfolioSnapshot,
+)
 
 
 @dataclass(frozen=True)
@@ -50,6 +55,11 @@ class PortfolioEventStore:
                     snapshot_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     occurred_at TEXT NOT NULL,
                     payload TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS portfolio_genesis (
+                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                    opening_cash TEXT NOT NULL,
+                    bound_at TEXT NOT NULL
                 );
                 """
             )
@@ -172,6 +182,47 @@ class PortfolioEventStore:
             },
             occurred_at=occurred_at,
         )
+
+    def bind_genesis(self, opening_cash: Decimal) -> Decimal:
+        """Record the account's opening cash once, and refuse a later disagreement.
+
+        The opening cash is the anchor every P&L figure, reconciliation and
+        equity-relative limit is measured from. It used to be supplied on every replay,
+        so reopening durable state under a different configured value silently rewrote
+        the account's starting capital. Legitimate capital changes have a path already -
+        append_cash_adjustment - and this is what makes them use it.
+        """
+        if not opening_cash.is_finite() or opening_cash <= 0:
+            raise ValueError("opening_cash must be positive and finite")
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT opening_cash FROM portfolio_genesis WHERE singleton = 1"
+            ).fetchone()
+            has_history = (
+                connection.execute("SELECT 1 FROM portfolio_events LIMIT 1").fetchone()
+                is not None
+            )
+            if row is None or not has_history:
+                # Until something has been measured from it there is nothing to restate,
+                # so an account with an empty journal takes whatever it is opened with.
+                # The binding becomes binding when history exists.
+                connection.execute("DELETE FROM portfolio_genesis WHERE singleton = 1")
+                connection.execute(
+                    "INSERT INTO portfolio_genesis (singleton, opening_cash, bound_at)"
+                    " VALUES (1, ?, ?)",
+                    (str(opening_cash), datetime.now(UTC).isoformat()),
+                )
+                return opening_cash
+            bound = Decimal(str(row[0]))
+        finally:
+            connection.close()
+        if bound != opening_cash:
+            raise AccountGenesisMismatch(
+                f"account opened with {bound} and cannot be reopened with {opening_cash}; "
+                f"record a cash adjustment instead of changing the configured opening cash"
+            )
+        return bound
 
     def replay(self, *, opening_cash: Decimal) -> PortfolioLedger:
         ledger = PortfolioLedger(opening_cash=opening_cash)
