@@ -1,0 +1,106 @@
+{
+  "schema_version": "engineering-main-qualification-v1",
+  "repository": "PetrFedin/trade_bot",
+  "subject_sha": "c50ea8794843050e0bf6baec6026f2ddd1421c9f",
+  "subject": "P0 governance protection-state repair post-merge main qualification",
+  "qualified_at": "2026-09-18T15:53:54Z",
+  "scope": "ENGINEERING_CI_ONLY",
+  "source_pull_request": 182,
+  "source_pre_merge_sha": "3d6c223ce9094bceda92b2831d0ad6dc7a1b83f9",
+  "github": {
+    "event": "push",
+    "workflow_run_count": 6,
+    "check_run_count": 7,
+    "all_observed_workflows_completed": true,
+    "all_observed_workflows_success": true,
+    "all_observed_check_runs_completed": true,
+    "all_observed_check_runs_success": true,
+    "workflow_runs": [
+      {
+        "name": "canonical-security-regression",
+        "run_id": 35365079600,
+        "run_number": 1115,
+        "conclusion": "success"
+      },
+      {
+        "name": "release-provenance",
+        "run_id": 35365079556,
+        "run_number": 78,
+        "conclusion": "success"
+      },
+      {
+        "name": "schema99-external-paper-roundtrip",
+        "run_id": 35365079690,
+        "run_number": 1765,
+        "conclusion": "success"
+      },
+      {
+        "name": "release-governance",
+        "run_id": 35365079570,
+        "run_number": 94,
+        "conclusion": "success"
+      },
+      {
+        "name": "status-source-of-truth",
+        "run_id": 35365079744,
+        "run_number": 91,
+        "conclusion": "success"
+      },
+      {
+        "name": "ci-action-supply-chain-policy",
+        "run_id": 35365079896,
+        "run_number": 1036,
+        "conclusion": "success"
+      }
+    ]
+  },
+  "qualified_capabilities": [
+    "F01_EXCLUSIVE_SUBMIT_CLAIM",
+    "F02_EXCLUSIVE_CANCEL_REPLACE_CLAIMS",
+    "F03_PENDING_BUY_RISK_RESERVATIONS",
+    "F04_F14_F16_OPERATIONAL_MARKETDATA_GATE",
+    "F05_DURABLE_ARM_HALT_FINAL_DISPATCH_GUARD",
+    "F06_EXACT_INTENT_RISK_FINGERPRINT",
+    "F07_REPLACE_REQUIRES_FRESH_RISK_ADMISSION",
+    "F08_FULL_PORTFOLIO_MARK_SNAPSHOT",
+    "F10_EXECUTION_FACTS_BEFORE_ACCOUNTING_PROJECTION",
+    "F12_VALIDATED_STREAM_PROVENANCE",
+    "F13_COMPLETE_OPERATIONAL_RISK_OBSERVATIONS",
+    "F17_BROKER_SUBMIT_ECONOMIC_IDENTITY",
+    "F18_BROKER_ORDER_REPLACEMENT_LINEAGE",
+    "F19_IMMEDIATE_SUBMIT_EXECUTION_CONVERGENCE",
+    "F20_IMMUTABLE_INTENT_ECONOMIC_IDENTITY",
+    "F21A_BROKER_PORTFOLIO_RECONCILIATION_GATE",
+    "F21B_DURABLE_BROKER_FINANCIAL_ACTIVITIES",
+    "F21C_FINANCIAL_ACTIVITY_TRUTH_GATE",
+    "F21D_IMMUTABLE_FINANCIAL_ACTIVITY_EVIDENCE_FENCING",
+    "F22A_DURABLE_FINALIZED_OPERATIONAL_MARKETDATA",
+    "F22B_BYBIT_PUBLIC_LINEAR_KLINE_WEBSOCKET",
+    "F22C_DURABLE_CONTINUITY_RECONNECT_REPAIR",
+    "F22D_FENCED_OPERATIONAL_DECISION_WORKERS",
+    "PHASE0_LOCAL_POSTGRES_QUALIFICATION_BOOTSTRAP",
+    "MAIN_BRANCH_PROTECTION_OBSERVED_ENABLED_PARTIAL"
+  ],
+  "next_vertical_gate": {
+    "issue": 103,
+    "name": "SERVER_SIDE_MAIN_PROTECTION_ENFORCEMENT",
+    "required_families": [
+      "REQUIRED_STATUS_CHECKS",
+      "PR_REVIEW_ENFORCEMENT",
+      "BYPASS_AND_FORCE_PUSH_POLICY"
+    ]
+  },
+  "promotion": {
+    "strategy_qualified": false,
+    "demo_trading_allowed": false,
+    "external_order_routing_allowed": false,
+    "live_trading_allowed": false,
+    "mainnet_entry_allowed": false
+  },
+  "notes": [
+    "This manifest qualifies engineering and CI behavior only.",
+    "GitHub main protection is observed enabled, while required status-check enforcement remains off; issue #103 stays open.",
+    "A successful strategy-qualification workflow is not a profitability promotion.",
+    "No Demo, external routing, mainnet or live authority is granted by this manifest."
+  ]
+}
