@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import UTC, datetime
 
 from app.domain.trading import Side
@@ -8,10 +7,8 @@ from app.execution.financial_activity_gate import (
     FinancialActivityTruthProvider,
     financial_activity_truth_block_reasons,
 )
-from app.observability.readiness import (
-    OperationalReadinessEvaluator,
-    OperationalSnapshot,
-)
+from app.observability.authority import AuthoritativeOperationalSnapshotAssembler
+from app.observability.readiness import OperationalReadinessEvaluator
 from app.oms.portfolio_reconciliation import PortfolioReconciliationStore
 from app.oms.store import OrderRecord
 from app.runtime.paper_dispatch_control import (
@@ -19,9 +16,6 @@ from app.runtime.paper_dispatch_control import (
     DispatchBlocked,
     PaperDispatchControlStore,
 )
-
-OperationalSnapshotProvider = Callable[[], OperationalSnapshot]
-
 
 class PaperFinalDispatchGuard:
     """Last-mile fail-closed guard immediately before submit ownership is claimed.
@@ -39,7 +33,7 @@ class PaperFinalDispatchGuard:
         *,
         control: PaperDispatchControlStore,
         readiness: OperationalReadinessEvaluator,
-        snapshot_provider: OperationalSnapshotProvider | None,
+        snapshot_authority: AuthoritativeOperationalSnapshotAssembler | None,
         financial_activity_truth: FinancialActivityTruthProvider,
         portfolio_reconciliation: PortfolioReconciliationStore | None = None,
     ) -> None:
@@ -47,7 +41,7 @@ class PaperFinalDispatchGuard:
             raise ValueError("financial_activity_truth is required")
         self.control = control
         self.readiness = readiness
-        self.snapshot_provider = snapshot_provider
+        self.snapshot_authority = snapshot_authority
         self.financial_activity_truth = financial_activity_truth
         self.portfolio_reconciliation = portfolio_reconciliation
 
@@ -66,13 +60,16 @@ class PaperFinalDispatchGuard:
         moment = self._time(occurred_at)
         self._known_reconciliation_gate(record)
         self._financial_activity_gate(record, occurred_at=moment)
-        if self.snapshot_provider is None:
+        if self.snapshot_authority is None:
             reasons = ("OPERATIONAL_SNAPSHOT_REQUIRED",)
             self._halt(reasons, occurred_at=moment)
             raise DispatchBlocked(reasons)
 
         try:
-            snapshot = self.snapshot_provider()
+            snapshot = self.snapshot_authority.assemble(
+                now=moment,
+                new_risk=record.side is Side.BUY,
+            )
             result = self.readiness.evaluate(snapshot)
         except Exception as exc:
             reasons = ("OPERATIONAL_SNAPSHOT_INVALID",)

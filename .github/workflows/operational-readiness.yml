@@ -8,6 +8,7 @@ on:
       - 'app/risk/**'
       - 'app/oms/**'
       - 'app/portfolio/**'
+      - 'app/application/composition.py'
       - 'app/application/paper_cycle.py'
       - 'app/execution/paper_executor.py'
       - 'app/runtime/paper_dispatch_control.py'
@@ -15,6 +16,7 @@ on:
       - 'tests/test_operational_readiness.py'
       - 'tests/test_authoritative_operational_snapshot.py'
       - 'tests/test_final_dispatch_interlock.py'
+      - 'tests/test_paper_cycle_e2e.py'
       - '.github/workflows/operational-readiness.yml'
   pull_request:
     paths:
@@ -22,6 +24,7 @@ on:
       - 'app/risk/**'
       - 'app/oms/**'
       - 'app/portfolio/**'
+      - 'app/application/composition.py'
       - 'app/application/paper_cycle.py'
       - 'app/execution/paper_executor.py'
       - 'app/runtime/paper_dispatch_control.py'
@@ -29,6 +32,7 @@ on:
       - 'tests/test_operational_readiness.py'
       - 'tests/test_authoritative_operational_snapshot.py'
       - 'tests/test_final_dispatch_interlock.py'
+      - 'tests/test_paper_cycle_e2e.py'
       - '.github/workflows/operational-readiness.yml'
 
 permissions:
@@ -56,7 +60,9 @@ jobs:
             tests/test_authoritative_operational_snapshot.py
       - name: Final dispatch HALT/readiness interlock
         run: pytest -q tests/test_final_dispatch_interlock.py
+      - name: Authoritative PaperCycle wiring
+        run: pytest -q tests/test_paper_cycle_e2e.py
       - name: Risk and reconciliation regression
         run: pytest -q tests/test_risk_marketdata.py tests/test_durable_oms_e2e.py
       - name: Compile operational boundary
-        run: python -m compileall -q app/observability app/risk app/oms app/portfolio app/application/paper_cycle.py app/execution/paper_executor.py app/runtime/paper_dispatch_control.py app/runtime/paper_final_dispatch.py
+        run: python -m compileall -q app/observability app/risk app/oms app/portfolio app/application/composition.py app/application/paper_cycle.py app/execution/paper_executor.py app/runtime/paper_dispatch_control.py app/runtime/paper_final_dispatch.py
