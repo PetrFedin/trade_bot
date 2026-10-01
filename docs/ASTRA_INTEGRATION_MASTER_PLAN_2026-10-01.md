@@ -198,3 +198,75 @@ Do not:
 The roadmap is complete only when each adopted assurance layer is part of the normal qualification pipeline, creates reproducible evidence and cannot bypass trading authority.
 
 **Implementation instruction:** strengthen correctness and evidence. Do not interpret this roadmap as permission to take financial risk.
+
+## Additional wave — signed artefacts and production observability
+
+### Sigstore Cosign artefact signing — ADOPT/CI
+
+Reference: https://github.com/sigstore/cosign
+
+Complement the planned in-toto provenance chain with cryptographic signing of the built deployment artefact/image.
+
+Chain:
+
+`source SHA -> qualification evidence -> build -> SBOM/attestation -> Cosign signature -> admitted deployment digest`
+
+The deployed runtime must be traceable to an immutable digest, not merely a mutable tag.
+
+This strengthens supply-chain integrity only. A signed build is **not** evidence that the strategy is profitable or authorised for live trading.
+
+### OpenTelemetry runtime tracing — ADOPT
+
+References:
+
+- https://github.com/open-telemetry/opentelemetry-python
+- https://github.com/open-telemetry/opentelemetry-collector-contrib
+
+Instrument low-cardinality operational traces around:
+
+`market-data receive -> normalization -> strategy target -> risk decision -> OMS intent -> adapter request -> broker response -> reconciliation`
+
+Do not export raw secrets, full market streams, strategy proprietary payloads or account PII in traces.
+
+Trace context must never become part of deterministic trading/accounting inputs.
+
+### Prometheus + Grafana operational contour — ADOPT
+
+References:
+
+- https://github.com/prometheus/prometheus
+- https://github.com/grafana/grafana
+
+Expose **operational**, not strategy-promotional, metrics:
+
+- market-data freshness/gap count;
+- adapter latency/error rates;
+- order-intent queue depth;
+- unresolved ambiguity count;
+- reconciliation age;
+- HALT/READ_ONLY state;
+- DB/worker health;
+- clock/skew alarms;
+- restart/recovery count.
+
+Strategy PnL/edge research may have separate dashboards, but production operational dashboards must not hide safety state behind performance charts.
+
+Alert examples:
+
+- stale market data;
+- reconciliation overdue;
+- unknown/unresolved broker state;
+- authoritative DB unavailable;
+- unexpected live/mainnet route;
+- HALT bypass attempt.
+
+### Acceptance extension
+
+- release artefact signature verifies before admission;
+- observability does not alter deterministic business inputs;
+- metrics expose safety/reconciliation state;
+- operational alert tests include fault-injection scenarios;
+- none of these integrations change the live-trading authorization gate.
+
+**Sequencing:** metrics/tracing can be developed before live admission; Cosign follows deterministic build/in-toto/SBOM generation.
+
