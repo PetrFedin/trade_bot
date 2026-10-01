@@ -270,3 +270,128 @@ Alert examples:
 
 **Sequencing:** metrics/tracing can be developed before live admission; Cosign follows deterministic build/in-toto/SBOM generation.
 
+## Additional wave — formal state-machine verification, deterministic time and shadow execution
+
+This wave strengthens ASTRA's most safety-critical boundaries without adding strategy authority or live permission.
+
+### Formal OMS / Risk State Model — ADOPT
+
+References:
+
+- https://github.com/tlaplus/tlaplus
+- https://github.com/apalache-mc/apalache
+
+Model a deliberately small abstract state machine covering critical invariants such as:
+
+- trading mode / ARM / HALT;
+- order intent lifecycle;
+- submit-started ambiguity;
+- broker acknowledgement;
+- partial fill / fill / cancel / reject;
+- pending exposure reservation;
+- portfolio/accounting application;
+- recovery/reconciliation;
+- restart with unresolved broker state.
+
+The formal model is not production code. It is an executable specification used to search for invalid interleavings and counterexamples.
+
+Core invariants should include:
+
+- no order submission when execution is not authorised;
+- no duplicate accounting of the same fill;
+- pending + realised exposure cannot bypass configured limits;
+- unresolved submit ambiguity cannot create a second blind submit;
+- HALT/READ_ONLY cannot be bypassed by restart;
+- terminal order states cannot transition back to active without an explicit new intent;
+- recovery converges to one authoritative broker/accounting state or remains fail-closed.
+
+Apalache/model-checking results become qualification evidence tied to the specification version.
+
+### Deterministic Virtual Clock Boundary — ADOPT
+
+Replace direct wall-clock reads inside deterministic strategy/risk/accounting logic with an injected clock/time source where technically feasible.
+
+Use cases:
+
+- stale-data checks;
+- order timeout/ambiguity windows;
+- session boundaries;
+- cooldowns;
+- funding/mark intervals;
+- replay timing;
+- recovery deadlines.
+
+Tests can then advance time explicitly without sleeping.
+
+Wall-clock time still exists at adapters/IO boundaries, but the authoritative decision function receives a timestamp/clock context.
+
+This makes replay, property testing and incident reproduction substantially more reliable.
+
+### Shadow Execution Comparator — ADOPT
+
+Add a no-submit shadow contour that can consume the same market/account snapshots and produce expected intents/risk decisions without touching broker execution.
+
+Compare:
+
+production/paper authoritative decision -> shadow decision -> structured diff
+
+Diff dimensions:
+
+- target position;
+- order intent;
+- risk allow/deny + reason;
+- size/price rounding;
+- expected pending exposure;
+- expected account mutation after a supplied broker event.
+
+Use cases:
+
+- validating a new strategy/risk version against the current one;
+- verifying migration/refactor equivalence;
+- replaying a production incident with candidate fixes;
+- detecting behaviour drift before promotion.
+
+Shadow mode must be technically incapable of reaching the broker submit path.
+
+### Walk-forward Strategy Evidence Protocol — ADOPT
+
+Formalise promotion evidence for strategy research without predicting future profitability.
+
+Every strategy candidate should declare:
+
+- research hypothesis;
+- dataset/replay version;
+- training/tuning interval where applicable;
+- untouched validation/test intervals;
+- walk-forward windows;
+- fee/funding/slippage assumptions;
+- parameter-selection rule;
+- baseline strategy;
+- rejection thresholds;
+- stability/sensitivity results.
+
+Do not repeatedly tune on the same supposed holdout and continue calling it out-of-sample.
+
+The protocol records evidence quality; it does not guarantee future returns and does not change live-trading authorization.
+
+### State-transition Coverage Matrix — ADOPT
+
+Map:
+
+formal transition -> production state transition -> unit/property/replay/fault test -> evidence artifact
+
+This identifies authority transitions that exist in code but are absent from formal/replay qualification, or vice versa.
+
+The matrix should become part of release qualification for risk/OMS changes.
+
+### Additional acceptance
+
+- a critical OMS/risk model has machine-checked invariants and retained counterexample evidence when failures are found;
+- deterministic tests can advance time without real sleeps for core logic;
+- shadow contour cannot call submit even under misconfiguration;
+- strategy promotion evidence identifies exact untouched/walk-forward windows and assumptions;
+- formal/replay/production transition coverage can be audited;
+- none of these capabilities changes PROFITABILITY_NOT_PROVEN or live/mainnet gates.
+
+**Sequencing:** existing replay + property tests -> deterministic clock refactor -> formal model -> transition coverage -> shadow comparator -> walk-forward promotion protocol integration.
+
