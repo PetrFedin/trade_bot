@@ -522,3 +522,115 @@ Chrony and linuxptp upstream repositories are GPL-2.0. Treat them as host/infras
 
 **Sequencing:** deterministic clock boundary -> host/time observability -> clock admission policy -> provider skew monitoring -> fault qualification -> release evidence.
 
+## Additional wave — tail-latency evidence and coordinated omission control
+
+This wave strengthens production qualification by measuring latency as a distribution with explicit semantics rather than relying on averages.
+
+### HdrHistogram latency recorder — ADOPT
+
+Reference:
+
+https://github.com/HdrHistogram/HdrHistogram_py
+
+Use HdrHistogram or an equivalent bounded recorder for selected operational latency paths.
+
+Candidate measurements:
+
+- market message receive -> normalized event;
+- normalized event -> strategy target;
+- target -> risk decision;
+- risk decision -> OMS intent committed;
+- OMS submit start -> broker acknowledgement/response;
+- broker event receive -> accounting/reconciliation applied;
+- reconciliation request -> authoritative result;
+- end-to-end paper/shadow decision paths.
+
+Each histogram must define:
+
+- start/end event;
+- clock source;
+- unit;
+- lowest/highest trackable value;
+- significant digits;
+- aggregation window;
+- runtime/release;
+- provider/adapter where applicable.
+
+### Percentile / Tail Metrics — ADOPT
+
+Report at least where meaningful:
+
+- count;
+- min/max;
+- p50;
+- p90/p95;
+- p99;
+- p99.9 for sufficiently large samples.
+
+Averages may remain available but must not be the primary operational qualification metric.
+
+### Processing vs Provider / Network Latency — ADOPT
+
+Where timestamps permit, separate:
+
+- local processing time;
+- queue/wait time;
+- network/provider round-trip;
+- provider event-to-receive delay;
+- recovery/reconciliation age.
+
+Do not present exchange/provider timestamps as perfectly synchronized unless Clock Integrity evidence supports the assumption.
+
+### Coordinated Omission Control — ADOPT
+
+Load/latency tests must explicitly document whether they account for coordinated omission.
+
+If the system stalls and the test generator also stops generating expected work, naive latency measurements can hide the stall.
+
+Qualification tests should therefore include a schedule/expected-arrival model where appropriate and record corrected/uncorrected histograms separately.
+
+### Latency Budget Authority — ADOPT
+
+Create versioned operational budgets per path/environment:
+
+- expected/target threshold;
+- hard safety threshold where relevant;
+- percentile;
+- evaluation window;
+- action on breach.
+
+Examples:
+
+- warning;
+- degraded/read-only;
+- fail qualification;
+- investigate only.
+
+Do not convert a performance budget into a live-trading permission.
+
+### Replay / Fault Correlation — ADOPT
+
+Fault campaigns should retain latency distributions before/during/after:
+
+- network delay;
+- broker/API slowdown;
+- DB contention;
+- process restart;
+- reconciliation backlog;
+- market-data burst.
+
+This allows release evidence to answer not only "did it recover?" but "how degraded did it become and did safety state react?".
+
+### Additional acceptance
+
+- latency reports declare exact measurement boundaries and clock;
+- tail percentiles are retained for qualification, not only averages;
+- coordinated-omission behavior is documented/tested for load qualification;
+- provider/network and local processing are not conflated when separable;
+- budget breaches cannot be hidden by aggregation;
+- none of these metrics enable mainnet/live routing or change PROFITABILITY_NOT_PROVEN.
+
+**Sequencing:** deterministic/monotonic clock + OpenTelemetry metrics foundation -> HdrHistogram recorders -> budgets -> fault/replay correlation -> release qualification evidence.
+
+**Dependency note:** HdrHistogram Python is currently Apache-2.0 upstream; keep instrumentation outside deterministic decision inputs and benchmark recording overhead before enabling high-frequency paths.
+
