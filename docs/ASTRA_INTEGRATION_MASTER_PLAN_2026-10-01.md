@@ -395,3 +395,130 @@ The matrix should become part of release qualification for risk/OMS changes.
 
 **Sequencing:** existing replay + property tests -> deterministic clock refactor -> formal model -> transition coverage -> shadow comparator -> walk-forward promotion protocol integration.
 
+## Additional wave — clock integrity admission and exchange-time evidence
+
+This wave strengthens all timeout, staleness, replay and reconciliation decisions by explicitly proving that the runtime clock is trustworthy.
+
+### Host time synchronisation contour — ADOPT/OPS
+
+Primary reference: https://github.com/mlichvar/chrony
+
+Optional low-latency/PTP reference where infrastructure justifies it: https://github.com/richardcochran/linuxptp
+
+Use Chrony or an equivalent host-level time daemon as infrastructure, not as an application library.
+
+Record operational signals such as:
+
+- synchronization state;
+- current estimated system offset;
+- root dispersion/error estimate;
+- selected source;
+- last successful synchronization;
+- stratum/source class where relevant.
+
+If the runtime is deployed on a managed platform where direct daemon control is unavailable, expose the platform/time-source assumption explicitly and measure application-visible skew instead of pretending the daemon is under ASTRA control.
+
+### Clock Integrity Admission Gate — ADOPT
+
+Before enabling a trading-capable runtime contour, evaluate a bounded clock-health policy.
+
+Inputs may include:
+
+- host time-sync status;
+- estimated offset/error;
+- time since last successful sync;
+- exchange/server timestamp comparison;
+- monotonic-clock continuity;
+- configured maximum skew.
+
+Policy outcomes:
+
+- HEALTHY;
+- DEGRADED / READ_ONLY;
+- HALT / NO_NEW_ENTRY.
+
+Exact thresholds belong in versioned configuration and must be justified per venue/strategy/runtime.
+
+A failed clock gate must never silently fall back to wall-clock assumptions.
+
+### Wall-clock vs monotonic time separation — ADOPT
+
+Use wall-clock UTC for:
+
+- exchange/event timestamps;
+- persisted audit timestamps;
+- calendar/session boundaries;
+- external reconciliation evidence.
+
+Use monotonic time for:
+
+- elapsed timeout measurement;
+- retry/cooldown duration;
+- heartbeat age;
+- local latency measurement.
+
+Do not calculate elapsed durations from wall-clock values where a clock correction could move time backward/forward.
+
+This complements the planned injected virtual clock for deterministic tests.
+
+### Exchange Timestamp Skew Monitor — ADOPT
+
+For market/account/order events that carry provider/exchange timestamps, record privacy-safe operational skew samples:
+
+receive_wall_time - provider_event_time
+
+Track by:
+
+- provider;
+- connection/feed type;
+- event class;
+- runtime node;
+- release SHA.
+
+Use robust summaries rather than interpreting every network-latency sample as host-clock error.
+
+Large or structurally changed skew should create an operational alarm and may trip the clock admission policy depending on configuration.
+
+### Time Evidence Snapshot — ADOPT
+
+At start/recovery/incident boundaries, persist a compact evidence record:
+
+- runtime/build SHA;
+- system UTC;
+- monotonic baseline/reference;
+- sync source/status;
+- estimated offset/error;
+- provider server-time sample where available;
+- gate result;
+- config/policy version.
+
+This becomes part of incident/replay qualification so later analysis knows whether clock integrity was healthy.
+
+### Fault tests — ADOPT
+
+Add qualification scenarios for:
+
+- simulated wall-clock jump forward;
+- simulated wall-clock jump backward;
+- loss of time sync;
+- excessive provider/server skew;
+- monotonic timer continuity;
+- stale-data gate around clock anomalies.
+
+Core risk/OMS tests must prove that clock anomalies cannot create duplicate submits, stale-data acceptance or premature timeout recovery.
+
+### Licensing/deployment boundary
+
+Chrony and linuxptp upstream repositories are GPL-2.0. Treat them as host/infrastructure daemons or operational references; do not vendor/link them into ASTRA application code without a separate licensing review.
+
+### Additional acceptance
+
+- elapsed-time logic uses monotonic time where appropriate;
+- time-sync health is visible and versioned in release/incident evidence;
+- unhealthy clock state can force READ_ONLY/HALT according to policy;
+- provider timestamp skew is monitored without confusing latency with certainty of host drift;
+- replay/tests can reproduce clock-anomaly behavior;
+- this gate does not change PROFITABILITY_NOT_PROVEN or live/mainnet authorization.
+
+**Sequencing:** deterministic clock boundary -> host/time observability -> clock admission policy -> provider skew monitoring -> fault qualification -> release evidence.
+
