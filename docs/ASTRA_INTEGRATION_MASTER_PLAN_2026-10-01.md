@@ -783,3 +783,150 @@ This is engineering qualification, not a trading-performance dashboard.
 
 **Commercial framing:** position this as institutional-grade market-behaviour qualification and evidence, not as a profit predictor or autonomous live-trading permission.
 
+## Premium commercial wave — Market Data Integrity and Reference Price Authority
+
+This wave turns market data quality into a first-class qualification product. It does not add strategy logic or permission to trade live.
+
+### Market Data Integrity Authority — ADOPT
+
+For every provider/feed/instrument, maintain a bounded integrity state derived from observed evidence:
+
+- connection/feed identity;
+- instrument;
+- sequence continuity;
+- duplicate/out-of-order count;
+- timestamp sanity;
+- stale-age;
+- crossed/locked/invalid book markers where applicable;
+- impossible price/size values;
+- update-rate collapse/spike;
+- provider heartbeat/health;
+- normalization errors;
+- reconciliation state.
+
+Each integrity decision stores:
+
+- rule/version;
+- source feed/provider;
+- affected interval;
+- evidence counters/samples;
+- severity;
+- resulting action.
+
+### Feed Quality Gate — ADOPT
+
+Define explicit outcomes:
+
+- HEALTHY;
+- DEGRADED;
+- QUARANTINED;
+- STALE / READ_ONLY;
+- HALT FOR AFFECTED INSTRUMENT/FEED.
+
+Bad data must fail closed before it reaches strategy/risk as trusted market state.
+
+A recovery requires fresh continuity/health evidence according to a versioned rule; reconnect alone is not sufficient.
+
+### Cross-Feed / Cross-Venue Divergence Monitor — ADOPT
+
+Where multiple legitimate reference feeds exist, compare normalized observations to detect:
+
+- abnormal price divergence;
+- stale primary feed;
+- spread/quote regime inconsistency;
+- provider-specific jumps;
+- timestamp/sequence anomalies.
+
+A second venue/feed is not automatically "truth". The system records disagreement and may downgrade confidence or select an explicitly configured reference hierarchy.
+
+### Reference Price Confidence — ADOPT
+
+Create a transparent reference-price state for risk/marking use cases where required.
+
+Inputs may include:
+
+- selected provider/venue;
+- freshest valid bid/ask/trade;
+- multiple-feed agreement;
+- stale threshold;
+- market state;
+- outlier policy.
+
+Persist:
+
+- price/value;
+- source set;
+- timestamp;
+- method/rule version;
+- confidence/status;
+- excluded sources/reasons.
+
+Do not hide a fallback source switch.
+
+### Tick / Market-data Evidence Archive — ADOPT/ADAPT
+
+For qualification and incident reconstruction, persist a bounded immutable market-data evidence stream or snapshots with:
+
+- raw/provider event identity where retained;
+- normalized event;
+- receive/exchange timestamp;
+- sequence;
+- instrument-spec version;
+- feed/provider;
+- release SHA;
+- checksum/partition ID.
+
+Apache Arrow / Parquet-style columnar formats may be used for portable offline evidence and analytics:
+
+https://github.com/apache/arrow
+
+This archive is replay/qualification evidence, not the live decision store.
+
+### High-volume Time-series Analytical Sidecar — CONDITIONAL
+
+Reference:
+
+https://github.com/questdb/questdb
+
+QuestDB may be evaluated as a read-only/analytical sidecar if tick/latency/quality volume makes PostgreSQL/reporting inconvenient.
+
+Allowed uses:
+
+- feed-health timelines;
+- latency/skew analytics;
+- divergence analysis;
+- incident exploration;
+- qualification dashboards.
+
+It must not become order, portfolio, risk or trading authority.
+
+### Data Quality Incident Dossier — ADOPT
+
+For any material integrity event, generate a reproducible dossier:
+
+- affected feed/instruments;
+- start/end;
+- integrity rules triggered;
+- raw/normalized evidence refs;
+- clock state;
+- tail-latency state;
+- provider divergence;
+- system safety response;
+- recovery evidence;
+- release SHA.
+
+This gives an institutional-grade explanation of why ASTRA trusted, degraded or rejected a feed.
+
+### Additional acceptance
+
+- corrupt/stale/gapped market data cannot silently become trusted market state;
+- every failover/reference-price change is visible and versioned;
+- divergence does not auto-declare one venue "correct" without configured policy;
+- evidence archive can reproduce a market-data integrity incident;
+- analytical sidecar is replaceable and cannot submit orders or mutate portfolio/risk;
+- this wave does not alter PROFITABILITY_NOT_PROVEN, mainnet or live-trading authorization.
+
+**Sequencing:** adapter conformance + replay + clock integrity -> feed integrity rules -> cross-feed divergence -> reference-price confidence -> evidence archive -> optional time-series sidecar -> incident dossier.
+
+**Commercial framing:** position this as institutional-grade market-data assurance and explainable feed trust, not as an alpha or prediction feature.
+
