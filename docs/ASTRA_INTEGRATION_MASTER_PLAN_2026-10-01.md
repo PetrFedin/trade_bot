@@ -634,3 +634,152 @@ This allows release evidence to answer not only "did it recover?" but "how degra
 
 **Dependency note:** HdrHistogram Python is currently Apache-2.0 upstream; keep instrumentation outside deterministic decision inputs and benchmark recording overhead before enabling high-frequency paths.
 
+## Premium innovation wave — market microstructure stress lab and protocol conformance
+
+This wave adds a controlled synthetic-market qualification layer for ASTRA. It strengthens robustness/evidence; it does not prove profitability and cannot authorise live trading.
+
+### Market Microstructure Scenario Lab — ADOPT/RESEARCH SIDECAR
+
+Research candidate:
+
+https://github.com/abides-sim/abides
+
+Use an agent-based/synthetic exchange simulator only in an isolated research/qualification environment.
+
+Scenario families may include:
+
+- thin/deep order book;
+- spread widening/narrowing;
+- volatility bursts;
+- fragmented liquidity;
+- delayed acknowledgements;
+- partial fills;
+- queue-position uncertainty;
+- trading halt/resume;
+- auction/open/close transitions;
+- stale or gapped market data;
+- rapid cancel/replace pressure;
+- provider latency burst.
+
+The purpose is to test ASTRA reactions and invariants under difficult market mechanics, not to model manipulative trading tactics for deployment.
+
+### Synthetic Venue Adapter — ADOPT
+
+Implement the simulator through the same provider/adapter boundary used by paper/replay qualification where feasible.
+
+Flow:
+
+scenario definition -> synthetic venue events -> normalizer -> strategy target -> risk -> OMS -> synthetic broker/exchange response -> accounting/reconciliation
+
+This maximises reuse of production code paths.
+
+The simulator must be technically isolated from real broker credentials and live submit routes.
+
+### Scenario Corpus Authority — ADOPT
+
+Each qualification scenario stores:
+
+- scenario ID/version;
+- random seed;
+- simulator/provider version;
+- instrument specification;
+- initial book/state;
+- event schedule/distribution parameters;
+- latency/fault parameters;
+- expected invariants;
+- result/evidence artifact;
+- release SHA.
+
+A scenario result is reproducible evidence, not a market forecast.
+
+### Differential Replay vs Simulation Qualification — ADOPT
+
+Use three complementary evidence sources:
+
+1. historical exchange replay;
+2. synthetic microstructure scenarios;
+3. explicit fault injection.
+
+Compare:
+
+- risk allow/deny behavior;
+- OMS transitions;
+- exposure reservation;
+- duplicate-event handling;
+- timeout/recovery;
+- reconciliation convergence;
+- latency-tail behavior.
+
+No one source replaces the others.
+
+### FIX Protocol Conformance — CONDITIONAL
+
+Reference implementation:
+
+https://github.com/quickfix/quickfix
+
+Only if a target broker/venue actually requires FIX, add protocol-level conformance fixtures for:
+
+- session logon/logout;
+- sequence numbers;
+- resend/gap-fill;
+- heartbeat/test request;
+- order identifiers;
+- execution reports;
+- cancel/replace/reject;
+- reconnect/recovery.
+
+QuickFIX is a protocol/reference implementation candidate; ASTRA remains the order/risk/accounting authority.
+
+Do not adopt FIX infrastructure until a real provider contract requires it.
+
+### Market-State Safety Matrix — ADOPT
+
+Map scenario states to expected ASTRA safety behavior:
+
+- normal;
+- delayed;
+- stale;
+- disconnected;
+- ambiguous submit;
+- partial account truth;
+- halted venue;
+- recovering;
+- unreconciled.
+
+For each state define:
+
+- allowed actions;
+- prohibited actions;
+- expected ARM/HALT/read-only result;
+- required evidence before recovery.
+
+### Qualification Dashboard — ADOPT
+
+Present evidence by release:
+
+- scenarios passed/failed;
+- counterexample/failed invariant;
+- historical replay status;
+- synthetic stress status;
+- clock integrity;
+- tail latency;
+- reconciliation;
+- unresolved gaps.
+
+This is engineering qualification, not a trading-performance dashboard.
+
+### Additional acceptance
+
+- simulator environment has no live broker credentials;
+- synthetic venue uses the same normalisation/risk/OMS path where feasible;
+- scenario corpus is seed/version reproducible;
+- scenario success does not change PROFITABILITY_NOT_PROVEN;
+- protocol simulator/reference cannot bypass dispatch authority;
+- recovery remains fail-closed on unresolved venue/account state;
+- ABIDES/QuickFIX licensing and exact versions are reviewed before operational use.
+
+**Sequencing:** replay + deterministic clock + state model -> synthetic adapter -> scenario corpus -> differential qualification -> optional FIX conformance when provider need exists -> qualification dashboard.
+
+**Commercial framing:** position this as institutional-grade market-behaviour qualification and evidence, not as a profit predictor or autonomous live-trading permission.
+
