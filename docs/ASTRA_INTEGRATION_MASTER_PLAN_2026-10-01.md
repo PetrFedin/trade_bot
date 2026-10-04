@@ -1059,3 +1059,142 @@ They cannot:
 
 **Commercial framing:** position ASTRA as an explainable institutional execution and qualification platform, not merely an order-submission bot.
 
+## Moat wave — Best Execution Governance and regulatory evidence packs
+
+This wave turns ASTRA's TCA, market-data integrity, clock integrity, OMS and reconciliation evidence into a governed execution-policy product for institutional use.
+
+It does not itself make ASTRA legally compliant in any jurisdiction and does not authorise live trading.
+
+### Execution Policy Authority — ADOPT
+
+Create a versioned policy object describing, per account/provider/instrument class where applicable:
+
+- eligible venues/providers;
+- routing/adapter eligibility;
+- supported order types;
+- data-quality prerequisites;
+- stale/clock thresholds;
+- price/reference hierarchy;
+- liquidity/size constraints;
+- failover rules;
+- prohibited states;
+- evidence required before recovery;
+- effective dates;
+- owner/approver.
+
+Historic policy versions are immutable.
+
+### Decision / Route Rationale Record — ADOPT
+
+For each submitted or simulated qualified order, retain enough evidence to explain:
+
+- strategy/intent ID;
+- risk result;
+- selected provider/venue/adapter;
+- available eligible alternatives known to the system;
+- market/reference-price state;
+- market-data integrity state;
+- clock state;
+- order type/size;
+- policy version;
+- route/dispatch reason code;
+- resulting order/fill IDs.
+
+Do not generate a retrospective rationale from current policy after the fact.
+
+### Best-execution Evidence Pack — ADOPT
+
+Generate a reproducible pack for a selected period/order/account containing:
+
+- execution-policy version;
+- market-data evidence;
+- TCA metrics;
+- rejected/failed alternatives where observable;
+- order/fill/reconciliation history;
+- fees/costs where available;
+- provider incidents;
+- clock/data-integrity state;
+- overrides/exceptions;
+- release SHA.
+
+This is an engineering/evidence artefact. Jurisdiction-specific legal reports require separate legal/compliance review.
+
+### Policy Exception Workflow — ADOPT
+
+Any manual or configured exception records:
+
+- rule being overridden;
+- scope;
+- reason;
+- actor/approver;
+- start/end;
+- affected orders/providers;
+- follow-up/review state.
+
+No undocumented bypass.
+
+### Periodic Execution Review — ADOPT
+
+Use TCA and provider-quality evidence to review:
+
+- fill quality;
+- implementation shortfall;
+- reject/cancel rates;
+- provider latency;
+- market-data incidents;
+- routing exceptions;
+- reconciliation issues;
+- sample sufficiency.
+
+The review can propose policy changes.
+
+It cannot update execution policy automatically.
+
+### Jurisdiction / Client Rule Packs — CONDITIONAL
+
+Create separate reviewed mappings when a real institutional client/jurisdiction requires them.
+
+For example, European best-execution obligations under MiFID II should be mapped against the then-current legal/regulatory requirements and client scope, not hard-coded from an old template.
+
+Reference context:
+
+https://www.esma.europa.eu/document/review-mifid-ii-framework-best-execution-reports-investment-firms
+
+Store:
+
+- jurisdiction;
+- regulation/policy reference;
+- applicability;
+- required fields/evidence;
+- legal/compliance reviewer;
+- effective date;
+- implementation mapping.
+
+### Governance Dashboard — ADOPT
+
+Show:
+
+- policy versions;
+- current exceptions;
+- evidence-pack completeness;
+- provider execution quality;
+- data/clock qualification;
+- orders lacking required evidence;
+- policy-review actions.
+
+This is a governance surface, not a profitability screen.
+
+### Additional acceptance
+
+- every route/submit resolves to the exact policy version in force;
+- rationale is based on contemporaneous facts, not reconstructed current state;
+- overrides are explicit/audited;
+- evidence pack reproduces from canonical market/order/TCA records;
+- legal/regulatory rule packs are separately reviewed and versioned;
+- no compliance badge/claim is generated automatically;
+- this wave does not enable live/mainnet or change PROFITABILITY_NOT_PROVEN.
+
+**Sequencing:** OMS/Risk/Reconciliation + Market Data Integrity + TCA -> Execution Policy -> route rationale -> exception workflow -> evidence pack -> periodic governance review -> jurisdiction-specific mappings.
+
+**Commercial framing:** this opens institutional execution-governance and audit/evidence use cases, creating a high-trust moat around ASTRA's deterministic architecture rather than competing on strategy claims.
+
