@@ -930,3 +930,132 @@ This gives an institutional-grade explanation of why ASTRA trusted, degraded or 
 
 **Commercial framing:** position this as institutional-grade market-data assurance and explainable feed trust, not as an alpha or prediction feature.
 
+## Premium enterprise wave — Transaction Cost Analysis and execution quality authority
+
+This wave turns ASTRA execution evidence into an institutional-grade post-trade quality layer. It does not add trading strategy logic and cannot authorise live trading.
+
+### Execution Benchmark Authority — ADOPT
+
+For every qualified/paper/external-readonly execution observation, define reproducible benchmarks such as:
+
+- decision/arrival mid;
+- decision-side best bid/ask;
+- submitted price;
+- broker acknowledgement time;
+- first fill;
+- volume-weighted fill price;
+- completion price/time;
+- post-trade mark at configured horizons;
+- fees/commission/funding where applicable.
+
+Every benchmark stores source feed, timestamp, clock-health state, instrument-spec version and benchmark-rule version.
+
+### Implementation Shortfall — ADOPT
+
+Calculate an explicit decomposition from decision price to realised execution outcome.
+
+Possible components:
+
+- spread crossing;
+- price drift while waiting;
+- fill fragmentation;
+- explicit fees;
+- residual/unfilled opportunity;
+- cancel/replace effect;
+- provider/venue latency context.
+
+Do not present this as trader skill or alpha. It is execution-quality evidence.
+
+### Slippage / Fill Quality — ADOPT
+
+Metrics may include:
+
+- signed slippage vs arrival/reference;
+- fill ratio;
+- time to first fill;
+- time to complete;
+- average/percentile execution delay;
+- effective spread;
+- realised spread where methodology is applicable;
+- reject/cancel rate.
+
+Methodology, sample size and exclusions must always be visible.
+
+### Post-trade Adverse-selection Signal — ADOPT
+
+For completed fills, compare subsequent market movement at configured time/event horizons.
+
+This may indicate whether fills systematically occur immediately before adverse price movement.
+
+It is an analytical diagnostic only. It must not automatically alter strategy/routing without a separately reviewed research/promotion process.
+
+### Venue / Adapter / Order-type Comparison — ADOPT
+
+Where observations are comparable, analyze execution quality by:
+
+- provider/venue;
+- instrument;
+- order type;
+- strategy version;
+- liquidity regime;
+- size bucket;
+- time/session.
+
+Do not rank providers from tiny/non-comparable samples.
+
+### TCA Evidence Dataset — ADOPT
+
+Persist a reproducible analytical record:
+
+- intent/order/fill IDs;
+- decision snapshot;
+- market-data evidence references;
+- execution events;
+- benchmark values;
+- method/config version;
+- fees;
+- TCA metrics;
+- release SHA.
+
+This dataset is derived/read-only. OMS/accounting remain authority.
+
+### Execution Quality Dashboard — ADOPT
+
+Show:
+
+- implementation shortfall distribution;
+- slippage percentiles;
+- fill rates;
+- time-to-fill;
+- venue/provider comparison;
+- rejected/cancelled orders;
+- quality by market regime;
+- unresolved data-quality flags.
+
+Every chart resolves back to execution/market-data evidence.
+
+### Safety / Qualification Boundary — REQUIRED
+
+TCA findings may create a research/engineering review item.
+
+They cannot:
+
+- change routing automatically;
+- enable mainnet/live;
+- promote a strategy;
+- bypass risk;
+- reinterpret PROFITABILITY_NOT_PROVEN.
+
+### Additional acceptance
+
+- every benchmark is reproducible from source events and rule version;
+- clock/data-integrity state is retained with execution metrics;
+- fees and missing/unfilled quantities are not silently omitted;
+- provider comparisons expose denominator/sample conditions;
+- TCA dataset cannot mutate order/accounting state;
+- dashboards clearly separate execution quality from strategy profitability.
+
+**Sequencing:** market-data integrity + clock integrity + OMS/accounting evidence -> TCA dataset -> benchmark calculations -> post-trade diagnostics -> execution-quality dashboard.
+
+**Commercial framing:** position ASTRA as an explainable institutional execution and qualification platform, not merely an order-submission bot.
+
