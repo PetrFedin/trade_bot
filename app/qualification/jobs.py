@@ -363,13 +363,15 @@ class SQLiteQualificationJobStore:
                     requested_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS qualification_job_events (
-                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sequence INTEGER NOT NULL,
                     event_id TEXT NOT NULL UNIQUE,
                     job_id TEXT NOT NULL REFERENCES qualification_jobs(job_id),
                     status TEXT NOT NULL,
                     occurred_at TEXT NOT NULL,
                     evidence_sha256 TEXT,
-                    reasons TEXT NOT NULL
+                    reasons TEXT NOT NULL,
+                    UNIQUE(job_id, sequence)
                 );
                 CREATE INDEX IF NOT EXISTS idx_qualification_job_events_job
                 ON qualification_job_events(job_id, sequence);
@@ -498,11 +500,12 @@ class SQLiteQualificationJobStore:
                 connection.execute(
                     """
                     INSERT INTO qualification_job_events(
-                        event_id, job_id, status, occurred_at,
+                        sequence, event_id, job_id, status, occurred_at,
                         evidence_sha256, reasons
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
+                        1,
                         event_id,
                         job_id,
                         QualificationJobStatus.SUBMITTED.value,
@@ -581,11 +584,12 @@ class SQLiteQualificationJobStore:
             connection.execute(
                 """
                 INSERT INTO qualification_job_events(
-                    event_id, job_id, status, occurred_at,
+                    sequence, event_id, job_id, status, occurred_at,
                     evidence_sha256, reasons
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    current.sequence + 1,
                     candidate_id,
                     job_id,
                     status.value,
