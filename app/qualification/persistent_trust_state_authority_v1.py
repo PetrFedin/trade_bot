@@ -39,6 +39,7 @@ class TrustStateTransitionContext:
     bundle_id: str
     bundle_sha256: str
     checkpoint_v4_id: str
+    checkpoint_v4_sha256: str
     verified_at: datetime
 
     def validate(self) -> None:
@@ -51,6 +52,7 @@ class TrustStateTransitionContext:
                 raise ValueError(f"{name} is required")
         _digest(self.artifact_sha256, "artifact_sha256")
         _digest(self.bundle_sha256, "bundle_sha256")
+        _digest(self.checkpoint_v4_sha256, "checkpoint_v4_sha256")
         _aware(self.verified_at, "verified_at")
 
     def payload(self) -> dict[str, object]:
@@ -61,6 +63,7 @@ class TrustStateTransitionContext:
             "bundle_id": self.bundle_id,
             "bundle_sha256": self.bundle_sha256,
             "checkpoint_v4_id": self.checkpoint_v4_id,
+            "checkpoint_v4_sha256": self.checkpoint_v4_sha256,
             "verified_at": _aware(self.verified_at, "verified_at").isoformat(),
         }
 
@@ -157,6 +160,7 @@ class TrustStateAdvanceReceipt:
     bundle_id: str
     bundle_sha256: str
     checkpoint_v4_id: str
+    checkpoint_v4_sha256: str
     verified_at: datetime
     receipt_sha256: str
     schema_version: str = _RECEIPT_SCHEMA
@@ -175,6 +179,7 @@ class TrustStateAdvanceReceipt:
             "bundle_id": self.bundle_id,
             "bundle_sha256": self.bundle_sha256,
             "checkpoint_v4_id": self.checkpoint_v4_id,
+            "checkpoint_v4_sha256": self.checkpoint_v4_sha256,
             "verified_at": _aware(self.verified_at, "verified_at").isoformat(),
         }
 
@@ -240,6 +245,10 @@ class PersistentTrustStateAuthorityV1:
 
             next_state.validate()
             transition.validate()
+            if transition.checkpoint_v4_sha256 != next_state.checkpoint_v4_sha256:
+                raise PersistentTrustStateAuthorityError(
+                    "transition checkpoint SHA does not match next TrustState"
+                )
             _validate_monotonic_transition(current.trust_state, next_state)
             if current.trust_state.payload() == next_state.payload():
                 raise PersistentTrustStateAuthorityError(
@@ -419,6 +428,7 @@ def _receipt(
         "bundle_id": transition.bundle_id,
         "bundle_sha256": transition.bundle_sha256,
         "checkpoint_v4_id": transition.checkpoint_v4_id,
+        "checkpoint_v4_sha256": transition.checkpoint_v4_sha256,
         "verified_at": _aware(transition.verified_at, "verified_at").isoformat(),
     }
     receipt = TrustStateAdvanceReceipt(
@@ -433,6 +443,7 @@ def _receipt(
         bundle_id=transition.bundle_id,
         bundle_sha256=transition.bundle_sha256,
         checkpoint_v4_id=transition.checkpoint_v4_id,
+        checkpoint_v4_sha256=transition.checkpoint_v4_sha256,
         verified_at=transition.verified_at,
         receipt_sha256=_sha256_json(unsigned),
     )
@@ -450,9 +461,23 @@ def _validate_monotonic_transition(
         raise PersistentTrustStateAuthorityError(
             "TrustState profile event count regression"
         )
+    if (
+        current.profile_event_count == previous.profile_event_count
+        and current.profile_event_head_sha256 != previous.profile_event_head_sha256
+    ):
+        raise PersistentTrustStateAuthorityError(
+            "TrustState profile head changed without event-count advance"
+        )
     if current.transparency_tree_size < previous.transparency_tree_size:
         raise PersistentTrustStateAuthorityError(
             "TrustState transparency tree size regression"
+        )
+    if (
+        current.transparency_tree_size == previous.transparency_tree_size
+        and current.transparency_root_sha256 != previous.transparency_root_sha256
+    ):
+        raise PersistentTrustStateAuthorityError(
+            "TrustState transparency root changed without tree-size advance"
         )
 
 
@@ -513,6 +538,7 @@ def _decode_record(raw: Mapping[str, object]) -> PersistentTrustStateRecord:
             "bundle_id",
             "bundle_sha256",
             "checkpoint_v4_id",
+            "checkpoint_v4_sha256",
             "verified_at",
         },
         "$.transition",
@@ -528,6 +554,10 @@ def _decode_record(raw: Mapping[str, object]) -> PersistentTrustStateRecord:
         ),
         checkpoint_v4_id=_string(
             transition_raw["checkpoint_v4_id"], "$.transition.checkpoint_v4_id"
+        ),
+        checkpoint_v4_sha256=_string(
+            transition_raw["checkpoint_v4_sha256"],
+            "$.transition.checkpoint_v4_sha256",
         ),
         verified_at=_datetime(transition_raw["verified_at"], "$.transition.verified_at"),
     )
