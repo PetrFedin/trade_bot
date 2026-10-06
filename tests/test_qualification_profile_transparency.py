@@ -5,8 +5,14 @@ from datetime import timedelta
 
 import pytest
 
-from app.qualification.profile_registry import QualificationProfileRegistry
+from app.qualification.profile_registry import (
+    QualificationProfileEvent,
+    QualificationProfileEventType,
+    QualificationProfileRegistry,
+    QualificationProfileStatus,
+)
 from app.qualification.profile_transparency import (
+    QualificationProfilePublicationReceipt,
     profile_event_object_id,
     profile_event_transparency_entry,
     publish_profile_lifecycle,
@@ -322,3 +328,162 @@ def test_profile_publication_rejects_registry_mutation_during_append() -> None:
     )
     assert profile_entries
     assert len(profile_entries) < registry.event_count
+
+
+
+def test_profile_publication_receipt_is_hash_addressed_and_fail_closed() -> None:
+    registry = populated_profile_registry()
+    log = QualificationTransparencyLog()
+    receipt = publish_profile_lifecycle(
+        profile_registry=registry,
+        transparency_log=log,
+        observed_at=NOW + timedelta(seconds=4),
+    )
+
+    assert receipt.receipt_id.startswith("qprofilepub_")
+    assert receipt.receipt_sha256 == receipt.receipt_sha256
+    assert receipt.payload()["profile_event_count"] == registry.event_count
+
+    with pytest.raises(ValueError, match="publication is incomplete"):
+        replace(
+            receipt,
+            published_profile_event_count=receipt.profile_event_count - 1,
+        ).validate()
+
+    with pytest.raises(ValueError, match="must be non-negative"):
+        replace(receipt, profile_event_count=-1).validate()
+
+    with pytest.raises(ValueError, match="requires genesis head"):
+        QualificationProfilePublicationReceipt(
+            profile_event_count=0,
+            profile_event_head_sha256="f" * 64,
+            published_profile_event_count=0,
+            transparency_tree_size=0,
+            transparency_root_sha256="0" * 64,
+            transparency_tree_head_sha256="0" * 64,
+            observed_at=NOW,
+        ).validate()
+
+    with pytest.raises(ValueError, match="requires genesis root"):
+        QualificationProfilePublicationReceipt(
+            profile_event_count=0,
+            profile_event_head_sha256="0" * 64,
+            published_profile_event_count=0,
+            transparency_tree_size=0,
+            transparency_root_sha256="f" * 64,
+            transparency_tree_head_sha256="0" * 64,
+            observed_at=NOW,
+        ).validate()
+
+
+def test_profile_publication_rejects_extra_published_event_beyond_journal() -> None:
+    registry = QualificationProfileRegistry()
+    log = QualificationTransparencyLog()
+    log.append(
+        entry=QualificationTransparencyEntry(
+            entry_type="QUALIFICATION_PROFILE_EVENT",
+            object_id="qprofileevent_1_deadbeefdeadbeefdeadbeef",
+            object_sha256="a" * 64,
+            subject="QUALIFICATION_PROFILE",
+            subject_version="REGISTERED",
+            profile_id="ASTRA_BYBIT_PUBLIC_MARKETDATA",
+            profile_version="99.0.0",
+            published_at=NOW,
+        ),
+        issued_at=NOW,
+    )
+
+    with pytest.raises(ValueError, match="exceeds authoritative event journal"):
+        publish_profile_lifecycle(
+            profile_registry=registry,
+            transparency_log=log,
+            observed_at=NOW,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("object_id", "qprofileevent_wrong", "object id mismatch"),
+        ("subject", "OTHER_SUBJECT", "subject mismatch"),
+        ("subject_version", "REVOKED", "event type mismatch"),
+        ("profile_id", "OTHER_PROFILE", "profile identity mismatch"),
+        ("profile_version", "99.0.0", "profile identity mismatch"),
+    ),
+)
+def test_profile_publication_rejects_corrupted_prefix_identity(
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    registry = populated_profile_registry()
+    log = QualificationTransparencyLog()
+    event = registry.events()[0]
+    legitimate = profile_event_transparency_entry(
+        event=event,
+        published_at=NOW + timedelta(seconds=4),
+    )
+    corrupted = replace(legitimate, **{field: value})
+    corrupted.validate()
+    log.append(entry=corrupted, issued_at=NOW + timedelta(seconds=4))
+
+    with pytest.raises(ValueError, match=message):
+        publish_profile_lifecycle(
+            profile_registry=registry,
+            transparency_log=log,
+            observed_at=NOW + timedelta(seconds=5),
+        )
+
+
+def test_profile_publication_receipt_detects_tampered_historical_anchor() -> None:
+    registry = populated_profile_registry()
+    log = QualificationTransparencyLog()
+    receipt = publish_profile_lifecycle(
+        profile_registry=registry,
+        transparency_log=log,
+        observed_at=NOW + timedelta(seconds=4),
+    )
+
+    assert not verify_profile_publication_receipt(
+        receipt=replace(receipt, transparency_root_sha256="f" * 64),
+        profile_registry=registry,
+        transparency_log=log,
+    )
+    assert not verify_profile_publication_receipt(
+        receipt=replace(
+            receipt,
+            transparency_tree_size=receipt.transparency_tree_size + 100,
+        ),
+        profile_registry=registry,
+        transparency_log=log,
+    )
+
+
+def test_profile_event_entry_rejects_invalid_profile_ref() -> None:
+    event = QualificationProfileEvent(
+        sequence=1,
+        event_type=QualificationProfileEventType.REGISTERED,
+        profile_ref="missing-version-separator",
+        profile_sha256="a" * 64,
+        status=QualificationProfileStatus.DRAFT,
+        observed_at=NOW,
+        previous_event_sha256="0" * 64,
+    )
+    event.validate()
+
+    with pytest.raises(ValueError, match="profile_id@version"):
+        profile_event_transparency_entry(
+            event=event,
+            published_at=NOW,
+        )
+
+
+def test_historical_transparency_head_supports_genesis_and_rejects_negative_size() -> None:
+    log = QualificationTransparencyLog()
+
+    genesis = log.head_at_size(0)
+    assert genesis.tree_size == 0
+    assert genesis.root_sha256 == "0" * 64
+
+    with pytest.raises(ValueError, match="must be non-negative"):
+        log.head_at_size(-1)
