@@ -8,6 +8,11 @@ from decimal import Decimal
 from app.execution.execution_checkpoints import ExecutionCheckpointStore
 from app.execution.execution_facts import ExecutionFactStore
 from app.marketdata.continuity import OperationalContinuityStore
+from app.marketdata.integrity import (
+    MarketDataIntegrityAuthority,
+    MarketDataIntegrityPolicy,
+    MarketDataIntegrityScope,
+)
 from app.marketdata.operational import OperationalMarketDataStore
 from app.observability.readiness import OperationalSnapshot
 from app.oms.portfolio_reconciliation import PortfolioReconciliationStore
@@ -120,6 +125,7 @@ class AuthoritativeOperationalSnapshotAssembler:
         execution_checkpoints: ExecutionCheckpointStore,
         runtime_telemetry: RuntimeTelemetryProvider | None,
         session_risk: SessionRiskTruthProvider | None,
+        market_integrity_policy: MarketDataIntegrityPolicy | None = None,
         clock: Clock = _utc_now,
     ) -> None:
         market_scope.validate()
@@ -132,6 +138,12 @@ class AuthoritativeOperationalSnapshotAssembler:
         self.execution_checkpoints = execution_checkpoints
         self.runtime_telemetry = runtime_telemetry
         self.session_risk = session_risk
+        self.market_integrity_policy = (
+            MarketDataIntegrityPolicy()
+            if market_integrity_policy is None
+            else market_integrity_policy
+        )
+        self.market_integrity_policy.validate()
         self.clock = clock
 
     def __call__(self) -> OperationalSnapshot:
@@ -226,45 +238,23 @@ class AuthoritativeOperationalSnapshotAssembler:
     ) -> tuple[Decimal, bool, int]:
         scope = self.market_scope
         try:
-            conflicts = self.marketdata.conflict_count()
-            if not isinstance(conflicts, int) or conflicts < 0:
-                raise ValueError("market conflict count is invalid")
-            checkpoint = self.continuity.latest(
-                provider=scope.provider,
-                venue=scope.venue,
-                symbol=scope.symbol,
-                interval_seconds=scope.interval_seconds,
+            assessment = MarketDataIntegrityAuthority(
+                scope=MarketDataIntegrityScope(
+                    provider=scope.provider,
+                    venue=scope.venue,
+                    symbol=scope.symbol,
+                    interval_seconds=scope.interval_seconds,
+                ),
+                marketdata=self.marketdata,
+                continuity=self.continuity,
+                policy=self.market_integrity_policy,
+            ).evaluate(now=now)
+            reasons.update(assessment.reasons)
+            return (
+                assessment.market_data_age_seconds,
+                assessment.trusted,
+                assessment.conflict_count,
             )
-            if checkpoint is None:
-                reasons.add("MARKET_DATA_CONTINUITY_MISSING")
-                return Decimal("0"), False, conflicts
-            checkpoint.validate()
-            age, future = _age_seconds(now, checkpoint.through_close_time)
-            if future:
-                reasons.add("MARKET_DATA_CLOCK_CONFLICT")
-            bars = self.marketdata.recent_bars(
-                provider=scope.provider,
-                venue=scope.venue,
-                symbol=scope.symbol,
-                interval_seconds=scope.interval_seconds,
-                through_close_time=checkpoint.through_close_time,
-                limit=1,
-            )
-            if len(bars) != 1:
-                reasons.add("MARKET_DATA_THROUGH_BAR_MISSING")
-                return age, False, conflicts
-            through = bars[0]
-            through.validate()
-            if (
-                through.bar_id != checkpoint.through_bar_id
-                or through.close_time != checkpoint.through_close_time
-                or not through.is_final
-            ):
-                reasons.add("MARKET_DATA_CONTINUITY_MISMATCH")
-                return age, False, conflicts
-            if conflicts:
-                reasons.add("MARKET_DATA_CONFLICT_PRESENT")
-            return age, not future and conflicts == 0, conflicts
         except Exception:
             reasons.add("MARKET_DATA_AUTHORITY_UNAVAILABLE")
             return Decimal("0"), False, 1
