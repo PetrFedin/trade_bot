@@ -290,7 +290,8 @@ def test_profile_never_claims_private_or_order_adapter_conformance() -> None:
     )
 
     assert result.scope == "PUBLIC_MARKET_DATA_ONLY"
-    assert all(
-        "ORDER" in limitation or "PRIVATE" in limitation or "FILL" in limitation
-        for limitation in result.limitations
-    )
+    assert all(limitation.startswith("NO_") for limitation in result.limitations)
+    assert "NO_ORDER_SUBMIT_CONFORMANCE" in result.limitations
+    assert "NO_FILL_MAPPING_CONFORMANCE" in result.limitations
+    assert "NO_CANCEL_REPLACE_CONFORMANCE" in result.limitations
+    assert "NO_PRIVATE_ACCOUNT_CONFORMANCE" in result.limitations
