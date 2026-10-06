@@ -383,7 +383,7 @@ def sign_qualification_payload(
     descriptor.validate()
     if provider.key_id != descriptor.key_id:
         raise ValueError("qualification provider key mismatch")
-    if _backend_value(provider.backend) != descriptor.backend:
+    if _backend_value(provider.backend) != _backend_value(descriptor.backend):
         raise ValueError("qualification provider backend mismatch")
     if provider.generation != descriptor.generation:
         raise ValueError("qualification provider generation mismatch")
