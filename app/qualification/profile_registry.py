@@ -187,7 +187,7 @@ class QualificationProfileRegistry:
                 raise ValueError("replacement qualification profile must be ACTIVE")
             if replacement.profile.profile_id != record.profile.profile_id:
                 raise ValueError("replacement qualification profile family mismatch")
-            if replacement.profile_ref == record.profile.profile_ref:
+            if replacement.profile.profile_ref == record.profile.profile_ref:
                 raise ValueError("qualification profile cannot supersede itself")
             if now < record.updated_at or now < replacement.updated_at:
                 raise ValueError("qualification profile lifecycle time regression")
