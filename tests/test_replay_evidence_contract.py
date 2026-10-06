@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -167,3 +168,151 @@ def test_provider_complete_profile_accepts_only_explicit_source_evidence():
     assert len(event.digest) == 64
     assert len(evidence.evidence_sha256) == 64
     assert evidence.payload()["profile"] == "PROVIDER_COMPLETE"
+
+
+def provider_event(**changes) -> ReplayEventEvidence:
+    base = ReplayEventEvidence(
+        sequence=1,
+        dataset_id="provider-dataset-1",
+        symbol="BTCUSDT",
+        exchange_timestamp=START,
+        receive_timestamp=START + timedelta(milliseconds=10),
+        source_event_id="kline.1.BTCUSDT:1",
+        raw_event_sha256=_sha("raw-provider-payload"),
+        normalized_event_sha256=_sha("normalized-event"),
+        instrument_spec_revision=_sha("instrument-spec"),
+        continuity=ReplayContinuity.ROOT,
+    )
+    return replace(base, **changes)
+
+
+@pytest.mark.parametrize(
+    ("changes", "match"),
+    [
+        ({"sequence": 0}, "sequence must be positive"),
+        ({"dataset_id": " "}, "dataset_id is required"),
+        ({"symbol": "btcusdt"}, "uppercase"),
+        ({"exchange_timestamp": datetime(2026, 10, 6, 9, 0)}, "timezone-aware"),
+        ({"receive_timestamp": datetime(2026, 10, 6, 9, 0)}, "timezone-aware"),
+        ({"source_event_id": " "}, "cannot be blank"),
+        ({"raw_event_sha256": "bad"}, "sha256"),
+        ({"normalized_event_sha256": "bad"}, "sha256"),
+        ({"instrument_spec_revision": "bad"}, "sha256"),
+        ({"sequence": 2}, "ROOT continuity"),
+        ({"continuity": ReplayContinuity.GAP}, "positive finite gap_seconds"),
+        (
+            {
+                "continuity": ReplayContinuity.CONTIGUOUS,
+                "gap_seconds": Decimal("1"),
+            },
+            "valid only for GAP",
+        ),
+    ],
+)
+def test_replay_event_fail_closed_validation(changes, match) -> None:
+    with pytest.raises(ValueError, match=match):
+        provider_event(**changes).validate()
+
+
+def provider_dataset(**changes) -> ReplayDatasetEvidence:
+    base = ReplayDatasetEvidence(
+        dataset_id="provider-dataset-1",
+        dataset_sha256=_sha("provider-dataset"),
+        source_name="BYBIT",
+        source_schema_version="provider-event-v1",
+        events=(provider_event(),),
+        profile=ReplayEvidenceProfile.PROVIDER_COMPLETE,
+        limitations=(),
+    )
+    return replace(base, **changes)
+
+
+@pytest.mark.parametrize(
+    ("changes", "match"),
+    [
+        ({"schema_version": "wrong"}, "schema mismatch"),
+        ({"dataset_id": " "}, "dataset_id is required"),
+        ({"dataset_sha256": "bad"}, "sha256"),
+        ({"source_name": " "}, "source_name is required"),
+        ({"source_schema_version": " "}, "source_schema_version is required"),
+        ({"events": ()}, "at least one event"),
+        (
+            {"limitations": ("DUP", "DUP")},
+            "limitations must be unique",
+        ),
+        (
+            {"limitations": (" ",)},
+            "limitations cannot be blank",
+        ),
+        (
+            {
+                "events": (
+                    provider_event(dataset_id="different"),
+                )
+            },
+            "dataset identity mismatch",
+        ),
+        (
+            {"limitations": ("NOT_ALLOWED",)},
+            "cannot declare limitations",
+        ),
+    ],
+)
+def test_replay_dataset_fail_closed_validation(changes, match) -> None:
+    with pytest.raises(ValueError, match=match):
+        provider_dataset(**changes).validate()
+
+
+def test_replay_dataset_rejects_mixed_symbols_and_non_root_first_event() -> None:
+    second = replace(
+        provider_event(),
+        sequence=2,
+        symbol="ETHUSDT",
+        continuity=ReplayContinuity.CONTIGUOUS,
+        source_event_id="kline.1.ETHUSDT:2",
+    )
+    mixed = provider_dataset(events=(provider_event(), second))
+    with pytest.raises(ValueError, match="cannot mix symbols"):
+        mixed.validate()
+
+    non_root = provider_dataset(
+        events=(
+            replace(
+                provider_event(),
+                continuity=ReplayContinuity.CONTIGUOUS,
+            ),
+        )
+    )
+    with pytest.raises(ValueError, match="first replay event must be ROOT"):
+        non_root.validate()
+
+
+def test_normalized_only_profile_requires_explicit_limitations() -> None:
+    evidence = provider_dataset(
+        profile=ReplayEvidenceProfile.NORMALIZED_ONLY,
+        limitations=(),
+    )
+    with pytest.raises(ValueError, match="must declare its limitations"):
+        evidence.validate()
+
+
+def test_historical_builder_rejects_invalid_interval_and_spec_digest() -> None:
+    with pytest.raises(ValueError, match="expected_interval must be positive"):
+        build_historical_replay_evidence(
+            dataset(),
+            expected_interval=timedelta(0),
+        )
+    with pytest.raises(ValueError, match="instrument_spec_revision must be a sha256"):
+        build_historical_replay_evidence(
+            dataset(),
+            instrument_spec_revision="bad",
+        )
+
+
+def test_historical_builder_marks_irregular_short_interval() -> None:
+    evidence = build_historical_replay_evidence(
+        dataset(offsets=(0, 2, 3)),
+        expected_interval=timedelta(minutes=2),
+    )
+    assert evidence.events[-1].continuity is ReplayContinuity.IRREGULAR
+    assert "CONTINUITY_IRREGULAR_INTERVAL" in evidence.limitations
