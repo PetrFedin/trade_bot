@@ -143,6 +143,14 @@ def evaluate_public_marketdata_qualification_job(
     """
 
     request.validate()
+    adapter_evidence_sha256 = _evidence_reference(
+        adapter_conformance,
+        "evidence_sha256",
+    )
+    marketdata_evidence_sha256 = _evidence_reference(
+        marketdata_integrity,
+        "evidence_sha256",
+    )
     structural_errors: list[str] = []
     for name, value in (
         ("adapter_conformance", adapter_conformance),
@@ -170,7 +178,7 @@ def evaluate_public_marketdata_qualification_job(
             reasons.add("SUBJECT_VERSION_MISMATCH")
         if (
             marketdata_integrity.adapter_conformance_sha256
-            != adapter_conformance.evidence_sha256
+            != adapter_evidence_sha256
         ):
             reasons.add("EVIDENCE_CHAIN_MISMATCH")
 
@@ -191,11 +199,26 @@ def evaluate_public_marketdata_qualification_job(
         reasons=tuple(sorted(reasons)),
         started_at=started_at,
         completed_at=completed_at,
-        adapter_conformance_sha256=adapter_conformance.evidence_sha256,
-        marketdata_integrity_sha256=marketdata_integrity.evidence_sha256,
+        adapter_conformance_sha256=adapter_evidence_sha256,
+        marketdata_integrity_sha256=marketdata_evidence_sha256,
     )
     result.validate()
     return result
+
+
+def _evidence_reference(value: object, attribute: str) -> str:
+    try:
+        digest = getattr(value, attribute)
+        if not isinstance(digest, str):
+            raise TypeError("evidence digest must be a string")
+        return _digest(digest, attribute)
+    except Exception:
+        return _sha256(
+            {
+                "invalid_evidence_type": type(value).__name__,
+                "invalid_evidence_repr": repr(value),
+            }
+        )
 
 
 def _aware(value: datetime, name: str) -> datetime:
