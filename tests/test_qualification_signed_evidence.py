@@ -7,15 +7,15 @@ from datetime import timedelta
 import pytest
 
 from app.qualification.qualification_manifest import QualificationManifest
+from app.qualification.signed_evidence import (
+    sign_qualification_manifest,
+    verify_qualification_evidence,
+)
 from app.qualification.signing_authority import (
     QualificationKeyringSnapshot,
     QualificationSignatureReplayLedger,
     QualificationSigningKeyDescriptor,
     verify_qualification_keyring,
-)
-from app.qualification.signed_evidence import (
-    sign_qualification_manifest,
-    verify_qualification_evidence,
 )
 from app.runtime.signing_authority_v108 import SigningBackendV108
 from tests.helpers_v108 import NOW, LocalProviderV108
@@ -71,7 +71,7 @@ def qualification_descriptor(
     value = QualificationSigningKeyDescriptor(
         key_id=provider.key_id,
         owner_id=owner_id,
-        backend=provider.backend,
+        backend=getattr(provider.backend, "value", provider.backend),
         generation=provider.generation,
         public_key_b64=b64encode(provider.public_key_bytes()).decode("ascii"),
         not_before=NOW - timedelta(hours=1),
