@@ -89,12 +89,37 @@ class BybitKlineRangeCapture:
             raise ValueError("provider capture request URL is not allowlisted")
         if not self.response_body:
             raise ValueError("provider capture response body is empty")
-        received = _aware(self.response_received_at, "response_received_at")
+        _aware(self.response_received_at, "response_received_at")
         server = _aware(self.server_at, "server_at")
-        if server > received + timedelta(seconds=2):
-            raise ValueError("provider capture server clock is implausibly in the future")
         if not self.bars or len(self.bars) != len(self.raw_rows):
             raise ValueError("provider capture bars and raw rows must be non-empty and aligned")
+
+        payload = _decode_response(self.response_body)
+        envelope_server = _milliseconds_timestamp(payload.get("time"), "time")
+        if envelope_server != server:
+            raise ValueError("provider capture server timestamp disagrees with raw response")
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            raise ValueError("provider capture raw response result is invalid")
+        if result.get("category") != "linear":
+            raise ValueError("provider capture raw response category mismatch")
+        if result.get("symbol") != self.bars[0].symbol:
+            raise ValueError("provider capture raw response symbol mismatch")
+        response_rows = result.get("list")
+        if not isinstance(response_rows, list):
+            raise ValueError("provider capture raw response has no kline list")
+        try:
+            normalized_rows = tuple(
+                sorted(
+                    (tuple(row) for row in response_rows),
+                    key=lambda row: int(row[0]),
+                )
+            )
+        except (IndexError, TypeError, ValueError) as exc:
+            raise ValueError("provider capture raw response rows are malformed") from exc
+        if normalized_rows != self.raw_rows:
+            raise ValueError("provider capture raw rows disagree with raw response")
+
         previous: OperationalBar | None = None
         for raw, bar in zip(self.raw_rows, self.bars, strict=True):
             if len(raw) != 7 or any(not isinstance(value, str) for value in raw):
