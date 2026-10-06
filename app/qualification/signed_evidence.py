@@ -4,16 +4,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from app.qualification.qualification_manifest import QualificationManifest
-from app.runtime.signing_authority_v108 import (
-    Ed25519SigningProviderV108,
-    SignatureEnvelopeV108,
-    SignatureReplayLedgerV108,
-    SigningKeyDescriptorV108,
-    SigningPurposeV108,
-    VerifiedKeyringV108,
-    sign_envelope_v108,
-    verify_envelope_v108,
+from app.qualification.signing_authority import (
+    QualificationSignatureEnvelope,
+    QualificationSignatureReplayLedger,
+    QualificationSigningKeyDescriptor,
+    VerifiedQualificationKeyring,
+    sign_qualification_payload,
+    verify_qualification_signature,
 )
+from app.runtime.signing_authority_v108 import Ed25519SigningProviderV108
 
 _SCHEMA_VERSION = "astra-signed-qualification-evidence-v1"
 _DOMAIN = "astra.qualification.evidence.v1"
@@ -23,7 +22,7 @@ _DOMAIN = "astra.qualification.evidence.v1"
 class SignedQualificationEvidence:
     manifest_id: str
     manifest_sha256: str
-    envelope: SignatureEnvelopeV108
+    envelope: QualificationSignatureEnvelope
     schema_version: str = _SCHEMA_VERSION
 
     def validate(self) -> None:
@@ -32,17 +31,15 @@ class SignedQualificationEvidence:
         if not self.manifest_id.startswith("qmanifest_"):
             raise ValueError("signed qualification evidence requires a manifest id")
         _digest(self.manifest_sha256, "manifest_sha256")
-        if self.envelope.purpose is not SigningPurposeV108.QUALIFICATION_EVIDENCE:
-            raise ValueError("signed qualification evidence purpose mismatch")
         if self.envelope.domain != _DOMAIN:
             raise ValueError("signed qualification evidence domain mismatch")
-        if self.envelope.payload_digest != self.manifest_sha256:
+        if self.envelope.payload_sha256 != self.manifest_sha256:
             raise ValueError("signed qualification evidence payload mismatch")
 
     @property
     def evidence_id(self) -> str:
         self.validate()
-        return f"qevidence_{self.envelope.envelope_digest[:24]}"
+        return f"qevidence_{self.envelope.envelope_sha256[:24]}"
 
     def payload(self) -> dict[str, object]:
         self.validate()
@@ -51,8 +48,11 @@ class SignedQualificationEvidence:
             "evidence_id": self.evidence_id,
             "manifest_id": self.manifest_id,
             "manifest_sha256": self.manifest_sha256,
-            "signature": self.envelope.to_payload(),
-            "signature_envelope_sha256": self.envelope.envelope_digest,
+            "signature": {
+                **self.envelope.unsigned_payload(),
+                "signature_b64": self.envelope.signature_b64,
+            },
+            "signature_envelope_sha256": self.envelope.envelope_sha256,
         }
 
 
@@ -84,7 +84,7 @@ def sign_qualification_manifest(
     *,
     manifest: QualificationManifest,
     provider: Ed25519SigningProviderV108,
-    descriptor: SigningKeyDescriptorV108,
+    descriptor: QualificationSigningKeyDescriptor,
     keyring_generation: int,
     signature_id: str,
     issued_at: datetime,
@@ -92,20 +92,14 @@ def sign_qualification_manifest(
     nonce: str,
     max_lifetime_seconds: int = 600,
 ) -> SignedQualificationEvidence:
-    """Sign the exact canonical qualification manifest digest.
-
-    This does not grant trading authority. It only attests to the manifest evidence chain.
-    """
-
     manifest.validate()
-    envelope = sign_envelope_v108(
+    envelope = sign_qualification_payload(
         provider=provider,
         descriptor=descriptor,
         keyring_generation=keyring_generation,
         signature_id=signature_id,
-        purpose=SigningPurposeV108.QUALIFICATION_EVIDENCE,
         domain=_DOMAIN,
-        payload_digest=manifest.manifest_sha256,
+        payload_sha256=manifest.manifest_sha256,
         issued_at=issued_at,
         expires_at=expires_at,
         nonce=nonce,
@@ -124,13 +118,11 @@ def verify_qualification_evidence(
     *,
     manifest: QualificationManifest,
     signed_evidence: SignedQualificationEvidence,
-    keyring: VerifiedKeyringV108,
+    keyring: VerifiedQualificationKeyring,
     observed_at: datetime,
-    replay_ledger: SignatureReplayLedgerV108 | None = None,
+    replay_ledger: QualificationSignatureReplayLedger | None = None,
     max_clock_skew_seconds: int = 5,
 ) -> VerifiedQualificationEvidence:
-    """Independently verify manifest identity, signature purpose/domain and replay safety."""
-
     manifest.validate()
     signed_evidence.validate()
     if signed_evidence.manifest_id != manifest.manifest_id:
@@ -138,17 +130,16 @@ def verify_qualification_evidence(
     if signed_evidence.manifest_sha256 != manifest.manifest_sha256:
         raise ValueError("qualification evidence manifest digest mismatch")
 
-    descriptor = verify_envelope_v108(
+    descriptor = verify_qualification_signature(
         signed_evidence.envelope,
         keyring=keyring,
-        expected_purpose=SigningPurposeV108.QUALIFICATION_EVIDENCE,
         expected_domain=_DOMAIN,
-        expected_payload_digest=manifest.manifest_sha256,
+        expected_payload_sha256=manifest.manifest_sha256,
         observed_at=observed_at,
         max_clock_skew_seconds=max_clock_skew_seconds,
     )
     if replay_ledger is not None:
-        replay_ledger.consume_many((signed_evidence.envelope,))
+        replay_ledger.consume(signed_evidence.envelope)
 
     return VerifiedQualificationEvidence(
         evidence_id=signed_evidence.evidence_id,
