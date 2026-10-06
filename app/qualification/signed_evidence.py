@@ -13,6 +13,7 @@ from app.qualification.signing_authority import (
     sign_qualification_payload,
     verify_qualification_signature,
 )
+
 _SCHEMA_VERSION = "astra-signed-qualification-evidence-v1"
 _DOMAIN = "astra.qualification.evidence.v1"
 
