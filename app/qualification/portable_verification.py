@@ -4,7 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Mapping
+from collections.abc import Mapping
 
 from app.qualification.evidence_registry import (
     EvidenceLifecycleStatus,
