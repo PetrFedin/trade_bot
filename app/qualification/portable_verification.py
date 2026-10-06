@@ -366,7 +366,7 @@ def verify_portable_qualification_bundle(
     if lifecycle_mismatch:
         raise PortableQualificationVerificationError(
             PortableVerificationFailureCode.LIFECYCLE_MISMATCH,
-            "portable qualification lifecycle or checkpoint binding mismatch",
+            "portable qualification lifecycle decision mismatch or checkpoint binding mismatch",
         )
 
     return PortableQualificationVerificationResult(
