@@ -148,6 +148,11 @@ def publish_profile_lifecycle(
     for index, entry in enumerate(final_profile_entries):
         _verify_published_event(entry=entry, event=events[index])
 
+    if profile_registry.event_count != len(events):
+        raise ValueError("profile lifecycle changed during transparency publication")
+    if profile_registry.verify_event_chain() != verified_head:
+        raise ValueError("profile lifecycle head changed during transparency publication")
+
     head = transparency_log.latest_head()
     receipt = QualificationProfilePublicationReceipt(
         profile_event_count=len(events),
