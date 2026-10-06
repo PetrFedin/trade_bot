@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import ssl
 from dataclasses import dataclass
@@ -61,6 +62,69 @@ class BybitRepairPolicy:
 class HttpResponse:
     status: int
     body: bytes
+    received_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class BybitKlineRangeCapture:
+    """Exact public REST response plus the normalized bars derived from it."""
+
+    request_url: str
+    response_status: int
+    response_body: bytes
+    response_received_at: datetime
+    server_at: datetime
+    raw_rows: tuple[tuple[str, ...], ...]
+    bars: tuple[OperationalBar, ...]
+
+    def validate(self) -> None:
+        if self.response_status != 200:
+            raise ValueError("provider capture must contain a successful response")
+        split = urlsplit(self.request_url)
+        if (
+            split.scheme != "https"
+            or split.netloc != "api.bybit.com"
+            or split.path != "/v5/market/kline"
+        ):
+            raise ValueError("provider capture request URL is not allowlisted")
+        if not self.response_body:
+            raise ValueError("provider capture response body is empty")
+        received = _aware(self.response_received_at, "response_received_at")
+        server = _aware(self.server_at, "server_at")
+        if server > received + timedelta(seconds=2):
+            raise ValueError("provider capture server clock is implausibly in the future")
+        if not self.bars or len(self.bars) != len(self.raw_rows):
+            raise ValueError("provider capture bars and raw rows must be non-empty and aligned")
+        previous: OperationalBar | None = None
+        for raw, bar in zip(self.raw_rows, self.bars, strict=True):
+            if len(raw) != 7 or any(not isinstance(value, str) for value in raw):
+                raise ValueError("provider capture raw row must contain seven strings")
+            bar.validate()
+            if previous is not None:
+                if bar.open_time <= previous.open_time:
+                    raise ValueError("provider capture bars must be strictly ordered")
+                if bar.open_time != previous.close_time:
+                    raise ValueError("provider capture bars must be contiguous")
+            previous = bar
+
+    @property
+    def response_sha256(self) -> str:
+        self.validate()
+        return hashlib.sha256(self.response_body).hexdigest()
+
+    @property
+    def raw_row_sha256(self) -> tuple[str, ...]:
+        self.validate()
+        return tuple(
+            hashlib.sha256(
+                json.dumps(
+                    list(raw),
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                ).encode("utf-8")
+            ).hexdigest()
+            for raw in self.raw_rows
+        )
 
 
 class HttpTransport(Protocol):
@@ -118,12 +182,20 @@ class StdlibBybitPublicHttpTransport:
                 body = response.read(maximum_response_bytes + 1)
                 if len(body) > maximum_response_bytes:
                     raise BybitRepairProtocolError("Bybit repair response exceeded size limit")
-                return HttpResponse(status=int(response.status), body=body)
+                return HttpResponse(
+                    status=int(response.status),
+                    body=body,
+                    received_at=datetime.now(UTC),
+                )
         except HTTPError as exc:
             if 300 <= exc.code < 400:
                 raise BybitRepairProtocolError("HTTP redirects are forbidden") from exc
             body = exc.read(maximum_response_bytes + 1)
-            return HttpResponse(status=int(exc.code), body=body[:maximum_response_bytes])
+            return HttpResponse(
+                status=int(exc.code),
+                body=body[:maximum_response_bytes],
+                received_at=datetime.now(UTC),
+            )
         except TimeoutError as exc:
             raise TimeoutError("Bybit repair request timed out") from exc
         except URLError as exc:
@@ -156,6 +228,26 @@ class BybitPublicKlineClient:
         last_open_time: datetime,
         observed_at: datetime,
     ) -> tuple[OperationalBar, ...]:
+        return self.fetch_closed_range_capture(
+            first_open_time=first_open_time,
+            last_open_time=last_open_time,
+            observed_at=observed_at,
+        ).bars
+
+    def fetch_closed_range_capture(
+        self,
+        *,
+        first_open_time: datetime,
+        last_open_time: datetime,
+        observed_at: datetime,
+    ) -> BybitKlineRangeCapture:
+        """Fetch one bounded range while retaining exact provider evidence.
+
+        A real transport timestamps the completed HTTP response. Test/recorded transports may
+        omit that timestamp, in which case the caller-supplied observation time is used and the
+        capture remains deterministic.
+        """
+
         first_open = _aware(first_open_time, "first_open_time")
         last_open = _aware(last_open_time, "last_open_time")
         observed = _aware(observed_at, "observed_at")
@@ -188,16 +280,22 @@ class BybitPublicKlineClient:
                 "limit": count,
             }
         )
+        request_url = f"{BYBIT_PUBLIC_REST_BASE}/v5/market/kline?{query}"
         response = self.transport.get(
-            f"{BYBIT_PUBLIC_REST_BASE}/v5/market/kline?{query}",
+            request_url,
             timeout_seconds=self.policy.timeout_seconds,
             maximum_response_bytes=self.policy.maximum_response_bytes,
         )
         if response.status != 200:
             raise BybitRepairError(f"BYBIT_REPAIR_HTTP_{response.status}")
+        received = (
+            observed
+            if response.received_at is None
+            else _aware(response.received_at, "response.received_at")
+        )
         payload = _decode_response(response.body)
         server_at = _milliseconds_timestamp(payload.get("time"), "time")
-        self._validate_server_clock(server_at=server_at, observed_at=observed)
+        self._validate_server_clock(server_at=server_at, observed_at=received)
         result = payload.get("result")
         if not isinstance(result, dict):
             raise BybitRepairProtocolError("Bybit repair result must be an object")
@@ -209,17 +307,33 @@ class BybitPublicKlineClient:
         if not isinstance(raw_rows, list):
             raise BybitRepairProtocolError("Bybit repair list must be an array")
 
-        bars = tuple(
-            sorted(
-                (self._bar(row, observed_at=observed) for row in raw_rows),
-                key=lambda value: value.open_time,
-            )
-        )
+        paired: list[tuple[OperationalBar, tuple[str, ...]]] = []
+        for raw in raw_rows:
+            bar = self._bar(raw, observed_at=received)
+            if not isinstance(raw, list) or any(not isinstance(value, str) for value in raw):
+                raise BybitRepairProtocolError(
+                    "Bybit repair raw kline evidence must contain strings"
+                )
+            paired.append((bar, tuple(raw)))
+        paired.sort(key=lambda pair: pair[0].open_time)
+        bars = tuple(pair[0] for pair in paired)
+        ordered_rows = tuple(pair[1] for pair in paired)
+
         expected = tuple(first_open + index * interval for index in range(count))
         actual = tuple(bar.open_time for bar in bars)
         if actual != expected:
             raise BybitRepairProtocolError("BYBIT_REPAIR_RANGE_NOT_CONTIGUOUS")
-        return bars
+        capture = BybitKlineRangeCapture(
+            request_url=request_url,
+            response_status=response.status,
+            response_body=response.body,
+            response_received_at=received,
+            server_at=server_at,
+            raw_rows=ordered_rows,
+            bars=bars,
+        )
+        capture.validate()
+        return capture
 
     def _bar(self, raw: object, *, observed_at: datetime) -> OperationalBar:
         if not isinstance(raw, list) or len(raw) != 7:
