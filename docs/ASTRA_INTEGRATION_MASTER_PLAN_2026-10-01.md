@@ -1482,3 +1482,184 @@ Breaking changes cannot silently invalidate old evidence.
 
 **Moat:** ASTRA can become a de-facto engineering qualification standard for deterministic trading infrastructure, with accumulated versioned evidence and integration history that is difficult to reproduce.
 
+
+
+## Institutional adoption wave — ASTRA Reference Qualification Network
+
+This wave moves ASTRA from a proprietary qualification framework toward ecosystem adoption by institutions, broker integrations, infrastructure vendors and internal platform teams.
+
+It does not create regulatory authority, profitability proof or live-trading permission.
+
+### Public Reference Profiles — ADOPT
+
+Publish bounded implementation-neutral reference profiles for:
+
+- Adapter Contract;
+- Market Data Integrity;
+- OMS State Machine;
+- Recovery/Reconciliation;
+- Clock Integrity;
+- Replay;
+- Fault Tolerance;
+- Execution Evidence.
+
+Each reference profile should include:
+
+- normative requirements;
+- machine-readable schema;
+- pass/fail examples;
+- synthetic fixtures;
+- expected evidence artefacts;
+- version compatibility rules.
+
+Reference material must not expose proprietary trading strategy logic.
+
+### Synthetic Reference Implementation — ADOPT
+
+Provide a non-live reference adapter / simulated venue path demonstrating:
+
+`adapter -> replay -> fault scenario -> OMS -> reconciliation -> qualification manifest -> signed evidence -> verification`
+
+Use synthetic credentials, synthetic account state and synthetic/private-safe market fixtures.
+
+### Institutional Test Corpus — ADOPT
+
+Curate a versioned scenario corpus for recurring integration failures:
+
+- duplicate/late execution events;
+- out-of-order private-stream updates;
+- partial fills;
+- ambiguous submit outcome;
+- reconnect after lost ACK;
+- stale/gapped market data;
+- clock drift;
+- venue reject mapping;
+- cancel/replace race;
+- reconciliation mismatch;
+- sequence reset;
+- degraded latency / timeout;
+- recovery after process restart.
+
+Every corpus version has changelog, severity and affected qualification profiles.
+
+### Approved Adapter / Integration Network — ADOPT
+
+Create scoped statuses for organisations/components such as:
+
+- Adapter Contract Integrated;
+- Replay Qualification Integrated;
+- Recovery Qualification Integrated;
+- Evidence Verification Integrated;
+- Continuous Requalification Integrated.
+
+A status proves only the tested integration/process scope.
+
+### Institutional Evidence Registry — ADOPT
+
+Maintain a registry of:
+
+- qualification subject/version;
+- standard/profile version;
+- issued result;
+- evidence hash;
+- signature identity;
+- active/superseded/revoked state;
+- requalification trigger;
+- incident/deprecation references.
+
+Historical states remain queryable.
+
+### Portable Verification Bundle — ADOPT
+
+An institution should be able to verify offline or independently:
+
+- subject build/adapter identity;
+- standard/profile version;
+- test-corpus versions;
+- qualification result;
+- evidence checksums;
+- signature chain;
+- registry/checkpoint status at issuance;
+- supersession/revocation pointers.
+
+Verification must not require access to proprietary strategy/account data.
+
+### OEM / Embedded Qualification — CONDITIONAL
+
+Allow broker technology vendors, OMS/EMS providers or institutional platforms to embed bounded ASTRA qualification workflows through:
+
+- API;
+- CLI/runner;
+- CI integration;
+- evidence verification SDK;
+- private scenario packs.
+
+Commercial embedding must never inherit live-routing authority.
+
+### Enterprise Bundle — ADOPT
+
+Potential product bundles:
+
+- Adapter Qualification;
+- Continuous Requalification;
+- Replay & Fault Lab;
+- Execution Evidence Archive;
+- Best-Execution/TCA Evidence;
+- Enterprise Verification API;
+- Private Scenario Pack;
+- Integration Support.
+
+### External Contribution Model — CONDITIONAL
+
+Approved partners may contribute:
+
+- anonymised incident classes;
+- synthetic reproductions;
+- adapter compatibility notes;
+- proposed conformance tests;
+- non-confidential venue edge cases.
+
+Contribution admission requires review, provenance and licensing.
+
+No partner-contributed case becomes a normative profile silently.
+
+### Consortium / Working-group Participation — CONDITIONAL
+
+Where commercially useful, participate in industry work around:
+
+- deterministic execution testing;
+- electronic-trading interoperability;
+- execution evidence;
+- replay/fault qualification;
+- time synchronisation and data integrity.
+
+Do not claim external standard recognition until formally granted.
+
+### Accumulated Evidence Switching Cost — ADOPT
+
+Legitimate switching cost comes from:
+
+- historical qualification manifests;
+- incident-to-test-case lineage;
+- adapter version history;
+- requalification history;
+- compatibility history;
+- signed evidence archives;
+- institutional integration mappings;
+- private scenario corpora.
+
+Avoid artificial lock-in: export and independent verification should remain possible.
+
+### Additional acceptance
+
+- all public/reference assets are non-live and strategy-safe;
+- a partner status never implies regulatory approval;
+- corpus additions are versioned and reviewable;
+- verification works from explicit signed/evidence artefacts;
+- revocation/supersession preserves history;
+- institutional/OEM clients cannot turn qualification APIs into live order-routing authority;
+- public reference material contains no secrets or customer trading data.
+
+**Sequencing:** Qualification Standard -> reference profiles -> synthetic implementation -> institutional corpus -> evidence registry -> verification bundle -> approved integration network -> OEM/enterprise distribution.
+
+**Moat:** ASTRA's defensibility compounds when institutions reuse the same deterministic profiles, test corpora, signed evidence format and requalification history across multiple adapters and providers.
