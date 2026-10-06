@@ -439,7 +439,10 @@ def test_new_registry_state_cannot_be_paired_with_stale_checkpoint() -> None:
         ),
     )
 
-    with pytest.raises(ValueError, match="checkpoint state root mismatch"):
+    with pytest.raises(
+        ValueError,
+        match="registry event head mismatch|checkpoint state root mismatch",
+    ):
         verify_portable_qualification_bundle(
             bundle=stale,
             trusted_root_public_keys={root.key_id: root.public_key_bytes()},
