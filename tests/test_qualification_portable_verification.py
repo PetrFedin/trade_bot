@@ -449,3 +449,188 @@ def test_new_registry_state_cannot_be_paired_with_stale_checkpoint() -> None:
             previous_keyring_generation=0,
             observed_at=NOW + timedelta(seconds=9),
         )
+
+
+
+def test_portable_bundle_payload_and_identity_are_deterministic() -> None:
+    bundle, _, _, root, _, _, _ = full_bundle()
+
+    first_payload = bundle.payload()
+    second_payload = bundle.payload()
+
+    assert first_payload == second_payload
+    assert bundle.bundle_sha256 == bundle.bundle_sha256
+    assert bundle.bundle_id == f"qverify_{bundle.bundle_sha256[:24]}"
+
+    result = verify_portable_qualification_bundle(
+        bundle=bundle,
+        trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+        previous_keyring_generation=0,
+        observed_at=NOW + timedelta(seconds=7),
+    )
+    assert result.payload()["bundle_id"] == bundle.bundle_id
+    assert result.payload()["lifecycle_status"] == "VALID"
+
+
+def test_portable_bundle_rejects_profile_scope_and_environment_drift() -> None:
+    bundle, _, _, root, _, _, _ = full_bundle()
+
+    wrong_scope = replace(
+        bundle,
+        profile=replace(bundle.profile, scope="EXECUTION"),
+    )
+    with pytest.raises(ValueError, match="profile scope mismatch"):
+        verify_portable_qualification_bundle(
+            bundle=wrong_scope,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_keyring_generation=0,
+            observed_at=NOW + timedelta(seconds=7),
+        )
+
+    wrong_environment = replace(
+        bundle,
+        profile=replace(
+            bundle.profile,
+            allowed_environments=("testnet",),
+        ),
+    )
+    with pytest.raises(ValueError, match="environment not allowed"):
+        verify_portable_qualification_bundle(
+            bundle=wrong_environment,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_keyring_generation=0,
+            observed_at=NOW + timedelta(seconds=7),
+        )
+
+
+def test_portable_bundle_rejects_signed_profile_digest_drift() -> None:
+    bundle, _, _, root, _, _, _ = full_bundle()
+    tampered = replace(
+        bundle,
+        signed_evidence=replace(
+            bundle.signed_evidence,
+            profile_sha256="f" * 64,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="signed profile digest mismatch"):
+        verify_portable_qualification_bundle(
+            bundle=tampered,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_keyring_generation=0,
+            observed_at=NOW + timedelta(seconds=7),
+        )
+
+
+def test_portable_bundle_rejects_registry_decision_root_drift() -> None:
+    bundle, _, _, root, _, _, _ = full_bundle()
+    tampered = replace(
+        bundle,
+        registry_decision=replace(
+            bundle.registry_decision,
+            state_root_sha256="f" * 64,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="registry state root mismatch"):
+        verify_portable_qualification_bundle(
+            bundle=tampered,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_keyring_generation=0,
+            observed_at=NOW + timedelta(seconds=7),
+        )
+
+
+def test_portable_bundle_rejects_transparency_root_and_size_drift() -> None:
+    bundle, _, _, root, _, _, _ = full_bundle()
+
+    wrong_root = replace(
+        bundle,
+        transparency_head=replace(
+            bundle.transparency_head,
+            root_sha256="f" * 64,
+        ),
+    )
+    with pytest.raises(ValueError, match="transparency proof root mismatch"):
+        verify_portable_qualification_bundle(
+            bundle=wrong_root,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_keyring_generation=0,
+            observed_at=NOW + timedelta(seconds=7),
+        )
+
+    wrong_size = replace(
+        bundle,
+        transparency_head=replace(
+            bundle.transparency_head,
+            tree_size=bundle.transparency_head.tree_size + 1,
+        ),
+    )
+    with pytest.raises(ValueError, match="transparency proof size mismatch"):
+        verify_portable_qualification_bundle(
+            bundle=wrong_size,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_keyring_generation=0,
+            observed_at=NOW + timedelta(seconds=7),
+        )
+
+
+def test_portable_bundle_rejects_keyring_generation_drift() -> None:
+    bundle, _, _, root, _, _, _ = full_bundle()
+
+    evidence_generation = replace(
+        bundle,
+        signed_evidence=replace(
+            bundle.signed_evidence,
+            envelope=replace(
+                bundle.signed_evidence.envelope,
+                keyring_generation=bundle.keyring_snapshot.generation + 1,
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="evidence keyring generation mismatch"):
+        verify_portable_qualification_bundle(
+            bundle=evidence_generation,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_keyring_generation=0,
+            observed_at=NOW + timedelta(seconds=7),
+        )
+
+    checkpoint_generation = replace(
+        bundle,
+        signed_registry_checkpoint=replace(
+            bundle.signed_registry_checkpoint,
+            envelope=replace(
+                bundle.signed_registry_checkpoint.envelope,
+                keyring_generation=bundle.keyring_snapshot.generation + 1,
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="checkpoint keyring generation mismatch"):
+        verify_portable_qualification_bundle(
+            bundle=checkpoint_generation,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_keyring_generation=0,
+            observed_at=NOW + timedelta(seconds=7),
+        )
+
+
+def test_portable_verifier_rejects_lifecycle_decision_mismatch() -> None:
+    bundle, _, _, root, _, _, _ = full_bundle()
+    mismatched = replace(
+        bundle,
+        registry_decision=replace(
+            bundle.registry_decision,
+            status=EvidenceVerificationStatus.REVOKED,
+            reason="FORGED_REVOKE",
+        ),
+    )
+    mismatched.registry_decision.validate()
+
+    with pytest.raises(ValueError, match="lifecycle decision mismatch"):
+        verify_portable_qualification_bundle(
+            bundle=mismatched,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_keyring_generation=0,
+            observed_at=NOW + timedelta(seconds=7),
+        )
