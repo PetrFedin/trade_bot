@@ -14,7 +14,11 @@ from app.qualification.profile_registry import (
 NOW = datetime(2026, 10, 6, 12, 0, tzinfo=UTC)
 
 
-def profile(*, version: str, profile_id: str = "ASTRA_BYBIT_PUBLIC_MARKETDATA") -> QualificationProfile:
+def profile(
+    *,
+    version: str,
+    profile_id: str = "ASTRA_BYBIT_PUBLIC_MARKETDATA",
+) -> QualificationProfile:
     value = QualificationProfile(
         profile_id=profile_id,
         version=version,
