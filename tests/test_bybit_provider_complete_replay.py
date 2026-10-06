@@ -27,6 +27,12 @@ from app.qualification.bybit_adapter_conformance import (
 from app.qualification.bybit_provider_replay import (
     build_bybit_provider_complete_replay,
 )
+from app.qualification.marketdata_integrity import (
+    MarketDataIntegrityPolicy,
+    MarketDataIntegrityStatus,
+    MarketDataSafetyAction,
+    evaluate_bybit_marketdata_integrity,
+)
 from app.qualification.replay_evidence import (
     ReplayContinuity,
     ReplayEvidenceProfile,
@@ -373,3 +379,237 @@ def test_conformance_blocks_dependent_checks_when_raw_capture_is_structurally_in
     assert statuses["STRUCTURAL_EVIDENCE_INTEGRITY"] is ConformanceStatus.FAIL
     assert statuses["RAW_RESPONSE_BINDING"] is ConformanceStatus.BLOCKED
     assert statuses["DOWNSTREAM_INPUT_BINDING"] is ConformanceStatus.BLOCKED
+
+
+
+def integrity_bundle(tmp_path):
+    capture, spec, checkpoint, evidence = conformance_bundle(tmp_path)
+    report = qualify_bybit_public_marketdata_adapter(
+        capture=capture,
+        instrument_spec=spec,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        subject_version="a1308410f64ff9a639e0fb8c32e287fa2c484a0e",
+    )
+    assert report.qualified
+    policy = MarketDataIntegrityPolicy(
+        maximum_server_skew_seconds=Decimal("5"),
+        high_water_receive_delay_seconds=Decimal("5"),
+        maximum_final_bar_age_seconds=Decimal("10"),
+    )
+    return capture, checkpoint, evidence, report, policy
+
+
+def test_marketdata_integrity_authority_accepts_only_qualified_fresh_feed(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+
+    decision = evaluate_bybit_marketdata_integrity(
+        capture=capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        adapter_conformance=report,
+        policy=policy,
+        observed_at=OBSERVED,
+    )
+
+    assert decision.status is MarketDataIntegrityStatus.HEALTHY
+    assert decision.action is MarketDataSafetyAction.ALLOW_QUALIFIED_PAPER_INPUT
+    assert decision.reasons == ()
+    assert decision.conflict_count == 0
+    assert len(decision.evidence_sha256) == 64
+
+
+def test_marketdata_integrity_decision_is_deterministic(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+    kwargs = dict(
+        capture=capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        adapter_conformance=report,
+        policy=policy,
+        observed_at=OBSERVED,
+    )
+
+    first = evaluate_bybit_marketdata_integrity(**kwargs)
+    second = evaluate_bybit_marketdata_integrity(**kwargs)
+
+    assert first == second
+    assert first.evidence_sha256 == second.evidence_sha256
+
+
+def test_marketdata_conflict_quarantines_feed(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+
+    decision = evaluate_bybit_marketdata_integrity(
+        capture=capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        adapter_conformance=report,
+        policy=policy,
+        observed_at=OBSERVED,
+        conflict_count=1,
+    )
+
+    assert decision.status is MarketDataIntegrityStatus.QUARANTINED
+    assert decision.action is MarketDataSafetyAction.QUARANTINE_FEED
+    assert decision.reasons == ("MARKET_DATA_CONFLICT_PRESENT",)
+
+
+def test_stale_final_bar_forces_read_only(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+
+    decision = evaluate_bybit_marketdata_integrity(
+        capture=capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        adapter_conformance=report,
+        policy=policy,
+        observed_at=OBSERVED + timedelta(seconds=20),
+    )
+
+    assert decision.status is MarketDataIntegrityStatus.STALE
+    assert decision.action is MarketDataSafetyAction.READ_ONLY
+    assert decision.reasons == ("FINAL_BAR_STALE",)
+
+
+def test_provider_clock_or_delivery_degradation_forces_read_only(tmp_path) -> None:
+    capture, checkpoint, evidence, report, _ = integrity_bundle(tmp_path)
+    strict = MarketDataIntegrityPolicy(
+        maximum_server_skew_seconds=Decimal("0"),
+        high_water_receive_delay_seconds=Decimal("1"),
+        maximum_final_bar_age_seconds=Decimal("10"),
+    )
+
+    decision = evaluate_bybit_marketdata_integrity(
+        capture=capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        adapter_conformance=report,
+        policy=strict,
+        observed_at=OBSERVED,
+    )
+
+    assert decision.status is MarketDataIntegrityStatus.DEGRADED
+    assert decision.action is MarketDataSafetyAction.READ_ONLY
+    assert "PROVIDER_EVENT_DELAY_EXCEEDED" in decision.reasons
+
+
+def test_unqualified_adapter_blocks_marketdata_qualification(tmp_path) -> None:
+    capture, spec, checkpoint, evidence = conformance_bundle(tmp_path)
+    substituted = replace(
+        evidence,
+        bindings=(
+            replace(evidence.bindings[0], strategy_input_sha256="0" * 64),
+            *evidence.bindings[1:],
+        ),
+    )
+    failed_report = qualify_bybit_public_marketdata_adapter(
+        capture=capture,
+        instrument_spec=spec,
+        continuity_checkpoint=checkpoint,
+        provider_replay=substituted,
+        subject_version="candidate-sha",
+    )
+    assert not failed_report.qualified
+    policy = MarketDataIntegrityPolicy(
+        maximum_server_skew_seconds=Decimal("5"),
+        high_water_receive_delay_seconds=Decimal("5"),
+        maximum_final_bar_age_seconds=Decimal("10"),
+    )
+
+    decision = evaluate_bybit_marketdata_integrity(
+        capture=capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        adapter_conformance=failed_report,
+        policy=policy,
+        observed_at=OBSERVED,
+    )
+
+    assert decision.status is MarketDataIntegrityStatus.BLOCKED
+    assert decision.action is MarketDataSafetyAction.BLOCK_QUALIFICATION
+    assert decision.reasons == ("ADAPTER_NOT_QUALIFIED",)
+
+
+
+def test_marketdata_integrity_quarantines_substituted_continuity_identity(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+    substituted = replace(
+        evidence,
+        continuity_checkpoint_id="substituted-checkpoint",
+    )
+    substituted.validate()
+
+    decision = evaluate_bybit_marketdata_integrity(
+        capture=capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=substituted,
+        adapter_conformance=report,
+        policy=policy,
+        observed_at=OBSERVED,
+    )
+
+    assert decision.status is MarketDataIntegrityStatus.QUARANTINED
+    assert decision.action is MarketDataSafetyAction.QUARANTINE_FEED
+    assert decision.reasons == ("CONTINUITY_PROOF_MISMATCH",)
+
+
+def test_marketdata_integrity_blocks_structurally_corrupt_capture(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+    broken_capture = replace(
+        capture,
+        response_body=response_body([row(0), row(1, close="777"), row(2)]),
+    )
+
+    decision = evaluate_bybit_marketdata_integrity(
+        capture=broken_capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        adapter_conformance=report,
+        policy=policy,
+        observed_at=OBSERVED,
+    )
+
+    assert decision.status is MarketDataIntegrityStatus.BLOCKED
+    assert decision.action is MarketDataSafetyAction.BLOCK_QUALIFICATION
+    assert decision.reasons == ("STRUCTURAL_EVIDENCE_INVALID",)
+
+
+def test_marketdata_integrity_policy_rejects_negative_threshold() -> None:
+    policy = MarketDataIntegrityPolicy(
+        maximum_server_skew_seconds=Decimal("-1"),
+        high_water_receive_delay_seconds=Decimal("5"),
+        maximum_final_bar_age_seconds=Decimal("10"),
+    )
+
+    with pytest.raises(ValueError, match="maximum_server_skew_seconds"):
+        policy.validate()
+
+
+def test_marketdata_integrity_rejects_negative_conflict_count(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+
+    with pytest.raises(ValueError, match="conflict_count"):
+        evaluate_bybit_marketdata_integrity(
+            capture=capture,
+            continuity_checkpoint=checkpoint,
+            provider_replay=evidence,
+            adapter_conformance=report,
+            policy=policy,
+            observed_at=OBSERVED,
+            conflict_count=-1,
+        )
+
+
+def test_marketdata_integrity_rejects_future_high_water_observation(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+
+    with pytest.raises(ValueError, match="future"):
+        evaluate_bybit_marketdata_integrity(
+            capture=capture,
+            continuity_checkpoint=checkpoint,
+            provider_replay=evidence,
+            adapter_conformance=report,
+            policy=policy,
+            observed_at=checkpoint.through_close_time - timedelta(seconds=1),
+        )
