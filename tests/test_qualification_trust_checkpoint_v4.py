@@ -321,3 +321,235 @@ def test_v4_signature_cannot_predate_checkpoint() -> None:
             expires_at=NOW + timedelta(minutes=1),
             nonce="trust-v4-early-nonce",
         )
+
+
+
+def test_v4_payload_and_verified_payload_are_deterministic() -> None:
+    (
+        _,
+        evidence_registry,
+        profile_registry,
+        log,
+        receipt,
+        _,
+        signer,
+        descriptor,
+        keyring,
+    ) = v4_context()
+    checkpoint = build_trust_checkpoint_v4(
+        evidence_registry=evidence_registry,
+        profile_registry=profile_registry,
+        profile_publication_receipt=receipt,
+        transparency_log=log,
+        issued_at=NOW + timedelta(seconds=8),
+    )
+    assert checkpoint.payload() == checkpoint.payload()
+    assert checkpoint.checkpoint_id == f"qtrustv4_{checkpoint.checkpoint_sha256[:24]}"
+
+    signed = sign_trust_checkpoint_v4(
+        checkpoint=checkpoint,
+        provider=signer,
+        descriptor=descriptor,
+        keyring_generation=keyring.generation,
+        signature_id="trust-v4-payload",
+        issued_at=NOW + timedelta(seconds=8),
+        expires_at=NOW + timedelta(minutes=10),
+        nonce="trust-v4-payload-nonce",
+    )
+    verified = verify_trust_checkpoint_v4(
+        signed_checkpoint=signed,
+        keyring=keyring,
+        observed_at=NOW + timedelta(seconds=9),
+    )
+    assert verified.payload()["checkpoint_id"] == checkpoint.checkpoint_id
+    assert verified.payload()["profile_event_count"] == profile_registry.event_count
+
+
+def test_v4_validation_rejects_invalid_counts_and_tree_relationships() -> None:
+    (
+        _,
+        evidence_registry,
+        profile_registry,
+        log,
+        receipt,
+        _,
+        _,
+        _,
+        _,
+    ) = v4_context()
+    checkpoint = build_trust_checkpoint_v4(
+        evidence_registry=evidence_registry,
+        profile_registry=profile_registry,
+        profile_publication_receipt=receipt,
+        transparency_log=log,
+        issued_at=NOW + timedelta(seconds=8),
+    )
+
+    with pytest.raises(ValueError, match="evidence_event_count must be non-negative"):
+        replace(checkpoint, evidence_event_count=-1).validate()
+
+    with pytest.raises(ValueError, match="profile_event_count must be non-negative"):
+        replace(checkpoint, profile_event_count=-1).validate()
+
+    with pytest.raises(ValueError, match="cannot exceed transparency tree"):
+        replace(
+            checkpoint,
+            profile_publication_tree_size=checkpoint.transparency_tree_size + 1,
+        ).validate()
+
+
+def test_v4_validation_rejects_invalid_genesis_invariants() -> None:
+    (
+        _,
+        evidence_registry,
+        profile_registry,
+        log,
+        receipt,
+        _,
+        _,
+        _,
+        _,
+    ) = v4_context()
+    checkpoint = build_trust_checkpoint_v4(
+        evidence_registry=evidence_registry,
+        profile_registry=profile_registry,
+        profile_publication_receipt=receipt,
+        transparency_log=log,
+        issued_at=NOW + timedelta(seconds=8),
+    )
+
+    with pytest.raises(ValueError, match="genesis head"):
+        replace(
+            checkpoint,
+            evidence_event_count=0,
+            evidence_event_head_sha256="f" * 64,
+            evidence_state_root_sha256="0" * 64,
+        ).validate()
+
+    with pytest.raises(ValueError, match="profile event journal requires genesis head"):
+        replace(
+            checkpoint,
+            profile_event_count=0,
+            profile_event_head_sha256="f" * 64,
+        ).validate()
+
+
+def test_v4_rejects_backdated_checkpoint_against_publication_and_transparency() -> None:
+    (
+        _,
+        evidence_registry,
+        profile_registry,
+        log,
+        receipt,
+        _,
+        _,
+        _,
+        _,
+    ) = v4_context()
+
+    with pytest.raises(ValueError, match="predate profile publication receipt"):
+        build_trust_checkpoint_v4(
+            evidence_registry=evidence_registry,
+            profile_registry=profile_registry,
+            profile_publication_receipt=receipt,
+            transparency_log=log,
+            issued_at=receipt.observed_at - timedelta(seconds=1),
+        )
+
+    log.append(
+        entry=QualificationTransparencyEntry(
+            entry_type="OTHER_QUALIFICATION_ARTIFACT",
+            object_id="future-head-for-v4",
+            object_sha256="e" * 64,
+            subject="QUALIFICATION_TEST",
+            subject_version="1",
+            profile_id="ASTRA_BYBIT_PUBLIC_MARKETDATA",
+            profile_version="1.0.0",
+            published_at=NOW + timedelta(seconds=10),
+        ),
+        issued_at=NOW + timedelta(seconds=10),
+    )
+    with pytest.raises(ValueError, match="predate transparency head"):
+        build_trust_checkpoint_v4(
+            evidence_registry=evidence_registry,
+            profile_registry=profile_registry,
+            profile_publication_receipt=receipt,
+            transparency_log=log,
+            issued_at=NOW + timedelta(seconds=9),
+        )
+
+
+def test_v4_rejects_each_successor_counter_regression() -> None:
+    (
+        _,
+        evidence_registry,
+        profile_registry,
+        log,
+        receipt,
+        _,
+        _,
+        _,
+        _,
+    ) = v4_context()
+    current = build_trust_checkpoint_v4(
+        evidence_registry=evidence_registry,
+        profile_registry=profile_registry,
+        profile_publication_receipt=receipt,
+        transparency_log=log,
+        issued_at=NOW + timedelta(seconds=8),
+    )
+
+    cases = (
+        (replace(current, evidence_event_count=current.evidence_event_count + 1),
+         "evidence event count regression"),
+        (replace(current, profile_record_count=current.profile_record_count + 1),
+         "profile record count regression"),
+        (replace(current, profile_event_count=current.profile_event_count + 1),
+         "profile event count regression"),
+        (replace(current, transparency_tree_size=current.transparency_tree_size + 1),
+         "transparency size regression"),
+    )
+    for previous, message in cases:
+        with pytest.raises(ValueError, match=message):
+            build_trust_checkpoint_v4(
+                evidence_registry=evidence_registry,
+                profile_registry=profile_registry,
+                profile_publication_receipt=receipt,
+                transparency_log=log,
+                issued_at=NOW + timedelta(seconds=9),
+                previous_checkpoint=previous,
+            )
+
+
+def test_v4_successor_verifier_rejects_wrong_previous_checkpoint_link() -> None:
+    (
+        _,
+        evidence_registry,
+        profile_registry,
+        log,
+        receipt,
+        _,
+        _,
+        _,
+        _,
+    ) = v4_context()
+    first = build_trust_checkpoint_v4(
+        evidence_registry=evidence_registry,
+        profile_registry=profile_registry,
+        profile_publication_receipt=receipt,
+        transparency_log=log,
+        issued_at=NOW + timedelta(seconds=8),
+    )
+    second = build_trust_checkpoint_v4(
+        evidence_registry=evidence_registry,
+        profile_registry=profile_registry,
+        profile_publication_receipt=receipt,
+        transparency_log=log,
+        issued_at=NOW + timedelta(seconds=9),
+        previous_checkpoint=first,
+    )
+    assert verify_trust_checkpoint_v4_successor(previous=first, current=second)
+    assert not verify_trust_checkpoint_v4_successor(
+        previous=first,
+        current=replace(second, previous_trust_checkpoint_sha256="f" * 64),
+    )
