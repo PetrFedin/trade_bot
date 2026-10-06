@@ -9,6 +9,7 @@ from enum import StrEnum
 class ConformanceStatus(StrEnum):
     PASS = "PASS"
     FAIL = "FAIL"
+    BLOCKED = "BLOCKED"
     NOT_IN_SCOPE = "NOT_IN_SCOPE"
 
 
@@ -49,8 +50,10 @@ class AdapterConformanceCheck:
         if self.evidence_sha256 is None:
             raise ValueError("PASS/FAIL conformance checks require evidence_sha256")
         _digest(self.evidence_sha256, "evidence_sha256")
-        if self.status is ConformanceStatus.FAIL and not (self.reason or "").strip():
-            raise ValueError("failed conformance checks require a reason")
+        if self.status in {ConformanceStatus.FAIL, ConformanceStatus.BLOCKED} and not (
+            self.reason or ""
+        ).strip():
+            raise ValueError("failed or blocked conformance checks require a reason")
 
     def payload(self) -> dict[str, object]:
         self.validate()
@@ -105,7 +108,8 @@ class AdapterConformanceReport:
         return tuple(
             f"{check.check_id}:{check.reason}"
             for check in self.checks
-            if check.required and check.status is ConformanceStatus.FAIL
+            if check.required
+            and check.status in {ConformanceStatus.FAIL, ConformanceStatus.BLOCKED}
         )
 
     def payload(self) -> dict[str, object]:
