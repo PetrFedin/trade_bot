@@ -395,6 +395,7 @@ class QualificationEvidenceRegistry:
         if signed_evidence.profile_sha256 != binding.profile_sha256:
             raise ValueError("registry signed profile digest mismatch")
 
+        evidence_id = signed_evidence.evidence_id
         with self._lock:
             if evidence_id in self._records:
                 raise ValueError("qualification evidence is already registered")
@@ -412,7 +413,6 @@ class QualificationEvidenceRegistry:
         if verification.profile_sha256 != binding.profile_sha256:
             raise ValueError("registry verified profile mismatch")
 
-        evidence_id = signed_evidence.evidence_id
         with self._lock:
             if evidence_id in self._records:
                 raise ValueError("qualification evidence is already registered")
