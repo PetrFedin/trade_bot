@@ -1669,7 +1669,7 @@ This snapshot records the qualification/trust layers that are already present in
 
 ### Canonical in `main`
 
-Verified by repository file presence in current `main`:
+Verified by merged repository history / file presence in current `main`:
 
 - authenticated Evidence Registry;
 - authenticated Qualification Profile Registry;
@@ -1679,30 +1679,24 @@ Verified by repository file presence in current `main`:
 - Profile Lifecycle Event Journal;
 - Profile Lifecycle Transparency Publication Authority;
 - incremental Profile Event Delta Proof;
-- profile-history-aware Qualification Trust Checkpoint v4.
+- profile-history-aware Qualification Trust Checkpoint v4;
+- Portable Qualification Verification v4 (#254);
+- institutional adoption / mandatory master-plan governance (#255);
+- stateful Qualification Verification Service v4 with TrustState transition output (#256);
+- Portable Artifact Codec v1 with deterministic `ASTRA_CANONICAL_JSON_V1` representation (#257).
 
-These layers collectively provide immutable qualification/profile bindings, signed evidence, lifecycle state, append-only lifecycle history, transparency publication, incremental history continuity and signed trust checkpoints.
+These layers collectively provide immutable qualification/profile bindings, signed evidence, lifecycle state, append-only lifecycle history, transparency publication, incremental continuity, portable verification and deterministic artifact transport. They do not prove profitability or enable live/mainnet trading.
 
 ### In-flight
 
-- Portable Qualification Verification v4 — clean canonical rebuild in PR #254.
-  - external trusted profile-event anchor;
-  - external trusted transparency tree anchor;
-  - previous Trust Checkpoint v4 SHA;
-  - incremental profile-event delta verification;
-  - profile-event transparency inclusion proofs;
-  - transparency consistency proof;
-  - historical publication-root binding;
-  - signed Trust Checkpoint v4 verification.
+- PR #258 — master-plan typed-decoder gate, offline local trust-anchor discipline and Persistent TrustState Authority requirements.
+- PR #260 — safe typed Portable Verification Bundle v4 decoder.
+- PR #262 — independent Offline Qualification Verifier CLI v1.
+- PR #264 — Persistent TrustState Authority v1.
 
-- Institutional adoption / master-plan governance — clean canonical documentation PR #255.
-  - reference qualification network;
-  - public reference profiles;
-  - institutional test corpus;
-  - OEM/embedded qualification;
-  - enterprise verification;
-  - contribution/governance model;
-  - mandatory master-plan review before significant implementation waves.
+The implementation PRs are intentionally stacked and must merge in dependency order after their own CI/regression evidence:
+
+`#258 -> #260 -> #262 -> #264`.
 
 ### Next sequence after verified merge
 
