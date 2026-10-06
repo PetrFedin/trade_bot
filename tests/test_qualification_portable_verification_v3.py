@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import replace
 from datetime import timedelta
 
@@ -273,6 +274,147 @@ def test_portable_v3_rejects_untrusted_root() -> None:
             bundle=bundle,
             trusted_root_public_keys={},
             previous_keyring_generation=0,
+            observed_at=NOW + timedelta(seconds=8),
+        )
+
+    assert caught.value.code is PortableVerificationFailureCodeV3.KEYRING_REJECTED
+
+
+
+def test_portable_v3_payload_and_identity_are_deterministic() -> None:
+    bundle, _, _, _, root, _, _, _ = bundle_v3()
+
+    assert bundle.payload() == bundle.payload()
+    assert bundle.bundle_id == f"qverifyv3_{bundle.bundle_sha256[:24]}"
+
+    result = verify_portable_qualification_bundle_v3(
+        bundle=bundle,
+        trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+        previous_keyring_generation=0,
+        observed_at=NOW + timedelta(seconds=8),
+    )
+    assert result.payload()["bundle_id"] == bundle.bundle_id
+    assert result.payload()["profile_lifecycle_status"] == "ACTIVE"
+
+
+def test_portable_v3_rejects_forged_evidence_state_proof() -> None:
+    bundle, _, _, _, root, _, _, _ = bundle_v3()
+    forged_record = replace(
+        bundle.evidence_state_proof.record,
+        status=bundle.evidence_state_proof.record.status.REVOKED,
+        lifecycle_reason="FORGED_EVIDENCE_REVOKE",
+    )
+    tampered = replace(
+        bundle,
+        evidence_state_proof=replace(
+            bundle.evidence_state_proof,
+            record=forged_record,
+        ),
+    )
+
+    with pytest.raises(PortableQualificationVerificationErrorV3) as caught:
+        verify_portable_qualification_bundle_v3(
+            bundle=tampered,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_keyring_generation=0,
+            observed_at=NOW + timedelta(seconds=8),
+        )
+
+    assert (
+        caught.value.code
+        is PortableVerificationFailureCodeV3.EVIDENCE_STATE_PROOF_INVALID
+    )
+
+
+def test_portable_v3_rejects_tampered_transparency_proof() -> None:
+    bundle, _, _, _, root, _, _, _ = bundle_v3()
+    assert bundle.transparency_inclusion_proof.audit_path
+    tampered = replace(
+        bundle,
+        transparency_inclusion_proof=replace(
+            bundle.transparency_inclusion_proof,
+            audit_path=(
+                "f" * 64,
+                *bundle.transparency_inclusion_proof.audit_path[1:],
+            ),
+        ),
+    )
+
+    with pytest.raises(PortableQualificationVerificationErrorV3) as caught:
+        verify_portable_qualification_bundle_v3(
+            bundle=tampered,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_keyring_generation=0,
+            observed_at=NOW + timedelta(seconds=8),
+        )
+
+    assert (
+        caught.value.code
+        is PortableVerificationFailureCodeV3.TRANSPARENCY_PROOF_INVALID
+    )
+
+
+def test_portable_v3_rejects_tampered_trust_checkpoint_signature() -> None:
+    bundle, _, _, _, root, _, _, _ = bundle_v3()
+    raw = bytearray(
+        base64.b64decode(bundle.signed_trust_checkpoint.envelope.signature_b64)
+    )
+    raw[0] ^= 1
+    tampered = replace(
+        bundle,
+        signed_trust_checkpoint=replace(
+            bundle.signed_trust_checkpoint,
+            envelope=replace(
+                bundle.signed_trust_checkpoint.envelope,
+                signature_b64=base64.b64encode(bytes(raw)).decode("ascii"),
+            ),
+        ),
+    )
+
+    with pytest.raises(PortableQualificationVerificationErrorV3) as caught:
+        verify_portable_qualification_bundle_v3(
+            bundle=tampered,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_keyring_generation=0,
+            observed_at=NOW + timedelta(seconds=8),
+        )
+
+    assert (
+        caught.value.code
+        is PortableVerificationFailureCodeV3.TRUST_CHECKPOINT_SIGNATURE_REJECTED
+    )
+
+
+def test_portable_v3_rejects_lifecycle_decision_mismatch() -> None:
+    bundle, _, _, _, root, _, _, _ = bundle_v3()
+    mismatched = replace(
+        bundle,
+        registry_decision=replace(
+            bundle.registry_decision,
+            status=EvidenceVerificationStatus.REVOKED,
+            reason="FORGED_REVOKE",
+        ),
+    )
+
+    with pytest.raises(PortableQualificationVerificationErrorV3) as caught:
+        verify_portable_qualification_bundle_v3(
+            bundle=mismatched,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_keyring_generation=0,
+            observed_at=NOW + timedelta(seconds=8),
+        )
+
+    assert caught.value.code is PortableVerificationFailureCodeV3.LIFECYCLE_MISMATCH
+
+
+def test_portable_v3_rejects_keyring_rollback_floor() -> None:
+    bundle, _, _, _, root, _, _, _ = bundle_v3()
+
+    with pytest.raises(PortableQualificationVerificationErrorV3) as caught:
+        verify_portable_qualification_bundle_v3(
+            bundle=bundle,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_keyring_generation=1,
             observed_at=NOW + timedelta(seconds=8),
         )
 
