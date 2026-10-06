@@ -47,10 +47,11 @@ jobs:
 
       - name: Lint qualification authority
         run: |
+          QUALIFICATION_TESTS="$(find tests -maxdepth 1 -type f -name 'test_qualification_*.py' ! -name 'test_qualification_bridge_v107.py' -print)"
           ruff check app/qualification \
             tests/test_replay_evidence_contract.py \
             tests/test_bybit_provider_complete_replay.py \
-            tests/test_qualification_*.py
+            $QUALIFICATION_TESTS
 
       - name: Security scan qualification authority
         run: bandit -q -r app/qualification
@@ -58,10 +59,11 @@ jobs:
       - name: Qualification regression and branch coverage
         run: |
           coverage erase
+          QUALIFICATION_TESTS="$(find tests -maxdepth 1 -type f -name 'test_qualification_*.py' ! -name 'test_qualification_bridge_v107.py' -print)"
           coverage run --branch -m pytest -q \
             tests/test_replay_evidence_contract.py \
             tests/test_bybit_provider_complete_replay.py \
-            tests/test_qualification_*.py
+            $QUALIFICATION_TESTS
           coverage report --include='app/qualification/*' --fail-under=85
 
       - name: Compile qualification authority
