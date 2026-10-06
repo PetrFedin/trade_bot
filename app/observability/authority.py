@@ -10,6 +10,7 @@ from app.execution.execution_facts import ExecutionFactStore
 from app.marketdata.continuity import OperationalContinuityStore
 from app.marketdata.integrity import (
     MarketDataIntegrityAuthority,
+    MarketDataIntegrityPolicy,
     MarketDataIntegrityScope,
 )
 from app.marketdata.operational import OperationalMarketDataStore
@@ -124,6 +125,7 @@ class AuthoritativeOperationalSnapshotAssembler:
         execution_checkpoints: ExecutionCheckpointStore,
         runtime_telemetry: RuntimeTelemetryProvider | None,
         session_risk: SessionRiskTruthProvider | None,
+        market_integrity_policy: MarketDataIntegrityPolicy | None = None,
         clock: Clock = _utc_now,
     ) -> None:
         market_scope.validate()
@@ -136,6 +138,12 @@ class AuthoritativeOperationalSnapshotAssembler:
         self.execution_checkpoints = execution_checkpoints
         self.runtime_telemetry = runtime_telemetry
         self.session_risk = session_risk
+        self.market_integrity_policy = (
+            MarketDataIntegrityPolicy()
+            if market_integrity_policy is None
+            else market_integrity_policy
+        )
+        self.market_integrity_policy.validate()
         self.clock = clock
 
     def __call__(self) -> OperationalSnapshot:
@@ -239,6 +247,7 @@ class AuthoritativeOperationalSnapshotAssembler:
                 ),
                 marketdata=self.marketdata,
                 continuity=self.continuity,
+                policy=self.market_integrity_policy,
             ).evaluate(now=now)
             reasons.update(assessment.reasons)
             return (
