@@ -9,6 +9,7 @@ from app.qualification.profile_event_delta import (
     QualificationProfileEventDeltaProof,
     build_profile_event_delta,
     verify_profile_event_delta,
+    verify_profile_event_delta_from_trusted_anchor,
 )
 from app.qualification.profile_registry import QualificationProfileRegistry
 from tests.test_qualification_profile_registry import NOW, profile
@@ -260,4 +261,41 @@ def test_delta_builder_rejects_registry_mutation_during_snapshot() -> None:
         build_profile_event_delta(
             profile_registry=registry,
             previous_event_count=0,
+        )
+
+
+
+def test_delta_verifier_binds_exact_external_trusted_anchor() -> None:
+    registry = populated_registry()
+    proof = build_profile_event_delta(
+        profile_registry=registry,
+        previous_event_count=2,
+    )
+
+    verified = verify_profile_event_delta_from_trusted_anchor(
+        proof,
+        trusted_previous_event_count=2,
+        trusted_previous_event_head_sha256=proof.previous_event_head_sha256,
+    )
+    assert verified.current_event_head_sha256 == registry.event_head_sha256
+
+    with pytest.raises(ValueError, match="trusted count mismatch"):
+        verify_profile_event_delta_from_trusted_anchor(
+            proof,
+            trusted_previous_event_count=1,
+            trusted_previous_event_head_sha256=proof.previous_event_head_sha256,
+        )
+
+    with pytest.raises(ValueError, match="trusted head mismatch"):
+        verify_profile_event_delta_from_trusted_anchor(
+            proof,
+            trusted_previous_event_count=2,
+            trusted_previous_event_head_sha256="f" * 64,
+        )
+
+    with pytest.raises(ValueError, match="must be non-negative"):
+        verify_profile_event_delta_from_trusted_anchor(
+            proof,
+            trusted_previous_event_count=-1,
+            trusted_previous_event_head_sha256=proof.previous_event_head_sha256,
         )
