@@ -20,6 +20,10 @@ from app.marketdata.continuity import (
     SQLiteOperationalRepairBarStore,
 )
 from app.marketdata.operational import SQLiteOperationalMarketDataStore
+from app.qualification.adapter_conformance import ConformanceStatus
+from app.qualification.bybit_adapter_conformance import (
+    qualify_bybit_public_marketdata_adapter,
+)
 from app.qualification.bybit_provider_replay import (
     build_bybit_provider_complete_replay,
 )
@@ -182,6 +186,7 @@ def test_continuity_repair_retains_exact_provider_capture_and_builds_complete_re
     assert evidence.replay.profile is ReplayEvidenceProfile.PROVIDER_COMPLETE
     assert evidence.replay.limitations == ()
     assert evidence.raw_response_sha256 == hashlib.sha256(body).hexdigest()
+    assert evidence.strategy_id == STRATEGY
     assert evidence.continuity_checkpoint_id == result.checkpoint.checkpoint_id
     assert evidence.continuity_through_bar_id == capture.bars[-1].bar_id
     assert [event.continuity for event in evidence.replay.events] == [
@@ -248,3 +253,123 @@ def test_transport_receive_timestamp_is_preserved_in_provider_evidence() -> None
 
     assert capture.response_received_at == received
     assert all(bar.received_at == received for bar in capture.bars)
+
+
+def conformance_bundle(tmp_path):
+    body = response_body([row(0), row(1), row(2)])
+    path = tmp_path / "conformance.sqlite"
+    marketdata = SQLiteOperationalMarketDataStore(path)
+    repair_store = SQLiteOperationalRepairBarStore(path)
+    continuity = SQLiteOperationalContinuityStore(path)
+    client = BybitPublicKlineClient(
+        subscription=subscription(),
+        transport=FakeTransport(body),
+    )
+    result = BybitContinuityRepairService(
+        subscription=subscription(),
+        marketdata=marketdata,
+        repair_store=repair_store,
+        continuity=continuity,
+        client=client,
+    ).repair(
+        observed_at=OBSERVED,
+        bootstrap_open_time=BASE,
+    )
+    capture = result.provider_capture
+    assert capture is not None
+    spec = instrument_spec()
+    evidence = build_bybit_provider_complete_replay(
+        capture=capture,
+        instrument_spec=spec,
+        continuity_checkpoint=result.checkpoint,
+        strategy_id=STRATEGY,
+    )
+    return capture, spec, result.checkpoint, evidence
+
+
+def test_bybit_public_adapter_conformance_is_machine_testable_and_scope_honest(
+    tmp_path,
+) -> None:
+    capture, spec, checkpoint, evidence = conformance_bundle(tmp_path)
+
+    report = qualify_bybit_public_marketdata_adapter(
+        capture=capture,
+        instrument_spec=spec,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        subject_version="296d627be05a2ce5fd115fb52a3245324c5a69e8",
+    )
+
+    assert report.qualified
+    assert report.failure_reasons == ()
+    assert len(report.evidence_sha256) == 64
+    required = [check for check in report.checks if check.required]
+    assert required
+    assert all(check.status is ConformanceStatus.PASS for check in required)
+    not_in_scope = {
+        check.check_id
+        for check in report.checks
+        if check.status is ConformanceStatus.NOT_IN_SCOPE
+    }
+    assert not_in_scope == {
+        "EXECUTION_ORDER_SUBMIT",
+        "EXECUTION_CANCEL_REPLACE",
+        "EXECUTION_FILL_STATUS_MAPPING",
+        "ACCOUNT_RECONCILIATION",
+    }
+
+
+def test_conformance_detects_downstream_digest_substitution(tmp_path) -> None:
+    capture, spec, checkpoint, evidence = conformance_bundle(tmp_path)
+    first = replace(
+        evidence.bindings[0],
+        strategy_input_sha256="0" * 64,
+    )
+    substituted = replace(
+        evidence,
+        bindings=(first, *evidence.bindings[1:]),
+    )
+
+    report = qualify_bybit_public_marketdata_adapter(
+        capture=capture,
+        instrument_spec=spec,
+        continuity_checkpoint=checkpoint,
+        provider_replay=substituted,
+        subject_version="candidate-sha",
+    )
+
+    assert not report.qualified
+    failed = {
+        check.check_id: check
+        for check in report.checks
+        if check.status is ConformanceStatus.FAIL
+    }
+    assert "DOWNSTREAM_INPUT_BINDING" in failed
+    assert report.failure_reasons == (
+        "DOWNSTREAM_INPUT_BINDING:"
+        "strategy/risk market inputs cannot be independently reproduced",
+    )
+
+
+def test_conformance_blocks_dependent_checks_when_raw_capture_is_structurally_invalid(
+    tmp_path,
+) -> None:
+    capture, spec, checkpoint, evidence = conformance_bundle(tmp_path)
+    broken_capture = replace(
+        capture,
+        response_body=response_body([row(0), row(1, close="777"), row(2)]),
+    )
+
+    report = qualify_bybit_public_marketdata_adapter(
+        capture=broken_capture,
+        instrument_spec=spec,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        subject_version="candidate-sha",
+    )
+
+    assert not report.qualified
+    statuses = {check.check_id: check.status for check in report.checks}
+    assert statuses["STRUCTURAL_EVIDENCE_INTEGRITY"] is ConformanceStatus.FAIL
+    assert statuses["RAW_RESPONSE_BINDING"] is ConformanceStatus.BLOCKED
+    assert statuses["DOWNSTREAM_INPUT_BINDING"] is ConformanceStatus.BLOCKED
