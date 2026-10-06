@@ -92,7 +92,7 @@ def _advance_worker(
     try:
         record, _ = authority.advance(
             next_state=_next_state(),
-            transition=_transition("b"),
+            transition=_transition("b", "4" * 64),
             expected_generation=expected_generation,
             expected_record_sha256=expected_record_sha256,
             expected_trust_state_sha256=expected_state_sha256,
@@ -108,12 +108,12 @@ def test_initialize_and_advance_build_hash_chained_history(tmp_path: Path) -> No
     authority = PersistentTrustStateAuthorityV1(tmp_path)
     initial = authority.initialize(
         initial_state=_initial_state(),
-        transition=_transition("a"),
+        transition=_transition("a", "0" * 64),
     )
 
     current, receipt = authority.advance(
         next_state=_next_state(),
-        transition=_transition("b"),
+        transition=_transition("b", "4" * 64),
         expected_generation=initial.generation,
         expected_record_sha256=initial.record_sha256,
         expected_trust_state_sha256=initial.trust_state_sha256,
@@ -134,11 +134,11 @@ def test_stale_cas_rejected_without_mutation(tmp_path: Path) -> None:
     authority = PersistentTrustStateAuthorityV1(tmp_path)
     initial = authority.initialize(
         initial_state=_initial_state(),
-        transition=_transition("a"),
+        transition=_transition("a", "0" * 64),
     )
     current, _ = authority.advance(
         next_state=_next_state(),
-        transition=_transition("b"),
+        transition=_transition("b", "4" * 64),
         expected_generation=0,
         expected_record_sha256=initial.record_sha256,
         expected_trust_state_sha256=initial.trust_state_sha256,
@@ -149,7 +149,7 @@ def test_stale_cas_rejected_without_mutation(tmp_path: Path) -> None:
     with pytest.raises(PersistentTrustStateCASMismatch):
         authority.advance(
             next_state=_third_state(),
-            transition=_transition("c"),
+            transition=_transition("c", "7" * 64),
             expected_generation=0,
             expected_record_sha256=initial.record_sha256,
             expected_trust_state_sha256=initial.trust_state_sha256,
@@ -164,11 +164,11 @@ def test_state_regression_rejected_without_mutation(tmp_path: Path) -> None:
     authority = PersistentTrustStateAuthorityV1(tmp_path)
     initial = authority.initialize(
         initial_state=_initial_state(),
-        transition=_transition("a"),
+        transition=_transition("a", "0" * 64),
     )
     current, _ = authority.advance(
         next_state=_next_state(),
-        transition=_transition("b"),
+        transition=_transition("b", "4" * 64),
         expected_generation=0,
         expected_record_sha256=initial.record_sha256,
         expected_trust_state_sha256=initial.trust_state_sha256,
@@ -184,7 +184,7 @@ def test_state_regression_rejected_without_mutation(tmp_path: Path) -> None:
     with pytest.raises(PersistentTrustStateAuthorityError, match="regression"):
         authority.advance(
             next_state=regressed,
-            transition=_transition("c"),
+            transition=_transition("c", "7" * 64),
             expected_generation=current.generation,
             expected_record_sha256=current.record_sha256,
             expected_trust_state_sha256=current.trust_state_sha256,
@@ -197,13 +197,13 @@ def test_crash_after_history_commit_before_current_update_recovers(tmp_path: Pat
     authority = PersistentTrustStateAuthorityV1(tmp_path)
     initial = authority.initialize(
         initial_state=_initial_state(),
-        transition=_transition("a"),
+        transition=_transition("a", "0" * 64),
     )
     next_record = PersistentTrustStateRecord.build(
         generation=1,
         previous_record_sha256=initial.record_sha256,
         trust_state=_next_state(),
-        transition=_transition("b"),
+        transition=_transition("b", "4" * 64),
     )
     history_path = tmp_path / "history" / "00000000000000000001.json"
     history_path.write_bytes(canonical_json_bytes(next_record.payload()))
@@ -220,19 +220,19 @@ def test_multiple_uncommitted_successors_fail_closed_as_ambiguous(tmp_path: Path
     authority = PersistentTrustStateAuthorityV1(tmp_path)
     initial = authority.initialize(
         initial_state=_initial_state(),
-        transition=_transition("a"),
+        transition=_transition("a", "0" * 64),
     )
     second = PersistentTrustStateRecord.build(
         generation=1,
         previous_record_sha256=initial.record_sha256,
         trust_state=_next_state(),
-        transition=_transition("b"),
+        transition=_transition("b", "4" * 64),
     )
     third = PersistentTrustStateRecord.build(
         generation=2,
         previous_record_sha256=second.record_sha256,
         trust_state=_third_state(),
-        transition=_transition("c"),
+        transition=_transition("c", "7" * 64),
     )
     (tmp_path / "history" / "00000000000000000001.json").write_bytes(
         canonical_json_bytes(second.payload())
@@ -251,11 +251,11 @@ def test_retained_newer_history_repairs_one_generation_current_rollback(
     authority = PersistentTrustStateAuthorityV1(tmp_path)
     initial = authority.initialize(
         initial_state=_initial_state(),
-        transition=_transition("a"),
+        transition=_transition("a", "0" * 64),
     )
     current, _ = authority.advance(
         next_state=_next_state(),
-        transition=_transition("b"),
+        transition=_transition("b", "4" * 64),
         expected_generation=initial.generation,
         expected_record_sha256=initial.record_sha256,
         expected_trust_state_sha256=initial.trust_state_sha256,
@@ -278,7 +278,7 @@ def test_malformed_history_fails_closed(tmp_path: Path) -> None:
     authority = PersistentTrustStateAuthorityV1(tmp_path)
     authority.initialize(
         initial_state=_initial_state(),
-        transition=_transition("a"),
+        transition=_transition("a", "0" * 64),
     )
     path = tmp_path / "history" / "00000000000000000000.json"
     path.write_text('{"not":"canonical", "spacing":"changed"}')
@@ -292,7 +292,7 @@ def test_two_processes_cannot_commit_same_generation(tmp_path: Path) -> None:
     authority = PersistentTrustStateAuthorityV1(tmp_path)
     initial = authority.initialize(
         initial_state=_initial_state(),
-        transition=_transition("a"),
+        transition=_transition("a", "0" * 64),
     )
     context = multiprocessing.get_context("spawn")
     queue = context.Queue()
@@ -321,11 +321,11 @@ def test_receipt_is_deterministic_for_committed_transition(tmp_path: Path) -> No
     authority = PersistentTrustStateAuthorityV1(tmp_path)
     initial = authority.initialize(
         initial_state=_initial_state(),
-        transition=_transition("a"),
+        transition=_transition("a", "0" * 64),
     )
     current, receipt = authority.advance(
         next_state=_next_state(),
-        transition=_transition("b"),
+        transition=_transition("b", "4" * 64),
         expected_generation=initial.generation,
         expected_record_sha256=initial.record_sha256,
         expected_trust_state_sha256=initial.trust_state_sha256,
