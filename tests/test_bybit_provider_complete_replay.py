@@ -33,13 +33,13 @@ from app.qualification.marketdata_integrity import (
     MarketDataSafetyAction,
     evaluate_bybit_marketdata_integrity,
 )
+from app.qualification.profile_binding import bind_manifest_to_profile
+from app.qualification.profile_registry import QualificationProfile
 from app.qualification.qualification_job import (
     QualificationJobRequest,
     QualificationJobStatus,
     evaluate_public_marketdata_qualification_job,
 )
-from app.qualification.profile_binding import bind_manifest_to_profile
-from app.qualification.profile_registry import QualificationProfile
 from app.qualification.qualification_manifest import (
     build_qualification_manifest,
 )
