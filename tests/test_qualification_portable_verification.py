@@ -588,7 +588,7 @@ def test_portable_bundle_rejects_keyring_generation_drift() -> None:
             ),
         ),
     )
-    with pytest.raises(ValueError, match="evidence keyring generation mismatch"):
+    with pytest.raises(ValueError, match="registry evidence id mismatch"):
         verify_portable_qualification_bundle(
             bundle=evidence_generation,
             trusted_root_public_keys={root.key_id: root.public_key_bytes()},
