@@ -33,6 +33,8 @@ from app.qualification.marketdata_integrity import (
     MarketDataSafetyAction,
     evaluate_bybit_marketdata_integrity,
 )
+from app.qualification.profile_binding import bind_manifest_to_profile
+from app.qualification.profile_registry import QualificationProfile
 from app.qualification.qualification_job import (
     QualificationJobRequest,
     QualificationJobStatus,
@@ -1183,3 +1185,112 @@ def test_qualification_manifest_validation_rejects_scope_and_claim_drift(tmp_pat
 
     with pytest.raises(ValueError, match="limitations mismatch"):
         replace(manifest, limitations=("PROFITABILITY_NOT_PROVEN",)).validate()
+
+
+
+def test_profile_binding_binds_exact_manifest_and_policy_digest(tmp_path) -> None:
+    evidence, report, integrity, job = passing_qualification_chain(tmp_path)
+    manifest = build_qualification_manifest(
+        job_result=job,
+        adapter_conformance=report,
+        marketdata_integrity=integrity,
+        provider_replay=evidence,
+    )
+    profile = QualificationProfile(
+        profile_id=manifest.profile_id,
+        version=manifest.profile_version,
+        scope=manifest.scope,
+        allowed_environments=(manifest.environment,),
+        required_corpus_classes=("BYBIT_PUBLIC_KLINE",),
+        required_checks=tuple(check.check_id for check in report.checks),
+        required_assertions=manifest.assertions,
+        required_limitations=manifest.limitations,
+        created_at=OBSERVED,
+    )
+
+    bound = bind_manifest_to_profile(
+        manifest=manifest,
+        profile=profile,
+        adapter_conformance=report,
+    )
+
+    assert bound.manifest_id == manifest.manifest_id
+    assert bound.manifest_sha256 == manifest.manifest_sha256
+    assert bound.profile_sha256 == profile.profile_sha256
+    assert bound.binding_id.startswith("qbinding_")
+    assert len(bound.binding_sha256) == 64
+
+
+def test_profile_binding_rejects_policy_mutation_under_same_version(tmp_path) -> None:
+    evidence, report, integrity, job = passing_qualification_chain(tmp_path)
+    manifest = build_qualification_manifest(
+        job_result=job,
+        adapter_conformance=report,
+        marketdata_integrity=integrity,
+        provider_replay=evidence,
+    )
+    profile = QualificationProfile(
+        profile_id=manifest.profile_id,
+        version=manifest.profile_version,
+        scope=manifest.scope,
+        allowed_environments=(manifest.environment,),
+        required_corpus_classes=("BYBIT_PUBLIC_KLINE",),
+        required_checks=tuple(check.check_id for check in report.checks),
+        required_assertions=manifest.assertions,
+        required_limitations=manifest.limitations,
+        created_at=OBSERVED,
+    )
+    mutated = replace(
+        profile,
+        required_checks=(*profile.required_checks, "NEW-UNSATISFIED-CHECK"),
+    )
+    mutated.validate()
+
+    with pytest.raises(ValueError, match="missing required checks"):
+        bind_manifest_to_profile(
+            manifest=manifest,
+            profile=mutated,
+            adapter_conformance=report,
+        )
+
+
+def test_profile_binding_rejects_environment_scope_and_profile_substitution(tmp_path) -> None:
+    evidence, report, integrity, job = passing_qualification_chain(tmp_path)
+    manifest = build_qualification_manifest(
+        job_result=job,
+        adapter_conformance=report,
+        marketdata_integrity=integrity,
+        provider_replay=evidence,
+    )
+    base = QualificationProfile(
+        profile_id=manifest.profile_id,
+        version=manifest.profile_version,
+        scope=manifest.scope,
+        allowed_environments=(manifest.environment,),
+        required_corpus_classes=("BYBIT_PUBLIC_KLINE",),
+        required_checks=tuple(check.check_id for check in report.checks),
+        required_assertions=manifest.assertions,
+        required_limitations=manifest.limitations,
+        created_at=OBSERVED,
+    )
+
+    with pytest.raises(ValueError, match="profile_id mismatch"):
+        bind_manifest_to_profile(
+            manifest=manifest,
+            profile=replace(base, profile_id="OTHER_PROFILE"),
+            adapter_conformance=report,
+        )
+
+    with pytest.raises(ValueError, match="scope mismatch"):
+        bind_manifest_to_profile(
+            manifest=manifest,
+            profile=replace(base, scope="EXECUTION"),
+            adapter_conformance=report,
+        )
+
+    with pytest.raises(ValueError, match="environment is not allowed"):
+        bind_manifest_to_profile(
+            manifest=manifest,
+            profile=replace(base, allowed_environments=("testnet",)),
+            adapter_conformance=report,
+        )
