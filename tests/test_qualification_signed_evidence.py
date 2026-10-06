@@ -276,3 +276,197 @@ def test_revoked_signing_key_is_fail_closed() -> None:
             key_generation=descriptor.generation,
             observed_at=NOW,
         )
+
+
+
+def test_qualification_descriptor_rejects_invalid_backend_and_interval() -> None:
+    _, signer, descriptor, _, _ = qualification_authority()
+
+    with pytest.raises(ValueError, match="KMS or HSM"):
+        replace(descriptor, backend="LOCAL").validate()
+
+    with pytest.raises(ValueError, match="validity interval"):
+        replace(
+            descriptor,
+            not_before=NOW,
+            not_after=NOW,
+        ).validate()
+
+    assert signer.key_id == descriptor.key_id
+
+
+def test_keyring_rejects_duplicate_keys_and_future_generation() -> None:
+    root, _, descriptor, _, _ = qualification_authority()
+
+    with pytest.raises(ValueError, match="duplicate qualification key id"):
+        QualificationKeyringSnapshot.sign(
+            generation=1,
+            issued_at=NOW - timedelta(minutes=1),
+            expires_at=NOW + timedelta(minutes=10),
+            keys=(descriptor, descriptor),
+            root_provider=root,
+        )
+
+    with pytest.raises(ValueError, match="exceeds keyring generation"):
+        QualificationKeyringSnapshot.sign(
+            generation=1,
+            issued_at=NOW - timedelta(minutes=1),
+            expires_at=NOW + timedelta(minutes=10),
+            keys=(replace(descriptor, generation=2),),
+            root_provider=root,
+        )
+
+
+def test_keyring_verification_rejects_untrusted_future_and_expired_snapshots() -> None:
+    root, _, _, snapshot, _ = qualification_authority()
+
+    with pytest.raises(ValueError, match="untrusted"):
+        verify_qualification_keyring(
+            snapshot,
+            trusted_root_public_keys={},
+            previous_generation=0,
+            observed_at=NOW,
+        )
+
+    future = replace(
+        snapshot,
+        issued_at=NOW + timedelta(minutes=5),
+        expires_at=NOW + timedelta(minutes=35),
+    )
+    future = QualificationKeyringSnapshot.sign(
+        generation=future.generation,
+        issued_at=future.issued_at,
+        expires_at=future.expires_at,
+        keys=future.keys,
+        root_provider=root,
+    )
+    with pytest.raises(ValueError, match="not yet valid"):
+        verify_qualification_keyring(
+            future,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_generation=0,
+            observed_at=NOW,
+            max_clock_skew_seconds=0,
+        )
+
+    expired = QualificationKeyringSnapshot.sign(
+        generation=2,
+        issued_at=NOW - timedelta(minutes=30),
+        expires_at=NOW - timedelta(minutes=1),
+        keys=snapshot.keys,
+        root_provider=root,
+    )
+    with pytest.raises(ValueError, match="expired"):
+        verify_qualification_keyring(
+            expired,
+            trusted_root_public_keys={root.key_id: root.public_key_bytes()},
+            previous_generation=1,
+            observed_at=NOW,
+            max_clock_skew_seconds=0,
+        )
+
+
+def test_signature_policy_rejects_backend_generation_and_lifetime_mismatch() -> None:
+    _, signer, descriptor, _, keyring = qualification_authority()
+    value = binding()
+
+    with pytest.raises(ValueError, match="backend mismatch"):
+        sign_qualification_binding(
+            binding=value,
+            provider=signer,
+            descriptor=replace(descriptor, backend="KMS"),
+            keyring_generation=keyring.generation,
+            signature_id="backend-mismatch",
+            issued_at=NOW,
+            expires_at=NOW + timedelta(minutes=1),
+            nonce="backend-mismatch",
+        )
+
+    with pytest.raises(ValueError, match="generation mismatch"):
+        sign_qualification_binding(
+            binding=value,
+            provider=signer,
+            descriptor=replace(descriptor, generation=2),
+            keyring_generation=keyring.generation,
+            signature_id="generation-mismatch",
+            issued_at=NOW,
+            expires_at=NOW + timedelta(minutes=1),
+            nonce="generation-mismatch",
+        )
+
+    with pytest.raises(ValueError, match="lifetime exceeds policy"):
+        sign_qualification_binding(
+            binding=value,
+            provider=signer,
+            descriptor=descriptor,
+            keyring_generation=keyring.generation,
+            signature_id="long-lived",
+            issued_at=NOW,
+            expires_at=NOW + timedelta(minutes=11),
+            nonce="long-lived",
+            max_lifetime_seconds=600,
+        )
+
+
+def test_signature_verification_rejects_wrong_keyring_generation_and_expiry() -> None:
+    value, signed, keyring = signed_fixture()
+
+    wrong_generation = replace(
+        signed,
+        envelope=replace(
+            signed.envelope,
+            keyring_generation=2,
+        ),
+    )
+    with pytest.raises(ValueError, match="keyring generation mismatch"):
+        verify_qualification_evidence(
+            binding=value,
+            signed_evidence=wrong_generation,
+            keyring=keyring,
+            observed_at=NOW + timedelta(seconds=1),
+        )
+
+    with pytest.raises(ValueError, match="expired"):
+        verify_qualification_evidence(
+            binding=value,
+            signed_evidence=signed,
+            keyring=keyring,
+            observed_at=NOW + timedelta(minutes=3),
+            max_clock_skew_seconds=0,
+        )
+
+
+def test_signature_verification_rejects_future_signature_and_bad_crypto() -> None:
+    value, signed, keyring = signed_fixture()
+
+    future = replace(
+        signed,
+        envelope=replace(
+            signed.envelope,
+            issued_at=NOW + timedelta(minutes=1),
+            expires_at=NOW + timedelta(minutes=2),
+        ),
+    )
+    with pytest.raises(ValueError, match="from the future"):
+        verify_qualification_evidence(
+            binding=value,
+            signed_evidence=future,
+            keyring=keyring,
+            observed_at=NOW,
+            max_clock_skew_seconds=0,
+        )
+
+    tampered_signature = replace(
+        signed,
+        envelope=replace(
+            signed.envelope,
+            signature_b64="A" * 88,
+        ),
+    )
+    with pytest.raises(ValueError, match="invalid signature|Ed25519 signature"):
+        verify_qualification_evidence(
+            binding=value,
+            signed_evidence=tampered_signature,
+            keyring=keyring,
+            observed_at=NOW + timedelta(seconds=1),
+        )
