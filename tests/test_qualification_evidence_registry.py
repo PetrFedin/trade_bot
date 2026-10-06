@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from base64 import b64encode
 from dataclasses import replace
 from datetime import timedelta
@@ -10,13 +11,11 @@ from app.qualification.evidence_registry import (
     EvidenceLifecycleStatus,
     EvidenceVerificationStatus,
     QualificationEvidenceRegistry,
+    verify_state_proof,
 )
 from app.qualification.profile_binding import ProfileBoundQualificationManifest
 from app.qualification.qualification_manifest import QualificationManifest
-from app.qualification.signed_evidence import (
-    sign_qualification_binding,
-    verify_qualification_evidence,
-)
+from app.qualification.signed_evidence import sign_qualification_binding
 from app.qualification.signing_authority import (
     QualificationKeyringSnapshot,
     QualificationSigningKeyDescriptor,
@@ -26,7 +25,11 @@ from app.runtime.signing_authority_v108 import SigningBackendV108
 from tests.helpers_v108 import NOW, LocalProviderV108
 
 
-def manifest(*, subject_version: str) -> QualificationManifest:
+def manifest(
+    *,
+    subject_version: str,
+    profile_id: str = "ASTRA_BYBIT_PUBLIC_MARKETDATA",
+) -> QualificationManifest:
     value = QualificationManifest(
         job_id=f"qjob_{subject_version[:24]}",
         job_result_sha256="1" * 64,
@@ -34,7 +37,7 @@ def manifest(*, subject_version: str) -> QualificationManifest:
         organisation_id="ASTRA_INTERNAL",
         subject="BYBIT_PUBLIC_MARKETDATA_ADAPTER",
         subject_version=subject_version,
-        profile_id="ASTRA_BYBIT_PUBLIC_MARKETDATA",
+        profile_id=profile_id,
         profile_version="1.0.0",
         environment="mainnet-public-readonly",
         corpus_ids=(f"BYBIT:BTCUSDT:{subject_version}",),
@@ -110,9 +113,14 @@ def authority():
     return signer, descriptor, keyring
 
 
-def evidence(*, subject_version: str, suffix: str):
+def evidence(
+    *,
+    subject_version: str,
+    suffix: str,
+    profile_id: str = "ASTRA_BYBIT_PUBLIC_MARKETDATA",
+):
     signer, descriptor, keyring = authority()
-    source = manifest(subject_version=subject_version)
+    source = manifest(subject_version=subject_version, profile_id=profile_id)
     binding = bound(source)
     signed = sign_qualification_binding(
         binding=binding,
@@ -124,18 +132,28 @@ def evidence(*, subject_version: str, suffix: str):
         expires_at=NOW + timedelta(minutes=2),
         nonce=f"qualification-nonce-{suffix}",
     )
-    verified = verify_qualification_evidence(
+    return source, binding, signed, keyring
+
+
+def register_bundle(
+    registry: QualificationEvidenceRegistry,
+    bundle,
+    *,
+    seconds: int,
+):
+    source, binding, signed, keyring = bundle
+    return registry.register(
+        manifest=source,
         binding=binding,
         signed_evidence=signed,
         keyring=keyring,
-        observed_at=NOW + timedelta(seconds=1),
+        observed_at=NOW + timedelta(seconds=seconds),
     )
-    return source, binding, signed, verified
 
 
-def test_registry_accepts_only_fully_bound_verified_evidence() -> None:
+def test_registry_performs_crypto_verification_and_persists_signer_metadata() -> None:
     registry = QualificationEvidenceRegistry()
-    source, binding, signed, verified = evidence(
+    source, binding, signed, keyring = evidence(
         subject_version="build-0001",
         suffix="one",
     )
@@ -144,7 +162,7 @@ def test_registry_accepts_only_fully_bound_verified_evidence() -> None:
         manifest=source,
         binding=binding,
         signed_evidence=signed,
-        verification=verified,
+        keyring=keyring,
         observed_at=NOW + timedelta(seconds=2),
     )
 
@@ -152,8 +170,15 @@ def test_registry_accepts_only_fully_bound_verified_evidence() -> None:
     assert record.binding_sha256 == binding.binding_sha256
     assert record.manifest_sha256 == source.manifest_sha256
     assert record.profile_sha256 == binding.profile_sha256
+    assert record.signer_key_id == "qualification-key"
+    assert record.signer_owner_id == "qualification-owner"
+    assert record.signer_key_generation == 1
+    assert record.keyring_generation == 1
+    assert record.signature_envelope_sha256 == signed.envelope.envelope_sha256
+    assert record.cryptographically_verified_at == NOW + timedelta(seconds=2)
     assert registry.event_count == 1
     assert registry.verify_chain() == registry.head_sha256
+    assert registry.state_root_sha256 != "0" * 64
 
     decision = registry.verify(
         evidence_id=signed.evidence_id,
@@ -162,13 +187,45 @@ def test_registry_accepts_only_fully_bound_verified_evidence() -> None:
     assert decision.status is EvidenceVerificationStatus.VALID
     assert decision.reason is None
     assert decision.binding_sha256 == binding.binding_sha256
+    assert decision.signer_key_id == "qualification-key"
+    assert decision.state_root_sha256 == registry.state_root_sha256
 
 
-def test_registry_rejects_profile_or_binding_substitution() -> None:
+def test_registry_rejects_forged_signature_without_external_verification_object() -> None:
     registry = QualificationEvidenceRegistry()
-    source, binding, signed, verified = evidence(
+    source, binding, signed, keyring = evidence(
         subject_version="build-0002",
-        suffix="two",
+        suffix="forged",
+    )
+    raw = bytearray(base64.b64decode(signed.envelope.signature_b64))
+    raw[0] ^= 1
+    forged = replace(
+        signed,
+        envelope=replace(
+            signed.envelope,
+            signature_b64=base64.b64encode(bytes(raw)).decode("ascii"),
+        ),
+    )
+    forged.validate()
+
+    with pytest.raises(ValueError, match="Ed25519 signature"):
+        registry.register(
+            manifest=source,
+            binding=binding,
+            signed_evidence=forged,
+            keyring=keyring,
+            observed_at=NOW + timedelta(seconds=2),
+        )
+
+    assert registry.event_count == 0
+    assert registry.state_root_sha256 == "0" * 64
+
+
+def test_registry_rejects_binding_profile_and_manifest_substitution() -> None:
+    registry = QualificationEvidenceRegistry()
+    source, binding, signed, keyring = evidence(
+        subject_version="build-0003",
+        suffix="substitution",
     )
 
     with pytest.raises(ValueError, match="signed profile digest mismatch"):
@@ -176,29 +233,79 @@ def test_registry_rejects_profile_or_binding_substitution() -> None:
             manifest=source,
             binding=replace(binding, profile_sha256="f" * 64),
             signed_evidence=signed,
-            verification=verified,
+            keyring=keyring,
+            observed_at=NOW + timedelta(seconds=2),
+        )
+
+    with pytest.raises(ValueError, match="binding manifest digest mismatch"):
+        registry.register(
+            manifest=replace(source, organisation_id="OTHER"),
+            binding=binding,
+            signed_evidence=signed,
+            keyring=keyring,
             observed_at=NOW + timedelta(seconds=2),
         )
 
 
-def test_registry_supersession_requires_active_matching_scope_replacement() -> None:
+def test_registry_rejects_registration_before_manifest_issuance() -> None:
     registry = QualificationEvidenceRegistry()
-    old = evidence(subject_version="build-0003", suffix="old")
-    new = evidence(subject_version="build-0004", suffix="new")
-    old_record = registry.register(
-        manifest=old[0],
-        binding=old[1],
-        signed_evidence=old[2],
-        verification=old[3],
-        observed_at=NOW + timedelta(seconds=2),
+    source, binding, signed, keyring = evidence(
+        subject_version="build-0004",
+        suffix="early",
     )
-    new_record = registry.register(
-        manifest=new[0],
-        binding=new[1],
-        signed_evidence=new[2],
-        verification=new[3],
+
+    with pytest.raises(ValueError, match="before manifest issuance"):
+        registry.register(
+            manifest=source,
+            binding=binding,
+            signed_evidence=signed,
+            keyring=keyring,
+            observed_at=NOW - timedelta(seconds=1),
+        )
+
+
+def test_state_merkle_proof_authenticates_current_active_record() -> None:
+    registry = QualificationEvidenceRegistry()
+    first = evidence(subject_version="build-0005", suffix="first")
+    second = evidence(subject_version="build-0006", suffix="second")
+    first_record = register_bundle(registry, first, seconds=2)
+    register_bundle(registry, second, seconds=3)
+
+    proof = registry.state_proof(evidence_id=first_record.evidence_id)
+
+    assert proof.record.status is EvidenceLifecycleStatus.ACTIVE
+    assert proof.state_root_sha256 == registry.state_root_sha256
+    assert verify_state_proof(proof)
+
+
+def test_state_root_and_proof_change_after_revocation() -> None:
+    registry = QualificationEvidenceRegistry()
+    bundle = evidence(subject_version="build-0007", suffix="revoke")
+    record = register_bundle(registry, bundle, seconds=2)
+    active_root = registry.state_root_sha256
+    active_proof = registry.state_proof(evidence_id=record.evidence_id)
+    assert verify_state_proof(active_proof)
+
+    registry.revoke(
+        evidence_id=record.evidence_id,
+        reason="PROVIDER_EVIDENCE_RETRACTED",
         observed_at=NOW + timedelta(seconds=3),
     )
+
+    revoked_root = registry.state_root_sha256
+    revoked_proof = registry.state_proof(evidence_id=record.evidence_id)
+    assert revoked_root != active_root
+    assert revoked_proof.record.status is EvidenceLifecycleStatus.REVOKED
+    assert verify_state_proof(revoked_proof)
+    assert not verify_state_proof(replace(active_proof, state_root_sha256=revoked_root))
+
+
+def test_supersession_requires_active_same_profile_family_replacement() -> None:
+    registry = QualificationEvidenceRegistry()
+    old = evidence(subject_version="build-0008", suffix="old")
+    new = evidence(subject_version="build-0009", suffix="new")
+    old_record = register_bundle(registry, old, seconds=2)
+    new_record = register_bundle(registry, new, seconds=3)
 
     updated = registry.supersede(
         evidence_id=old_record.evidence_id,
@@ -215,35 +322,48 @@ def test_registry_supersession_requires_active_matching_scope_replacement() -> N
     )
     assert decision.status is EvidenceVerificationStatus.SUPERSEDED
     assert decision.reason == "NEW_BUILD_QUALIFIED"
+    assert verify_state_proof(
+        registry.state_proof(evidence_id=old_record.evidence_id)
+    )
 
 
-def test_registry_revocation_is_terminal_and_fail_closed() -> None:
+def test_cross_profile_supersession_is_rejected() -> None:
     registry = QualificationEvidenceRegistry()
-    source, binding, signed, verified = evidence(
-        subject_version="build-0005",
-        suffix="revoke",
+    old = evidence(subject_version="build-0010", suffix="old-profile")
+    other = evidence(
+        subject_version="build-0011",
+        suffix="other-profile",
+        profile_id="ASTRA_OTHER_PROFILE",
     )
-    record = registry.register(
-        manifest=source,
-        binding=binding,
-        signed_evidence=signed,
-        verification=verified,
-        observed_at=NOW + timedelta(seconds=2),
-    )
+    old_record = register_bundle(registry, old, seconds=2)
+    other_record = register_bundle(registry, other, seconds=3)
 
-    revoked = registry.revoke(
+    with pytest.raises(ValueError, match="scope mismatch"):
+        registry.supersede(
+            evidence_id=old_record.evidence_id,
+            replacement_evidence_id=other_record.evidence_id,
+            reason="INVALID_CROSS_PROFILE",
+            observed_at=NOW + timedelta(seconds=4),
+        )
+
+
+def test_revocation_is_terminal_and_unknown_evidence_is_explicit() -> None:
+    registry = QualificationEvidenceRegistry()
+    bundle = evidence(subject_version="build-0012", suffix="terminal")
+    record = register_bundle(registry, bundle, seconds=2)
+
+    registry.revoke(
         evidence_id=record.evidence_id,
-        reason="PROVIDER_EVIDENCE_RETRACTED",
+        reason="QUALIFICATION_RETRACTED",
         observed_at=NOW + timedelta(seconds=3),
     )
-    assert revoked.status is EvidenceLifecycleStatus.REVOKED
 
     decision = registry.verify(
         evidence_id=record.evidence_id,
         observed_at=NOW + timedelta(seconds=4),
     )
     assert decision.status is EvidenceVerificationStatus.REVOKED
-    assert decision.reason == "PROVIDER_EVIDENCE_RETRACTED"
+    assert decision.reason == "QUALIFICATION_RETRACTED"
 
     with pytest.raises(ValueError, match="not ACTIVE"):
         registry.revoke(
@@ -252,42 +372,22 @@ def test_registry_revocation_is_terminal_and_fail_closed() -> None:
             observed_at=NOW + timedelta(seconds=5),
         )
 
-
-def test_unknown_evidence_is_explicitly_unknown() -> None:
-    registry = QualificationEvidenceRegistry()
-
-    decision = registry.verify(
+    unknown = registry.verify(
         evidence_id="qevidence_unknown",
-        observed_at=NOW,
+        observed_at=NOW + timedelta(seconds=5),
     )
+    assert unknown.status is EvidenceVerificationStatus.UNKNOWN
+    assert unknown.reason == "EVIDENCE_NOT_REGISTERED"
+    assert unknown.state_root_sha256 == registry.state_root_sha256
 
-    assert decision.status is EvidenceVerificationStatus.UNKNOWN
-    assert decision.reason == "EVIDENCE_NOT_REGISTERED"
-    assert decision.registry_head_sha256 == "0" * 64
 
-
-def test_registry_rejects_duplicate_registration_and_time_regression() -> None:
+def test_duplicate_registration_and_lifecycle_time_regression_are_rejected() -> None:
     registry = QualificationEvidenceRegistry()
-    source, binding, signed, verified = evidence(
-        subject_version="build-0006",
-        suffix="duplicate",
-    )
-    record = registry.register(
-        manifest=source,
-        binding=binding,
-        signed_evidence=signed,
-        verification=verified,
-        observed_at=NOW + timedelta(seconds=2),
-    )
+    bundle = evidence(subject_version="build-0013", suffix="duplicate")
+    record = register_bundle(registry, bundle, seconds=2)
 
     with pytest.raises(ValueError, match="already registered"):
-        registry.register(
-            manifest=source,
-            binding=binding,
-            signed_evidence=signed,
-            verification=verified,
-            observed_at=NOW + timedelta(seconds=3),
-        )
+        register_bundle(registry, bundle, seconds=3)
 
     with pytest.raises(ValueError, match="time regression"):
         registry.revoke(
@@ -295,3 +395,22 @@ def test_registry_rejects_duplicate_registration_and_time_regression() -> None:
             reason="BACKDATED_REVOKE",
             observed_at=NOW + timedelta(seconds=1),
         )
+
+
+def test_state_proof_rejects_unknown_evidence_and_tampered_path() -> None:
+    registry = QualificationEvidenceRegistry()
+    first = evidence(subject_version="build-0014", suffix="path-one")
+    second = evidence(subject_version="build-0015", suffix="path-two")
+    first_record = register_bundle(registry, first, seconds=2)
+    register_bundle(registry, second, seconds=3)
+
+    with pytest.raises(ValueError, match="not registered"):
+        registry.state_proof(evidence_id="qevidence_unknown")
+
+    proof = registry.state_proof(evidence_id=first_record.evidence_id)
+    assert proof.audit_path
+    tampered = replace(
+        proof,
+        audit_path=("f" * 64, *proof.audit_path[1:]),
+    )
+    assert not verify_state_proof(tampered)
