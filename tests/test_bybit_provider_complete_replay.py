@@ -38,6 +38,9 @@ from app.qualification.qualification_job import (
     QualificationJobStatus,
     evaluate_public_marketdata_qualification_job,
 )
+from app.qualification.qualification_manifest import (
+    build_qualification_manifest,
+)
 from app.qualification.replay_evidence import (
     ReplayContinuity,
     ReplayEvidenceProfile,
@@ -920,3 +923,170 @@ def test_qualification_job_request_requires_nonempty_corpus() -> None:
 
     with pytest.raises(ValueError, match="at least one corpus"):
         request.validate()
+
+
+
+def passing_qualification_chain(tmp_path):
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+    integrity = evaluate_bybit_marketdata_integrity(
+        capture=capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        adapter_conformance=report,
+        policy=policy,
+        observed_at=OBSERVED,
+    )
+    job = evaluate_public_marketdata_qualification_job(
+        request=qualification_job_request(evidence),
+        adapter_conformance=report,
+        marketdata_integrity=integrity,
+        started_at=OBSERVED + timedelta(seconds=1),
+        completed_at=OBSERVED + timedelta(seconds=2),
+    )
+    assert job.status is QualificationJobStatus.PASS
+    return evidence, report, integrity, job
+
+
+def test_qualification_manifest_binds_complete_success_chain(tmp_path) -> None:
+    evidence, report, integrity, job = passing_qualification_chain(tmp_path)
+
+    manifest = build_qualification_manifest(
+        job_result=job,
+        adapter_conformance=report,
+        marketdata_integrity=integrity,
+        provider_replay=evidence,
+    )
+
+    assert manifest.job_id == job.job_id
+    assert manifest.job_result_sha256 == job.result_sha256
+    assert manifest.request_sha256 == job.request.request_sha256
+    assert manifest.provider_replay_sha256 == evidence.evidence_sha256
+    assert manifest.adapter_conformance_sha256 == report.evidence_sha256
+    assert manifest.marketdata_integrity_sha256 == integrity.evidence_sha256
+    assert manifest.continuity_checkpoint_id == evidence.continuity_checkpoint_id
+    assert manifest.scope == "PUBLIC_MARKET_DATA_ONLY"
+    assert "PROFITABILITY_NOT_PROVEN" in manifest.limitations
+    assert "REGULATORY_CERTIFICATION_NOT_CLAIMED" in manifest.limitations
+    assert manifest.manifest_id.startswith("qmanifest_")
+    assert len(manifest.manifest_sha256) == 64
+
+
+def test_qualification_manifest_is_deterministic(tmp_path) -> None:
+    evidence, report, integrity, job = passing_qualification_chain(tmp_path)
+
+    first = build_qualification_manifest(
+        job_result=job,
+        adapter_conformance=report,
+        marketdata_integrity=integrity,
+        provider_replay=evidence,
+    )
+    second = build_qualification_manifest(
+        job_result=job,
+        adapter_conformance=report,
+        marketdata_integrity=integrity,
+        provider_replay=evidence,
+    )
+
+    assert first == second
+    assert first.manifest_sha256 == second.manifest_sha256
+    assert first.payload() == second.payload()
+
+
+def test_qualification_manifest_rejects_non_pass_job(tmp_path) -> None:
+    evidence, report, integrity, job = passing_qualification_chain(tmp_path)
+    failed_job = replace(
+        job,
+        status=QualificationJobStatus.FAIL,
+        reasons=("MARKET_DATA_INTEGRITY_DEGRADED",),
+    )
+    failed_job.validate()
+
+    with pytest.raises(ValueError, match="PASS job"):
+        build_qualification_manifest(
+            job_result=failed_job,
+            adapter_conformance=report,
+            marketdata_integrity=integrity,
+            provider_replay=evidence,
+        )
+
+
+def test_qualification_manifest_rejects_job_result_evidence_substitution(tmp_path) -> None:
+    evidence, report, integrity, job = passing_qualification_chain(tmp_path)
+    substituted_job = replace(
+        job,
+        adapter_conformance_sha256="0" * 64,
+    )
+    substituted_job.validate()
+
+    with pytest.raises(ValueError, match="adapter evidence mismatch"):
+        build_qualification_manifest(
+            job_result=substituted_job,
+            adapter_conformance=report,
+            marketdata_integrity=integrity,
+            provider_replay=evidence,
+        )
+
+
+def test_qualification_manifest_rejects_provider_replay_substitution(tmp_path) -> None:
+    evidence, report, integrity, job = passing_qualification_chain(tmp_path)
+    substituted = replace(
+        evidence,
+        strategy_id="substituted-strategy",
+    )
+    substituted.validate()
+
+    with pytest.raises(ValueError, match="provider replay mismatch"):
+        build_qualification_manifest(
+            job_result=job,
+            adapter_conformance=report,
+            marketdata_integrity=integrity,
+            provider_replay=substituted,
+        )
+
+
+def test_qualification_manifest_rejects_corpus_substitution(tmp_path) -> None:
+    evidence, report, integrity, job = passing_qualification_chain(tmp_path)
+    request = replace(job.request, corpus_ids=("other-corpus",))
+    substituted_job = replace(job, request=request)
+
+    with pytest.raises(ValueError, match="corpus"):
+        build_qualification_manifest(
+            job_result=substituted_job,
+            adapter_conformance=report,
+            marketdata_integrity=integrity,
+            provider_replay=evidence,
+        )
+
+
+def test_qualification_manifest_rejects_degraded_feed(tmp_path) -> None:
+    capture, checkpoint, evidence, report, _ = integrity_bundle(tmp_path)
+    strict = MarketDataIntegrityPolicy(
+        maximum_server_skew_seconds=Decimal("5"),
+        high_water_receive_delay_seconds=Decimal("1"),
+        maximum_final_bar_age_seconds=Decimal("10"),
+    )
+    integrity = evaluate_bybit_marketdata_integrity(
+        capture=capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        adapter_conformance=report,
+        policy=strict,
+        observed_at=OBSERVED,
+    )
+    assert integrity.status is MarketDataIntegrityStatus.DEGRADED
+    failed_job = evaluate_public_marketdata_qualification_job(
+        request=qualification_job_request(evidence),
+        adapter_conformance=report,
+        marketdata_integrity=integrity,
+        started_at=OBSERVED + timedelta(seconds=1),
+        completed_at=OBSERVED + timedelta(seconds=2),
+    )
+    assert failed_job.status is QualificationJobStatus.FAIL
+
+    with pytest.raises(ValueError, match="PASS job"):
+        build_qualification_manifest(
+            job_result=failed_job,
+            adapter_conformance=report,
+            marketdata_integrity=integrity,
+            provider_replay=evidence,
+        )
