@@ -199,6 +199,18 @@ class PortableQualificationVerificationBundleV4:
                 raise ValueError("portable v4 profile event object id mismatch")
             if entry.object_sha256 != event.event_sha256:
                 raise ValueError("portable v4 profile event digest mismatch")
+            profile_id, profile_version = _split_profile_ref(event.profile_ref)
+            if entry.subject != "QUALIFICATION_PROFILE":
+                raise ValueError("portable v4 profile event subject mismatch")
+            if entry.subject_version != event.event_type.value:
+                raise ValueError("portable v4 profile event type mismatch")
+            if entry.profile_id != profile_id or entry.profile_version != profile_version:
+                raise ValueError("portable v4 profile event profile identity mismatch")
+            if _aware(entry.published_at, "entry.published_at") < _aware(
+                event.observed_at,
+                "event.observed_at",
+            ):
+                raise ValueError("portable v4 profile event publication predates event")
             if proof.leaf_sha256 != entry.leaf_sha256:
                 raise ValueError("portable v4 profile event leaf mismatch")
             if proof.tree_size != self.current_transparency_head.tree_size:
@@ -391,9 +403,12 @@ def verify_portable_qualification_bundle_v4(
         or checkpoint.profile_event_head_sha256 != delta.current_event_head_sha256
         or checkpoint.profile_publication_receipt_sha256
         != bundle.profile_publication_receipt.receipt_sha256
-        or checkpoint.current_transparency_root_sha256
-        if False
-        else False
+        or checkpoint.transparency_tree_size
+        != bundle.current_transparency_head.tree_size
+        or checkpoint.transparency_root_sha256
+        != bundle.current_transparency_head.root_sha256
+        or checkpoint.transparency_tree_head_sha256
+        != bundle.current_transparency_head.tree_head_sha256
     )
     if binding_mismatch:
         raise PortableQualificationVerificationErrorV4(
@@ -423,6 +438,13 @@ def verify_portable_qualification_bundle_v4(
         usable=usable,
         verified_at=now,
     )
+
+
+def _split_profile_ref(profile_ref: str) -> tuple[str, str]:
+    profile_id, separator, version = profile_ref.rpartition("@")
+    if not separator or not profile_id.strip() or not version.strip():
+        raise ValueError("qualification profile_ref must be profile_id@version")
+    return profile_id, version
 
 
 def _aware(value: datetime, name: str) -> datetime:
