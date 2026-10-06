@@ -169,10 +169,14 @@ class PortableQualificationVerificationBundleV4:
             raise ValueError("portable v4 current transparency head mismatch")
 
         consistency = self.transparency_consistency_proof
-        if consistency.previous_tree_size != self.base_v3.transparency_head.tree_size:
-            raise ValueError("portable v4 consistency previous size mismatch")
-        if consistency.previous_root_sha256 != self.base_v3.transparency_head.root_sha256:
-            raise ValueError("portable v4 consistency previous root mismatch")
+        if consistency.previous_tree_size < self.base_v3.transparency_head.tree_size:
+            raise ValueError("portable v4 consistency anchor predates base v3 tree")
+        if (
+            consistency.previous_tree_size == self.base_v3.transparency_head.tree_size
+            and consistency.previous_root_sha256
+            != self.base_v3.transparency_head.root_sha256
+        ):
+            raise ValueError("portable v4 initial consistency root mismatch")
         if consistency.current_tree_size != self.current_transparency_head.tree_size:
             raise ValueError("portable v4 consistency current size mismatch")
         if consistency.current_root_sha256 != self.current_transparency_head.root_sha256:
@@ -279,11 +283,15 @@ class PortableQualificationVerificationResultV4:
     bundle_sha256: str
     trusted_previous_profile_event_count: int
     trusted_previous_profile_event_head_sha256: str
+    trusted_previous_transparency_tree_size: int
+    trusted_previous_transparency_root_sha256: str
+    trusted_previous_checkpoint_v4_sha256: str
     current_profile_event_count: int
     current_profile_event_head_sha256: str
     appended_profile_event_count: int
     profile_publication_receipt_sha256: str
     checkpoint_v4_id: str
+    checkpoint_v4_sha256: str
     checkpoint_v4_signer_key_id: str
     current_transparency_tree_size: int
     current_transparency_root_sha256: str
@@ -301,6 +309,15 @@ class PortableQualificationVerificationResultV4:
             "trusted_previous_profile_event_head_sha256": (
                 self.trusted_previous_profile_event_head_sha256
             ),
+            "trusted_previous_transparency_tree_size": (
+                self.trusted_previous_transparency_tree_size
+            ),
+            "trusted_previous_transparency_root_sha256": (
+                self.trusted_previous_transparency_root_sha256
+            ),
+            "trusted_previous_checkpoint_v4_sha256": (
+                self.trusted_previous_checkpoint_v4_sha256
+            ),
             "current_profile_event_count": self.current_profile_event_count,
             "current_profile_event_head_sha256": self.current_profile_event_head_sha256,
             "appended_profile_event_count": self.appended_profile_event_count,
@@ -308,6 +325,7 @@ class PortableQualificationVerificationResultV4:
                 self.profile_publication_receipt_sha256
             ),
             "checkpoint_v4_id": self.checkpoint_v4_id,
+            "checkpoint_v4_sha256": self.checkpoint_v4_sha256,
             "checkpoint_v4_signer_key_id": self.checkpoint_v4_signer_key_id,
             "current_transparency_tree_size": self.current_transparency_tree_size,
             "current_transparency_root_sha256": self.current_transparency_root_sha256,
@@ -323,6 +341,9 @@ def verify_portable_qualification_bundle_v4(
     previous_keyring_generation: int,
     trusted_previous_profile_event_count: int,
     trusted_previous_profile_event_head_sha256: str,
+    trusted_previous_transparency_tree_size: int,
+    trusted_previous_transparency_root_sha256: str,
+    trusted_previous_checkpoint_v4_sha256: str,
     observed_at: datetime,
     max_clock_skew_seconds: int = 5,
 ) -> PortableQualificationVerificationResultV4:
@@ -365,7 +386,36 @@ def verify_portable_qualification_bundle_v4(
             str(exc),
         ) from exc
 
-    if not verify_delta_consistency(bundle.transparency_consistency_proof):
+    if trusted_previous_transparency_tree_size < 0:
+        raise PortableQualificationVerificationErrorV4(
+            PortableVerificationFailureCodeV4.TRANSPARENCY_CONTINUITY_REJECTED,
+            "trusted previous transparency tree size must be non-negative",
+        )
+    try:
+        trusted_transparency_root = _digest(
+            trusted_previous_transparency_root_sha256,
+            "trusted_previous_transparency_root_sha256",
+        )
+        trusted_checkpoint_sha = _digest(
+            trusted_previous_checkpoint_v4_sha256,
+            "trusted_previous_checkpoint_v4_sha256",
+        )
+    except ValueError as exc:
+        raise PortableQualificationVerificationErrorV4(
+            PortableVerificationFailureCodeV4.TRANSPARENCY_CONTINUITY_REJECTED,
+            str(exc),
+        ) from exc
+
+    consistency = bundle.transparency_consistency_proof
+    if (
+        consistency.previous_tree_size != trusted_previous_transparency_tree_size
+        or consistency.previous_root_sha256 != trusted_transparency_root
+    ):
+        raise PortableQualificationVerificationErrorV4(
+            PortableVerificationFailureCodeV4.TRANSPARENCY_CONTINUITY_REJECTED,
+            "portable v4 transparency trusted anchor mismatch",
+        )
+    if not verify_delta_consistency(consistency):
         raise PortableQualificationVerificationErrorV4(
             PortableVerificationFailureCodeV4.TRANSPARENCY_CONTINUITY_REJECTED,
             "portable v4 transparency consistency proof is invalid",
@@ -399,7 +449,8 @@ def verify_portable_qualification_bundle_v4(
         ) from exc
 
     binding_mismatch = (
-        checkpoint.profile_event_count != delta.current_event_count
+        checkpoint.previous_trust_checkpoint_sha256 != trusted_checkpoint_sha
+        or checkpoint.profile_event_count != delta.current_event_count
         or checkpoint.profile_event_head_sha256 != delta.current_event_head_sha256
         or checkpoint.profile_publication_receipt_sha256
         != bundle.profile_publication_receipt.receipt_sha256
@@ -425,6 +476,11 @@ def verify_portable_qualification_bundle_v4(
         trusted_previous_profile_event_head_sha256=(
             trusted_previous_profile_event_head_sha256
         ),
+        trusted_previous_transparency_tree_size=(
+            trusted_previous_transparency_tree_size
+        ),
+        trusted_previous_transparency_root_sha256=trusted_transparency_root,
+        trusted_previous_checkpoint_v4_sha256=trusted_checkpoint_sha,
         current_profile_event_count=delta.current_event_count,
         current_profile_event_head_sha256=delta.current_event_head_sha256,
         appended_profile_event_count=delta.appended_event_count,
@@ -432,12 +488,22 @@ def verify_portable_qualification_bundle_v4(
             bundle.profile_publication_receipt.receipt_sha256
         ),
         checkpoint_v4_id=checkpoint.checkpoint_id,
+        checkpoint_v4_sha256=checkpoint.checkpoint_sha256,
         checkpoint_v4_signer_key_id=checkpoint.signer_key_id,
         current_transparency_tree_size=checkpoint.transparency_tree_size,
         current_transparency_root_sha256=checkpoint.transparency_root_sha256,
         usable=usable,
         verified_at=now,
     )
+
+
+def _digest(value: str, name: str) -> str:
+    normalized = value.strip().lower()
+    if len(normalized) != 64 or any(
+        character not in "0123456789abcdef" for character in normalized
+    ):
+        raise ValueError(f"{name} must be a sha256 digest")
+    return normalized
 
 
 def _split_profile_ref(profile_ref: str) -> tuple[str, str]:
