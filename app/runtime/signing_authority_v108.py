@@ -52,6 +52,7 @@ class SigningPurposeV108(str, Enum):
     RISK_APPROVAL = "RISK_APPROVAL"
     CONTROLLER_COMMAND = "CONTROLLER_COMMAND"
     EXECUTOR_RECEIPT = "EXECUTOR_RECEIPT"
+    QUALIFICATION_EVIDENCE = "QUALIFICATION_EVIDENCE"
 
 
 def _ensure_utc(value: datetime, name: str = "datetime") -> datetime:
