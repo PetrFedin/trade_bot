@@ -8,12 +8,11 @@ from app.qualification.signing_authority import (
     QualificationSignatureEnvelope,
     QualificationSignatureReplayLedger,
     QualificationSigningKeyDescriptor,
+    QualificationSigningProvider,
     VerifiedQualificationKeyring,
     sign_qualification_payload,
     verify_qualification_signature,
 )
-from app.runtime.signing_authority_v108 import Ed25519SigningProviderV108
-
 _SCHEMA_VERSION = "astra-signed-qualification-evidence-v1"
 _DOMAIN = "astra.qualification.evidence.v1"
 
@@ -83,7 +82,7 @@ class VerifiedQualificationEvidence:
 def sign_qualification_manifest(
     *,
     manifest: QualificationManifest,
-    provider: Ed25519SigningProviderV108,
+    provider: QualificationSigningProvider,
     descriptor: QualificationSigningKeyDescriptor,
     keyring_generation: int,
     signature_id: str,
