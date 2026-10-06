@@ -17,7 +17,10 @@ from app.qualification.profile_transparency import (
     profile_event_object_id,
     publish_profile_lifecycle,
 )
-from app.qualification.transparency_log import QualificationTransparencyEntry
+from app.qualification.transparency_log import (
+    QualificationTransparencyEntry,
+    transparency_root_at_size_from_consistency,
+)
 from app.qualification.trust_checkpoint_v4 import (
     build_trust_checkpoint_v4,
     sign_trust_checkpoint_v4,
@@ -349,3 +352,22 @@ def test_portable_v4_result_exposes_next_round_trust_anchors() -> None:
     assert result.current_profile_event_head_sha256 == (
         bundle.profile_event_delta.current_event_head_sha256
     )
+
+
+
+def test_portable_v4_consistency_proof_recovers_publication_root() -> None:
+    bundle, _ = bundle_v4()
+    proof = bundle.transparency_consistency_proof
+
+    root = transparency_root_at_size_from_consistency(
+        proof,
+        tree_size=bundle.profile_publication_head.tree_size,
+    )
+
+    assert root == bundle.profile_publication_head.root_sha256
+
+    with pytest.raises(ValueError, match="outside consistency proof"):
+        transparency_root_at_size_from_consistency(
+            proof,
+            tree_size=proof.current_tree_size + 1,
+        )
