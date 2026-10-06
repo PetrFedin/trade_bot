@@ -30,6 +30,7 @@ dev = [
 
 [project.scripts]
 astra-external-paper-readonly = "tools.external_paper_readonly:main"
+astra-qualification-verify-offline = "tools.qualification_offline_verify_v1:main"
 astra-platform-v105 = "tools.platform_v105:main"
 astra-architecture-audit-v105 = "tools.architecture_audit_v105:main"
 astra-static-audit-v105 = "tools.static_audit_v105:main"
