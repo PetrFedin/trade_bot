@@ -33,7 +33,9 @@ def _aware_utc(value: datetime, name: str) -> datetime:
 
 def _hex_digest(value: str, name: str) -> str:
     normalized = value.strip().lower()
-    if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+    if len(normalized) != 64 or any(
+        character not in "0123456789abcdef" for character in normalized
+    ):
         raise ValueError(f"{name} must be a sha256 digest")
     return normalized
 

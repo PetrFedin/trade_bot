@@ -72,6 +72,27 @@ def _risk_market_input_payload(
     }
 
 
+def strategy_input_sha256(bar: OperationalBar, *, strategy_id: str) -> str:
+    if not strategy_id.strip():
+        raise ValueError("strategy_id is required")
+    return _sha256(_strategy_input_payload(bar, strategy_id=strategy_id))
+
+
+def risk_market_input_sha256(
+    bar: OperationalBar,
+    *,
+    instrument_spec_revision: str,
+) -> str:
+    if len(instrument_spec_revision) != 64:
+        raise ValueError("instrument_spec_revision must be a sha256 digest")
+    return _sha256(
+        _risk_market_input_payload(
+            bar,
+            instrument_spec_revision=instrument_spec_revision,
+        )
+    )
+
+
 @dataclass(frozen=True)
 class BybitProviderReplayBinding:
     sequence: int
@@ -104,6 +125,7 @@ class BybitProviderReplayEvidence:
     response_received_at: datetime
     exchange_server_at: datetime
     instrument_spec_revision: str
+    strategy_id: str
     instrument_source_timestamp: datetime
     instrument_observed_timestamp: datetime
     continuity_checkpoint_id: str
@@ -125,6 +147,8 @@ class BybitProviderReplayEvidence:
             raise ValueError("raw_response_sha256 must be a sha256 digest")
         if len(self.instrument_spec_revision) != 64:
             raise ValueError("instrument_spec_revision must be a sha256 digest")
+        if not self.strategy_id.strip():
+            raise ValueError("strategy_id is required")
         _aware(self.response_received_at, "response_received_at")
         _aware(self.exchange_server_at, "exchange_server_at")
         _aware(self.instrument_source_timestamp, "instrument_source_timestamp")
@@ -165,6 +189,7 @@ class BybitProviderReplayEvidence:
                 "exchange_server_at",
             ).isoformat(),
             "instrument_spec_revision": self.instrument_spec_revision,
+            "strategy_id": self.strategy_id,
             "instrument_source_timestamp": _aware(
                 self.instrument_source_timestamp,
                 "instrument_source_timestamp",
@@ -265,14 +290,13 @@ def build_bybit_provider_complete_replay(
                 else ReplayContinuity.CONTIGUOUS
             ),
         )
-        strategy_input_sha256 = _sha256(
-            _strategy_input_payload(bar, strategy_id=strategy_id)
+        strategy_digest = strategy_input_sha256(
+            bar,
+            strategy_id=strategy_id,
         )
-        risk_market_input_sha256 = _sha256(
-            _risk_market_input_payload(
-                bar,
-                instrument_spec_revision=instrument_spec.revision,
-            )
+        risk_market_digest = risk_market_input_sha256(
+            bar,
+            instrument_spec_revision=instrument_spec.revision,
         )
         replay_events.append(event)
         bindings.append(
@@ -282,8 +306,8 @@ def build_bybit_provider_complete_replay(
                 bar_id=bar.bar_id,
                 raw_row_sha256=raw_sha,
                 normalized_event_sha256=bar.content_hash,
-                strategy_input_sha256=strategy_input_sha256,
-                risk_market_input_sha256=risk_market_input_sha256,
+                strategy_input_sha256=strategy_digest,
+                risk_market_input_sha256=risk_market_digest,
                 replay_event_digest=event.digest,
             )
         )
@@ -304,6 +328,7 @@ def build_bybit_provider_complete_replay(
         response_received_at=capture.response_received_at,
         exchange_server_at=capture.server_at,
         instrument_spec_revision=instrument_spec.revision,
+        strategy_id=strategy_id,
         instrument_source_timestamp=instrument_spec.source_timestamp,
         instrument_observed_timestamp=instrument_spec.observed_timestamp,
         continuity_checkpoint_id=continuity_checkpoint.checkpoint_id,
