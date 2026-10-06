@@ -1,0 +1,60 @@
+name: qualification-quality
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/qualification/**'
+      - 'tests/test_replay_evidence_contract.py'
+      - 'tests/test_bybit_provider_complete_replay.py'
+      - 'pyproject.toml'
+      - '.github/workflows/qualification-quality.yml'
+  pull_request:
+    paths:
+      - 'app/qualification/**'
+      - 'tests/test_replay_evidence_contract.py'
+      - 'tests/test_bybit_provider_complete_replay.py'
+      - 'pyproject.toml'
+      - '.github/workflows/qualification-quality.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qualification-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install qualification quality graph
+        run: |
+          python -m pip install --disable-pip-version-check '.[dev]'
+          python -m pip check
+
+      - name: Lint qualification authority
+        run: |
+          ruff check app/qualification             tests/test_replay_evidence_contract.py             tests/test_bybit_provider_complete_replay.py
+
+      - name: Security scan qualification authority
+        run: bandit -q -r app/qualification
+
+      - name: Qualification regression and branch coverage
+        run: |
+          coverage erase
+          coverage run --branch -m pytest -q             tests/test_replay_evidence_contract.py             tests/test_bybit_provider_complete_replay.py
+          coverage report --include='app/qualification/*' --fail-under=85
+
+      - name: Compile qualification authority
+        run: python -m compileall -q app/qualification
