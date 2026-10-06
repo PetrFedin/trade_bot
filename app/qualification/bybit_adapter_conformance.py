@@ -142,7 +142,10 @@ def qualify_bybit_public_marketdata_adapter(
             and provider_replay.replay.source_name == "BYBIT_V5_MARKET_KLINE_GET"
             and all(bar.provider == BYBIT_PROVIDER for bar in bars)
             and all(bar.venue == BYBIT_LINEAR_VENUE for bar in bars)
-            and all(event.source_event_id == bar.source_event_id for event, bar in zip(events, bars, strict=True))
+            and all(
+                event.source_event_id == bar.source_event_id
+                for event, bar in zip(events, bars, strict=True)
+            )
         )
         checks.append(
             _check(
