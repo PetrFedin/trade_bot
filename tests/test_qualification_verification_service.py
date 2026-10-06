@@ -80,7 +80,7 @@ def test_bundle_substitution_maps_to_bundle_invalid_code() -> None:
     assert not result.usable
 
 
-def test_evidence_signature_tamper_maps_to_signature_failure_code() -> None:
+def test_raw_signature_tamper_is_rejected_at_bundle_binding_stage() -> None:
     bundle, _, _, root, _, _, _ = full_bundle()
     raw = bytearray(base64.b64decode(bundle.signed_evidence.envelope.signature_b64))
     raw[0] ^= 1
@@ -98,10 +98,7 @@ def test_evidence_signature_tamper_maps_to_signature_failure_code() -> None:
     result = service(root).verify(request(tampered))
 
     assert result.outcome is QualificationVerificationOutcome.REJECTED
-    assert (
-        result.failure_code
-        is PortableVerificationFailureCode.EVIDENCE_SIGNATURE_REJECTED
-    )
+    assert result.failure_code is PortableVerificationFailureCode.BUNDLE_INVALID
 
 
 def test_state_proof_tamper_maps_to_state_proof_failure_code() -> None:
