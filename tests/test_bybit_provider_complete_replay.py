@@ -1090,3 +1090,88 @@ def test_qualification_manifest_rejects_degraded_feed(tmp_path) -> None:
             marketdata_integrity=integrity,
             provider_replay=evidence,
         )
+
+
+
+def test_qualification_manifest_rejects_profile_identity_substitution(tmp_path) -> None:
+    evidence, report, integrity, job = passing_qualification_chain(tmp_path)
+    substituted = replace(report, profile_id="OTHER_PROFILE")
+    substituted.validate()
+
+    with pytest.raises(ValueError, match="profile_id mismatch"):
+        build_qualification_manifest(
+            job_result=job,
+            adapter_conformance=substituted,
+            marketdata_integrity=integrity,
+            provider_replay=evidence,
+        )
+
+
+def test_qualification_manifest_rejects_subject_version_substitution(tmp_path) -> None:
+    evidence, report, integrity, job = passing_qualification_chain(tmp_path)
+    substituted = replace(report, subject_version="other-build")
+    substituted.validate()
+
+    with pytest.raises(ValueError, match="subject_version mismatch"):
+        build_qualification_manifest(
+            job_result=job,
+            adapter_conformance=substituted,
+            marketdata_integrity=integrity,
+            provider_replay=evidence,
+        )
+
+
+def test_qualification_manifest_rejects_integrity_evidence_substitution(tmp_path) -> None:
+    evidence, report, integrity, job = passing_qualification_chain(tmp_path)
+    substituted_job = replace(
+        job,
+        marketdata_integrity_sha256="0" * 64,
+    )
+    substituted_job.validate()
+
+    with pytest.raises(ValueError, match="integrity evidence mismatch"):
+        build_qualification_manifest(
+            job_result=substituted_job,
+            adapter_conformance=report,
+            marketdata_integrity=integrity,
+            provider_replay=evidence,
+        )
+
+
+def test_qualification_manifest_rejects_continuity_substitution(tmp_path) -> None:
+    evidence, report, integrity, job = passing_qualification_chain(tmp_path)
+    substituted = replace(
+        evidence,
+        continuity_checkpoint_id="other-checkpoint",
+    )
+    substituted.validate()
+
+    with pytest.raises(ValueError, match="continuity mismatch"):
+        build_qualification_manifest(
+            job_result=job,
+            adapter_conformance=report,
+            marketdata_integrity=replace(
+                integrity,
+                provider_replay_sha256=substituted.evidence_sha256,
+            ),
+            provider_replay=substituted,
+        )
+
+
+def test_qualification_manifest_validation_rejects_scope_and_claim_drift(tmp_path) -> None:
+    evidence, report, integrity, job = passing_qualification_chain(tmp_path)
+    manifest = build_qualification_manifest(
+        job_result=job,
+        adapter_conformance=report,
+        marketdata_integrity=integrity,
+        provider_replay=evidence,
+    )
+
+    with pytest.raises(ValueError, match="scope mismatch"):
+        replace(manifest, scope="EXECUTION").validate()
+
+    with pytest.raises(ValueError, match="assertions mismatch"):
+        replace(manifest, assertions=("ADAPTER_CONFORMANCE_PASS",)).validate()
+
+    with pytest.raises(ValueError, match="limitations mismatch"):
+        replace(manifest, limitations=("PROFITABILITY_NOT_PROVEN",)).validate()
