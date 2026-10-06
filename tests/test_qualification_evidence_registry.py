@@ -228,7 +228,10 @@ def test_registry_rejects_binding_profile_and_manifest_substitution() -> None:
         suffix="substitution",
     )
 
-    with pytest.raises(ValueError, match="signed binding id mismatch|signed profile digest mismatch"):
+    with pytest.raises(
+        ValueError,
+        match="signed binding id mismatch|signed profile digest mismatch",
+    ):
         registry.register(
             manifest=source,
             binding=replace(binding, profile_sha256="f" * 64),
@@ -237,7 +240,10 @@ def test_registry_rejects_binding_profile_and_manifest_substitution() -> None:
             observed_at=NOW + timedelta(seconds=2),
         )
 
-    with pytest.raises(ValueError, match="binding manifest id mismatch|binding manifest digest mismatch"):
+    with pytest.raises(
+        ValueError,
+        match="binding manifest id mismatch|binding manifest digest mismatch",
+    ):
         registry.register(
             manifest=replace(source, organisation_id="OTHER"),
             binding=binding,
