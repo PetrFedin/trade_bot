@@ -1198,3 +1198,151 @@ This is a governance surface, not a profitability screen.
 
 **Commercial framing:** this opens institutional execution-governance and audit/evidence use cases, creating a high-trust moat around ASTRA's deterministic architecture rather than competing on strategy claims.
 
+## Platform economics wave — Qualification API and Adapter Certification
+
+This wave exposes ASTRA's strongest asset — deterministic qualification evidence — as a controlled platform service for broker adapters, institutional teams and execution infrastructure vendors.
+
+It does not expose a public trading API and cannot enable live trading.
+
+### Qualification Job Authority — ADOPT
+
+Create a bounded job model:
+
+- job ID;
+- submitter/organisation;
+- target adapter/build/artifact;
+- qualification profile/version;
+- market-data fixture/replay/scenario set;
+- expected capabilities;
+- started/completed time;
+- result;
+- evidence package;
+- release SHA;
+- status.
+
+A qualification job never receives live broker credentials unless a separately authorised controlled environment explicitly requires them.
+
+### Adapter Certification Contract — ADOPT
+
+Define machine-testable profiles for adapters:
+
+- symbol/instrument normalisation;
+- price/quantity precision;
+- order-type support;
+- idempotent client/order IDs;
+- partial fill handling;
+- cancel/replace;
+- reject mapping;
+- reconnect/recovery;
+- sequence/order events;
+- clock/timestamp handling;
+- reconciliation;
+- fail-closed submit ambiguity.
+
+Profiles are versioned and venue/provider-specific where needed.
+
+### Qualification API — ADOPT
+
+Contract-first endpoints may support:
+
+- submit qualification job;
+- upload/reference adapter package/test build;
+- select approved replay/scenario corpus;
+- read job status;
+- fetch machine-readable result;
+- fetch evidence pack;
+- validate certification status.
+
+Do not expose arbitrary code execution without sandboxing and organisation authorization.
+
+### Partner Sandbox — ADOPT
+
+Provide a non-live environment with:
+
+- simulated venue;
+- historical replay;
+- synthetic microstructure scenarios;
+- deterministic clock;
+- fault injection;
+- test account state;
+- no live submit credentials.
+
+This is where external/in-house adapters are integrated before production qualification.
+
+### Certification Result — ADOPT
+
+Internal result states may include:
+
+- contract validated;
+- replay qualified;
+- fault qualified;
+- recovery qualified;
+- data-integrity qualified;
+- performance qualified;
+- rejected / incomplete.
+
+A result must identify exact:
+
+- adapter version;
+- test corpus/version;
+- ASTRA release;
+- policy/config;
+- evidence checksum.
+
+Do not call it regulatory certification.
+
+### Continuous Requalification — ADOPT
+
+Trigger requalification when:
+
+- adapter version changes;
+- exchange/provider API changes;
+- instrument model changes materially;
+- risk/OMS contract changes;
+- replay/scenario corpus adds a critical case;
+- policy version changes.
+
+Historic results remain immutable.
+
+### Evidence Verification Endpoint — ADOPT
+
+An institution may verify:
+
+- qualification job ID;
+- result/status;
+- version;
+- evidence checksum;
+- signed metadata where configured.
+
+This allows proof of engineering qualification without exposing proprietary strategy logic.
+
+### Usage Metering / Commercial Model — ADAPT
+
+Potential units:
+
+- qualification run;
+- scenario pack;
+- adapter;
+- environment;
+- retained evidence storage;
+- enterprise support.
+
+Reference for metering:
+
+https://github.com/openmeterio/openmeter
+
+Metering stays outside order/risk truth.
+
+### Additional acceptance
+
+- API cannot route a live order;
+- sandbox has no live credentials;
+- every result binds to exact adapter/corpus/config versions;
+- certification status is revoked/superseded explicitly on breaking changes;
+- evidence endpoint cannot expose proprietary market/account data outside scope;
+- qualification remains independent from PROFITABILITY_NOT_PROVEN and live authorization.
+
+**Sequencing:** Adapter Conformance + Replay + Fault Lab + Market Data/TCA/Best Execution evidence -> Qualification Job -> Partner Sandbox -> API -> Certification Registry -> continuous requalification -> metering.
+
+**Commercial framing:** ASTRA becomes a high-trust execution-infrastructure qualification service that institutions and broker integrations can build around, not merely an internal trading runtime.
+
