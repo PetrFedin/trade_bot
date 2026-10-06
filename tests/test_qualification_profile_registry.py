@@ -9,6 +9,7 @@ from app.qualification.profile_registry import (
     QualificationProfile,
     QualificationProfileRegistry,
     QualificationProfileStatus,
+    verify_profile_state_proof,
 )
 
 NOW = datetime(2026, 10, 6, 12, 0, tzinfo=UTC)
@@ -284,3 +285,119 @@ def test_profile_definition_rejects_duplicate_and_blank_policy_entries() -> None
     )
     with pytest.raises(ValueError, match="cannot contain blank"):
         blank.validate()
+
+
+
+def test_profile_state_root_authenticates_current_active_state() -> None:
+    registry = QualificationProfileRegistry()
+    first = profile(version="7.0.0")
+    second = profile(version="7.1.0")
+    registry.register(profile=first, observed_at=NOW)
+    registry.register(profile=second, observed_at=NOW)
+    registry.activate(
+        profile_ref=first.profile_ref,
+        observed_at=NOW + timedelta(seconds=1),
+    )
+    registry.activate(
+        profile_ref=second.profile_ref,
+        observed_at=NOW + timedelta(seconds=2),
+    )
+
+    proof = registry.state_proof(profile_ref=first.profile_ref)
+
+    assert proof.record.status is QualificationProfileStatus.ACTIVE
+    assert proof.record.profile.profile_sha256 == first.profile_sha256
+    assert proof.state_root_sha256 == registry.state_root_sha256
+    assert verify_profile_state_proof(proof)
+
+
+def test_profile_state_root_changes_when_policy_is_revoked() -> None:
+    registry = QualificationProfileRegistry()
+    value = profile(version="7.2.0")
+    registry.register(profile=value, observed_at=NOW)
+    registry.activate(
+        profile_ref=value.profile_ref,
+        observed_at=NOW + timedelta(seconds=1),
+    )
+    active_root = registry.state_root_sha256
+    active_proof = registry.state_proof(profile_ref=value.profile_ref)
+    assert verify_profile_state_proof(active_proof)
+
+    registry.revoke(
+        profile_ref=value.profile_ref,
+        reason="PROFILE_SECURITY_WITHDRAWAL",
+        observed_at=NOW + timedelta(seconds=2),
+    )
+
+    revoked_root = registry.state_root_sha256
+    revoked_proof = registry.state_proof(profile_ref=value.profile_ref)
+    assert revoked_root != active_root
+    assert revoked_proof.record.status is QualificationProfileStatus.REVOKED
+    assert verify_profile_state_proof(revoked_proof)
+    assert not verify_profile_state_proof(
+        replace(active_proof, state_root_sha256=revoked_root)
+    )
+
+
+def test_profile_state_root_changes_when_policy_is_deprecated() -> None:
+    registry = QualificationProfileRegistry()
+    old = profile(version="7.3.0")
+    replacement = profile(version="7.4.0")
+    registry.register(profile=old, observed_at=NOW)
+    registry.register(profile=replacement, observed_at=NOW)
+    registry.activate(
+        profile_ref=old.profile_ref,
+        observed_at=NOW + timedelta(seconds=1),
+    )
+    registry.activate(
+        profile_ref=replacement.profile_ref,
+        observed_at=NOW + timedelta(seconds=2),
+    )
+    active_root = registry.state_root_sha256
+
+    registry.deprecate(
+        profile_ref=old.profile_ref,
+        superseded_by=replacement.profile_ref,
+        reason="POLICY_HARDENED",
+        observed_at=NOW + timedelta(seconds=3),
+    )
+
+    proof = registry.state_proof(profile_ref=old.profile_ref)
+    assert registry.state_root_sha256 != active_root
+    assert proof.record.status is QualificationProfileStatus.DEPRECATED
+    assert proof.record.superseded_by == replacement.profile_ref
+    assert verify_profile_state_proof(proof)
+
+
+def test_profile_state_proof_rejects_unknown_and_tampered_path() -> None:
+    registry = QualificationProfileRegistry()
+    first = profile(version="7.5.0")
+    second = profile(version="7.6.0")
+    registry.register(profile=first, observed_at=NOW)
+    registry.register(profile=second, observed_at=NOW)
+    registry.activate(
+        profile_ref=first.profile_ref,
+        observed_at=NOW + timedelta(seconds=1),
+    )
+    registry.activate(
+        profile_ref=second.profile_ref,
+        observed_at=NOW + timedelta(seconds=2),
+    )
+
+    with pytest.raises(ValueError, match="not registered"):
+        registry.state_proof(profile_ref="missing@0")
+
+    proof = registry.state_proof(profile_ref=first.profile_ref)
+    assert proof.audit_path
+    assert not verify_profile_state_proof(
+        replace(
+            proof,
+            audit_path=("f" * 64, *proof.audit_path[1:]),
+        )
+    )
+
+
+def test_empty_profile_registry_has_genesis_state_root() -> None:
+    registry = QualificationProfileRegistry()
+
+    assert registry.state_root_sha256 == "0" * 64
