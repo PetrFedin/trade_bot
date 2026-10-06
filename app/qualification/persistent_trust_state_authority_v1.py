@@ -89,6 +89,10 @@ class PersistentTrustStateRecord:
         _digest(self.previous_record_sha256, "previous_record_sha256")
         self.trust_state.validate()
         self.transition.validate()
+        if self.transition.checkpoint_v4_sha256 != self.trust_state.checkpoint_v4_sha256:
+            raise ValueError(
+                "persistent TrustState transition checkpoint SHA mismatch"
+            )
         expected_state_sha = _sha256_json(self.trust_state.payload())
         if self.trust_state_sha256 != expected_state_sha:
             raise ValueError("persistent TrustState state digest mismatch")
