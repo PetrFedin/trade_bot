@@ -12,7 +12,6 @@ from app.qualification.profile_registry import (
 from app.qualification.transparency_log import (
     QualificationTransparencyEntry,
     QualificationTransparencyLog,
-    QualificationTransparencyTreeHead,
 )
 
 _ENTRY_TYPE = "QUALIFICATION_PROFILE_EVENT"
