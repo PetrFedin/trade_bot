@@ -4,6 +4,7 @@ import hashlib
 from types import MappingProxyType
 
 import pytest
+from hypothesis import given, settings, strategies as st
 
 from app.qualification.portable_artifact_codec import (
     DecodedQualificationPortableArtifact,
@@ -185,4 +186,55 @@ def test_typed_decoder_rejects_invalid_signature_encoding_via_domain_validation(
         QualificationBundleDecodeError,
         match="typed portable bundle validation failed",
     ):
+        decode_typed_portable_qualification_bundle_v4(artifact)
+
+
+_NESTED_OBJECT_PATHS = (
+    ("base_v3", "profile"),
+    ("base_v3", "manifest"),
+    ("base_v3", "binding"),
+    ("base_v3", "signed_evidence", "signature"),
+    ("base_v3", "registry_decision"),
+    ("base_v3", "evidence_state_proof", "record"),
+    ("base_v3", "profile_state_proof", "record"),
+    ("base_v3", "transparency_entry"),
+    ("base_v3", "transparency_head"),
+    ("base_v3", "signed_trust_checkpoint", "checkpoint"),
+    ("base_v3", "signed_trust_checkpoint", "signature"),
+    ("base_v3", "keyring_snapshot"),
+    ("profile_event_delta",),
+    ("profile_publication_receipt",),
+    ("profile_publication_head",),
+    ("transparency_consistency_proof",),
+    ("current_transparency_head",),
+    ("signed_trust_checkpoint_v4", "checkpoint"),
+    ("signed_trust_checkpoint_v4", "signature"),
+)
+
+
+def _nested_object(payload: dict[str, object], path: tuple[str, ...]) -> dict[str, object]:
+    node: object = payload
+    for key in path:
+        assert isinstance(node, dict)
+        node = node[key]
+    assert isinstance(node, dict)
+    return node
+
+
+@settings(max_examples=30, deadline=None)
+@given(
+    path=st.sampled_from(_NESTED_OBJECT_PATHS),
+    suffix=st.integers(min_value=0, max_value=1_000_000),
+)
+def test_typed_decoder_property_rejects_unknown_fields_at_nested_boundaries(
+    path: tuple[str, ...],
+    suffix: int,
+) -> None:
+    def mutate(payload: dict[str, object]) -> None:
+        node = _nested_object(payload, path)
+        node[f"__unknown_{suffix}"] = "must-fail-closed"
+
+    artifact = _mutated_artifact(mutate)
+
+    with pytest.raises(QualificationBundleDecodeError, match="fields mismatch"):
         decode_typed_portable_qualification_bundle_v4(artifact)
