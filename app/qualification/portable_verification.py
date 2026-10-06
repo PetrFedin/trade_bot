@@ -5,6 +5,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from app.qualification.evidence_registry import (
     EvidenceLifecycleStatus,
@@ -36,6 +37,27 @@ from app.qualification.transparency_log import (
 )
 
 _SCHEMA_VERSION = "astra-portable-qualification-verification-v2"
+
+
+class PortableVerificationFailureCode(StrEnum):
+    BUNDLE_INVALID = "BUNDLE_INVALID"
+    KEYRING_REJECTED = "KEYRING_REJECTED"
+    EVIDENCE_SIGNATURE_REJECTED = "EVIDENCE_SIGNATURE_REJECTED"
+    REGISTRY_STATE_PROOF_INVALID = "REGISTRY_STATE_PROOF_INVALID"
+    TRANSPARENCY_PROOF_INVALID = "TRANSPARENCY_PROOF_INVALID"
+    CHECKPOINT_SIGNATURE_REJECTED = "CHECKPOINT_SIGNATURE_REJECTED"
+    LIFECYCLE_MISMATCH = "LIFECYCLE_MISMATCH"
+
+
+class PortableQualificationVerificationError(ValueError):
+    def __init__(
+        self,
+        code: PortableVerificationFailureCode,
+        detail: str,
+    ) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
 
 
 @dataclass(frozen=True)
@@ -266,47 +288,86 @@ def verify_portable_qualification_bundle(
 ) -> PortableQualificationVerificationResult:
     """Verify the qualification artifact from external trust roots only."""
 
-    bundle.validate()
-    now = _aware(observed_at, "observed_at")
-    keyring = verify_qualification_keyring(
-        bundle.keyring_snapshot,
-        trusted_root_public_keys=trusted_root_public_keys,
-        previous_generation=previous_keyring_generation,
-        observed_at=now,
-        max_clock_skew_seconds=max_clock_skew_seconds,
-    )
-    evidence = verify_qualification_evidence(
-        binding=bundle.binding,
-        signed_evidence=bundle.signed_evidence,
-        keyring=keyring,
-        observed_at=now,
-        max_clock_skew_seconds=max_clock_skew_seconds,
-    )
-    checkpoint = verify_registry_checkpoint(
-        signed_checkpoint=bundle.signed_registry_checkpoint,
-        keyring=keyring,
-        observed_at=now,
-        max_clock_skew_seconds=max_clock_skew_seconds,
-    )
+    try:
+        bundle.validate()
+        now = _aware(observed_at, "observed_at")
+    except ValueError as exc:
+        raise PortableQualificationVerificationError(
+            PortableVerificationFailureCode.BUNDLE_INVALID,
+            str(exc),
+        ) from exc
+
+    try:
+        keyring = verify_qualification_keyring(
+            bundle.keyring_snapshot,
+            trusted_root_public_keys=trusted_root_public_keys,
+            previous_generation=previous_keyring_generation,
+            observed_at=now,
+            max_clock_skew_seconds=max_clock_skew_seconds,
+        )
+    except ValueError as exc:
+        raise PortableQualificationVerificationError(
+            PortableVerificationFailureCode.KEYRING_REJECTED,
+            str(exc),
+        ) from exc
+
+    try:
+        evidence = verify_qualification_evidence(
+            binding=bundle.binding,
+            signed_evidence=bundle.signed_evidence,
+            keyring=keyring,
+            observed_at=now,
+            max_clock_skew_seconds=max_clock_skew_seconds,
+        )
+    except ValueError as exc:
+        raise PortableQualificationVerificationError(
+            PortableVerificationFailureCode.EVIDENCE_SIGNATURE_REJECTED,
+            str(exc),
+        ) from exc
 
     if not verify_state_proof(bundle.registry_state_proof):
-        raise ValueError("portable bundle registry state proof is invalid")
+        raise PortableQualificationVerificationError(
+            PortableVerificationFailureCode.REGISTRY_STATE_PROOF_INVALID,
+            "portable bundle registry state proof is invalid",
+        )
+
     if not verify_inclusion_proof(bundle.transparency_inclusion_proof):
-        raise ValueError("portable bundle transparency inclusion proof is invalid")
+        raise PortableQualificationVerificationError(
+            PortableVerificationFailureCode.TRANSPARENCY_PROOF_INVALID,
+            "portable bundle transparency inclusion proof is invalid",
+        )
+
+    try:
+        checkpoint = verify_registry_checkpoint(
+            signed_checkpoint=bundle.signed_registry_checkpoint,
+            keyring=keyring,
+            observed_at=now,
+            max_clock_skew_seconds=max_clock_skew_seconds,
+        )
+    except ValueError as exc:
+        raise PortableQualificationVerificationError(
+            PortableVerificationFailureCode.CHECKPOINT_SIGNATURE_REJECTED,
+            str(exc),
+        ) from exc
 
     expected_status = {
         EvidenceLifecycleStatus.ACTIVE: EvidenceVerificationStatus.VALID,
         EvidenceLifecycleStatus.SUPERSEDED: EvidenceVerificationStatus.SUPERSEDED,
         EvidenceLifecycleStatus.REVOKED: EvidenceVerificationStatus.REVOKED,
     }[bundle.registry_state_proof.record.status]
-    if bundle.registry_decision.status is not expected_status:
-        raise ValueError("portable bundle lifecycle decision mismatch")
-    if evidence.evidence_id != bundle.registry_decision.evidence_id:
-        raise ValueError("portable bundle verified evidence identity mismatch")
-    if checkpoint.registry_state_root_sha256 != bundle.registry_state_proof.state_root_sha256:
-        raise ValueError("portable bundle verified checkpoint state mismatch")
-    if checkpoint.transparency_root_sha256 != bundle.transparency_inclusion_proof.root_sha256:
-        raise ValueError("portable bundle verified transparency root mismatch")
+    lifecycle_mismatch = (
+        bundle.registry_decision.status is not expected_status
+        or evidence.evidence_id != bundle.registry_decision.evidence_id
+        or checkpoint.registry_state_root_sha256
+        != bundle.registry_state_proof.state_root_sha256
+        or checkpoint.transparency_root_sha256
+        != bundle.transparency_inclusion_proof.root_sha256
+    )
+    if lifecycle_mismatch:
+        raise PortableQualificationVerificationError(
+            PortableVerificationFailureCode.LIFECYCLE_MISMATCH,
+            "portable qualification lifecycle or checkpoint binding mismatch",
+        )
 
     return PortableQualificationVerificationResult(
         bundle_id=bundle.bundle_id,
@@ -326,7 +387,6 @@ def verify_portable_qualification_bundle(
         transparency_tree_size=checkpoint.transparency_tree_size,
         verified_at=now,
     )
-
 
 def _aware(value: datetime, name: str) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
