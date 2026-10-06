@@ -8,7 +8,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 
 _SCHEMA_VERSION = "astra-qualification-profile-v1"
-_REGISTRY_SCHEMA_VERSION = "astra-qualification-profile-registry-v1"
+_REGISTRY_SCHEMA_VERSION = "astra-qualification-profile-registry-v2"
+_GENESIS = "0" * 64
 
 
 class QualificationProfileStatus(StrEnum):
@@ -108,6 +109,47 @@ class QualificationProfileRecord:
                 raise ValueError("revoked qualification profile requires a reason")
             if self.superseded_by is not None:
                 raise ValueError("revoked qualification profile cannot carry superseded_by")
+
+    def state_payload(self) -> dict[str, object]:
+        self.validate()
+        return {
+            "profile_ref": self.profile.profile_ref,
+            "profile_sha256": self.profile.profile_sha256,
+            "status": self.status.value,
+            "registered_at": _aware(self.registered_at, "registered_at").isoformat(),
+            "updated_at": _aware(self.updated_at, "updated_at").isoformat(),
+            "lifecycle_reason": self.lifecycle_reason,
+            "superseded_by": self.superseded_by,
+        }
+
+    @property
+    def state_leaf_sha256(self) -> str:
+        return _leaf_hash(_sha256(self.state_payload()))
+
+
+@dataclass(frozen=True)
+class QualificationProfileStateProof:
+    profile_ref: str
+    record: QualificationProfileRecord
+    leaf_index: int
+    tree_size: int
+    audit_path: tuple[str, ...]
+    state_root_sha256: str
+    schema_version: str = _REGISTRY_SCHEMA_VERSION
+
+    def validate(self) -> None:
+        if self.schema_version != _REGISTRY_SCHEMA_VERSION:
+            raise ValueError("qualification profile state proof schema mismatch")
+        if self.profile_ref != self.record.profile.profile_ref:
+            raise ValueError("qualification profile state proof identity mismatch")
+        if self.tree_size < 1:
+            raise ValueError("qualification profile state proof tree_size must be positive")
+        if self.leaf_index < 0 or self.leaf_index >= self.tree_size:
+            raise ValueError("qualification profile state proof leaf_index is out of range")
+        self.record.validate()
+        _digest(self.state_root_sha256, "state_root_sha256")
+        for item in self.audit_path:
+            _digest(item, "audit_path item")
 
 
 class QualificationProfileRegistry:
@@ -260,6 +302,41 @@ class QualificationProfileRegistry:
                 )
             return profile
 
+    @property
+    def state_root_sha256(self) -> str:
+        with self._lock:
+            return _profile_state_root(self._records)
+
+    def state_proof(self, *, profile_ref: str) -> QualificationProfileStateProof:
+        with self._lock:
+            ordered = tuple(
+                sorted(
+                    self._records.values(),
+                    key=lambda record: record.profile.profile_ref,
+                )
+            )
+            index = next(
+                (
+                    position
+                    for position, record in enumerate(ordered)
+                    if record.profile.profile_ref == profile_ref
+                ),
+                None,
+            )
+            if index is None:
+                raise ValueError("qualification profile is not registered")
+            leaves = tuple(record.state_leaf_sha256 for record in ordered)
+            proof = QualificationProfileStateProof(
+                profile_ref=profile_ref,
+                record=ordered[index],
+                leaf_index=index,
+                tree_size=len(leaves),
+                audit_path=_merkle_path(leaves, index),
+                state_root_sha256=_merkle_root(leaves),
+            )
+            proof.validate()
+            return proof
+
     def get(self, profile_ref: str) -> QualificationProfileRecord | None:
         with self._lock:
             return self._records.get(profile_ref)
@@ -280,6 +357,96 @@ class QualificationProfileRegistry:
         return record
 
 
+def verify_profile_state_proof(proof: QualificationProfileStateProof) -> bool:
+    proof.validate()
+    computed = proof.record.state_leaf_sha256
+    index = proof.leaf_index
+    width = proof.tree_size
+    path_index = 0
+    while width > 1:
+        sibling_exists = index % 2 == 1 or index + 1 < width
+        if sibling_exists:
+            if path_index >= len(proof.audit_path):
+                return False
+            sibling = proof.audit_path[path_index]
+            path_index += 1
+            if index % 2 == 1:
+                computed = _node_hash(sibling, computed)
+            else:
+                computed = _node_hash(computed, sibling)
+        index //= 2
+        width = (width + 1) // 2
+    return path_index == len(proof.audit_path) and computed == proof.state_root_sha256
+
+
+def _profile_state_root(
+    records: dict[str, QualificationProfileRecord],
+) -> str:
+    ordered = tuple(
+        sorted(
+            records.values(),
+            key=lambda record: record.profile.profile_ref,
+        )
+    )
+    return _merkle_root(tuple(record.state_leaf_sha256 for record in ordered))
+
+
+def _leaf_hash(payload_sha256: str) -> str:
+    return hashlib.sha256(
+        b"\x00" + bytes.fromhex(_digest(payload_sha256, "payload_sha256"))
+    ).hexdigest()
+
+
+def _node_hash(left: str, right: str) -> str:
+    return hashlib.sha256(
+        b"\x01"
+        + bytes.fromhex(_digest(left, "left"))
+        + bytes.fromhex(_digest(right, "right"))
+    ).hexdigest()
+
+
+def _merkle_root(leaves: tuple[str, ...]) -> str:
+    if not leaves:
+        return _GENESIS
+    level = tuple(_digest(item, "leaf") for item in leaves)
+    while len(level) > 1:
+        next_level: list[str] = []
+        for index in range(0, len(level), 2):
+            left = level[index]
+            if index + 1 >= len(level):
+                next_level.append(left)
+            else:
+                next_level.append(_node_hash(left, level[index + 1]))
+        level = tuple(next_level)
+    return level[0]
+
+
+def _merkle_path(
+    leaves: tuple[str, ...],
+    leaf_index: int,
+) -> tuple[str, ...]:
+    if not leaves or leaf_index < 0 or leaf_index >= len(leaves):
+        raise ValueError("invalid qualification profile state proof leaf")
+    path: list[str] = []
+    level = leaves
+    index = leaf_index
+    while len(level) > 1:
+        if index % 2 == 1:
+            path.append(level[index - 1])
+        elif index + 1 < len(level):
+            path.append(level[index + 1])
+        next_level: list[str] = []
+        for cursor in range(0, len(level), 2):
+            left = level[cursor]
+            if cursor + 1 >= len(level):
+                next_level.append(left)
+            else:
+                next_level.append(_node_hash(left, level[cursor + 1]))
+        index //= 2
+        level = tuple(next_level)
+    return tuple(path)
+
+
 def _aware(value: datetime, name: str) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{name} must be timezone-aware")
@@ -295,3 +462,12 @@ def _sha256(value: object) -> str:
             ensure_ascii=True,
         ).encode("utf-8")
     ).hexdigest()
+
+
+def _digest(value: str, name: str) -> str:
+    normalized = value.strip().lower()
+    if len(normalized) != 64 or any(
+        character not in "0123456789abcdef" for character in normalized
+    ):
+        raise ValueError(f"{name} must be a sha256 digest")
+    return normalized
