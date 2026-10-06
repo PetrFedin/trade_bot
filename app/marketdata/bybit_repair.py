@@ -399,6 +399,7 @@ class BybitContinuityRepairResult:
     expected_bars: int
     repaired_bars: int
     existing_bars: int
+    provider_capture: BybitKlineRangeCapture | None = None
 
     def validate(self) -> None:
         self.checkpoint.validate()
@@ -468,11 +469,12 @@ class BybitContinuityRepairService:
         expected_count = int((last_open - first_open) / interval) + 1
         if expected_count > self.client.policy.maximum_repair_bars:
             raise BybitRepairError("REPAIR_RANGE_EXCEEDS_POLICY")
-        fetched = self.client.fetch_closed_range(
+        provider_capture = self.client.fetch_closed_range_capture(
             first_open_time=first_open,
             last_open_time=last_open,
             observed_at=observed,
         )
+        fetched = provider_capture.bars
         if len(fetched) != expected_count:
             raise BybitRepairProtocolError("BYBIT_REPAIR_RANGE_COUNT_MISMATCH")
         if latest is not None and fetched[0].bar_id != latest.through_bar_id:
@@ -534,6 +536,7 @@ class BybitContinuityRepairService:
                 expected_bars=expected_count,
                 repaired_bars=repaired_count,
                 existing_bars=existing_count,
+                provider_capture=provider_capture,
             )
             result.validate()
             return result
@@ -566,6 +569,7 @@ class BybitContinuityRepairService:
             expected_bars=expected_count,
             repaired_bars=repaired_count,
             existing_bars=existing_count,
+            provider_capture=provider_capture,
         )
         result.validate()
         return result
