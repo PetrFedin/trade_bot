@@ -529,3 +529,87 @@ def test_unqualified_adapter_blocks_marketdata_qualification(tmp_path) -> None:
     assert decision.status is MarketDataIntegrityStatus.BLOCKED
     assert decision.action is MarketDataSafetyAction.BLOCK_QUALIFICATION
     assert decision.reasons == ("ADAPTER_NOT_QUALIFIED",)
+
+
+
+def test_marketdata_integrity_quarantines_substituted_continuity_identity(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+    substituted = replace(
+        evidence,
+        continuity_checkpoint_id="substituted-checkpoint",
+    )
+    substituted.validate()
+
+    decision = evaluate_bybit_marketdata_integrity(
+        capture=capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=substituted,
+        adapter_conformance=report,
+        policy=policy,
+        observed_at=OBSERVED,
+    )
+
+    assert decision.status is MarketDataIntegrityStatus.QUARANTINED
+    assert decision.action is MarketDataSafetyAction.QUARANTINE_FEED
+    assert decision.reasons == ("CONTINUITY_PROOF_MISMATCH",)
+
+
+def test_marketdata_integrity_blocks_structurally_corrupt_capture(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+    broken_capture = replace(
+        capture,
+        response_body=response_body([row(0), row(1, close="777"), row(2)]),
+    )
+
+    decision = evaluate_bybit_marketdata_integrity(
+        capture=broken_capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        adapter_conformance=report,
+        policy=policy,
+        observed_at=OBSERVED,
+    )
+
+    assert decision.status is MarketDataIntegrityStatus.BLOCKED
+    assert decision.action is MarketDataSafetyAction.BLOCK_QUALIFICATION
+    assert decision.reasons == ("STRUCTURAL_EVIDENCE_INVALID",)
+
+
+def test_marketdata_integrity_policy_rejects_negative_threshold() -> None:
+    policy = MarketDataIntegrityPolicy(
+        maximum_server_skew_seconds=Decimal("-1"),
+        high_water_receive_delay_seconds=Decimal("5"),
+        maximum_final_bar_age_seconds=Decimal("10"),
+    )
+
+    with pytest.raises(ValueError, match="maximum_server_skew_seconds"):
+        policy.validate()
+
+
+def test_marketdata_integrity_rejects_negative_conflict_count(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+
+    with pytest.raises(ValueError, match="conflict_count"):
+        evaluate_bybit_marketdata_integrity(
+            capture=capture,
+            continuity_checkpoint=checkpoint,
+            provider_replay=evidence,
+            adapter_conformance=report,
+            policy=policy,
+            observed_at=OBSERVED,
+            conflict_count=-1,
+        )
+
+
+def test_marketdata_integrity_rejects_future_high_water_observation(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+
+    with pytest.raises(ValueError, match="future"):
+        evaluate_bybit_marketdata_integrity(
+            capture=capture,
+            continuity_checkpoint=checkpoint,
+            provider_replay=evidence,
+            adapter_conformance=report,
+            policy=policy,
+            observed_at=checkpoint.through_close_time - timedelta(seconds=1),
+        )
