@@ -307,6 +307,18 @@ class QualificationProfileRegistry:
         with self._lock:
             return _profile_state_root(self._records)
 
+    @property
+    def record_count(self) -> int:
+        with self._lock:
+            return len(self._records)
+
+    @property
+    def latest_updated_at(self) -> datetime:
+        with self._lock:
+            if not self._records:
+                return datetime(1970, 1, 1, tzinfo=UTC)
+            return max(record.updated_at for record in self._records.values())
+
     def state_proof(self, *, profile_ref: str) -> QualificationProfileStateProof:
         with self._lock:
             ordered = tuple(
