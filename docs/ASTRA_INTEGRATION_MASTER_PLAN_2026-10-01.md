@@ -1662,6 +1662,64 @@ Avoid artificial lock-in: export and independent verification should remain poss
 
 **Moat:** ASTRA's defensibility compounds when institutions reuse the same deterministic profiles, test corpora, signed evidence format and requalification history across multiple adapters and providers.
 
+
+## Qualification trust execution map — 2026-10-06
+
+This snapshot records the qualification/trust layers that are already present in canonical `main`, the current in-flight slice and the next planned sequence. It is descriptive evidence, not live-trading authority.
+
+### Canonical in `main`
+
+Verified by repository file presence in current `main`:
+
+- authenticated Evidence Registry;
+- authenticated Qualification Profile Registry;
+- combined Qualification Trust Checkpoint v3;
+- Portable Qualification Verification Bundle v3;
+- Qualification Verification Service v3;
+- Profile Lifecycle Event Journal;
+- Profile Lifecycle Transparency Publication Authority;
+- incremental Profile Event Delta Proof;
+- profile-history-aware Qualification Trust Checkpoint v4.
+
+These layers collectively provide immutable qualification/profile bindings, signed evidence, lifecycle state, append-only lifecycle history, transparency publication, incremental history continuity and signed trust checkpoints.
+
+### In-flight
+
+- Portable Qualification Verification v4 — clean canonical rebuild in PR #254.
+  - external trusted profile-event anchor;
+  - external trusted transparency tree anchor;
+  - previous Trust Checkpoint v4 SHA;
+  - incremental profile-event delta verification;
+  - profile-event transparency inclusion proofs;
+  - transparency consistency proof;
+  - historical publication-root binding;
+  - signed Trust Checkpoint v4 verification.
+
+- Institutional adoption / master-plan governance — clean canonical documentation PR #255.
+  - reference qualification network;
+  - public reference profiles;
+  - institutional test corpus;
+  - OEM/embedded qualification;
+  - enterprise verification;
+  - contribution/governance model;
+  - mandatory master-plan review before significant implementation waves.
+
+### Next sequence after verified merge
+
+1. clean rebuild and merge Qualification Verification Service v4;
+2. Portable Artifact Codec;
+3. deterministic canonical JSON representation;
+4. CBOR representation only if canonical encoding rules and interoperability tests are explicit;
+5. offline CLI verifier;
+6. persisted TrustState v4;
+7. contract-first Verification API;
+8. SDK contract;
+9. reference profiles and institutional test corpus;
+10. OEM/embedded qualification and enterprise verification integration;
+11. continuous requalification and evidence-history export.
+
+Every step remains bounded by the authority rules in this master plan. None of these layers proves strategy profitability or enables live/mainnet trading.
+
 ## Master-plan execution discipline
 
 This document is the mandatory architecture/assurance review source before each significant ASTRA development wave.
