@@ -414,7 +414,11 @@ class InMemoryQualificationEvidenceRegistry:
                     profile_id=record.profile_id,
                     profile_version=record.profile_version,
                     replacement_evidence_id=record.replacement_evidence_id,
-                    reason=None if record.status is EvidenceLifecycleStatus.ACTIVE else record.lifecycle_reason,
+                    reason=(
+                        None
+                        if record.status is EvidenceLifecycleStatus.ACTIVE
+                        else record.lifecycle_reason
+                    ),
                     registry_head_sha256=head,
                     verified_at=now,
                 )
