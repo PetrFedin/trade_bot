@@ -359,6 +359,18 @@ def verify_delta_consistency(proof: QualificationDeltaConsistencyProof) -> bool:
     )
 
 
+def transparency_root_at_size_from_consistency(
+    proof: QualificationDeltaConsistencyProof,
+    *,
+    tree_size: int,
+) -> str:
+    proof.validate()
+    if tree_size < proof.previous_tree_size or tree_size > proof.current_tree_size:
+        raise ValueError("requested transparency tree_size is outside consistency proof")
+    all_hashes = proof.previous_leaf_hashes + proof.appended_leaf_hashes
+    return _merkle_root_from_leaf_hashes(all_hashes[:tree_size])
+
+
 def _build_inclusion_proof(
     leaf_hashes: tuple[str, ...],
     leaf_index: int,
