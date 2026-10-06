@@ -128,6 +128,25 @@ def verify_profile_event_delta(
     )
 
 
+def verify_profile_event_delta_from_trusted_anchor(
+    proof: QualificationProfileEventDeltaProof,
+    *,
+    trusted_previous_event_count: int,
+    trusted_previous_event_head_sha256: str,
+) -> VerifiedQualificationProfileEventDelta:
+    if trusted_previous_event_count < 0:
+        raise ValueError("trusted_previous_event_count must be non-negative")
+    trusted_head = _digest(
+        trusted_previous_event_head_sha256,
+        "trusted_previous_event_head_sha256",
+    )
+    if proof.previous_event_count != trusted_previous_event_count:
+        raise ValueError("profile event delta trusted count mismatch")
+    if proof.previous_event_head_sha256 != trusted_head:
+        raise ValueError("profile event delta trusted head mismatch")
+    return verify_profile_event_delta(proof)
+
+
 def _digest(value: str, name: str) -> str:
     normalized = value.strip().lower()
     if len(normalized) != 64 or any(
