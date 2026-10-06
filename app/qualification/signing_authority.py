@@ -5,21 +5,41 @@ import binascii
 import hashlib
 import json
 import threading
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from types import MappingProxyType
-from typing import Mapping, Sequence
+from typing import Protocol, runtime_checkable
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from app.runtime.signing_authority_v108 import (
-    Ed25519SigningProviderV108,
-    SigningBackendV108,
-)
-
 _KEYRING_SCHEMA = "astra-qualification-keyring-v1"
 _ENVELOPE_SCHEMA = "astra-qualification-signature-v1"
+_ALLOWED_BACKENDS = {"KMS", "HSM"}
+
+
+@runtime_checkable
+class QualificationSigningProvider(Protocol):
+    @property
+    def key_id(self) -> str: ...
+
+    @property
+    def backend(self) -> object: ...
+
+    @property
+    def generation(self) -> int: ...
+
+    def public_key_bytes(self) -> bytes: ...
+
+    def sign(self, payload: bytes) -> bytes: ...
+
+
+def _backend_value(value: object) -> str:
+    normalized = getattr(value, "value", value)
+    if not isinstance(normalized, str) or normalized not in _ALLOWED_BACKENDS:
+        raise ValueError("qualification signing backend must be KMS or HSM")
+    return normalized
 
 
 def _aware(value: datetime, name: str) -> datetime:
@@ -77,7 +97,7 @@ def _sha256(value: object) -> str:
 class QualificationSigningKeyDescriptor:
     key_id: str
     owner_id: str
-    backend: SigningBackendV108
+    backend: str
     generation: int
     public_key_b64: str
     not_before: datetime
@@ -88,6 +108,7 @@ class QualificationSigningKeyDescriptor:
         for name, value in (("key_id", self.key_id), ("owner_id", self.owner_id)):
             if not value.strip():
                 raise ValueError(f"{name} is required")
+        _backend_value(self.backend)
         if self.generation < 1:
             raise ValueError("qualification key generation must be positive")
         _b64decode(self.public_key_b64, expected_length=32, name="public key")
@@ -120,7 +141,7 @@ class QualificationSigningKeyDescriptor:
         return {
             "key_id": self.key_id,
             "owner_id": self.owner_id,
-            "backend": self.backend.value,
+            "backend": self.backend,
             "generation": self.generation,
             "public_key_b64": self.public_key_b64,
             "not_before": _aware(self.not_before, "not_before").isoformat(),
@@ -192,8 +213,8 @@ class QualificationKeyringSnapshot:
         issued_at: datetime,
         expires_at: datetime,
         keys: Sequence[QualificationSigningKeyDescriptor],
-        root_provider: Ed25519SigningProviderV108,
-    ) -> "QualificationKeyringSnapshot":
+        root_provider: QualificationSigningProvider,
+    ) -> QualificationKeyringSnapshot:
         unsigned = cls(
             generation=generation,
             issued_at=issued_at,
@@ -348,7 +369,7 @@ class QualificationSignatureEnvelope:
 
 def sign_qualification_payload(
     *,
-    provider: Ed25519SigningProviderV108,
+    provider: QualificationSigningProvider,
     descriptor: QualificationSigningKeyDescriptor,
     keyring_generation: int,
     signature_id: str,
@@ -362,7 +383,7 @@ def sign_qualification_payload(
     descriptor.validate()
     if provider.key_id != descriptor.key_id:
         raise ValueError("qualification provider key mismatch")
-    if provider.backend != descriptor.backend:
+    if _backend_value(provider.backend) != descriptor.backend:
         raise ValueError("qualification provider backend mismatch")
     if provider.generation != descriptor.generation:
         raise ValueError("qualification provider generation mismatch")
