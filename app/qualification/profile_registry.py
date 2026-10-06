@@ -9,6 +9,7 @@ from enum import StrEnum
 
 _SCHEMA_VERSION = "astra-qualification-profile-v1"
 _REGISTRY_SCHEMA_VERSION = "astra-qualification-profile-registry-v2"
+_EVENT_SCHEMA_VERSION = "astra-qualification-profile-event-v1"
 _GENESIS = "0" * 64
 
 
@@ -17,6 +18,83 @@ class QualificationProfileStatus(StrEnum):
     ACTIVE = "ACTIVE"
     DEPRECATED = "DEPRECATED"
     REVOKED = "REVOKED"
+
+
+class QualificationProfileEventType(StrEnum):
+    REGISTERED = "REGISTERED"
+    ACTIVATED = "ACTIVATED"
+    DEPRECATED = "DEPRECATED"
+    REVOKED = "REVOKED"
+
+
+@dataclass(frozen=True)
+class QualificationProfileEvent:
+    sequence: int
+    event_type: QualificationProfileEventType
+    profile_ref: str
+    profile_sha256: str
+    status: QualificationProfileStatus
+    observed_at: datetime
+    previous_event_sha256: str
+    reason: str | None = None
+    superseded_by: str | None = None
+    schema_version: str = _EVENT_SCHEMA_VERSION
+
+    def validate(self) -> None:
+        if self.schema_version != _EVENT_SCHEMA_VERSION:
+            raise ValueError("qualification profile event schema mismatch")
+        if self.sequence < 1:
+            raise ValueError("qualification profile event sequence must be positive")
+        if not self.profile_ref.strip():
+            raise ValueError("qualification profile event profile_ref is required")
+        _digest(self.profile_sha256, "profile_sha256")
+        _digest(self.previous_event_sha256, "previous_event_sha256")
+        _aware(self.observed_at, "observed_at")
+
+        expected_status = {
+            QualificationProfileEventType.REGISTERED: QualificationProfileStatus.DRAFT,
+            QualificationProfileEventType.ACTIVATED: QualificationProfileStatus.ACTIVE,
+            QualificationProfileEventType.DEPRECATED: QualificationProfileStatus.DEPRECATED,
+            QualificationProfileEventType.REVOKED: QualificationProfileStatus.REVOKED,
+        }[self.event_type]
+        if self.status is not expected_status:
+            raise ValueError("qualification profile event status mismatch")
+
+        if self.event_type in {
+            QualificationProfileEventType.REGISTERED,
+            QualificationProfileEventType.ACTIVATED,
+        }:
+            if self.reason is not None or self.superseded_by is not None:
+                raise ValueError("open profile event cannot carry lifecycle closure")
+        elif self.event_type is QualificationProfileEventType.DEPRECATED:
+            if not (self.reason or "").strip():
+                raise ValueError("profile deprecation event requires reason")
+            if not (self.superseded_by or "").strip():
+                raise ValueError("profile deprecation event requires superseded_by")
+        elif self.event_type is QualificationProfileEventType.REVOKED:
+            if not (self.reason or "").strip():
+                raise ValueError("profile revocation event requires reason")
+            if self.superseded_by is not None:
+                raise ValueError("profile revocation event cannot carry superseded_by")
+
+    def payload(self) -> dict[str, object]:
+        self.validate()
+        return {
+            "schema_version": self.schema_version,
+            "sequence": self.sequence,
+            "event_type": self.event_type.value,
+            "profile_ref": self.profile_ref,
+            "profile_sha256": self.profile_sha256,
+            "status": self.status.value,
+            "observed_at": _aware(self.observed_at, "observed_at").isoformat(),
+            "previous_event_sha256": self.previous_event_sha256,
+            "reason": self.reason,
+            "superseded_by": self.superseded_by,
+        }
+
+    @property
+    def event_sha256(self) -> str:
+        return _sha256(self.payload())
 
 
 @dataclass(frozen=True)
@@ -158,6 +236,7 @@ class QualificationProfileRegistry:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._records: dict[str, QualificationProfileRecord] = {}
+        self._events: list[QualificationProfileEvent] = []
 
     def register(
         self,
@@ -183,6 +262,11 @@ class QualificationProfileRegistry:
                 updated_at=now,
             )
             record.validate()
+            self._append_event(
+                record=record,
+                event_type=QualificationProfileEventType.REGISTERED,
+                observed_at=now,
+            )
             self._records[ref] = record
             return record
 
@@ -206,6 +290,11 @@ class QualificationProfileRegistry:
                 updated_at=now,
             )
             updated.validate()
+            self._append_event(
+                record=updated,
+                event_type=QualificationProfileEventType.ACTIVATED,
+                observed_at=now,
+            )
             self._records[profile_ref] = updated
             return updated
 
@@ -242,6 +331,13 @@ class QualificationProfileRegistry:
                 superseded_by=replacement.profile.profile_ref,
             )
             updated.validate()
+            self._append_event(
+                record=updated,
+                event_type=QualificationProfileEventType.DEPRECATED,
+                observed_at=now,
+                reason=reason,
+                superseded_by=replacement.profile.profile_ref,
+            )
             self._records[profile_ref] = updated
             return updated
 
@@ -272,6 +368,12 @@ class QualificationProfileRegistry:
                 lifecycle_reason=reason,
             )
             updated.validate()
+            self._append_event(
+                record=updated,
+                event_type=QualificationProfileEventType.REVOKED,
+                observed_at=now,
+                reason=reason,
+            )
             self._records[profile_ref] = updated
             return updated
 
@@ -306,6 +408,32 @@ class QualificationProfileRegistry:
     def state_root_sha256(self) -> str:
         with self._lock:
             return _profile_state_root(self._records)
+
+    @property
+    def event_count(self) -> int:
+        with self._lock:
+            return len(self._events)
+
+    @property
+    def event_head_sha256(self) -> str:
+        with self._lock:
+            return self._events[-1].event_sha256 if self._events else _GENESIS
+
+    def events(self) -> tuple[QualificationProfileEvent, ...]:
+        with self._lock:
+            return tuple(self._events)
+
+    def verify_event_chain(self) -> str:
+        with self._lock:
+            previous = _GENESIS
+            for expected_sequence, event in enumerate(self._events, start=1):
+                event.validate()
+                if event.sequence != expected_sequence:
+                    raise ValueError("qualification profile event sequence mismatch")
+                if event.previous_event_sha256 != previous:
+                    raise ValueError("qualification profile event chain mismatch")
+                previous = event.event_sha256
+            return previous
 
     @property
     def record_count(self) -> int:
@@ -367,6 +495,31 @@ class QualificationProfileRegistry:
         if record is None:
             raise ValueError("qualification profile is not registered")
         return record
+
+    def _append_event(
+        self,
+        *,
+        record: QualificationProfileRecord,
+        event_type: QualificationProfileEventType,
+        observed_at: datetime,
+        reason: str | None = None,
+        superseded_by: str | None = None,
+    ) -> QualificationProfileEvent:
+        previous = self._events[-1].event_sha256 if self._events else _GENESIS
+        event = QualificationProfileEvent(
+            sequence=len(self._events) + 1,
+            event_type=event_type,
+            profile_ref=record.profile.profile_ref,
+            profile_sha256=record.profile.profile_sha256,
+            status=record.status,
+            observed_at=observed_at,
+            previous_event_sha256=previous,
+            reason=reason,
+            superseded_by=superseded_by,
+        )
+        event.validate()
+        self._events.append(event)
+        return event
 
 
 def verify_profile_state_proof(proof: QualificationProfileStateProof) -> bool:

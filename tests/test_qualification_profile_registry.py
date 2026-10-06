@@ -7,6 +7,7 @@ import pytest
 
 from app.qualification.profile_registry import (
     QualificationProfile,
+    QualificationProfileEventType,
     QualificationProfileRegistry,
     QualificationProfileStatus,
     verify_profile_state_proof,
@@ -401,3 +402,75 @@ def test_empty_profile_registry_has_genesis_state_root() -> None:
     registry = QualificationProfileRegistry()
 
     assert registry.state_root_sha256 == "0" * 64
+
+
+
+def test_profile_lifecycle_events_are_append_only_and_hash_chained() -> None:
+    registry = QualificationProfileRegistry()
+    value = profile(version="8.0.0")
+    registry.register(profile=value, observed_at=NOW)
+    registry.activate(
+        profile_ref=value.profile_ref,
+        observed_at=NOW + timedelta(seconds=1),
+    )
+    registry.revoke(
+        profile_ref=value.profile_ref,
+        reason="POLICY_SECURITY_WITHDRAWAL",
+        observed_at=NOW + timedelta(seconds=2),
+    )
+
+    events = registry.events()
+
+    assert registry.event_count == 3
+    assert tuple(event.sequence for event in events) == (1, 2, 3)
+    assert tuple(event.event_type for event in events) == (
+        QualificationProfileEventType.REGISTERED,
+        QualificationProfileEventType.ACTIVATED,
+        QualificationProfileEventType.REVOKED,
+    )
+    assert events[0].previous_event_sha256 == "0" * 64
+    assert events[1].previous_event_sha256 == events[0].event_sha256
+    assert events[2].previous_event_sha256 == events[1].event_sha256
+    assert events[2].reason == "POLICY_SECURITY_WITHDRAWAL"
+    assert registry.verify_event_chain() == registry.event_head_sha256
+    assert registry.event_head_sha256 == events[-1].event_sha256
+
+
+def test_profile_deprecation_event_authenticates_reason_and_replacement() -> None:
+    registry = QualificationProfileRegistry()
+    old = profile(version="8.1.0")
+    replacement = profile(version="8.2.0")
+    registry.register(profile=old, observed_at=NOW)
+    registry.register(profile=replacement, observed_at=NOW)
+    registry.activate(
+        profile_ref=old.profile_ref,
+        observed_at=NOW + timedelta(seconds=1),
+    )
+    registry.activate(
+        profile_ref=replacement.profile_ref,
+        observed_at=NOW + timedelta(seconds=2),
+    )
+    registry.deprecate(
+        profile_ref=old.profile_ref,
+        superseded_by=replacement.profile_ref,
+        reason="POLICY_HARDENED",
+        observed_at=NOW + timedelta(seconds=3),
+    )
+
+    event = registry.events()[-1]
+
+    assert event.event_type is QualificationProfileEventType.DEPRECATED
+    assert event.status is QualificationProfileStatus.DEPRECATED
+    assert event.reason == "POLICY_HARDENED"
+    assert event.superseded_by == replacement.profile_ref
+    assert event.profile_sha256 == old.profile_sha256
+    assert registry.verify_event_chain() == event.event_sha256
+
+
+def test_empty_profile_event_journal_has_genesis_head() -> None:
+    registry = QualificationProfileRegistry()
+
+    assert registry.event_count == 0
+    assert registry.event_head_sha256 == "0" * 64
+    assert registry.verify_event_chain() == "0" * 64
+    assert registry.events() == ()
