@@ -1748,6 +1748,38 @@ The typed decoder slice is complete only when:
 - the decoder itself cannot call broker, OMS, risk or live-routing authority;
 - the offline verifier can consume only the decoded typed bundle plus explicit trusted roots / persisted TrustState.
 
+### Offline verifier local trust-anchor discipline — ADOPT
+
+The offline verifier must not treat the portable artefact's embedded TrustState as sufficient local authority.
+
+Required model:
+
+`local trusted state -> artifact embedded state equality -> typed bundle verification -> next trusted state`
+
+Rules:
+
+- normal verification requires an independently persisted local TrustState input;
+- the embedded TrustState is transport context and must exactly match local trusted state before verification proceeds;
+- a mismatch fails closed before any state advancement;
+- missing local state never silently implies genesis;
+- genesis bootstrap requires an explicit operator flag;
+- genesis bootstrap is allowed only when profile event count/head and Trust Checkpoint v4 SHA are at genesis and the transparency anchor exactly matches the root-anchored base v3 transparency head;
+- REJECTED verification never advances TrustState;
+- VERIFIED verification may advance TrustState even when the qualification result is currently unusable, so authenticated revocation/supersession history cannot be ignored;
+- state persistence uses temp-write + flush/fsync where supported + atomic replace, preserving the previous state on every error;
+- rollback to an older otherwise valid artefact/state pair is treated as a trust-anchor violation, not as a valid replay.
+
+Acceptance evidence must include:
+
+- local-state mismatch rejection;
+- explicit genesis-bootstrap tests;
+- wrong trusted-root rejection;
+- byte-for-byte state preservation after REJECTED/error outcomes;
+- deterministic state-file encoding;
+- successful advancement on authenticated lifecycle changes, including unusable/revoked outcomes.
+
+This is an **ADOPT** requirement for the offline CLI, Verification API and SDK contract. It strengthens independent verification only and does not create trading authority.
+
 Every step remains bounded by the authority rules in this master plan. None of these layers proves strategy profitability or enables live/mainnet trading.
 
 ## Master-plan execution discipline
