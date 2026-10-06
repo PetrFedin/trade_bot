@@ -180,3 +180,84 @@ def test_delta_rejects_invalid_count_ranges() -> None:
             current_event_head_sha256="b" * 64,
             appended_events=(),
         ).validate()
+
+
+
+def test_delta_payload_is_deterministic() -> None:
+    registry = populated_registry()
+    proof = build_profile_event_delta(
+        profile_registry=registry,
+        previous_event_count=2,
+    )
+
+    assert proof.payload() == proof.payload()
+    verified = verify_profile_event_delta(proof)
+    assert verified.payload()["appended_event_count"] == len(proof.appended_events)
+
+
+def test_delta_validation_rejects_invalid_genesis_and_noop_head_change() -> None:
+    with pytest.raises(ValueError, match="requires genesis head"):
+        QualificationProfileEventDeltaProof(
+            previous_event_count=0,
+            current_event_count=0,
+            previous_event_head_sha256="f" * 64,
+            current_event_head_sha256="f" * 64,
+            appended_events=(),
+        ).validate()
+
+    with pytest.raises(ValueError, match="cannot change event head"):
+        QualificationProfileEventDeltaProof(
+            previous_event_count=2,
+            current_event_count=2,
+            previous_event_head_sha256="a" * 64,
+            current_event_head_sha256="b" * 64,
+            appended_events=(),
+        ).validate()
+
+
+def test_delta_builder_rejects_registry_mutation_during_snapshot() -> None:
+    base = populated_registry()
+    late = profile(version="10.2.0")
+
+    class MutatingRegistry(QualificationProfileRegistry):
+        def __init__(self) -> None:
+            super().__init__()
+            for event_profile in (
+                profile(version="10.0.0"),
+                profile(version="10.1.0"),
+            ):
+                self.register(profile=event_profile, observed_at=NOW)
+            self.activate(
+                profile_ref="ASTRA_BYBIT_PUBLIC_MARKETDATA@10.0.0",
+                observed_at=NOW + timedelta(seconds=1),
+            )
+            self.activate(
+                profile_ref="ASTRA_BYBIT_PUBLIC_MARKETDATA@10.1.0",
+                observed_at=NOW + timedelta(seconds=2),
+            )
+            self.deprecate(
+                profile_ref="ASTRA_BYBIT_PUBLIC_MARKETDATA@10.0.0",
+                superseded_by="ASTRA_BYBIT_PUBLIC_MARKETDATA@10.1.0",
+                reason="POLICY_HARDENED",
+                observed_at=NOW + timedelta(seconds=3),
+            )
+            self._mutated = False
+
+        def events(self):
+            snapshot = super().events()
+            if not self._mutated:
+                self._mutated = True
+                self.register(
+                    profile=late,
+                    observed_at=NOW + timedelta(seconds=4),
+                )
+            return snapshot
+
+    registry = MutatingRegistry()
+    assert registry.event_count == base.event_count
+
+    with pytest.raises(ValueError, match="event count changed"):
+        build_profile_event_delta(
+            profile_registry=registry,
+            previous_event_count=0,
+        )
