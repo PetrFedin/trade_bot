@@ -1661,3 +1661,22 @@ Avoid artificial lock-in: export and independent verification should remain poss
 **Sequencing:** Qualification Standard -> reference profiles -> synthetic implementation -> institutional corpus -> evidence registry -> verification bundle -> approved integration network -> OEM/enterprise distribution.
 
 **Moat:** ASTRA's defensibility compounds when institutions reuse the same deterministic profiles, test corpora, signed evidence format and requalification history across multiple adapters and providers.
+
+## Master-plan execution discipline
+
+This document is the mandatory architecture/assurance review source before each significant ASTRA development wave.
+
+Before opening or materially extending an implementation PR:
+
+1. re-read the relevant sections of this master plan;
+2. compare the proposed slice with current canonical `main` and active qualification/trust work;
+3. check whether an existing planned capability already covers the requirement;
+4. preserve all authority boundaries, especially ARM/HALT, paper/live separation, qualification-vs-promotion separation and `PROFITABILITY_NOT_PROVEN`;
+5. classify newly discovered strengthening directions as `ADOPT`, `ADAPT`, `REFERENCE`, `CONDITIONAL` or `REJECT`;
+6. record source/reference, intended boundary, sequencing/dependencies and acceptance evidence before treating a new direction as part of the roadmap;
+7. make implementation PRs reference the relevant master-plan section where practical;
+8. when a newer finding supersedes an older idea, preserve the history but mark the older path superseded rather than silently deleting the rationale.
+
+New assurance, qualification, ecosystem or commercial ideas should first be reconciled against this file so ASTRA evolves as one coherent system rather than as disconnected feature additions.
+
+This discipline does not authorise strategy promotion or live/mainnet trading.
