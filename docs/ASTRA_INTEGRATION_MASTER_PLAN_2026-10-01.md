@@ -1780,6 +1780,76 @@ Acceptance evidence must include:
 
 This is an **ADOPT** requirement for the offline CLI, Verification API and SDK contract. It strengthens independent verification only and does not create trading authority.
 
+### Persistent TrustState Authority v1 — ADOPT
+
+After the offline CLI is qualified, replace ad-hoc single-file state advancement with a bounded local authority.
+
+State record:
+
+- authority/schema version;
+- monotonically increasing generation;
+- previous record SHA-256;
+- current TrustState v4 payload and state SHA-256;
+- source artifact ID/SHA;
+- verified bundle/checkpoint identity where available;
+- verification timestamp;
+- record SHA-256 over canonical JSON.
+
+Storage model:
+
+- one immutable canonical history record per generation;
+- one canonical current pointer/record;
+- history record is durably committed before current advances;
+- temporary/partial files are never authoritative;
+- all writes use flush/fsync where supported plus atomic replace;
+- current generation advances only under an exclusive process lock.
+
+CAS discipline:
+
+- caller supplies expected generation, expected current record SHA and expected TrustState SHA;
+- authority reloads current state while holding the lock;
+- any mismatch rejects the update without mutation;
+- generation increments exactly by one;
+- TrustState event/tree counters cannot regress;
+- duplicate/no-op advancement is rejected unless an explicit idempotent replay contract is later defined.
+
+Crash recovery:
+
+- on open, validate every relevant canonical record before trusting it;
+- verify generation continuity and previous-record hash chain;
+- if current points to a valid history record, it is authoritative;
+- if exactly one fully committed next history record exists after a crash-before-current-update, recovery may deterministically advance current to it;
+- ambiguous forks, gaps, multiple competing next records, malformed records or hash mismatches fail closed and require operator recovery;
+- orphan temporary files are ignored/cleaned only after the authoritative chain is established.
+
+Rollback semantics:
+
+- local hash-chain/history makes ordinary rollback detectable when newer history remains;
+- it does **not** make rollback impossible against an attacker able to replace the entire local authority directory and all external anchors;
+- stronger anti-rollback requires an external monotonic/checkpoint anchor, remote witness, TPM/HSM counter or equivalent separately qualified mechanism;
+- documentation and product claims must say tamper-evident / rollback-detecting within the retained authority boundary, not tamper-proof.
+
+Receipts:
+
+- every accepted advancement yields an exportable canonical receipt bound to previous/current record SHA, generation, state SHA and verification artifact/checkpoint;
+- receipt signing is optional in v1 through an explicit signing-provider interface;
+- private keys are never stored by the TrustState authority;
+- an unsigned receipt remains hash-verifiable but must not be described as independently signed evidence.
+
+Acceptance evidence:
+
+- two concurrent writers cannot both advance the same generation;
+- stale CAS is rejected without mutation;
+- process interruption after history commit and before current update recovers deterministically;
+- malformed/forked history fails closed;
+- current/history rollback is detected when a newer retained chain exists;
+- complete-directory rollback limitation is explicitly documented and tested as out-of-bound without an external witness;
+- export receipt reproduces exact transition hashes;
+- optional receipt signature verifies through the existing qualified signing boundary;
+- no TrustState persistence code imports broker, OMS, strategy, risk or live-routing authority.
+
+**Sequencing:** offline CLI v1 -> Persistent TrustState Authority v1 -> contract-first Verification API -> SDK contract -> reference profiles/corpus -> OEM/embedded qualification.
+
 Every step remains bounded by the authority rules in this master plan. None of these layers proves strategy profitability or enables live/mainnet trading.
 
 ## Master-plan execution discipline
