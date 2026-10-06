@@ -286,10 +286,10 @@ def assess_market_data_integrity(
         reasons.add("MARKET_DATA_CONFLICT_PRESENT")
         quarantine = True
 
-    if not bars:
+    if checkpoint is not None and not bars:
         reasons.add("MARKET_DATA_THROUGH_BAR_MISSING")
         quarantine = True
-    else:
+    elif bars:
         previous: OperationalBar | None = None
         for bar in bars:
             try:
@@ -430,11 +430,25 @@ class MarketDataIntegrityAuthority:
                 receive_lag_seconds=Decimal("0"),
             )
 
-        return assess_market_data_integrity(
-            scope=self.scope,
-            policy=self.policy,
-            evaluated_at=current,
-            bars=bars,
-            checkpoint=checkpoint,
-            conflict_count=conflicts,
-        )
+        try:
+            return assess_market_data_integrity(
+                scope=self.scope,
+                policy=self.policy,
+                evaluated_at=current,
+                bars=bars,
+                checkpoint=checkpoint,
+                conflict_count=conflicts,
+            )
+        except Exception:
+            return _assessment(
+                scope=self.scope,
+                policy=self.policy,
+                evaluated_at=current,
+                state=MarketDataIntegrityState.QUARANTINED,
+                reasons={"MARKET_DATA_INTEGRITY_EVALUATION_FAILED"},
+                bars=(),
+                conflict_count=max(conflicts, 1),
+                checkpoint=None,
+                age_seconds=Decimal("0"),
+                receive_lag_seconds=Decimal("0"),
+            )
