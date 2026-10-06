@@ -69,13 +69,14 @@ def _third_state() -> QualificationTrustStateV4:
     )
 
 
-def _transition(seed: str) -> TrustStateTransitionContext:
+def _transition(seed: str, checkpoint_sha256: str) -> TrustStateTransitionContext:
     return TrustStateTransitionContext(
         artifact_id=f"qartifact_{seed * 24}",
         artifact_sha256=seed * 64,
         bundle_id=f"qverifyv4_{seed * 24}",
         bundle_sha256=seed * 64,
         checkpoint_v4_id=f"qtrustv4_{seed * 24}",
+        checkpoint_v4_sha256=checkpoint_sha256,
         verified_at=NOW,
     )
 
