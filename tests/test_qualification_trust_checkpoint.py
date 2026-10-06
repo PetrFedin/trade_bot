@@ -246,3 +246,125 @@ def test_empty_combined_trust_checkpoint_uses_genesis_roots() -> None:
     assert checkpoint.profile_state_root_sha256 == "0" * 64
     assert checkpoint.transparency_tree_size == 0
     assert checkpoint.transparency_root_sha256 == "0" * 64
+
+
+
+def test_trust_checkpoint_rejects_backdated_evidence_and_transparency_state() -> None:
+    bundle, evidence_registry, log, _, _, _, _ = full_bundle()
+    profile_registry = active_profile_registry(bundle.profile)
+
+    with pytest.raises(ValueError, match="predate evidence registry state"):
+        build_trust_checkpoint(
+            evidence_registry=evidence_registry,
+            profile_registry=profile_registry,
+            transparency_head=log.latest_head(),
+            issued_at=NOW + timedelta(seconds=1),
+        )
+
+    with pytest.raises(ValueError, match="predate transparency head"):
+        build_trust_checkpoint(
+            evidence_registry=evidence_registry,
+            profile_registry=profile_registry,
+            transparency_head=log.latest_head(),
+            issued_at=NOW + timedelta(seconds=3),
+        )
+
+
+def test_trust_checkpoint_rejects_monotonic_counter_rollback() -> None:
+    bundle, evidence_registry, log, _, _, _, _ = full_bundle()
+    profile_registry = active_profile_registry(bundle.profile)
+    current = build_trust_checkpoint(
+        evidence_registry=evidence_registry,
+        profile_registry=profile_registry,
+        transparency_head=log.latest_head(),
+        issued_at=NOW + timedelta(seconds=7),
+    )
+
+    with pytest.raises(ValueError, match="evidence event count regression"):
+        build_trust_checkpoint(
+            evidence_registry=evidence_registry,
+            profile_registry=profile_registry,
+            transparency_head=log.latest_head(),
+            issued_at=NOW + timedelta(seconds=8),
+            previous_checkpoint=replace(
+                current,
+                evidence_event_count=current.evidence_event_count + 1,
+            ),
+        )
+
+    with pytest.raises(ValueError, match="profile record count regression"):
+        build_trust_checkpoint(
+            evidence_registry=evidence_registry,
+            profile_registry=profile_registry,
+            transparency_head=log.latest_head(),
+            issued_at=NOW + timedelta(seconds=8),
+            previous_checkpoint=replace(
+                current,
+                profile_record_count=current.profile_record_count + 1,
+            ),
+        )
+
+    with pytest.raises(ValueError, match="transparency size regression"):
+        build_trust_checkpoint(
+            evidence_registry=evidence_registry,
+            profile_registry=profile_registry,
+            transparency_head=log.latest_head(),
+            issued_at=NOW + timedelta(seconds=8),
+            previous_checkpoint=replace(
+                current,
+                transparency_tree_size=current.transparency_tree_size + 1,
+            ),
+        )
+
+
+def test_trust_checkpoint_validation_rejects_invalid_genesis_invariants() -> None:
+    evidence_registry = QualificationEvidenceRegistry()
+    profile_registry = QualificationProfileRegistry()
+    log = QualificationTransparencyLog()
+    checkpoint = build_trust_checkpoint(
+        evidence_registry=evidence_registry,
+        profile_registry=profile_registry,
+        transparency_head=log.latest_head(),
+        issued_at=NOW,
+    )
+
+    with pytest.raises(ValueError, match="genesis event head"):
+        replace(
+            checkpoint,
+            evidence_event_head_sha256="f" * 64,
+        ).validate()
+
+    with pytest.raises(ValueError, match="profile registry requires genesis"):
+        replace(
+            checkpoint,
+            profile_state_root_sha256="f" * 64,
+        ).validate()
+
+    with pytest.raises(ValueError, match="transparency log requires genesis"):
+        replace(
+            checkpoint,
+            transparency_root_sha256="f" * 64,
+        ).validate()
+
+
+def test_trust_checkpoint_signature_cannot_predate_checkpoint() -> None:
+    bundle, evidence_registry, log, _, signer, descriptor, keyring = full_bundle()
+    profile_registry = active_profile_registry(bundle.profile)
+    checkpoint = build_trust_checkpoint(
+        evidence_registry=evidence_registry,
+        profile_registry=profile_registry,
+        transparency_head=log.latest_head(),
+        issued_at=NOW + timedelta(seconds=7),
+    )
+
+    with pytest.raises(ValueError, match="signature cannot predate checkpoint"):
+        sign_trust_checkpoint(
+            checkpoint=checkpoint,
+            provider=signer,
+            descriptor=descriptor,
+            keyring_generation=keyring.generation,
+            signature_id="combined-trust-checkpoint-early",
+            issued_at=NOW + timedelta(seconds=6),
+            expires_at=NOW + timedelta(minutes=1),
+            nonce="combined-trust-checkpoint-early-nonce",
+        )
