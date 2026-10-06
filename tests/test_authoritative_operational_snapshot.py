@@ -106,7 +106,7 @@ class MarketAuthority:
         assert kwargs["symbol"] == SCOPE.symbol
         assert kwargs["interval_seconds"] == SCOPE.interval_seconds
         assert kwargs["through_close_time"] == self.bar.close_time
-        assert kwargs["limit"] == 1
+        assert kwargs["limit"] == 5
         return (self.bar,)
 
     def conflict_count(self) -> int:
