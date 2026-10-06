@@ -1146,14 +1146,22 @@ def test_qualification_manifest_rejects_continuity_substitution(tmp_path) -> Non
     )
     substituted.validate()
 
+    substituted_integrity = replace(
+        integrity,
+        provider_replay_sha256=substituted.evidence_sha256,
+    )
+    substituted_integrity.validate()
+    rebound_job = replace(
+        job,
+        marketdata_integrity_sha256=substituted_integrity.evidence_sha256,
+    )
+    rebound_job.validate()
+
     with pytest.raises(ValueError, match="continuity mismatch"):
         build_qualification_manifest(
-            job_result=job,
+            job_result=rebound_job,
             adapter_conformance=report,
-            marketdata_integrity=replace(
-                integrity,
-                provider_replay_sha256=substituted.evidence_sha256,
-            ),
+            marketdata_integrity=substituted_integrity,
             provider_replay=substituted,
         )
 
