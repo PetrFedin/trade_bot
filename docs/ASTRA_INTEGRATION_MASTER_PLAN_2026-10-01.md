@@ -1346,3 +1346,139 @@ Metering stays outside order/risk truth.
 
 **Commercial framing:** ASTRA becomes a high-trust execution-infrastructure qualification service that institutions and broker integrations can build around, not merely an internal trading runtime.
 
+## Defensibility wave — ASTRA Qualification Standard and portable adapter credentials
+
+This wave formalizes ASTRA's replay, fault, clock, market-data, TCA and best-execution evidence into a proprietary qualification standard that external integrations can satisfy and verify.
+
+It does not certify profitability, regulatory compliance or permission to trade live.
+
+### ASTRA Qualification Standard — ADOPT
+
+Define a public/versioned standard with machine-testable profiles such as:
+
+- Adapter Contract;
+- Market Data Integrity;
+- OMS State-Machine;
+- Reconciliation/Recovery;
+- Clock Integrity;
+- Fault Tolerance;
+- Tail Latency;
+- Historical Replay;
+- Synthetic Microstructure;
+- Execution Evidence;
+- Best-Execution Evidence.
+
+Each profile declares:
+
+- required inputs;
+- test corpus;
+- invariants;
+- pass/fail conditions;
+- evidence outputs;
+- tool/config versions;
+- requalification triggers.
+
+### Qualification Manifest — ADOPT
+
+Every qualified build/adapter produces a manifest containing:
+
+- subject adapter/component;
+- subject version/hash;
+- ASTRA release;
+- qualification standard/profile version;
+- test corpus versions;
+- environment;
+- result by profile;
+- evidence checksums;
+- issued_at;
+- expiry/requalification condition;
+- status.
+
+Historical manifests remain immutable.
+
+### Portable Adapter Credential — ADAPT
+
+Reference:
+
+https://github.com/w3c/vc-data-model
+
+Issue scoped credentials such as:
+
+- ASTRA Adapter Contract Qualified;
+- Market Data Integrity Qualified;
+- Recovery Qualified;
+- Replay Qualified.
+
+Credential proves only that exact version passed that exact profile.
+
+It does not mean the broker/venue endorses ASTRA and does not permit live/mainnet use.
+
+### Build / Evidence Signature — ADAPT
+
+Use Sigstore/Cosign-style artefact signing where appropriate:
+
+https://github.com/sigstore/cosign
+
+Bind:
+
+adapter/build artifact -> qualification manifest -> evidence package -> signature identity
+
+This helps detect substituted/unqualified binaries.
+
+### Adapter / Provider Trust Graph — ADOPT
+
+Graph:
+
+provider/adapter -> versions -> qualification results -> incidents -> requalification -> compatibility -> deprecation
+
+Useful dimensions:
+
+- current qualification profile status;
+- incident/open issue state;
+- compatibility freshness;
+- recovery-test recency;
+- evidence completeness.
+
+No opaque provider quality score.
+
+### Public / Partner Verification Endpoint — ADOPT
+
+Allow scoped verification of:
+
+- credential/qualification ID;
+- subject/version;
+- standard/profile;
+- result/status;
+- issued/review/expiry;
+- evidence hash.
+
+Do not expose proprietary strategy/account data.
+
+### Standard Governance — ADOPT
+
+Every standard change requires:
+
+- version bump;
+- changelog;
+- migration/requalification impact;
+- owner/reviewer;
+- effective date;
+- deprecated profiles;
+- minimum supported version.
+
+Breaking changes cannot silently invalidate old evidence.
+
+### Additional acceptance
+
+- qualification profile is machine-testable;
+- credential binds to exact component/version;
+- signed evidence detects substitution;
+- incidents/revocations remain visible;
+- no qualification result alters PROFITABILITY_NOT_PROVEN;
+- no credential implies regulatory certification/live authorisation;
+- provider graph contains engineering evidence only.
+
+**Sequencing:** Qualification API + Evidence Packs + Best Execution/TCA -> formal standard -> manifests -> signatures -> scoped credentials -> provider/version trust graph -> public verification.
+
+**Moat:** ASTRA can become a de-facto engineering qualification standard for deterministic trading infrastructure, with accumulated versioned evidence and integration history that is difficult to reproduce.
+
