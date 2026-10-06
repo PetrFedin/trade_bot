@@ -34,7 +34,7 @@ class MarketDataSafetyAction(StrEnum):
 @dataclass(frozen=True)
 class MarketDataIntegrityPolicy:
     maximum_server_skew_seconds: Decimal
-    maximum_receive_delay_seconds: Decimal
+    high_water_receive_delay_seconds: Decimal
     maximum_final_bar_age_seconds: Decimal
     version: str = _POLICY_VERSION
 
@@ -43,7 +43,7 @@ class MarketDataIntegrityPolicy:
             raise ValueError("market-data integrity policy version is required")
         for name, value in (
             ("maximum_server_skew_seconds", self.maximum_server_skew_seconds),
-            ("maximum_receive_delay_seconds", self.maximum_receive_delay_seconds),
+            ("high_water_receive_delay_seconds", self.high_water_receive_delay_seconds),
             ("maximum_final_bar_age_seconds", self.maximum_final_bar_age_seconds),
         ):
             if not value.is_finite() or value < 0:
@@ -54,7 +54,7 @@ class MarketDataIntegrityPolicy:
         return {
             "version": self.version,
             "maximum_server_skew_seconds": _decimal(self.maximum_server_skew_seconds),
-            "maximum_receive_delay_seconds": _decimal(self.maximum_receive_delay_seconds),
+            "high_water_receive_delay_seconds": _decimal(self.high_water_receive_delay_seconds),
             "maximum_final_bar_age_seconds": _decimal(self.maximum_final_bar_age_seconds),
         }
 
@@ -75,7 +75,7 @@ class MarketDataIntegrityDecision:
     continuity_checkpoint_id: str
     conflict_count: int
     server_skew_seconds: Decimal
-    maximum_receive_delay_seconds: Decimal
+    high_water_receive_delay_seconds: Decimal
     final_bar_age_seconds: Decimal
     schema_version: str = _SCHEMA_VERSION
 
@@ -102,7 +102,7 @@ class MarketDataIntegrityDecision:
             raise ValueError("conflict_count must be non-negative")
         for name, value in (
             ("server_skew_seconds", self.server_skew_seconds),
-            ("maximum_receive_delay_seconds", self.maximum_receive_delay_seconds),
+            ("high_water_receive_delay_seconds", self.high_water_receive_delay_seconds),
             ("final_bar_age_seconds", self.final_bar_age_seconds),
         ):
             if not value.is_finite() or value < 0:
@@ -140,8 +140,8 @@ class MarketDataIntegrityDecision:
             "continuity_checkpoint_id": self.continuity_checkpoint_id,
             "conflict_count": self.conflict_count,
             "server_skew_seconds": _decimal(self.server_skew_seconds),
-            "maximum_receive_delay_seconds": _decimal(
-                self.maximum_receive_delay_seconds
+            "high_water_receive_delay_seconds": _decimal(
+                self.high_water_receive_delay_seconds
             ),
             "final_bar_age_seconds": _decimal(self.final_bar_age_seconds),
         }
@@ -194,15 +194,15 @@ def evaluate_bybit_marketdata_integrity(
         venue = "UNKNOWN"
         symbol = "UNKNOWN"
         interval_seconds = 1
-        maximum_receive_delay = Decimal("0")
+        high_water_receive_delay = Decimal("0")
         final_bar_age = Decimal("0")
     else:
         provider = bars[0].provider
         venue = bars[0].venue
         symbol = bars[0].symbol
         interval_seconds = bars[0].interval_seconds
-        maximum_receive_delay = max(
-            _seconds(bar.received_at - bar.source_timestamp) for bar in bars
+        high_water_receive_delay = _seconds(
+            capture.response_received_at - bars[-1].source_timestamp
         )
         final_bar_age = _non_negative_age(now, bars[-1].close_time)
 
@@ -242,7 +242,7 @@ def evaluate_bybit_marketdata_integrity(
     else:
         if server_skew > policy.maximum_server_skew_seconds:
             reasons.add("PROVIDER_SERVER_SKEW_EXCEEDED")
-        if maximum_receive_delay > policy.maximum_receive_delay_seconds:
+        if high_water_receive_delay > policy.high_water_receive_delay_seconds:
             reasons.add("PROVIDER_EVENT_DELAY_EXCEEDED")
         if reasons:
             status = MarketDataIntegrityStatus.DEGRADED
@@ -263,7 +263,7 @@ def evaluate_bybit_marketdata_integrity(
         continuity_checkpoint_id=continuity_checkpoint.checkpoint_id,
         conflict_count=conflict_count,
         server_skew_seconds=server_skew,
-        maximum_receive_delay_seconds=maximum_receive_delay,
+        high_water_receive_delay_seconds=high_water_receive_delay,
         final_bar_age_seconds=final_bar_age,
     )
     decision.validate()
