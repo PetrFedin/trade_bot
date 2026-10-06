@@ -256,6 +256,21 @@ class QualificationTransparencyLog:
                 )
             return self._heads[-1]
 
+    def head_at_size(self, tree_size: int) -> QualificationTransparencyTreeHead:
+        if tree_size < 0:
+            raise ValueError("qualification transparency tree_size must be non-negative")
+        with self._lock:
+            if tree_size == 0:
+                return QualificationTransparencyTreeHead(
+                    tree_size=0,
+                    root_sha256=_GENESIS_HEAD,
+                    previous_tree_head_sha256=_GENESIS_HEAD,
+                    issued_at=datetime(1970, 1, 1, tzinfo=UTC),
+                )
+            if tree_size > len(self._heads):
+                raise ValueError("qualification transparency tree_size is not published")
+            return self._heads[tree_size - 1]
+
     def inclusion_proof(self, *, object_id: str) -> QualificationInclusionProof:
         with self._lock:
             index = next(
