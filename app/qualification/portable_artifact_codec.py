@@ -233,9 +233,10 @@ def decode_portable_qualification_artifact_json(
 
 def canonical_json_bytes(value: object) -> bytes:
     _validate_json_value(value)
+    normalized = _plain_json(value)
     try:
         return json.dumps(
-            value,
+            normalized,
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=True,
@@ -245,6 +246,17 @@ def canonical_json_bytes(value: object) -> bytes:
         raise QualificationArtifactCodecError(
             "value cannot be encoded as ASTRA canonical JSON"
         ) from exc
+
+
+def _plain_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {
+            key: _plain_json(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, tuple | list):
+        return [_plain_json(item) for item in value]
+    return value
 
 
 def _unsigned_artifact_payload(
