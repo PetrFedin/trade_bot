@@ -158,27 +158,31 @@ def test_stale_high_water_forces_read_only() -> None:
 
 
 @pytest.mark.parametrize(
-    ("values", "expected_reason"),
+    ("values", "expected_reason", "evaluated_at"),
     [
         (
             (bar(0), bar(1), bar(2, receive_lag_seconds="10")),
             "MARKET_DATA_RECEIVE_LAG_EXCEEDED",
+            NOW + timedelta(seconds=10),
         ),
         (
             (bar(0), bar(1), bar(2, revision=1)),
             "MARKET_DATA_REVISION_PRESENT",
+            NOW,
         ),
         (
             (bar(0, close="100"), bar(1, close="101"), bar(2, close="150")),
             "MARKET_DATA_PRICE_JUMP_REVIEW_REQUIRED",
+            NOW,
         ),
     ],
 )
 def test_suspicious_but_structurally_valid_state_becomes_read_only(
     values,
     expected_reason,
+    evaluated_at,
 ) -> None:
-    result = assess(values)
+    result = assess(values, now=evaluated_at)
 
     assert result.state is MarketDataIntegrityState.DEGRADED
     assert result.action is MarketDataIntegrityAction.READ_ONLY
@@ -195,7 +199,16 @@ def test_durable_conflict_quarantines_the_scope() -> None:
 
 
 def test_gap_quarantines_even_when_each_individual_bar_is_valid() -> None:
-    values = (bar(0), bar(1, open_offset_seconds=1), bar(2))
+    middle = bar(1)
+    shifted_middle = replace(
+        middle,
+        open_time=middle.open_time + timedelta(seconds=1),
+        close_time=middle.close_time + timedelta(seconds=1),
+        source_timestamp=middle.source_timestamp + timedelta(seconds=1),
+        received_at=middle.received_at + timedelta(seconds=1),
+    )
+    shifted_middle.validate()
+    values = (bar(0), shifted_middle, bar(2))
     result = assess(values)
 
     assert result.state is MarketDataIntegrityState.QUARANTINED
