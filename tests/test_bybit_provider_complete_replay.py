@@ -394,7 +394,7 @@ def integrity_bundle(tmp_path):
     assert report.qualified
     policy = MarketDataIntegrityPolicy(
         maximum_server_skew_seconds=Decimal("5"),
-        maximum_receive_delay_seconds=Decimal("5"),
+        high_water_receive_delay_seconds=Decimal("5"),
         maximum_final_bar_age_seconds=Decimal("10"),
     )
     return capture, checkpoint, evidence, report, policy
@@ -476,7 +476,7 @@ def test_provider_clock_or_delivery_degradation_forces_read_only(tmp_path) -> No
     capture, checkpoint, evidence, report, _ = integrity_bundle(tmp_path)
     strict = MarketDataIntegrityPolicy(
         maximum_server_skew_seconds=Decimal("0"),
-        maximum_receive_delay_seconds=Decimal("1"),
+        high_water_receive_delay_seconds=Decimal("1"),
         maximum_final_bar_age_seconds=Decimal("10"),
     )
 
@@ -513,7 +513,7 @@ def test_unqualified_adapter_blocks_marketdata_qualification(tmp_path) -> None:
     assert not failed_report.qualified
     policy = MarketDataIntegrityPolicy(
         maximum_server_skew_seconds=Decimal("5"),
-        maximum_receive_delay_seconds=Decimal("5"),
+        high_water_receive_delay_seconds=Decimal("5"),
         maximum_final_bar_age_seconds=Decimal("10"),
     )
 
