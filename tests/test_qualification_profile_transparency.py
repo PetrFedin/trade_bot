@@ -278,3 +278,47 @@ def test_transparency_historical_head_lookup_is_stable() -> None:
 
     with pytest.raises(ValueError, match="not published"):
         log.head_at_size(3)
+
+
+
+def test_profile_publication_rejects_registry_mutation_during_append() -> None:
+    registry = populated_profile_registry()
+    late_profile = profile(version="9.3.0")
+
+    class MutatingTransparencyLog(QualificationTransparencyLog):
+        def __init__(self) -> None:
+            super().__init__()
+            self._mutated = False
+
+        def append(self, *, entry, issued_at):
+            head = super().append(entry=entry, issued_at=issued_at)
+            if (
+                not self._mutated
+                and entry.entry_type == "QUALIFICATION_PROFILE_EVENT"
+            ):
+                self._mutated = True
+                registry.register(
+                    profile=late_profile,
+                    observed_at=NOW + timedelta(seconds=4),
+                )
+            return head
+
+    log = MutatingTransparencyLog()
+
+    with pytest.raises(
+        ValueError,
+        match="changed during transparency publication",
+    ):
+        publish_profile_lifecycle(
+            profile_registry=registry,
+            transparency_log=log,
+            observed_at=NOW + timedelta(seconds=5),
+        )
+
+    profile_entries = tuple(
+        entry
+        for entry in log.entries()
+        if entry.entry_type == "QUALIFICATION_PROFILE_EVENT"
+    )
+    assert profile_entries
+    assert len(profile_entries) < registry.event_count
