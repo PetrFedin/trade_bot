@@ -189,10 +189,12 @@ def verify_profile_publication_receipt(
             _verify_published_event(entry=entry, event=events[index])
     except ValueError:
         return False
-    head = transparency_log.latest_head()
+    try:
+        head = transparency_log.head_at_size(receipt.transparency_tree_size)
+    except ValueError:
+        return False
     return (
-        head.tree_size == receipt.transparency_tree_size
-        and head.root_sha256 == receipt.transparency_root_sha256
+        head.root_sha256 == receipt.transparency_root_sha256
         and head.tree_head_sha256 == receipt.transparency_tree_head_sha256
     )
 
