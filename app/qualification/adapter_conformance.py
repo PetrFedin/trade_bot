@@ -7,7 +7,7 @@ from enum import StrEnum
 
 
 class ConformanceStatus(StrEnum):
-    PASS = "PASS"
+    PASS = "PASS"  # nosec B105 - conformance status label, not a credential
     FAIL = "FAIL"
     BLOCKED = "BLOCKED"
     NOT_IN_SCOPE = "NOT_IN_SCOPE"
