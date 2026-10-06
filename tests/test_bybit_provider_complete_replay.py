@@ -33,6 +33,11 @@ from app.qualification.marketdata_integrity import (
     MarketDataSafetyAction,
     evaluate_bybit_marketdata_integrity,
 )
+from app.qualification.qualification_job import (
+    QualificationJobRequest,
+    QualificationJobStatus,
+    evaluate_public_marketdata_qualification_job,
+)
 from app.qualification.replay_evidence import (
     ReplayContinuity,
     ReplayEvidenceProfile,
@@ -613,3 +618,169 @@ def test_marketdata_integrity_rejects_future_high_water_observation(tmp_path) ->
             policy=policy,
             observed_at=checkpoint.through_close_time - timedelta(seconds=1),
         )
+
+
+
+def qualification_job_request(evidence) -> QualificationJobRequest:
+    return QualificationJobRequest(
+        organisation_id="ASTRA_INTERNAL",
+        subject="BYBIT_PUBLIC_MARKETDATA_ADAPTER",
+        subject_version="a1308410f64ff9a639e0fb8c32e287fa2c484a0e",
+        profile_id="ASTRA_BYBIT_PUBLIC_MARKETDATA",
+        profile_version="1.0.0",
+        environment="mainnet-public-readonly",
+        corpus_ids=(evidence.replay.dataset_id,),
+        submitted_at=OBSERVED,
+    )
+
+
+def test_qualification_job_passes_only_on_bound_healthy_evidence(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+    integrity = evaluate_bybit_marketdata_integrity(
+        capture=capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        adapter_conformance=report,
+        policy=policy,
+        observed_at=OBSERVED,
+    )
+    request = qualification_job_request(evidence)
+
+    result = evaluate_public_marketdata_qualification_job(
+        request=request,
+        adapter_conformance=report,
+        marketdata_integrity=integrity,
+        started_at=OBSERVED + timedelta(seconds=1),
+        completed_at=OBSERVED + timedelta(seconds=2),
+    )
+
+    assert result.status is QualificationJobStatus.PASS
+    assert result.reasons == ()
+    assert result.job_id == request.job_id
+    assert result.job_id.startswith("qjob_")
+    assert len(result.result_sha256) == 64
+
+
+def test_qualification_job_is_deterministic_for_identical_request_and_evidence(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+    integrity = evaluate_bybit_marketdata_integrity(
+        capture=capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        adapter_conformance=report,
+        policy=policy,
+        observed_at=OBSERVED,
+    )
+    kwargs = dict(
+        request=qualification_job_request(evidence),
+        adapter_conformance=report,
+        marketdata_integrity=integrity,
+        started_at=OBSERVED + timedelta(seconds=1),
+        completed_at=OBSERVED + timedelta(seconds=2),
+    )
+
+    first = evaluate_public_marketdata_qualification_job(**kwargs)
+    second = evaluate_public_marketdata_qualification_job(**kwargs)
+
+    assert first == second
+    assert first.result_sha256 == second.result_sha256
+
+
+def test_qualification_job_fails_when_marketdata_integrity_is_degraded(tmp_path) -> None:
+    capture, checkpoint, evidence, report, _ = integrity_bundle(tmp_path)
+    strict = MarketDataIntegrityPolicy(
+        maximum_server_skew_seconds=Decimal("5"),
+        high_water_receive_delay_seconds=Decimal("1"),
+        maximum_final_bar_age_seconds=Decimal("10"),
+    )
+    integrity = evaluate_bybit_marketdata_integrity(
+        capture=capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        adapter_conformance=report,
+        policy=strict,
+        observed_at=OBSERVED,
+    )
+    assert integrity.status is MarketDataIntegrityStatus.DEGRADED
+
+    result = evaluate_public_marketdata_qualification_job(
+        request=qualification_job_request(evidence),
+        adapter_conformance=report,
+        marketdata_integrity=integrity,
+        started_at=OBSERVED + timedelta(seconds=1),
+        completed_at=OBSERVED + timedelta(seconds=2),
+    )
+
+    assert result.status is QualificationJobStatus.FAIL
+    assert result.reasons == ("MARKET_DATA_INTEGRITY_DEGRADED",)
+
+
+def test_qualification_job_blocks_profile_substitution(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+    integrity = evaluate_bybit_marketdata_integrity(
+        capture=capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        adapter_conformance=report,
+        policy=policy,
+        observed_at=OBSERVED,
+    )
+    request = replace(
+        qualification_job_request(evidence),
+        profile_version="9.9.9",
+    )
+
+    result = evaluate_public_marketdata_qualification_job(
+        request=request,
+        adapter_conformance=report,
+        marketdata_integrity=integrity,
+        started_at=OBSERVED + timedelta(seconds=1),
+        completed_at=OBSERVED + timedelta(seconds=2),
+    )
+
+    assert result.status is QualificationJobStatus.BLOCKED
+    assert result.reasons == ("PROFILE_VERSION_MISMATCH",)
+
+
+def test_qualification_job_blocks_broken_evidence_chain(tmp_path) -> None:
+    capture, checkpoint, evidence, report, policy = integrity_bundle(tmp_path)
+    integrity = evaluate_bybit_marketdata_integrity(
+        capture=capture,
+        continuity_checkpoint=checkpoint,
+        provider_replay=evidence,
+        adapter_conformance=report,
+        policy=policy,
+        observed_at=OBSERVED,
+    )
+    substituted = replace(
+        integrity,
+        adapter_conformance_sha256="0" * 64,
+    )
+    substituted.validate()
+
+    result = evaluate_public_marketdata_qualification_job(
+        request=qualification_job_request(evidence),
+        adapter_conformance=report,
+        marketdata_integrity=substituted,
+        started_at=OBSERVED + timedelta(seconds=1),
+        completed_at=OBSERVED + timedelta(seconds=2),
+    )
+
+    assert result.status is QualificationJobStatus.BLOCKED
+    assert result.reasons == ("EVIDENCE_CHAIN_MISMATCH",)
+
+
+def test_qualification_job_request_rejects_duplicate_corpus_ids() -> None:
+    request = QualificationJobRequest(
+        organisation_id="ASTRA_INTERNAL",
+        subject="BYBIT_PUBLIC_MARKETDATA_ADAPTER",
+        subject_version="candidate-sha",
+        profile_id="ASTRA_BYBIT_PUBLIC_MARKETDATA",
+        profile_version="1.0.0",
+        environment="mainnet-public-readonly",
+        corpus_ids=("same", "same"),
+        submitted_at=OBSERVED,
+    )
+
+    with pytest.raises(ValueError, match="unique"):
+        request.validate()
