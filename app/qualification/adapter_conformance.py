@@ -28,7 +28,7 @@ def evidence_sha256(value: object) -> str:
 
 def _digest(value: str, name: str) -> str:
     normalized = value.strip().lower()
-    if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+    if len(normalized) != 64 or any(\n        character not in "0123456789abcdef" for character in normalized\n    ):
         raise ValueError(f"{name} must be a sha256 digest")
     return normalized
 
