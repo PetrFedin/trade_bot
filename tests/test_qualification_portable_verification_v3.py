@@ -419,3 +419,220 @@ def test_portable_v3_rejects_keyring_rollback_floor() -> None:
         )
 
     assert caught.value.code is PortableVerificationFailureCodeV3.KEYRING_REJECTED
+
+
+
+def test_portable_v3_rejects_profile_identity_scope_and_time_drift() -> None:
+    bundle, _, _, _, _, _, _, _ = bundle_v3()
+
+    cases = (
+        replace(
+            bundle,
+            profile=replace(bundle.profile, profile_id="ASTRA_OTHER_PROFILE"),
+        ),
+        replace(
+            bundle,
+            profile=replace(bundle.profile, version="9.9.9"),
+        ),
+        replace(
+            bundle,
+            profile=replace(bundle.profile, scope="OTHER_SCOPE"),
+        ),
+        replace(
+            bundle,
+            profile=replace(
+                bundle.profile,
+                allowed_environments=("testnet",),
+            ),
+        ),
+        replace(
+            bundle,
+            profile=replace(
+                bundle.profile,
+                created_at=NOW + timedelta(seconds=1),
+            ),
+        ),
+    )
+
+    for candidate in cases:
+        with pytest.raises(ValueError):
+            candidate.validate()
+
+
+def test_portable_v3_rejects_binding_substitution_boundaries() -> None:
+    bundle, _, _, _, _, _, _, _ = bundle_v3()
+
+    cases = (
+        replace(
+            bundle,
+            binding=replace(
+                bundle.binding,
+                manifest_id="qmanifest_other",
+            ),
+        ),
+        replace(
+            bundle,
+            binding=replace(
+                bundle.binding,
+                manifest_sha256="f" * 64,
+            ),
+        ),
+        replace(
+            bundle,
+            binding=replace(
+                bundle.binding,
+                profile_id="ASTRA_OTHER_PROFILE",
+            ),
+        ),
+        replace(
+            bundle,
+            binding=replace(
+                bundle.binding,
+                profile_version="9.9.9",
+            ),
+        ),
+        replace(
+            bundle,
+            binding=replace(
+                bundle.binding,
+                profile_sha256="f" * 64,
+            ),
+        ),
+    )
+
+    for candidate in cases:
+        with pytest.raises(ValueError):
+            candidate.validate()
+
+
+def test_portable_v3_rejects_registry_decision_substitution() -> None:
+    bundle, _, _, _, _, _, _, _ = bundle_v3()
+
+    cases = (
+        replace(
+            bundle,
+            registry_decision=replace(
+                bundle.registry_decision,
+                evidence_id="qevidence_other",
+            ),
+        ),
+        replace(
+            bundle,
+            registry_decision=replace(
+                bundle.registry_decision,
+                binding_sha256="f" * 64,
+            ),
+        ),
+        replace(
+            bundle,
+            registry_decision=replace(
+                bundle.registry_decision,
+                manifest_sha256="f" * 64,
+            ),
+        ),
+        replace(
+            bundle,
+            registry_decision=replace(
+                bundle.registry_decision,
+                profile_sha256="f" * 64,
+            ),
+        ),
+    )
+
+    for candidate in cases:
+        with pytest.raises(ValueError):
+            candidate.validate()
+
+
+def test_portable_v3_rejects_evidence_state_content_substitution() -> None:
+    bundle, _, _, _, _, _, _, _ = bundle_v3()
+
+    cases = (
+        replace(
+            bundle,
+            evidence_state_proof=replace(
+                bundle.evidence_state_proof,
+                record=replace(
+                    bundle.evidence_state_proof.record,
+                    binding_sha256="f" * 64,
+                ),
+            ),
+        ),
+        replace(
+            bundle,
+            evidence_state_proof=replace(
+                bundle.evidence_state_proof,
+                record=replace(
+                    bundle.evidence_state_proof.record,
+                    manifest_sha256="f" * 64,
+                ),
+            ),
+        ),
+        replace(
+            bundle,
+            evidence_state_proof=replace(
+                bundle.evidence_state_proof,
+                record=replace(
+                    bundle.evidence_state_proof.record,
+                    profile_sha256="f" * 64,
+                ),
+            ),
+        ),
+        replace(
+            bundle,
+            evidence_state_proof=replace(
+                bundle.evidence_state_proof,
+                state_root_sha256="f" * 64,
+            ),
+        ),
+    )
+
+    for candidate in cases:
+        with pytest.raises(ValueError):
+            candidate.validate()
+
+
+def test_portable_v3_rejects_transparency_binding_substitution() -> None:
+    bundle, _, _, _, _, _, _, _ = bundle_v3()
+
+    cases = (
+        replace(
+            bundle,
+            transparency_entry=replace(
+                bundle.transparency_entry,
+                object_id="qevidence_other",
+            ),
+        ),
+        replace(
+            bundle,
+            transparency_entry=replace(
+                bundle.transparency_entry,
+                object_sha256="f" * 64,
+            ),
+        ),
+        replace(
+            bundle,
+            transparency_inclusion_proof=replace(
+                bundle.transparency_inclusion_proof,
+                leaf_sha256="f" * 64,
+            ),
+        ),
+        replace(
+            bundle,
+            transparency_head=replace(
+                bundle.transparency_head,
+                root_sha256="f" * 64,
+            ),
+        ),
+        replace(
+            bundle,
+            transparency_head=replace(
+                bundle.transparency_head,
+                tree_size=bundle.transparency_head.tree_size + 1,
+            ),
+        ),
+    )
+
+    for candidate in cases:
+        with pytest.raises(ValueError):
+            candidate.validate()
