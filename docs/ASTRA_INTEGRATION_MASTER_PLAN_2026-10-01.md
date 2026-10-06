@@ -1706,17 +1706,47 @@ These layers collectively provide immutable qualification/profile bindings, sign
 
 ### Next sequence after verified merge
 
-1. clean rebuild and merge Qualification Verification Service v4;
-2. Portable Artifact Codec;
-3. deterministic canonical JSON representation;
-4. CBOR representation only if canonical encoding rules and interoperability tests are explicit;
-5. offline CLI verifier;
-6. persisted TrustState v4;
-7. contract-first Verification API;
-8. SDK contract;
-9. reference profiles and institutional test corpus;
-10. OEM/embedded qualification and enterprise verification integration;
-11. continuous requalification and evidence-history export.
+Current canonical `main` now includes:
+
+1. Qualification Verification Service v4;
+2. Portable Artifact Codec v1;
+3. deterministic `ASTRA_CANONICAL_JSON_V1` representation;
+4. persisted TrustState v4 bound into the portable artefact.
+
+Before the offline CLI verifier, add one explicit prerequisite:
+
+5. safe typed Portable Verification Bundle v4 decoder;
+   - reconstruct only known qualification dataclasses from the already canonical, hash-validated JSON tree;
+   - reject unknown/missing fields at every typed boundary;
+   - reject arbitrary-object or pickle-style deserialisation;
+   - preserve exact timestamps, integer domains, tuple/list semantics and signature bytes;
+   - re-run the existing `bundle.validate()` after reconstruction;
+   - prove `decoded typed bundle -> payload()` is byte-for-byte equal to the canonical embedded bundle payload;
+   - fuzz/property-test malformed nested payloads and fail closed.
+
+This prerequisite is **ADOPT** because the current Portable Artifact Codec deliberately returns the embedded bundle as an immutable JSON mapping while `QualificationVerificationServiceV4` deliberately accepts a typed `PortableQualificationVerificationBundleV4`. The decoder must remain a narrow validation boundary rather than hidden ad-hoc conversion inside a CLI/API.
+
+Then continue:
+
+6. offline CLI verifier;
+7. CBOR representation only if canonical encoding rules and cross-implementation interoperability tests are explicit;
+8. contract-first Verification API;
+9. SDK contract;
+10. reference profiles and institutional test corpus;
+11. OEM/embedded qualification and enterprise verification integration;
+12. continuous requalification and evidence-history export.
+
+### Typed decoder acceptance evidence — ADOPT
+
+The typed decoder slice is complete only when:
+
+- every nested bundle object has an explicit schema-to-dataclass conversion path;
+- canonical JSON digest and bundle identity are checked before typed reconstruction;
+- reconstructed `payload()` exactly matches the embedded canonical bundle payload;
+- malformed/unknown nested fields fail closed;
+- no dynamic import, eval, pickle or arbitrary class instantiation is used;
+- the decoder itself cannot call broker, OMS, risk or live-routing authority;
+- the offline verifier can consume only the decoded typed bundle plus explicit trusted roots / persisted TrustState.
 
 Every step remains bounded by the authority rules in this master plan. None of these layers proves strategy profitability or enables live/mainnet trading.
 
