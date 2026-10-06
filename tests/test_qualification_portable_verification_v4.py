@@ -110,13 +110,29 @@ def bundle_v4():
     return value, root
 
 
-def verify(bundle, root, *, count=0, head="0" * 64):
+def verify(
+    bundle,
+    root,
+    *,
+    count=0,
+    head="0" * 64,
+    transparency_size=None,
+    transparency_root=None,
+    checkpoint_sha="0" * 64,
+):
+    if transparency_size is None:
+        transparency_size = bundle.base_v3.transparency_head.tree_size
+    if transparency_root is None:
+        transparency_root = bundle.base_v3.transparency_head.root_sha256
     return verify_portable_qualification_bundle_v4(
         bundle=bundle,
         trusted_root_public_keys={root.key_id: root.public_key_bytes()},
         previous_keyring_generation=0,
         trusted_previous_profile_event_count=count,
         trusted_previous_profile_event_head_sha256=head,
+        trusted_previous_transparency_tree_size=transparency_size,
+        trusted_previous_transparency_root_sha256=transparency_root,
+        trusted_previous_checkpoint_v4_sha256=checkpoint_sha,
         observed_at=NOW + timedelta(seconds=11),
     )
 
@@ -259,6 +275,13 @@ def test_portable_v4_rejects_base_v3_trust_failure() -> None:
             previous_keyring_generation=0,
             trusted_previous_profile_event_count=0,
             trusted_previous_profile_event_head_sha256="0" * 64,
+            trusted_previous_transparency_tree_size=(
+                bundle.base_v3.transparency_head.tree_size
+            ),
+            trusted_previous_transparency_root_sha256=(
+                bundle.base_v3.transparency_head.root_sha256
+            ),
+            trusted_previous_checkpoint_v4_sha256="0" * 64,
             observed_at=NOW + timedelta(seconds=11),
         )
 
@@ -274,3 +297,55 @@ def test_portable_v4_payload_and_identity_are_deterministic() -> None:
     result = verify(bundle, root)
     assert result.payload()["bundle_id"] == bundle.bundle_id
     assert result.payload()["usable"] is True
+
+
+
+def test_portable_v4_rejects_wrong_previous_transparency_anchor() -> None:
+    bundle, root = bundle_v4()
+
+    with pytest.raises(PortableQualificationVerificationErrorV4) as caught:
+        verify(
+            bundle,
+            root,
+            transparency_root="f" * 64,
+        )
+
+    assert (
+        caught.value.code
+        is PortableVerificationFailureCodeV4.TRANSPARENCY_CONTINUITY_REJECTED
+    )
+
+
+def test_portable_v4_rejects_wrong_previous_checkpoint_anchor() -> None:
+    bundle, root = bundle_v4()
+
+    with pytest.raises(PortableQualificationVerificationErrorV4) as caught:
+        verify(
+            bundle,
+            root,
+            checkpoint_sha="f" * 64,
+        )
+
+    assert caught.value.code is PortableVerificationFailureCodeV4.V4_BINDING_MISMATCH
+
+
+def test_portable_v4_result_exposes_next_round_trust_anchors() -> None:
+    bundle, root = bundle_v4()
+
+    result = verify(bundle, root)
+
+    assert result.checkpoint_v4_sha256 == (
+        bundle.signed_trust_checkpoint_v4.checkpoint.checkpoint_sha256
+    )
+    assert result.current_transparency_tree_size == (
+        bundle.current_transparency_head.tree_size
+    )
+    assert result.current_transparency_root_sha256 == (
+        bundle.current_transparency_head.root_sha256
+    )
+    assert result.current_profile_event_count == (
+        bundle.profile_event_delta.current_event_count
+    )
+    assert result.current_profile_event_head_sha256 == (
+        bundle.profile_event_delta.current_event_head_sha256
+    )
