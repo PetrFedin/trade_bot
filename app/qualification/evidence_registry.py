@@ -368,6 +368,13 @@ class QualificationEvidenceRegistry:
         with self._lock:
             return len(self._events)
 
+    @property
+    def latest_observed_at(self) -> datetime:
+        with self._lock:
+            if not self._events:
+                return datetime(1970, 1, 1, tzinfo=UTC)
+            return self._events[-1].observed_at
+
     def register(
         self,
         *,
