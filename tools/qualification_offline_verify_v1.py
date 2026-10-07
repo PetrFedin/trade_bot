@@ -11,6 +11,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import NoReturn
 
+from app.qualification.persistent_trust_state_authority_v1 import (
+    PersistentTrustStateAuthorityError,
+    PersistentTrustStateAuthorityV1,
+    PersistentTrustStateCASMismatch,
+    TrustStateTransitionContext,
+)
 from app.qualification.portable_artifact_codec import (
     DecodedQualificationPortableArtifact,
     QualificationArtifactCodecError,
@@ -36,6 +42,7 @@ _CLI_VERSION = "1.0.0"
 EXIT_VERIFIED_USABLE = 0
 EXIT_VERIFICATION_NOT_USABLE = 2
 EXIT_INPUT_ERROR = 3
+EXIT_AUTHORITY_CAS_CONFLICT = 4
 
 
 class OfflineQualificationVerifierInputError(ValueError):
@@ -50,6 +57,140 @@ class OfflineVerificationInputs:
     observed_at: datetime
     max_clock_skew_seconds: int
     bootstrap_used: bool
+
+
+def run_authority_verification(
+    *,
+    artifact_bytes: bytes,
+    trusted_roots_bytes: bytes,
+    authority_directory: Path,
+    observed_at: datetime,
+    advance: bool,
+    max_clock_skew_seconds: int = 5,
+) -> tuple[dict[str, object], int]:
+    authority = PersistentTrustStateAuthorityV1(authority_directory)
+    current = authority.current()
+    payload, next_state, exit_code = run_offline_verification(
+        artifact_bytes=artifact_bytes,
+        trusted_roots_bytes=trusted_roots_bytes,
+        state_bytes=encode_trust_state_file(current.trust_state),
+        observed_at=observed_at,
+        max_clock_skew_seconds=max_clock_skew_seconds,
+    )
+    payload = {
+        **payload,
+        "persistence_mode": "persistent-authority",
+        "authority_mode": "verify-and-advance" if advance else "read-only",
+        "authority_commit_outcome": "NOT_COMMITTED" if advance else "NOT_REQUESTED",
+        "authority_generation_before": current.generation,
+        "authority_record_sha256_before": current.record_sha256,
+        "authority_trust_state_sha256_before": current.trust_state_sha256,
+        "authority_generation_after": current.generation,
+        "authority_record_sha256_after": current.record_sha256,
+        "authority_trust_state_sha256_after": current.trust_state_sha256,
+        "authority_receipt": None,
+    }
+
+    if not advance or next_state is None:
+        return payload, exit_code
+
+    artifact = decode_portable_qualification_artifact_json(artifact_bytes)
+    bundle = decode_typed_portable_qualification_bundle_v4(artifact)
+    checkpoint = bundle.signed_trust_checkpoint_v4.checkpoint
+    transition = TrustStateTransitionContext(
+        artifact_id=artifact.artifact_id,
+        artifact_sha256=artifact.artifact_sha256,
+        bundle_id=artifact.bundle_id,
+        bundle_sha256=artifact.bundle_sha256,
+        checkpoint_v4_id=checkpoint.checkpoint_id,
+        checkpoint_v4_sha256=checkpoint.checkpoint_sha256,
+        verified_at=observed_at,
+    )
+    try:
+        committed, receipt = authority.advance(
+            next_state=next_state,
+            transition=transition,
+            expected_generation=current.generation,
+            expected_record_sha256=current.record_sha256,
+            expected_trust_state_sha256=current.trust_state_sha256,
+        )
+    except PersistentTrustStateCASMismatch as exc:
+        return (
+            {
+                **payload,
+                "failure_code": "AUTHORITY_CAS_CONFLICT",
+                "failure_detail": str(exc),
+                "authority_commit_outcome": "CAS_CONFLICT",
+            },
+            EXIT_AUTHORITY_CAS_CONFLICT,
+        )
+
+    return (
+        {
+            **payload,
+            "authority_commit_outcome": "COMMITTED",
+            "authority_generation_after": committed.generation,
+            "authority_record_sha256_after": committed.record_sha256,
+            "authority_trust_state_sha256_after": committed.trust_state_sha256,
+            "authority_receipt": receipt.payload(),
+        },
+        exit_code,
+    )
+
+
+def initialize_authority_from_artifact(
+    *,
+    artifact_bytes: bytes,
+    trusted_roots_bytes: bytes,
+    authority_directory: Path,
+    observed_at: datetime,
+    max_clock_skew_seconds: int = 5,
+) -> tuple[dict[str, object], int]:
+    payload, _, exit_code = run_offline_verification(
+        artifact_bytes=artifact_bytes,
+        trusted_roots_bytes=trusted_roots_bytes,
+        state_bytes=None,
+        observed_at=observed_at,
+        max_clock_skew_seconds=max_clock_skew_seconds,
+        allow_genesis_bootstrap=True,
+    )
+    if payload.get("outcome") != "VERIFIED":
+        return (
+            {
+                **payload,
+                "persistence_mode": "persistent-authority",
+                "authority_mode": "initialize",
+                "authority_commit_outcome": "NOT_INITIALIZED",
+            },
+            exit_code,
+        )
+
+    artifact = decode_portable_qualification_artifact_json(artifact_bytes)
+    authority = PersistentTrustStateAuthorityV1(authority_directory)
+    record = authority.initialize(
+        initial_state=artifact.trusted_state,
+        transition=TrustStateTransitionContext(
+            artifact_id=artifact.artifact_id,
+            artifact_sha256=artifact.artifact_sha256,
+            bundle_id=artifact.bundle_id,
+            bundle_sha256=artifact.bundle_sha256,
+            checkpoint_v4_id="qtrustv4_genesis",
+            checkpoint_v4_sha256=artifact.trusted_state.checkpoint_v4_sha256,
+            verified_at=observed_at,
+        ),
+    )
+    return (
+        {
+            **payload,
+            "persistence_mode": "persistent-authority",
+            "authority_mode": "initialize",
+            "authority_commit_outcome": "INITIALIZED",
+            "authority_generation_after": record.generation,
+            "authority_record_sha256_after": record.record_sha256,
+            "authority_trust_state_sha256_after": record.trust_state_sha256,
+        },
+        exit_code,
+    )
 
 
 def run_offline_verification(
@@ -244,6 +385,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--trusted-roots", required=True, type=Path)
     parser.add_argument("--state-in", type=Path)
     parser.add_argument("--state-out", type=Path)
+    parser.add_argument("--authority-dir", type=Path)
+    authority_mode = parser.add_mutually_exclusive_group()
+    authority_mode.add_argument("--authority-read-only", action="store_true")
+    authority_mode.add_argument("--authority-advance", action="store_true")
+    authority_mode.add_argument("--authority-init", action="store_true")
     parser.add_argument("--observed-at", required=True)
     parser.add_argument("--max-clock-skew-seconds", type=int, default=5)
     parser.add_argument("--allow-genesis-bootstrap", action="store_true")
@@ -253,6 +399,50 @@ def main(argv: Sequence[str] | None = None) -> int:
         observed_at = _parse_datetime(args.observed_at, "--observed-at")
         artifact_bytes = args.artifact.read_bytes()
         roots_bytes = args.trusted_roots.read_bytes()
+        authority_requested = (
+            args.authority_read_only
+            or args.authority_advance
+            or args.authority_init
+        )
+        if authority_requested:
+            if args.authority_dir is None:
+                raise OfflineQualificationVerifierInputError(
+                    "--authority-dir is required for authority-backed modes"
+                )
+            if (
+                args.state_in is not None
+                or args.state_out is not None
+                or args.allow_genesis_bootstrap
+            ):
+                raise OfflineQualificationVerifierInputError(
+                    "legacy state file/bootstrap flags cannot be combined "
+                    "with authority-backed modes"
+                )
+            if args.authority_init:
+                result_payload, exit_code = initialize_authority_from_artifact(
+                    artifact_bytes=artifact_bytes,
+                    trusted_roots_bytes=roots_bytes,
+                    authority_directory=args.authority_dir,
+                    observed_at=observed_at,
+                    max_clock_skew_seconds=args.max_clock_skew_seconds,
+                )
+            else:
+                result_payload, exit_code = run_authority_verification(
+                    artifact_bytes=artifact_bytes,
+                    trusted_roots_bytes=roots_bytes,
+                    authority_directory=args.authority_dir,
+                    observed_at=observed_at,
+                    advance=args.authority_advance,
+                    max_clock_skew_seconds=args.max_clock_skew_seconds,
+                )
+            print(canonical_json_bytes(result_payload).decode("utf-8"))
+            return exit_code
+
+        if args.authority_dir is not None:
+            raise OfflineQualificationVerifierInputError(
+                "--authority-dir requires an explicit authority mode"
+            )
+
         state_bytes = None if args.state_in is None else args.state_in.read_bytes()
         result_payload, next_state, exit_code = run_offline_verification(
             artifact_bytes=artifact_bytes,
@@ -264,6 +454,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         if args.state_out is not None and next_state is not None:
             atomic_write_trust_state(args.state_out, next_state)
+        result_payload = {
+            **result_payload,
+            "persistence_mode": "legacy-single-file",
+        }
         print(canonical_json_bytes(result_payload).decode("utf-8"))
         return exit_code
     except (
@@ -271,6 +465,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         QualificationArtifactCodecError,
         QualificationBundleDecodeError,
         OfflineQualificationVerifierInputError,
+        PersistentTrustStateAuthorityError,
         ValueError,
     ) as exc:
         print(

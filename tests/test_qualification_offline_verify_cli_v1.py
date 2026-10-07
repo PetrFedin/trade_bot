@@ -3,6 +3,10 @@ from __future__ import annotations
 import base64
 from datetime import timedelta
 
+from app.qualification.persistent_trust_state_authority_v1 import (
+    PersistentTrustStateAuthorityV1,
+    PersistentTrustStateCASMismatch,
+)
 from app.qualification.portable_artifact_codec import (
     canonical_json_bytes,
     encode_portable_qualification_artifact_json,
@@ -11,12 +15,15 @@ from app.qualification.verification_service_v4 import QualificationTrustStateV4
 from tests.helpers_v108 import NOW
 from tests.test_qualification_portable_verification_v4 import bundle_v4
 from tools.qualification_offline_verify_v1 import (
+    EXIT_AUTHORITY_CAS_CONFLICT,
     EXIT_INPUT_ERROR,
     EXIT_VERIFICATION_NOT_USABLE,
     EXIT_VERIFIED_USABLE,
     decode_trust_state_file,
     encode_trust_state_file,
+    initialize_authority_from_artifact,
     main,
+    run_authority_verification,
     run_offline_verification,
 )
 
@@ -255,3 +262,197 @@ def test_state_file_encoding_is_deterministic() -> None:
 
     assert first == second
     assert decode_trust_state_file(first) == state
+
+
+def test_authority_initialize_then_read_only_preserves_generation(tmp_path) -> None:
+    _, _, artifact, roots = _fixture()
+    authority_dir = tmp_path / "authority"
+
+    payload, exit_code = initialize_authority_from_artifact(
+        artifact_bytes=artifact,
+        trusted_roots_bytes=roots,
+        authority_directory=authority_dir,
+        observed_at=NOW + timedelta(seconds=11),
+    )
+
+    assert exit_code == EXIT_VERIFIED_USABLE
+    assert payload["authority_commit_outcome"] == "INITIALIZED"
+    authority = PersistentTrustStateAuthorityV1(authority_dir)
+    before = authority.current()
+
+    verify_payload, verify_exit = run_authority_verification(
+        artifact_bytes=artifact,
+        trusted_roots_bytes=roots,
+        authority_directory=authority_dir,
+        observed_at=NOW + timedelta(seconds=11),
+        advance=False,
+    )
+
+    after = authority.current()
+    assert verify_exit == EXIT_VERIFIED_USABLE
+    assert verify_payload["authority_mode"] == "read-only"
+    assert verify_payload["authority_receipt"] is None
+    assert before == after
+
+
+def test_authority_verify_and_advance_commits_one_generation_and_receipt(
+    tmp_path,
+) -> None:
+    _, _, artifact, roots = _fixture()
+    authority_dir = tmp_path / "authority"
+    initialize_authority_from_artifact(
+        artifact_bytes=artifact,
+        trusted_roots_bytes=roots,
+        authority_directory=authority_dir,
+        observed_at=NOW + timedelta(seconds=11),
+    )
+    authority = PersistentTrustStateAuthorityV1(authority_dir)
+    before = authority.current()
+
+    payload, exit_code = run_authority_verification(
+        artifact_bytes=artifact,
+        trusted_roots_bytes=roots,
+        authority_directory=authority_dir,
+        observed_at=NOW + timedelta(seconds=11),
+        advance=True,
+    )
+
+    after = authority.current()
+    assert exit_code == EXIT_VERIFIED_USABLE
+    assert payload["authority_commit_outcome"] == "COMMITTED"
+    assert after.generation == before.generation + 1
+    assert payload["authority_generation_before"] == before.generation
+    assert payload["authority_generation_after"] == after.generation
+    receipt = payload["authority_receipt"]
+    assert receipt["previous_record_sha256"] == before.record_sha256
+    assert receipt["current_record_sha256"] == after.record_sha256
+
+
+def test_authority_rejected_verification_does_not_mutate(tmp_path) -> None:
+    _, _, artifact, roots = _fixture()
+    authority_dir = tmp_path / "authority"
+    initialize_authority_from_artifact(
+        artifact_bytes=artifact,
+        trusted_roots_bytes=roots,
+        authority_directory=authority_dir,
+        observed_at=NOW + timedelta(seconds=11),
+    )
+    authority = PersistentTrustStateAuthorityV1(authority_dir)
+    before = authority.current()
+    wrong_roots = canonical_json_bytes(
+        {
+            "schema_version": "astra-qualification-trusted-roots-v1",
+            "roots": [
+                {
+                    "key_id": "wrong-root",
+                    "public_key_b64": base64.b64encode(b"x" * 32).decode("ascii"),
+                }
+            ],
+        }
+    )
+
+    payload, exit_code = run_authority_verification(
+        artifact_bytes=artifact,
+        trusted_roots_bytes=wrong_roots,
+        authority_directory=authority_dir,
+        observed_at=NOW + timedelta(seconds=11),
+        advance=True,
+    )
+
+    assert exit_code == EXIT_VERIFICATION_NOT_USABLE
+    assert payload["outcome"] == "REJECTED"
+    assert payload["authority_receipt"] is None
+    assert authority.current() == before
+
+
+def test_authority_cas_conflict_is_deterministic(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _, _, artifact, roots = _fixture()
+    authority_dir = tmp_path / "authority"
+    initialize_authority_from_artifact(
+        artifact_bytes=artifact,
+        trusted_roots_bytes=roots,
+        authority_directory=authority_dir,
+        observed_at=NOW + timedelta(seconds=11),
+    )
+
+    def conflict(*args, **kwargs):
+        raise PersistentTrustStateCASMismatch("TrustState generation CAS mismatch")
+
+    monkeypatch.setattr(PersistentTrustStateAuthorityV1, "advance", conflict)
+
+    payload, exit_code = run_authority_verification(
+        artifact_bytes=artifact,
+        trusted_roots_bytes=roots,
+        authority_directory=authority_dir,
+        observed_at=NOW + timedelta(seconds=11),
+        advance=True,
+    )
+
+    assert exit_code == EXIT_AUTHORITY_CAS_CONFLICT
+    assert payload["failure_code"] == "AUTHORITY_CAS_CONFLICT"
+    assert payload["authority_commit_outcome"] == "CAS_CONFLICT"
+    assert payload["authority_receipt"] is None
+
+
+def test_cli_rejects_mixed_legacy_and_authority_modes(tmp_path, capsys) -> None:
+    _, state, artifact, roots = _fixture()
+    artifact_path = tmp_path / "artifact.json"
+    roots_path = tmp_path / "roots.json"
+    state_path = tmp_path / "state.json"
+    authority_dir = tmp_path / "authority"
+    artifact_path.write_bytes(artifact)
+    roots_path.write_bytes(roots)
+    state_path.write_bytes(encode_trust_state_file(state))
+
+    exit_code = main(
+        [
+            "--artifact",
+            str(artifact_path),
+            "--trusted-roots",
+            str(roots_path),
+            "--state-in",
+            str(state_path),
+            "--authority-dir",
+            str(authority_dir),
+            "--authority-read-only",
+            "--observed-at",
+            (NOW + timedelta(seconds=11)).isoformat(),
+        ]
+    )
+
+    assert exit_code == EXIT_INPUT_ERROR
+    assert "cannot be combined" in capsys.readouterr().out
+
+
+def test_cli_uninitialized_authority_is_deterministic_input_error(
+    tmp_path,
+    capsys,
+) -> None:
+    _, _, artifact, roots = _fixture()
+    artifact_path = tmp_path / "artifact.json"
+    roots_path = tmp_path / "roots.json"
+    authority_dir = tmp_path / "authority"
+    artifact_path.write_bytes(artifact)
+    roots_path.write_bytes(roots)
+
+    exit_code = main(
+        [
+            "--artifact",
+            str(artifact_path),
+            "--trusted-roots",
+            str(roots_path),
+            "--authority-dir",
+            str(authority_dir),
+            "--authority-read-only",
+            "--observed-at",
+            (NOW + timedelta(seconds=11)).isoformat(),
+        ]
+    )
+
+    assert exit_code == EXIT_INPUT_ERROR
+    output = capsys.readouterr().out
+    assert '"outcome":"INPUT_ERROR"' in output
+    assert "not initialized" in output

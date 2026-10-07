@@ -19,6 +19,41 @@ python -m tools.qualification_offline_verify_v1 \
 
 The module form is deliberate: the verifier does not mutate the historical release identity merely to add a console entry point.
 
+## Persistence modes
+
+The CLI exposes two distinct persistence contracts.
+
+### Persistent authority mode
+
+Use one explicit authority action together with `--authority-dir`:
+
+```bash
+python -m tools.qualification_offline_verify_v1 \
+  --artifact ./artifact.json \
+  --trusted-roots ./trusted-roots.json \
+  --authority-dir ./trust-authority \
+  --authority-read-only \
+  --observed-at 2026-10-07T09:00:00+00:00
+```
+
+Available actions:
+
+- `--authority-init` — explicitly initialize generation 0 after the existing genesis/bootstrap verification constraints pass;
+- `--authority-read-only` — verify against the authority current TrustState without mutation;
+- `--authority-advance` — verify and, only after VERIFIED, attempt a CAS-protected authority advancement and emit the canonical transition receipt.
+
+Authority mode rejects `--state-in`, `--state-out` and `--allow-genesis-bootstrap` to avoid ambiguous mixed persistence semantics.
+
+A concurrent authority winner produces deterministic `AUTHORITY_CAS_CONFLICT` with exit code `4`. The CLI does not silently retry against a different TrustState because that would change the verification context.
+
+### Legacy single-file mode
+
+The original `--state-in / --state-out` flow remains available for portable/manual workflows and is labeled `legacy-single-file` in machine output.
+
+This mode provides atomic single-file replacement only. It does **not** claim multi-generation CAS, retained-history rollback detection, process locking or transition receipts.
+
+Verification API and SDK authority semantics must target persistent authority mode, not legacy single-file persistence.
+
 ## Inputs
 
 ### Portable artifact
