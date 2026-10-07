@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator, NoReturn
+from typing import NoReturn
 
 from app.qualification.portable_artifact_codec import canonical_json_bytes
 from app.qualification.verification_service_v4 import QualificationTrustStateV4
@@ -126,7 +126,7 @@ class PersistentTrustStateRecord:
         previous_record_sha256: str,
         trust_state: QualificationTrustStateV4,
         transition: TrustStateTransitionContext,
-    ) -> "PersistentTrustStateRecord":
+    ) -> PersistentTrustStateRecord:
         trust_state.validate()
         transition.validate()
         trust_state_sha256 = _sha256_json(trust_state.payload())
