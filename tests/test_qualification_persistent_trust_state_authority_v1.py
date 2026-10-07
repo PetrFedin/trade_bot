@@ -19,7 +19,6 @@ from app.qualification.persistent_trust_state_authority_v1 import (
 from app.qualification.portable_artifact_codec import canonical_json_bytes
 from app.qualification.verification_service_v4 import QualificationTrustStateV4
 
-
 NOW = datetime(2026, 10, 6, 12, 0, tzinfo=UTC)
 
 
