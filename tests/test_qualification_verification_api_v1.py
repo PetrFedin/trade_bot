@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+import app.qualification.verification_api_idempotency_v1 as idempotency_module
 from app.qualification.verification_api_contract_v1 import (
     VerificationAPIOperation,
     VerificationAPIRequestV1,
@@ -15,6 +16,7 @@ from app.qualification.verification_api_idempotency_v1 import (
     VerificationAPIAuthoritySnapshot,
     VerificationAPIIdempotencyConflict,
     VerificationAPIIdempotencyCorruption,
+    VerificationAPIIdempotencyError,
     VerificationAPIIdempotencyJournalV1,
     VerificationAPIIdempotencyState,
 )
@@ -428,3 +430,349 @@ def test_idempotency_history_gap_or_duplicate_fails_closed(tmp_path) -> None:
         journal.current(idempotency_key="idem-corrupt-chain")
 
     assert prepared.generation == 0
+
+
+@pytest.mark.parametrize(
+    ("request", "message"),
+    [
+        (
+            VerificationAPIRequestV1(
+                operation=VerificationAPIOperation.VERIFY_READ_ONLY,
+                request_id="",
+                authority_id="authority",
+                trusted_root_set_id="roots",
+                artifact_b64=encode_artifact_b64(b"artifact"),
+                observed_at=NOW,
+            ),
+            "request_id is required",
+        ),
+        (
+            VerificationAPIRequestV1(
+                operation=VerificationAPIOperation.VERIFY_READ_ONLY,
+                request_id="req",
+                authority_id="",
+                trusted_root_set_id="roots",
+                artifact_b64=encode_artifact_b64(b"artifact"),
+                observed_at=NOW,
+            ),
+            "authority_id is required",
+        ),
+        (
+            VerificationAPIRequestV1(
+                operation=VerificationAPIOperation.VERIFY_READ_ONLY,
+                request_id="req",
+                authority_id="authority",
+                trusted_root_set_id="",
+                artifact_b64=encode_artifact_b64(b"artifact"),
+                observed_at=NOW,
+            ),
+            "trusted_root_set_id is required",
+        ),
+        (
+            VerificationAPIRequestV1(
+                operation=VerificationAPIOperation.VERIFY_READ_ONLY,
+                request_id="req",
+                authority_id="authority",
+                trusted_root_set_id="roots",
+                artifact_b64=encode_artifact_b64(b"artifact"),
+                observed_at=datetime(2026, 10, 7, 12, 0),
+            ),
+            "observed_at must be timezone-aware",
+        ),
+        (
+            VerificationAPIRequestV1(
+                operation=VerificationAPIOperation.VERIFY_READ_ONLY,
+                request_id="req",
+                authority_id="authority",
+                trusted_root_set_id="roots",
+                artifact_b64=encode_artifact_b64(b"artifact"),
+                observed_at=NOW,
+                max_clock_skew_seconds=-1,
+            ),
+            "max_clock_skew_seconds must be non-negative",
+        ),
+    ],
+)
+def test_request_validation_rejects_invalid_contract(
+    request: VerificationAPIRequestV1,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        request.validate()
+
+
+def test_request_rejects_schema_missing_artifact_and_invalid_base64() -> None:
+    with pytest.raises(ValueError, match="schema mismatch"):
+        VerificationAPIRequestV1(
+            operation=VerificationAPIOperation.AUTHORITY_STATUS,
+            request_id="req",
+            authority_id="authority",
+            trusted_root_set_id="roots",
+            observed_at=NOW,
+            schema_version="wrong",
+        ).validate()
+
+    with pytest.raises(ValueError, match="require artifact_b64"):
+        VerificationAPIRequestV1(
+            operation=VerificationAPIOperation.VERIFY_READ_ONLY,
+            request_id="req",
+            authority_id="authority",
+            trusted_root_set_id="roots",
+            observed_at=NOW,
+        ).validate()
+
+    with pytest.raises(ValueError, match="strict base64"):
+        VerificationAPIRequestV1(
+            operation=VerificationAPIOperation.VERIFY_READ_ONLY,
+            request_id="req",
+            authority_id="authority",
+            trusted_root_set_id="roots",
+            artifact_b64="not base64!",
+            observed_at=NOW,
+        ).validate()
+
+    with pytest.raises(ValueError, match="empty bytes"):
+        VerificationAPIRequestV1(
+            operation=VerificationAPIOperation.VERIFY_READ_ONLY,
+            request_id="req",
+            authority_id="authority",
+            trusted_root_set_id="roots",
+            artifact_b64="",
+            observed_at=NOW,
+        ).validate()
+
+
+def test_authority_status_rejects_idempotency_key() -> None:
+    with pytest.raises(ValueError, match="must not include an idempotency key"):
+        VerificationAPIRequestV1(
+            operation=VerificationAPIOperation.AUTHORITY_STATUS,
+            request_id="req",
+            authority_id="authority",
+            trusted_root_set_id="roots",
+            idempotency_key="idem",
+            observed_at=NOW,
+        ).validate()
+
+
+def test_response_validation_rejects_schema_digest_and_generation_errors() -> None:
+    with pytest.raises(ValueError, match="response schema mismatch"):
+        VerificationAPIResponseV1(
+            request_id="req",
+            operation=VerificationAPIOperation.AUTHORITY_STATUS,
+            request_sha256="a" * 64,
+            result_class=VerificationAPIResultClass.STATUS_OK,
+            usable=False,
+            schema_version="wrong",
+        ).validate()
+
+    with pytest.raises(ValueError, match="request_id is required"):
+        VerificationAPIResponseV1(
+            request_id="",
+            operation=VerificationAPIOperation.AUTHORITY_STATUS,
+            request_sha256="a" * 64,
+            result_class=VerificationAPIResultClass.STATUS_OK,
+            usable=False,
+        ).validate()
+
+    with pytest.raises(ValueError, match="must be a sha256 digest"):
+        VerificationAPIResponseV1(
+            request_id="req",
+            operation=VerificationAPIOperation.AUTHORITY_STATUS,
+            request_sha256="bad",
+            result_class=VerificationAPIResultClass.STATUS_OK,
+            usable=False,
+        ).validate()
+
+    with pytest.raises(ValueError, match="must be non-negative"):
+        VerificationAPIResponseV1(
+            request_id="req",
+            operation=VerificationAPIOperation.AUTHORITY_STATUS,
+            request_sha256="a" * 64,
+            result_class=VerificationAPIResultClass.STATUS_OK,
+            usable=False,
+            authority_generation_before=-1,
+        ).validate()
+
+    with pytest.raises(ValueError, match="requires usable=true"):
+        VerificationAPIResponseV1(
+            request_id="req",
+            operation=VerificationAPIOperation.VERIFY_READ_ONLY,
+            request_sha256="a" * 64,
+            result_class=VerificationAPIResultClass.VERIFIED_USABLE,
+            usable=False,
+        ).validate()
+
+
+def test_response_rejects_wrong_embedded_digest() -> None:
+    response = VerificationAPIResponseV1(
+        request_id="req",
+        operation=VerificationAPIOperation.AUTHORITY_STATUS,
+        request_sha256="a" * 64,
+        result_class=VerificationAPIResultClass.STATUS_OK,
+        usable=False,
+        response_sha256="f" * 64,
+    )
+    with pytest.raises(ValueError, match="response digest mismatch"):
+        response.validate()
+
+
+def test_registry_rejects_blank_ids_empty_sets_and_blank_key_ids(tmp_path) -> None:
+    with pytest.raises(VerificationAPIRegistryError, match="cannot be blank"):
+        VerificationAuthorityRegistryV1({" ": (tmp_path / "a").resolve()})
+
+    registry = VerificationAuthorityRegistryV1(
+        {"primary": (tmp_path / "a").resolve()}
+    )
+    with pytest.raises(VerificationAPIRegistryError, match="cannot be blank"):
+        registry.resolve(" ")
+
+    with pytest.raises(VerificationAPIRegistryError, match="cannot be blank"):
+        VerificationTrustedRootRegistryV1({" ": {"root": b"x" * 32}})
+
+    with pytest.raises(VerificationAPIRegistryError, match="cannot be empty"):
+        VerificationTrustedRootRegistryV1({"roots": {}})
+
+    with pytest.raises(VerificationAPIRegistryError, match="blank trusted root key_id"):
+        VerificationTrustedRootRegistryV1({"roots": {" ": b"x" * 32}})
+
+    roots = VerificationTrustedRootRegistryV1(
+        {"roots": {"root": b"x" * 32}}
+    )
+    with pytest.raises(VerificationAPIRegistryError, match="cannot be blank"):
+        roots.resolve(" ")
+
+
+def test_authority_snapshot_validation_rejects_invalid_values() -> None:
+    with pytest.raises(ValueError, match="generation must be non-negative"):
+        VerificationAPIAuthoritySnapshot(
+            generation=-1,
+            record_sha256="1" * 64,
+            trust_state_sha256="2" * 64,
+        ).validate()
+    with pytest.raises(ValueError, match="must be a sha256 digest"):
+        VerificationAPIAuthoritySnapshot(
+            generation=0,
+            record_sha256="bad",
+            trust_state_sha256="2" * 64,
+        ).validate()
+
+
+def test_idempotency_requires_prepare_and_matching_request(tmp_path) -> None:
+    journal = VerificationAPIIdempotencyJournalV1(tmp_path)
+
+    with pytest.raises(VerificationAPIIdempotencyError, match="not prepared"):
+        journal.mark_authority_committed(
+            idempotency_key="missing",
+            request_sha256="a" * 64,
+            authority_after=_snapshot(1, record="3", state="4"),
+            transition_receipt={"receipt_sha256": "5" * 64},
+        )
+
+    journal.prepare(
+        idempotency_key="idem",
+        request_sha256="a" * 64,
+        authority_id="primary",
+        trusted_root_set_id="roots-v1",
+        trusted_root_set_sha256="e" * 64,
+        authority_before=_snapshot(),
+        artifact_id=None,
+        artifact_sha256=None,
+        bundle_id=None,
+        bundle_sha256=None,
+        checkpoint_v4_id=None,
+        checkpoint_v4_sha256=None,
+        observed_at=NOW,
+    )
+    with pytest.raises(VerificationAPIIdempotencyConflict, match="different request"):
+        journal.finalize(
+            idempotency_key="idem",
+            request_sha256="f" * 64,
+            response_payload={"result": "no"},
+        )
+
+
+def test_idempotency_committed_replay_mismatch_fails_closed(tmp_path) -> None:
+    journal = VerificationAPIIdempotencyJournalV1(tmp_path)
+    journal.prepare(
+        idempotency_key="idem",
+        request_sha256="a" * 64,
+        authority_id="primary",
+        trusted_root_set_id="roots-v1",
+        trusted_root_set_sha256="e" * 64,
+        authority_before=_snapshot(),
+        artifact_id=None,
+        artifact_sha256=None,
+        bundle_id=None,
+        bundle_sha256=None,
+        checkpoint_v4_id=None,
+        checkpoint_v4_sha256=None,
+        observed_at=NOW,
+    )
+    journal.mark_authority_committed(
+        idempotency_key="idem",
+        request_sha256="a" * 64,
+        authority_after=_snapshot(1, record="3", state="4"),
+        transition_receipt={"receipt_sha256": "5" * 64},
+    )
+
+    with pytest.raises(
+        VerificationAPIIdempotencyCorruption,
+        match="does not match stored state",
+    ):
+        journal.mark_authority_committed(
+            idempotency_key="idem",
+            request_sha256="a" * 64,
+            authority_after=_snapshot(2, record="6", state="7"),
+            transition_receipt={"receipt_sha256": "8" * 64},
+        )
+
+
+def test_idempotency_finalized_response_mismatch_fails_closed(tmp_path) -> None:
+    journal = VerificationAPIIdempotencyJournalV1(tmp_path)
+    journal.prepare(
+        idempotency_key="idem",
+        request_sha256="a" * 64,
+        authority_id="primary",
+        trusted_root_set_id="roots-v1",
+        trusted_root_set_sha256="e" * 64,
+        authority_before=_snapshot(),
+        artifact_id=None,
+        artifact_sha256=None,
+        bundle_id=None,
+        bundle_sha256=None,
+        checkpoint_v4_id=None,
+        checkpoint_v4_sha256=None,
+        observed_at=NOW,
+    )
+    first = {"result": "first"}
+    journal.finalize(
+        idempotency_key="idem",
+        request_sha256="a" * 64,
+        response_payload=first,
+    )
+
+    with pytest.raises(
+        VerificationAPIIdempotencyCorruption,
+        match="finalized response replay mismatch",
+    ):
+        journal.finalize(
+            idempotency_key="idem",
+            request_sha256="a" * 64,
+            response_payload={"result": "different"},
+        )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"",
+        b"\xef\xbb\xbf{}",
+        b'{"a":1,"a":2}',
+        b'{"value":1.5}',
+        b'{"value":NaN}',
+        b'{ "not":"canonical" }',
+    ],
+)
+def test_idempotency_strict_json_rejects_ambiguous_input(payload: bytes) -> None:
+    with pytest.raises(VerificationAPIIdempotencyCorruption):
+        idempotency_module._strict_json(payload, source="test")
