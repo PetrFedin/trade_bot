@@ -401,6 +401,23 @@ class VerificationAPIIdempotencyJournalV1:
             self._write_current(key_sha, record)
             return record
 
+    @contextmanager
+    def single_flight(
+        self,
+        *,
+        idempotency_key: str,
+    ) -> Iterator[None]:
+        key_sha = _key_sha(idempotency_key)
+        directory = self._key_directory(key_sha)
+        directory.mkdir(parents=True, exist_ok=True)
+        handle = (directory / ".operation.lock").open("a+b")
+        try:
+            _lock_file(handle)
+            yield
+        finally:
+            _unlock_file(handle)
+            handle.close()
+
     def current(
         self,
         *,

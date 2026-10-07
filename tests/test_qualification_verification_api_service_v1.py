@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 from app.qualification.persistent_trust_state_authority_v1 import (
@@ -783,3 +784,26 @@ def test_authority_committed_journal_state_recovers_to_finalized(tmp_path) -> No
     assert stored is not None
     assert stored.state is VerificationAPIIdempotencyState.FINALIZED
     assert authority.current().generation == 1
+
+
+def test_concurrent_identical_advance_requests_are_single_flight(tmp_path) -> None:
+    service, authority, journal, artifact_bytes, _ = _setup(tmp_path)
+    request = _request(
+        artifact_bytes,
+        operation=VerificationAPIOperation.VERIFY_ADVANCE,
+        request_id="single-flight-1",
+        idempotency_key="idem-single-flight-1",
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda _: service.handle(request), range(2)))
+
+    assert canonical_json_bytes(responses[0]) == canonical_json_bytes(responses[1])
+    assert responses[0]["result_class"] == (
+        VerificationAPIResultClass.VERIFIED_USABLE.value
+    )
+    assert authority.current().generation == 1
+    stored = journal.current(idempotency_key="idem-single-flight-1")
+    assert stored is not None
+    assert stored.state is VerificationAPIIdempotencyState.FINALIZED
+    assert stored.generation == 2
