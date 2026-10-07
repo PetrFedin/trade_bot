@@ -7,11 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 
-from app.qualification.portable_artifact_codec import canonical_json_bytes
-
 from app.qualification.persistent_trust_state_authority_v1 import (
     PersistentTrustStateAuthorityV1,
 )
+from app.qualification.portable_artifact_codec import canonical_json_bytes
 
 
 class VerificationAPIRegistryError(ValueError):
@@ -122,7 +121,9 @@ class VerificationTrustedRootRegistryV1:
             "roots": [
                 {
                     "key_id": key_id,
-                    "public_key_b64": base64.b64encode(roots[key_id]).decode("ascii"),
+                    "public_key_b64": base64.b64encode(
+                        roots[key_id]
+                    ).decode("ascii"),
                 }
                 for key_id in sorted(roots)
             ],
