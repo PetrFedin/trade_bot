@@ -74,13 +74,11 @@ class VerificationAPIServiceV1:
             return self._authority_status(request)
 
         if request.operation is VerificationAPIOperation.VERIFY_ADVANCE:
-            replay = self._finalized_replay_or_conflict(request)
-            if replay is not None:
-                return replay
+            return self._handle_advance_single_flight(request)
 
         try:
             authority = self._authorities.resolve(request.authority_id)
-            roots, root_set_sha256 = self._root_sets.resolve_with_digest(
+            roots, _ = self._root_sets.resolve_with_digest(
                 request.trusted_root_set_id
             )
         except VerificationAPIRegistryError as exc:
@@ -91,14 +89,46 @@ class VerificationAPIServiceV1:
                 str(exc),
             )
 
-        if request.operation is VerificationAPIOperation.VERIFY_READ_ONLY:
-            return self._verify_read_only(request, authority, roots)
-        return self._verify_advance(
-            request,
-            authority,
-            roots,
-            root_set_sha256,
-        )
+        return self._verify_read_only(request, authority, roots)
+
+    def _handle_advance_single_flight(
+        self,
+        request: VerificationAPIRequestV1,
+    ) -> dict[str, object]:
+        if request.idempotency_key is None:
+            return self._error_response(
+                request,
+                VerificationAPIResultClass.INPUT_ERROR,
+                "MISSING_IDEMPOTENCY_KEY",
+                "verify.advance requires idempotency_key",
+            )
+
+        with self._idempotency.single_flight(
+            idempotency_key=request.idempotency_key
+        ):
+            replay = self._finalized_replay_or_conflict(request)
+            if replay is not None:
+                return replay
+
+            try:
+                authority = self._authorities.resolve(request.authority_id)
+                roots, root_set_sha256 = self._root_sets.resolve_with_digest(
+                    request.trusted_root_set_id
+                )
+            except VerificationAPIRegistryError as exc:
+                return self._error_response(
+                    request,
+                    VerificationAPIResultClass.INPUT_ERROR,
+                    "UNKNOWN_CONFIGURATION",
+                    str(exc),
+                )
+
+            return self._verify_advance(
+                request,
+                authority,
+                roots,
+                root_set_sha256,
+            )
 
     def _finalized_replay_or_conflict(
         self,
