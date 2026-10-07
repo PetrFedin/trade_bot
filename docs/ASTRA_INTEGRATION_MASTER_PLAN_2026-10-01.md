@@ -1665,7 +1665,7 @@ Avoid artificial lock-in: export and independent verification should remain poss
 
 ## Qualification trust execution map — 2026-10-07
 
-This snapshot records the qualification/trust layers that are already present in canonical `main`, the current integration gap and the next planned sequence. It is descriptive evidence, not live-trading authority.
+This snapshot records the qualification/trust layers present in canonical `main`, the next required implementation gate and the sequencing constraint. It is descriptive evidence, not live-trading authority.
 
 ### Canonical in `main`
 
@@ -1686,35 +1686,68 @@ Verified by merged repository history / file presence in current `main`:
 - Portable Artifact Codec v1 with deterministic `ASTRA_CANONICAL_JSON_V1` representation (#257);
 - master-plan typed-decoder / rollback-discipline gate (#258);
 - safe typed Portable Verification Bundle v4 decoder (#260);
-- independent Offline Qualification Verifier CLI v1 with local TrustState discipline (#262);
-- hash-locked `urllib3 2.8.0` supply-chain remediation with fresh release/security qualification (#267);
-- Persistent TrustState Authority v1 with generation history, CAS, process locking, crash recovery, rollback/fork detection within retained local history and deterministic transition receipts (#269).
+- independent Offline Qualification Verifier CLI v1 (#262);
+- hash-locked `urllib3 2.8.0` supply-chain remediation (#267);
+- Persistent TrustState Authority v1 (#269);
+- authority-backed Offline CLI integration with explicit read-only / verify-and-advance modes, deterministic CAS conflict taxonomy and transition receipts (#272).
 
-These layers collectively provide deterministic portable verification, strict typed reconstruction, explicit local trust anchors, independent offline verification, qualified dependency integrity and a bounded persistent TrustState authority. They do not prove profitability or enable live/mainnet trading.
+These layers collectively provide deterministic portable verification, strict typed reconstruction, explicit local trust anchors, persistent authority state, CAS-protected advancement and independent offline verification. They do not prove profitability or enable live/mainnet trading.
 
-### Current integration gap — ADOPT
+### Next required implementation gate — Contract-first Verification API
 
-The Offline Qualification Verifier CLI still retains a legacy single-file TrustState persistence path. Now that Persistent TrustState Authority v1 is canonical, the CLI must be bound to the authority before any Verification API is exposed.
+The next implementation layer must expose the already-qualified verification semantics without weakening them.
 
-Required sequence:
+Required contract:
 
-`#270 CLI <-> Persistent TrustState Authority integration -> contract-first Verification API -> SDK contract -> Reference Profiles -> Institutional Test Corpus -> OEM/Embedded Qualification -> stronger external anti-rollback witness -> Continuous Requalification`.
+`request -> artifact -> explicit trusted roots -> persistent authority snapshot -> verification -> optional CAS advancement -> deterministic decision -> transition receipt`
 
-The CLI-authority integration must provide:
+API requirements:
 
-- explicit read-only verification mode;
-- explicit verify-and-advance mode;
-- authority current state as the local trust anchor;
-- exact equality with artifact embedded TrustState before verification;
-- CAS-protected state advancement;
-- deterministic CAS-conflict failure without silent retry;
-- no mutation on REJECTED;
-- authenticated VERIFIED-but-unusable lifecycle advancement;
-- canonical transition receipt on committed advancement;
-- separate explicit authority initialization/bootstrap;
-- legacy single-file mode clearly labeled as weaker/stateless persistence and excluded from API/SDK authority claims.
+- versioned request/response schema before transport implementation;
+- explicit read-only and verify-and-advance operations;
+- authority directory/state identity resolved server-side, never supplied as arbitrary filesystem paths by callers;
+- explicit trusted-root set/profile identity;
+- exact artifact/authority TrustState equality before verification;
+- idempotency key required for mutating verification;
+- deterministic replay of the same idempotency key/request;
+- idempotency-key reuse with different request digest fails closed;
+- CAS conflict is distinct from verification rejection and input error;
+- no silent retry after CAS conflict;
+- stable machine error taxonomy;
+- canonical response payload and transition receipt;
+- no private-key requirement;
+- no broker/OMS/risk/live-routing imports or authority;
+- transport layer must not become the source of truth; core verification/authority services remain authoritative.
 
-Only after this integration is qualified may Verification API implementation begin.
+Suggested v1 operations:
+
+- `verify.read_only`
+- `verify.advance`
+- `authority.status`
+
+Suggested deterministic result classes:
+
+- `VERIFIED_USABLE`
+- `VERIFIED_UNUSABLE`
+- `REJECTED`
+- `CAS_CONFLICT`
+- `IDEMPOTENCY_CONFLICT`
+- `INPUT_ERROR`
+- `AUTHORITY_ERROR`
+
+Acceptance evidence must include:
+
+- same request + same idempotency key => same canonical result;
+- same key + different request digest => fail closed;
+- concurrent advance => only one authority generation commit;
+- rejected verification => no mutation;
+- verified-unusable lifecycle update may commit;
+- read-only => byte-for-byte authority immutability;
+- malformed artifact/root/request => stable input error;
+- authority corruption => stable authority error;
+- no endpoint can bypass Persistent TrustState Authority for mutation.
+
+Only after this API contract is qualified may SDK contract work begin.
 
 ### Next sequence after verified merge
 
