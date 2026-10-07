@@ -637,3 +637,40 @@ def test_tampered_receipt_digest_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="receipt digest mismatch"):
         tampered.payload()
+
+
+def test_receipt_for_generation_reconstructs_committed_transition(
+    tmp_path: Path,
+) -> None:
+    authority = PersistentTrustStateAuthorityV1(tmp_path)
+    initial = authority.initialize(
+        initial_state=_initial_state(),
+        transition=_transition("a", "0" * 64),
+    )
+    current, receipt = authority.advance(
+        next_state=_next_state(),
+        transition=_transition("b", "4" * 64),
+        expected_generation=initial.generation,
+        expected_record_sha256=initial.record_sha256,
+        expected_trust_state_sha256=initial.trust_state_sha256,
+    )
+
+    recovered = authority.receipt_for_generation(current.generation)
+
+    assert recovered.payload() == receipt.payload()
+
+
+def test_receipt_for_generation_rejects_genesis_or_missing_generation(
+    tmp_path: Path,
+) -> None:
+    authority = PersistentTrustStateAuthorityV1(tmp_path)
+    authority.initialize(
+        initial_state=_initial_state(),
+        transition=_transition("a", "0" * 64),
+    )
+
+    with pytest.raises(PersistentTrustStateAuthorityError, match="greater than zero"):
+        authority.receipt_for_generation(0)
+
+    with pytest.raises(PersistentTrustStateAuthorityError, match="not retained"):
+        authority.receipt_for_generation(1)
