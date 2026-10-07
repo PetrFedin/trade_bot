@@ -1692,43 +1692,58 @@ Verified by merged repository history / file presence in current `main`:
 - authority-backed Offline CLI integration (#272);
 - transport-neutral Contract-first Verification API v1 core (#275);
 - per-idempotency-key single-flight semantics for mutating Verification API calls (#280);
-- localhost-first stdlib HTTP Transport Adapter v1 with strict framing/canonical JSON enforcement and no trust-semantic duplication (#281).
+- localhost-first stdlib HTTP Transport Adapter v1 (#281);
+- deterministic Verification SDK Contract v1 with strict canonical response decoding, request/response correlation, transport-only retry discipline and no duplicated trust logic (#284).
 
-These layers collectively provide deterministic portable verification, strict typed reconstruction, persistent local trust authority, crash-safe idempotent mutation, transport-neutral institutional API semantics and a qualified local HTTP transport. They do not prove profitability or enable live/mainnet trading.
+These layers collectively provide deterministic portable verification, strict typed reconstruction, persistent local trust authority, crash-safe idempotent mutation, transport-neutral institutional API semantics, a qualified local HTTP transport and a deterministic client SDK contract. They do not prove profitability or enable live/mainnet trading.
 
-### Next required implementation gate — SDK Contract v1
+### Next required implementation gate — Reference Profiles v1
 
-The SDK must remain a deterministic client contract, not a second verifier.
+Reference Profiles must define portable, versioned usage profiles over the already-canonical verification stack. A profile is configuration and conformance metadata, not a new trust authority.
 
 Required responsibilities:
 
-- deterministic request builder for `authority.status`, `verify.read_only`, `verify.advance`;
-- canonical request digest generation;
-- canonical response decoding;
-- typed result/error taxonomy preserving API `result_class`;
-- explicit idempotency-key helper for mutating calls;
-- retry discipline that retries transport failures only when the request/idempotency contract makes replay safe;
-- no automatic retry after CAS_CONFLICT against a newer authority state;
-- no hidden regeneration of idempotency keys during retries;
-- no client-side trust decision, signature verification, TrustState mutation or root-set interpretation;
-- no caller-controlled server-side filesystem paths;
-- transport abstraction so stdlib HTTP is the first adapter, not the SDK's semantic authority;
-- byte-stable request construction for the same logical input;
-- byte-stable decoded/re-encoded canonical response representation.
+- explicit profile identity and schema version;
+- declared supported Verification API operation set;
+- declared artifact/profile compatibility constraints;
+- declared trusted-root-set identifier expectations without embedding private material;
+- declared clock-skew policy bounds;
+- declared transport expectations;
+- declared SDK retry/idempotency requirements;
+- declared authority persistence / recovery assumptions;
+- deterministic canonical profile encoding;
+- stable profile SHA-256 identity;
+- compatibility/conformance evaluation without invoking broker, OMS, strategy, risk or live-routing authority.
+
+Reference Profile v1 must not:
+
+- reimplement VerificationService semantics;
+- mutate TrustState;
+- contain private signing keys;
+- silently change trusted roots;
+- authorize live trading;
+- define profit/performance claims.
+
+Initial reference profiles should cover at minimum:
+
+- Offline Institutional Verifier;
+- Local HTTP Institutional Verifier;
+- Embedded/OEM Verifier;
+- Read-only Auditor;
+- Stateful Authority Operator.
 
 Acceptance evidence:
 
-- same logical SDK request => byte-identical canonical payload and request SHA;
-- verify.advance requires explicit or deterministically preserved idempotency key;
-- same request retried after transport disconnect preserves idempotency key and request SHA;
-- CAS_CONFLICT surfaces as typed result and is never silently retried;
-- IDEMPOTENCY_CONFLICT surfaces distinctly;
-- malformed/non-canonical response fails closed;
-- unknown future result classes fail closed or use an explicitly versioned compatibility policy;
-- SDK contains no VerificationService, signature, keyring, broker, OMS, strategy, risk or live-routing authority imports;
-- SDK tests can run against an in-memory/fake transport without external network.
+- same logical profile => byte-identical canonical bytes and profile SHA;
+- strict schema decode and unknown-field rejection;
+- compatibility evaluation is deterministic;
+- incompatible operation/transport/retry assumptions fail closed;
+- profile identity is included in conformance evidence;
+- no profile may weaken API/SDK idempotency or CAS semantics;
+- no profile may expand the frozen runtime import boundary;
+- tests require no external network.
 
-Only after SDK Contract v1 is qualified may Reference Profiles implementation begin.
+Only after Reference Profiles v1 qualifies and merges may Institutional Test Corpus work begin.
 
 ### Next sequence after verified merge
 
