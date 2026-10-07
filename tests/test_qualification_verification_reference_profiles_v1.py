@@ -260,7 +260,7 @@ def test_operation_outside_profile_fails_closed() -> None:
     )
 
     assert result.failures == (
-        VerificationReferenceConformanceFailure.OPERATION_UNSUPPORTED,
+        VerificationReferenceConformanceFailure.OPERATION_SET_MISMATCH,
     )
 
 
