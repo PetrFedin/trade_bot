@@ -433,7 +433,7 @@ def test_idempotency_history_gap_or_duplicate_fails_closed(tmp_path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("request", "message"),
+    ("api_request", "message"),
     [
         (
             VerificationAPIRequestV1(
@@ -494,11 +494,11 @@ def test_idempotency_history_gap_or_duplicate_fails_closed(tmp_path) -> None:
     ],
 )
 def test_request_validation_rejects_invalid_contract(
-    request: VerificationAPIRequestV1,
+    api_request: VerificationAPIRequestV1,
     message: str,
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        request.validate()
+        api_request.validate()
 
 
 def test_request_rejects_schema_missing_artifact_and_invalid_base64() -> None:
