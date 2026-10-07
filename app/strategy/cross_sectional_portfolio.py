@@ -43,6 +43,7 @@ class PortfolioEntryBlockReason(StrEnum):
 class CrossSectionalPortfolioPolicy:
     opening_cash: Decimal = Decimal("10000")
     fee_per_fill: Decimal = Decimal("0.50")
+    fee_bps_per_fill: Decimal = Decimal("0")
     slippage_bps: Decimal = Decimal("5")
     maximum_gross_exposure_fraction: Decimal = Decimal("0.60")
     new_position_target_equity_fraction: Decimal = Decimal("0.30")
@@ -54,6 +55,8 @@ class CrossSectionalPortfolioPolicy:
             raise ValueError("opening_cash must be positive and finite")
         if not self.fee_per_fill.is_finite() or self.fee_per_fill < 0:
             raise ValueError("fee_per_fill must be non-negative and finite")
+        if not self.fee_bps_per_fill.is_finite() or self.fee_bps_per_fill < 0:
+            raise ValueError("fee_bps_per_fill must be non-negative and finite")
         if not self.slippage_bps.is_finite() or self.slippage_bps < 0:
             raise ValueError("slippage_bps must be non-negative and finite")
         for name, value in (
@@ -139,6 +142,7 @@ class _OpenPositionState:
     entry_time: datetime
     entry_execution_index: int
     entry_execution_price: Decimal
+    entry_fee: Decimal
     intrabar_state: IntrabarPositionState
 
 
@@ -259,6 +263,10 @@ class CrossSectionalPortfolioBacktester:
                 if reason is None:
                     continue
                 exit_price = current_bars[symbol].open * (Decimal("1") - slip)
+                exit_fee = _fill_fee(
+                    notional=position.quantity * exit_price,
+                    policy=self.portfolio_policy,
+                )
                 fill_count += 1
                 _sell(
                     ledger=ledger,
@@ -267,7 +275,7 @@ class CrossSectionalPortfolioBacktester:
                     bar=current_bars[symbol],
                     quantity=position.quantity,
                     price=exit_price,
-                    fee=self.portfolio_policy.fee_per_fill,
+                    fee=exit_fee,
                 )
                 traded_notional += position.quantity * exit_price
                 trade = _closed_trade(
@@ -277,7 +285,7 @@ class CrossSectionalPortfolioBacktester:
                     exit_price=exit_price,
                     quantity=position.quantity,
                     average_cost=position.average_cost,
-                    exit_fee=self.portfolio_policy.fee_per_fill,
+                    exit_fee=exit_fee,
                     execution_index=execution_index,
                     reason=reason,
                 )
@@ -339,7 +347,11 @@ class CrossSectionalPortfolioBacktester:
                     continue
                 entry_price = current_bars[symbol].open * (Decimal("1") + slip)
                 quantity = target_notional / entry_price
-                required_cash = target_notional + self.portfolio_policy.fee_per_fill
+                entry_fee = _fill_fee(
+                    notional=quantity * entry_price,
+                    policy=self.portfolio_policy,
+                )
+                required_cash = target_notional + entry_fee
                 if ledger.cash < required_cash:
                     raise ValueError("portfolio entry requires cash beyond available balance")
                 if last_exit_index.get(symbol) == execution_index - 1:
@@ -352,7 +364,7 @@ class CrossSectionalPortfolioBacktester:
                     bar=current_bars[symbol],
                     quantity=quantity,
                     price=entry_price,
-                    fee=self.portfolio_policy.fee_per_fill,
+                    fee=entry_fee,
                 )
                 traded_notional += quantity * entry_price
                 entered_symbols.append(symbol)
@@ -360,6 +372,7 @@ class CrossSectionalPortfolioBacktester:
                     entry_time=execution_time,
                     entry_execution_index=execution_index,
                     entry_execution_price=entry_price,
+                    entry_fee=entry_fee,
                     intrabar_state=IntrabarPositionState(
                         peak_completed_price=current_bars[symbol].open
                     ),
@@ -383,12 +396,17 @@ class CrossSectionalPortfolioBacktester:
                         entry_time=state.entry_time,
                         entry_execution_index=state.entry_execution_index,
                         entry_execution_price=state.entry_execution_price,
+                        entry_fee=state.entry_fee,
                         intrabar_state=intrabar.state,
                     )
                     continue
                 if intrabar.exit_price_before_costs is None or intrabar.reason is None:
                     raise RuntimeError("portfolio intrabar exit missing reason or price")
                 exit_price = intrabar.exit_price_before_costs * (Decimal("1") - slip)
+                exit_fee = _fill_fee(
+                    notional=position.quantity * exit_price,
+                    policy=self.portfolio_policy,
+                )
                 fill_count += 1
                 _sell(
                     ledger=ledger,
@@ -397,7 +415,7 @@ class CrossSectionalPortfolioBacktester:
                     bar=current_bars[symbol],
                     quantity=position.quantity,
                     price=exit_price,
-                    fee=self.portfolio_policy.fee_per_fill,
+                    fee=exit_fee,
                 )
                 traded_notional += position.quantity * exit_price
                 reason = _map_intrabar_reason(intrabar.reason)
@@ -408,7 +426,7 @@ class CrossSectionalPortfolioBacktester:
                     exit_price=exit_price,
                     quantity=position.quantity,
                     average_cost=position.average_cost,
-                    exit_fee=self.portfolio_policy.fee_per_fill,
+                    exit_fee=exit_fee,
                     execution_index=execution_index,
                     reason=reason,
                     ambiguous=intrabar.ambiguous_bar,
@@ -553,11 +571,27 @@ def _closed_trade(
         entry_execution_price=state.entry_execution_price,
         exit_execution_price=exit_price,
         quantity=quantity,
-        net_pnl=(exit_price - average_cost) * quantity - exit_fee,
+        net_pnl=(
+            (exit_price - average_cost) * quantity
+            - state.entry_fee
+            - exit_fee
+        ),
         holding_bars=execution_index - state.entry_execution_index,
         exit_reason=reason,
         ambiguous_intrabar_exit=ambiguous,
         gap_through_stop=gap,
+    )
+
+
+def _fill_fee(
+    *,
+    notional: Decimal,
+    policy: CrossSectionalPortfolioPolicy,
+) -> Decimal:
+    if notional < 0 or not notional.is_finite():
+        raise ValueError("fill notional must be non-negative and finite")
+    return policy.fee_per_fill + (
+        notional * policy.fee_bps_per_fill / Decimal("10000")
     )
 
 
