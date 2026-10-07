@@ -349,6 +349,7 @@ class VerificationAPIServiceV1:
             checkpoint_v4_id=checkpoint.checkpoint_id,
             checkpoint_v4_sha256=checkpoint.checkpoint_sha256,
             verified_at=request.observed_at,
+            operation_context_sha256=request_sha,
         )
         try:
             committed, receipt = authority.advance(
@@ -473,6 +474,7 @@ class VerificationAPIServiceV1:
             record.bundle_sha256,
             record.checkpoint_v4_id,
             record.checkpoint_v4_sha256,
+            record.request_sha256,
         )
         actual = (
             transition.artifact_id,
@@ -481,6 +483,7 @@ class VerificationAPIServiceV1:
             transition.bundle_sha256,
             transition.checkpoint_v4_id,
             transition.checkpoint_v4_sha256,
+            transition.operation_context_sha256,
         )
         if actual != expected:
             return None
