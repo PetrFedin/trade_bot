@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import http.client
 import socket
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -10,6 +12,7 @@ from app.qualification.verification_api_contract_v1 import (
     VerificationAPIOperation,
 )
 from app.qualification.verification_http_adapter_v1 import (
+    _semantic_status,
     _server_type_for_host,
     create_local_http_server,
     decode_http_request,
@@ -336,3 +339,248 @@ def test_ipv6_loopback_uses_ipv6_server_class() -> None:
     server_type = _server_type_for_host("::1")
 
     assert server_type.address_family == socket.AF_INET6
+
+
+def _run_local_server(server):
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return thread
+
+
+def _raw_http_exchange(host: str, port: int, request_bytes: bytes) -> bytes:
+    with socket.create_connection((host, port), timeout=5) as sock:
+        sock.sendall(request_bytes)
+        sock.shutdown(socket.SHUT_WR)
+        chunks: list[bytes] = []
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+
+def test_real_loopback_server_round_trip_and_get_rejection(tmp_path) -> None:
+    service, authority, _, artifact_bytes, _ = _setup(tmp_path)
+    request = _request(
+        artifact_bytes,
+        operation=VerificationAPIOperation.VERIFY_READ_ONLY,
+        request_id="real-http-read-1",
+    )
+    body = canonical_json_bytes(request.payload())
+    before = authority.current()
+
+    with create_local_http_server(service=service) as server:
+        host, port = server.server_address[:2]
+        thread = _run_local_server(server)
+        try:
+            connection = http.client.HTTPConnection(host, port, timeout=5)
+            connection.request(
+                "POST",
+                "/v1/verification",
+                body=body,
+                headers={"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            payload = response.read()
+            connection.close()
+
+            assert response.status == 200
+            assert response.getheader("Content-Type") == "application/json"
+            assert payload == canonical_json_bytes(service.handle(request))
+
+            connection = http.client.HTTPConnection(host, port, timeout=5)
+            connection.request("GET", "/v1/verification")
+            rejected = connection.getresponse()
+            rejected_payload = rejected.read()
+            connection.close()
+
+            assert rejected.status == 405
+            assert b"METHOD_NOT_ALLOWED" in rejected_payload
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+
+    assert authority.current() == before
+
+
+@pytest.mark.parametrize(
+    ("request_bytes", "expected_status", "error_code"),
+    [
+        (
+            b"POST /v1/verification HTTP/1.1\r\n"
+            b"Host: localhost\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Connection: close\r\n\r\n",
+            411,
+            b"CONTENT_LENGTH_REQUIRED",
+        ),
+        (
+            b"POST /v1/verification HTTP/1.1\r\n"
+            b"Host: localhost\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: nope\r\n"
+            b"Connection: close\r\n\r\n",
+            400,
+            b"INVALID_CONTENT_LENGTH",
+        ),
+        (
+            b"POST /v1/verification HTTP/1.1\r\n"
+            b"Host: localhost\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: -1\r\n"
+            b"Connection: close\r\n\r\n",
+            400,
+            b"INVALID_CONTENT_LENGTH",
+        ),
+        (
+            b"POST /v1/verification HTTP/1.1\r\n"
+            b"Host: localhost\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: 2\r\n"
+            b"Content-Length: 2\r\n"
+            b"Connection: close\r\n\r\n{}",
+            400,
+            b"AMBIGUOUS_CONTENT_LENGTH",
+        ),
+        (
+            b"POST /v1/verification HTTP/1.1\r\n"
+            b"Host: localhost\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"Connection: close\r\n\r\n"
+            b"2\r\n{}\r\n0\r\n\r\n",
+            400,
+            b"TRANSFER_ENCODING_UNSUPPORTED",
+        ),
+    ],
+)
+def test_real_server_rejects_ambiguous_or_unsupported_framing(
+    tmp_path,
+    request_bytes: bytes,
+    expected_status: int,
+    error_code: bytes,
+) -> None:
+    service, authority, _, _, _ = _setup(tmp_path)
+    before = authority.current()
+
+    with create_local_http_server(service=service) as server:
+        host, port = server.server_address[:2]
+        thread = _run_local_server(server)
+        try:
+            response = _raw_http_exchange(host, port, request_bytes)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+
+    assert f"HTTP/1.1 {expected_status}".encode("ascii") in response
+    assert error_code in response
+    assert authority.current() == before
+
+
+def test_real_server_rejects_body_over_configured_limit(tmp_path) -> None:
+    service, authority, _, _, _ = _setup(tmp_path)
+    before = authority.current()
+
+    with create_local_http_server(
+        service=service,
+        max_body_bytes=8,
+    ) as server:
+        host, port = server.server_address[:2]
+        thread = _run_local_server(server)
+        try:
+            response = _raw_http_exchange(
+                host,
+                port,
+                b"POST /v1/verification HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Length: 9\r\n"
+                b"Connection: close\r\n\r\n"
+                b"123456789",
+            )
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+
+    assert b"HTTP/1.1 413" in response
+    assert b"REQUEST_TOO_LARGE" in response
+    assert authority.current() == before
+
+
+@pytest.mark.parametrize(
+    ("result_class", "expected_status"),
+    [
+        ("STATUS_OK", 200),
+        ("VERIFIED_USABLE", 200),
+        ("VERIFIED_UNUSABLE", 200),
+        ("REJECTED", 422),
+        ("CAS_CONFLICT", 409),
+        ("IDEMPOTENCY_CONFLICT", 409),
+        ("INPUT_ERROR", 400),
+        ("AUTHORITY_ERROR", 503),
+        ("UNKNOWN_RESULT", 500),
+        (None, 500),
+    ],
+)
+def test_transport_status_mapping_is_advisory(
+    result_class: str | None,
+    expected_status: int,
+) -> None:
+    assert _semantic_status({"result_class": result_class}) == expected_status
+
+
+def test_server_factory_validates_port_and_body_limit(tmp_path) -> None:
+    service, _, _, _, _ = _setup(tmp_path)
+
+    with pytest.raises(ValueError, match="port must be between"):
+        create_local_http_server(service=service, port=-1)
+    with pytest.raises(ValueError, match="port must be between"):
+        create_local_http_server(service=service, port=65536)
+    with pytest.raises(ValueError, match="max_body_bytes must be positive"):
+        create_local_http_server(service=service, max_body_bytes=0)
+
+
+def test_server_type_and_loopback_hostname_paths(tmp_path) -> None:
+    service, _, _, _, _ = _setup(tmp_path)
+
+    assert _server_type_for_host("127.0.0.1").address_family == socket.AF_INET
+    assert _server_type_for_host("localhost").address_family == socket.AF_INET
+
+    with create_local_http_server(
+        service=service,
+        host="localhost",
+        port=0,
+    ) as server:
+        assert server.server_address[1] > 0
+
+
+@pytest.mark.parametrize(
+    ("body", "error_code"),
+    [
+        (b"\xff", b"INVALID_JSON"),
+        (b"{", b"INVALID_JSON"),
+    ],
+)
+def test_transport_rejects_invalid_utf8_or_json_syntax(
+    tmp_path,
+    body: bytes,
+    error_code: bytes,
+) -> None:
+    service, authority, _, _, _ = _setup(tmp_path)
+    before = authority.current()
+
+    response = handle_http_request(
+        service=service,
+        method="POST",
+        path="/v1/verification",
+        headers={
+            "Content-Type": "application/json",
+            "Content-Length": str(len(body)),
+        },
+        body=body,
+    )
+
+    assert response.status == 400
+    assert error_code in response.body
+    assert authority.current() == before
