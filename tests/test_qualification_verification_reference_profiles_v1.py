@@ -227,6 +227,7 @@ def test_conformance_reports_all_incompatible_assumptions_in_stable_order() -> N
                 VerificationReferenceConformanceFailure.CLOCK_SKEW_EXCEEDS_PROFILE,
                 VerificationReferenceConformanceFailure.INTERFACE_MISMATCH,
                 VerificationReferenceConformanceFailure.IDEMPOTENCY_PRESERVATION_REQUIRED,
+                VerificationReferenceConformanceFailure.OPERATION_SET_MISMATCH,
                 VerificationReferenceConformanceFailure.TRANSPORT_ONLY_RETRY_REQUIRED,
                 VerificationReferenceConformanceFailure.SEMANTIC_RETRY_FORBIDDEN,
                 VerificationReferenceConformanceFailure.AUTHORITY_PERSISTENCE_MISMATCH,
@@ -302,3 +303,24 @@ def test_conformance_identity_binds_profile_identity() -> None:
 
     assert first.profile_sha256 != second.profile_sha256
     assert first.conformance_sha256 != second.conformance_sha256
+
+
+def test_stateful_profile_rejects_missing_advance_operation() -> None:
+    profile = _profile("stateful-authority-operator")
+    capability = replace(
+        _capability_for(profile),
+        operations=tuple(
+            item
+            for item in profile.supported_operations
+            if item is not VerificationAPIOperation.VERIFY_ADVANCE
+        ),
+    )
+
+    result = evaluate_reference_profile_conformance(
+        profile=profile,
+        capability=capability,
+    )
+
+    assert result.failures == (
+        VerificationReferenceConformanceFailure.OPERATION_SET_MISMATCH,
+    )
