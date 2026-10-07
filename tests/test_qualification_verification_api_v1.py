@@ -159,7 +159,10 @@ def test_trusted_root_registry_validates_ed25519_root_sets() -> None:
         {"roots-v1": {"root-1": b"x" * 32}}
     )
 
-    assert registry.resolve("roots-v1")["root-1"] == b"x" * 32
+    roots, digest = registry.resolve_with_digest("roots-v1")
+    assert roots["root-1"] == b"x" * 32
+    assert len(digest) == 64
+    assert registry.resolve_with_digest("roots-v1")[1] == digest
     with pytest.raises(VerificationAPIRegistryError, match="unknown"):
         registry.resolve("missing")
     with pytest.raises(VerificationAPIRegistryError, match="must be 32 bytes"):
@@ -189,7 +192,7 @@ def test_idempotency_prepare_is_replayable_and_digest_bound(tmp_path) -> None:
         idempotency_key="idem-1",
         request_sha256="a" * 64,
         authority_id="primary",
-        trusted_root_set_id="good-roots",
+        trusted_root_set_id="roots-v1",
         trusted_root_set_sha256="e" * 64,
         authority_before=_snapshot(),
         artifact_id="qartifact_a",
@@ -209,6 +212,8 @@ def test_idempotency_prepare_is_replayable_and_digest_bound(tmp_path) -> None:
             idempotency_key="idem-1",
             request_sha256="f" * 64,
             authority_id="primary",
+            trusted_root_set_id="roots-v1",
+            trusted_root_set_sha256="e" * 64,
             authority_before=_snapshot(),
             artifact_id="qartifact_a",
             artifact_sha256="b" * 64,
