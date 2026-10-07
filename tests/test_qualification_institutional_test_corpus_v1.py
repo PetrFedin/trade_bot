@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import replace
 from datetime import timedelta
 
 import pytest
