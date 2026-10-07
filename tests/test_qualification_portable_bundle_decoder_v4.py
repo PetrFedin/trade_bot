@@ -223,9 +223,14 @@ def _nested_object(payload: dict[str, object], path: tuple[str, ...]) -> dict[st
 def test_typed_decoder_property_sweep_rejects_unknown_fields_at_nested_boundaries() -> None:
     for index, path in enumerate(_NESTED_OBJECT_PATHS):
         for suffix in (0, index, 1_000_000 - index):
-            def mutate(payload: dict[str, object]) -> None:
-                node = _nested_object(payload, path)
-                node[f"__unknown_{suffix}"] = "must-fail-closed"
+            def mutate(
+                payload: dict[str, object],
+                *,
+                nested_path: tuple[str, ...] = path,
+                field_suffix: int = suffix,
+            ) -> None:
+                node = _nested_object(payload, nested_path)
+                node[f"__unknown_{field_suffix}"] = "must-fail-closed"
 
             artifact = _mutated_artifact(mutate)
 
