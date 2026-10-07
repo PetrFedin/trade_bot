@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from decimal import Decimal
 from pathlib import Path
 
 from app.strategy.historical_strategy_evidence_v1 import (
@@ -52,18 +53,18 @@ def test_historical_portfolio_evidence_runner_is_deterministic(tmp_path: Path) -
     first = build_evidence(
         bars_dir=tmp_path,
         symbols=symbols,
-        opening_cash=10000,
-        fee_per_fill=0,
-        fee_bps_per_fill=8,
-        slippage_bps=5,
+        opening_cash=Decimal("10000"),
+        fee_per_fill=Decimal("0"),
+        fee_bps_per_fill=Decimal("8"),
+        slippage_bps=Decimal("5"),
     )
     second = build_evidence(
         bars_dir=tmp_path,
         symbols=symbols,
-        opening_cash=10000,
-        fee_per_fill=0,
-        fee_bps_per_fill=8,
-        slippage_bps=5,
+        opening_cash=Decimal("10000"),
+        fee_per_fill=Decimal("0"),
+        fee_bps_per_fill=Decimal("8"),
+        slippage_bps=Decimal("5"),
     )
 
     assert first == second
