@@ -291,6 +291,29 @@ class PersistentTrustStateAuthorityV1:
                 )
             return tuple(records)
 
+    def receipt_for_generation(
+        self,
+        generation: int,
+    ) -> TrustStateAdvanceReceipt:
+        if generation <= 0:
+            raise PersistentTrustStateAuthorityError(
+                "transition receipt requires generation greater than zero"
+            )
+        self._ensure_layout()
+        with self._exclusive_lock():
+            records = self._validated_history_chain()
+            if generation >= len(records):
+                raise PersistentTrustStateAuthorityError(
+                    "requested TrustState generation is not retained"
+                )
+            previous = records[generation - 1]
+            current = records[generation]
+            if current.previous_record_sha256 != previous.record_sha256:
+                raise PersistentTrustStateCorruption(
+                    "TrustState receipt history linkage mismatch"
+                )
+            return _receipt(previous=previous, current=current)
+
     def _recover_and_load_current(self) -> PersistentTrustStateRecord:
         records = self._validated_history_chain()
         if not records:
