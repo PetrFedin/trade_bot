@@ -229,3 +229,33 @@ def test_fixed_fee_is_included_on_both_sides_of_closed_trade() -> None:
     )
 
     assert trade.net_pnl == expected_net
+
+
+def test_trade_cost_attribution_reconciles_exactly_to_net_pnl() -> None:
+    result = CrossSectionalPortfolioBacktester(
+        selector=CrossSectionalSelector(top_k=2),
+        portfolio_policy=CrossSectionalPortfolioPolicy(
+            opening_cash=Decimal("10000"),
+            fee_per_fill=Decimal("0"),
+            fee_bps_per_fill=Decimal("8"),
+            slippage_bps=Decimal("5"),
+            maximum_gross_exposure_fraction=Decimal("0.60"),
+            new_position_target_equity_fraction=Decimal("0.29"),
+        ),
+        position_policy=PositionManagementPolicy(),
+        reentry_policy=ReentryConfirmationPolicy(
+            minimum_consecutive_eligible_bars=2
+        ),
+    ).run(stable_universe(aapl_stop_on_entry=True))
+
+    assert result.closed_trades
+    for trade in result.closed_trades:
+        assert trade.slippage_cost >= 0
+        assert trade.entry_fee >= 0
+        assert trade.exit_fee >= 0
+        assert trade.net_pnl == (
+            trade.gross_pnl_before_costs
+            - trade.slippage_cost
+            - trade.entry_fee
+            - trade.exit_fee
+        )
