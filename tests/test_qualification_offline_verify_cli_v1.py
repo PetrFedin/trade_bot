@@ -425,3 +425,34 @@ def test_cli_rejects_mixed_legacy_and_authority_modes(tmp_path, capsys) -> None:
 
     assert exit_code == EXIT_INPUT_ERROR
     assert "cannot be combined" in capsys.readouterr().out
+
+
+def test_cli_uninitialized_authority_is_deterministic_input_error(
+    tmp_path,
+    capsys,
+) -> None:
+    _, _, artifact, roots = _fixture()
+    artifact_path = tmp_path / "artifact.json"
+    roots_path = tmp_path / "roots.json"
+    authority_dir = tmp_path / "authority"
+    artifact_path.write_bytes(artifact)
+    roots_path.write_bytes(roots)
+
+    exit_code = main(
+        [
+            "--artifact",
+            str(artifact_path),
+            "--trusted-roots",
+            str(roots_path),
+            "--authority-dir",
+            str(authority_dir),
+            "--authority-read-only",
+            "--observed-at",
+            (NOW + timedelta(seconds=11)).isoformat(),
+        ]
+    )
+
+    assert exit_code == EXIT_INPUT_ERROR
+    output = capsys.readouterr().out
+    assert '"outcome":"INPUT_ERROR"' in output
+    assert "not initialized" in output
