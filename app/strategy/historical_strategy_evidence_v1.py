@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
+from hashlib import sha256
 
 from app.qualification.portable_artifact_codec import canonical_json_bytes
 from app.strategy.cross_sectional_portfolio import CrossSectionalPortfolioResult
@@ -265,7 +265,7 @@ class HistoricalStrategyEvidenceV1:
 
     @property
     def evidence_sha256(self) -> str:
-        return hashlib.sha256(
+        return sha256(
             canonical_json_bytes(self.unsigned_payload())
         ).hexdigest()
 
@@ -317,7 +317,7 @@ def build_historical_strategy_evidence(
     )
     evidence = HistoricalStrategyEvidenceV1(
         strategy_id=strategy_id,
-        strategy_config_sha256=hashlib.sha256(
+        strategy_config_sha256=sha256(
             canonical_json_bytes(strategy_config)
         ).hexdigest(),
         dataset_id=dataset_id,
