@@ -773,7 +773,7 @@ class VerificationAPIServiceV1:
         authority_after: VerificationAPIAuthoritySnapshot | None = None,
     ) -> dict[str, object]:
         return VerificationAPIResponseV1(
-            request_id=request.request_id,
+            request_id=request.request_id.strip() or "invalid-request",
             operation=request.operation,
             request_sha256=request.computed_request_sha256,
             result_class=result_class,
