@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
-import hashlib
 
 from app.qualification.portable_artifact_codec import canonical_json_bytes
 from app.strategy.cross_sectional_portfolio import CrossSectionalPortfolioResult
