@@ -41,6 +41,7 @@ class TrustStateTransitionContext:
     checkpoint_v4_id: str
     checkpoint_v4_sha256: str
     verified_at: datetime
+    operation_context_sha256: str | None = None
 
     def validate(self) -> None:
         for name, value in (
@@ -53,11 +54,16 @@ class TrustStateTransitionContext:
         _digest(self.artifact_sha256, "artifact_sha256")
         _digest(self.bundle_sha256, "bundle_sha256")
         _digest(self.checkpoint_v4_sha256, "checkpoint_v4_sha256")
+        if self.operation_context_sha256 is not None:
+            _digest(
+                self.operation_context_sha256,
+                "operation_context_sha256",
+            )
         _aware(self.verified_at, "verified_at")
 
     def payload(self) -> dict[str, object]:
         self.validate()
-        return {
+        payload: dict[str, object] = {
             "artifact_id": self.artifact_id,
             "artifact_sha256": self.artifact_sha256,
             "bundle_id": self.bundle_id,
@@ -66,6 +72,9 @@ class TrustStateTransitionContext:
             "checkpoint_v4_sha256": self.checkpoint_v4_sha256,
             "verified_at": _aware(self.verified_at, "verified_at").isoformat(),
         }
+        if self.operation_context_sha256 is not None:
+            payload["operation_context_sha256"] = self.operation_context_sha256
+        return payload
 
 
 @dataclass(frozen=True)
@@ -290,6 +299,29 @@ class PersistentTrustStateAuthorityV1:
                     "current TrustState record does not match validated history head"
                 )
             return tuple(records)
+
+    def receipt_for_generation(
+        self,
+        generation: int,
+    ) -> TrustStateAdvanceReceipt:
+        if generation <= 0:
+            raise PersistentTrustStateAuthorityError(
+                "transition receipt requires generation greater than zero"
+            )
+        self._ensure_layout()
+        with self._exclusive_lock():
+            records = self._validated_history_chain()
+            if generation >= len(records):
+                raise PersistentTrustStateAuthorityError(
+                    "requested TrustState generation is not retained"
+                )
+            previous = records[generation - 1]
+            current = records[generation]
+            if current.previous_record_sha256 != previous.record_sha256:
+                raise PersistentTrustStateCorruption(
+                    "TrustState receipt history linkage mismatch"
+                )
+            return _receipt(previous=previous, current=current)
 
     def _recover_and_load_current(self) -> PersistentTrustStateRecord:
         records = self._validated_history_chain()
@@ -534,19 +566,23 @@ def _decode_record(raw: Mapping[str, object]) -> PersistentTrustStateRecord:
         ),
     )
     transition_raw = _object(raw["transition"], "$.transition")
-    _exact_fields(
-        transition_raw,
-        {
-            "artifact_id",
-            "artifact_sha256",
-            "bundle_id",
-            "bundle_sha256",
-            "checkpoint_v4_id",
-            "checkpoint_v4_sha256",
-            "verified_at",
-        },
-        "$.transition",
-    )
+    base_transition_fields = {
+        "artifact_id",
+        "artifact_sha256",
+        "bundle_id",
+        "bundle_sha256",
+        "checkpoint_v4_id",
+        "checkpoint_v4_sha256",
+        "verified_at",
+    }
+    transition_fields = set(transition_raw)
+    if transition_fields not in (
+        base_transition_fields,
+        base_transition_fields | {"operation_context_sha256"},
+    ):
+        raise PersistentTrustStateCorruption(
+            "$.transition fields mismatch"
+        )
     transition = TrustStateTransitionContext(
         artifact_id=_string(transition_raw["artifact_id"], "$.transition.artifact_id"),
         artifact_sha256=_string(
@@ -564,6 +600,14 @@ def _decode_record(raw: Mapping[str, object]) -> PersistentTrustStateRecord:
             "$.transition.checkpoint_v4_sha256",
         ),
         verified_at=_datetime(transition_raw["verified_at"], "$.transition.verified_at"),
+        operation_context_sha256=(
+            None
+            if "operation_context_sha256" not in transition_raw
+            else _string(
+                transition_raw["operation_context_sha256"],
+                "$.transition.operation_context_sha256",
+            )
+        ),
     )
     record = PersistentTrustStateRecord(
         generation=_integer(raw["generation"], "$.generation"),
