@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import socket
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -12,6 +13,7 @@ from app.qualification.verification_http_adapter_v1 import (
     create_local_http_server,
     decode_http_request,
     handle_http_request,
+    _server_type_for_host,
 )
 from tests.test_qualification_verification_api_service_v1 import (
     _request,
@@ -157,6 +159,17 @@ def test_concurrent_identical_advance_requests_commit_once(tmp_path) -> None:
             b"{}",
             415,
             "UNSUPPORTED_CONTENT_TYPE",
+        ),
+        (
+            "POST",
+            "/v1/verification",
+            {
+                "Content-Type": "application/json",
+                "Transfer-Encoding": "chunked",
+            },
+            b"{}",
+            400,
+            "TRANSFER_ENCODING_UNSUPPORTED",
         ),
         (
             "POST",
@@ -317,3 +330,9 @@ def test_local_server_factory_rejects_non_loopback_binding(tmp_path) -> None:
         host, port = server.server_address[:2]
         assert host == "127.0.0.1"
         assert port > 0
+
+
+def test_ipv6_loopback_uses_ipv6_server_class() -> None:
+    server_type = _server_type_for_host("::1")
+
+    assert server_type.address_family == socket.AF_INET6
