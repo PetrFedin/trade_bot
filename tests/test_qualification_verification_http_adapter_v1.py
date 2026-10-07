@@ -10,10 +10,10 @@ from app.qualification.verification_api_contract_v1 import (
     VerificationAPIOperation,
 )
 from app.qualification.verification_http_adapter_v1 import (
+    _server_type_for_host,
     create_local_http_server,
     decode_http_request,
     handle_http_request,
-    _server_type_for_host,
 )
 from tests.test_qualification_verification_api_service_v1 import (
     _request,
