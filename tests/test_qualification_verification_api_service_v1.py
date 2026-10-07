@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import timedelta
 
 from app.qualification.persistent_trust_state_authority_v1 import (
+    PersistentTrustStateAuthorityError,
     PersistentTrustStateAuthorityV1,
+    PersistentTrustStateCASMismatch,
     TrustStateTransitionContext,
 )
 from app.qualification.portable_artifact_codec import (
@@ -22,6 +24,8 @@ from app.qualification.verification_api_contract_v1 import (
 )
 from app.qualification.verification_api_idempotency_v1 import (
     VerificationAPIAuthoritySnapshot,
+    VerificationAPIIdempotencyCorruption,
+    VerificationAPIIdempotencyError,
     VerificationAPIIdempotencyJournalV1,
     VerificationAPIIdempotencyState,
 )
@@ -446,4 +450,337 @@ def test_finalized_replay_still_rejects_same_key_different_request(
     assert response["result_class"] == (
         VerificationAPIResultClass.IDEMPOTENCY_CONFLICT.value
     )
+    assert authority.current().generation == 1
+
+
+def test_invalid_request_returns_stable_input_error(tmp_path) -> None:
+    service, _, _, artifact_bytes, _ = _setup(tmp_path)
+    request = VerificationAPIRequestV1(
+        operation=VerificationAPIOperation.VERIFY_READ_ONLY,
+        request_id="",
+        authority_id="primary",
+        trusted_root_set_id="good-roots",
+        artifact_b64=encode_artifact_b64(artifact_bytes),
+        observed_at=NOW + timedelta(seconds=11),
+    )
+
+    response = service.handle(request)
+
+    assert response["result_class"] == VerificationAPIResultClass.INPUT_ERROR.value
+    assert response["failure_code"] == "INVALID_REQUEST"
+    assert response["request_id"] == "invalid-request"
+
+
+def test_unknown_authority_and_root_set_are_stable_input_errors(tmp_path) -> None:
+    service, _, _, artifact_bytes, _ = _setup(tmp_path)
+    unknown_authority = VerificationAPIRequestV1(
+        operation=VerificationAPIOperation.VERIFY_READ_ONLY,
+        request_id="unknown-authority",
+        authority_id="missing",
+        trusted_root_set_id="good-roots",
+        artifact_b64=encode_artifact_b64(artifact_bytes),
+        observed_at=NOW + timedelta(seconds=11),
+    )
+    unknown_roots = VerificationAPIRequestV1(
+        operation=VerificationAPIOperation.VERIFY_READ_ONLY,
+        request_id="unknown-roots",
+        authority_id="primary",
+        trusted_root_set_id="missing-roots",
+        artifact_b64=encode_artifact_b64(artifact_bytes),
+        observed_at=NOW + timedelta(seconds=11),
+    )
+
+    authority_response = service.handle(unknown_authority)
+    roots_response = service.handle(unknown_roots)
+
+    assert authority_response["result_class"] == (
+        VerificationAPIResultClass.INPUT_ERROR.value
+    )
+    assert authority_response["failure_code"] == "UNKNOWN_CONFIGURATION"
+    assert roots_response["result_class"] == (
+        VerificationAPIResultClass.INPUT_ERROR.value
+    )
+    assert roots_response["failure_code"] == "UNKNOWN_CONFIGURATION"
+
+
+def test_unknown_authority_status_is_stable_input_error(tmp_path) -> None:
+    service, _, _, _, _ = _setup(tmp_path)
+    request = VerificationAPIRequestV1(
+        operation=VerificationAPIOperation.AUTHORITY_STATUS,
+        request_id="status-missing",
+        authority_id="missing",
+        trusted_root_set_id="good-roots",
+        observed_at=NOW + timedelta(seconds=11),
+    )
+
+    response = service.handle(request)
+
+    assert response["result_class"] == VerificationAPIResultClass.INPUT_ERROR.value
+    assert response["failure_code"] == "UNKNOWN_AUTHORITY"
+
+
+def test_malformed_artifact_is_stable_input_error(tmp_path) -> None:
+    service, authority, _, _, _ = _setup(tmp_path)
+    before = authority.current()
+    request = VerificationAPIRequestV1(
+        operation=VerificationAPIOperation.VERIFY_READ_ONLY,
+        request_id="malformed-artifact",
+        authority_id="primary",
+        trusted_root_set_id="good-roots",
+        artifact_b64=encode_artifact_b64(b'{"not":"an ASTRA artifact"}'),
+        observed_at=NOW + timedelta(seconds=11),
+    )
+
+    response = service.handle(request)
+
+    assert response["result_class"] == VerificationAPIResultClass.INPUT_ERROR.value
+    assert response["failure_code"] == "INVALID_VERIFICATION_INPUT"
+    assert authority.current() == before
+
+
+def test_corrupt_authority_status_returns_authority_error(tmp_path) -> None:
+    service, _, _, _, _ = _setup(tmp_path)
+    authority_dir = tmp_path / "authority"
+    (authority_dir / "current.json").write_bytes(b'{"broken":true}')
+    request = VerificationAPIRequestV1(
+        operation=VerificationAPIOperation.AUTHORITY_STATUS,
+        request_id="status-corrupt",
+        authority_id="primary",
+        trusted_root_set_id="good-roots",
+        observed_at=NOW + timedelta(seconds=11),
+    )
+
+    response = service.handle(request)
+
+    assert response["result_class"] == (
+        VerificationAPIResultClass.AUTHORITY_ERROR.value
+    )
+    assert response["failure_code"] == "AUTHORITY_UNAVAILABLE"
+
+
+def test_corrupt_idempotency_journal_returns_authority_error(tmp_path) -> None:
+    service, _, journal, artifact_bytes, _ = _setup(tmp_path)
+    request = _request(
+        artifact_bytes,
+        operation=VerificationAPIOperation.VERIFY_ADVANCE,
+        request_id="corrupt-journal",
+        idempotency_key="idem-corrupt-journal",
+    )
+    journal.prepare(
+        idempotency_key="idem-corrupt-journal",
+        request_sha256=request.computed_request_sha256,
+        authority_id="primary",
+        trusted_root_set_id="good-roots",
+        trusted_root_set_sha256="e" * 64,
+        authority_before=VerificationAPIAuthoritySnapshot(
+            generation=0,
+            record_sha256="1" * 64,
+            trust_state_sha256="2" * 64,
+        ),
+        artifact_id=None,
+        artifact_sha256=None,
+        bundle_id=None,
+        bundle_sha256=None,
+        checkpoint_v4_id=None,
+        checkpoint_v4_sha256=None,
+        observed_at=request.observed_at,
+    )
+    key_dir = next((tmp_path / "idempotency").iterdir())
+    (key_dir / "current.json").write_bytes(b'{"broken":true}')
+
+    response = service.handle(request)
+
+    assert response["result_class"] == (
+        VerificationAPIResultClass.AUTHORITY_ERROR.value
+    )
+    assert response["failure_code"] == "IDEMPOTENCY_CORRUPTION"
+
+
+def test_authority_commit_error_is_fail_closed(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    service, authority, _, artifact_bytes, _ = _setup(tmp_path)
+    before = authority.current()
+    request = _request(
+        artifact_bytes,
+        operation=VerificationAPIOperation.VERIFY_ADVANCE,
+        request_id="commit-error",
+        idempotency_key="idem-commit-error",
+    )
+
+    def fail_advance(*args, **kwargs):
+        raise PersistentTrustStateAuthorityError("simulated authority failure")
+
+    monkeypatch.setattr(PersistentTrustStateAuthorityV1, "advance", fail_advance)
+    response = service.handle(request)
+
+    assert response["result_class"] == (
+        VerificationAPIResultClass.AUTHORITY_ERROR.value
+    )
+    assert response["failure_code"] == "AUTHORITY_COMMIT_ERROR"
+    assert authority.current() == before
+
+
+def test_cas_conflict_is_finalized_and_replayed(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    service, authority, journal, artifact_bytes, _ = _setup(tmp_path)
+    before = authority.current()
+    request = _request(
+        artifact_bytes,
+        operation=VerificationAPIOperation.VERIFY_ADVANCE,
+        request_id="cas-error",
+        idempotency_key="idem-cas-error",
+    )
+
+    def fail_cas(*args, **kwargs):
+        raise PersistentTrustStateCASMismatch("simulated CAS race")
+
+    monkeypatch.setattr(PersistentTrustStateAuthorityV1, "advance", fail_cas)
+    first = service.handle(request)
+    second = service.handle(request)
+
+    assert first["result_class"] == VerificationAPIResultClass.CAS_CONFLICT.value
+    assert canonical_json_bytes(first) == canonical_json_bytes(second)
+    assert authority.current() == before
+    stored = journal.current(idempotency_key="idem-cas-error")
+    assert stored is not None
+    assert stored.state is VerificationAPIIdempotencyState.FINALIZED
+
+
+def test_idempotency_commit_persistence_error_is_authority_error(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    service, authority, journal, artifact_bytes, _ = _setup(tmp_path)
+    request = _request(
+        artifact_bytes,
+        operation=VerificationAPIOperation.VERIFY_ADVANCE,
+        request_id="journal-commit-error",
+        idempotency_key="idem-journal-commit-error",
+    )
+
+    def fail_mark(*args, **kwargs):
+        raise VerificationAPIIdempotencyError("simulated journal commit failure")
+
+    monkeypatch.setattr(journal, "mark_authority_committed", fail_mark)
+    response = service.handle(request)
+
+    assert response["result_class"] == (
+        VerificationAPIResultClass.AUTHORITY_ERROR.value
+    )
+    assert response["failure_code"] == "IDEMPOTENCY_COMMIT_ERROR"
+    assert authority.current().generation == 1
+
+
+def test_idempotency_finalize_error_is_authority_error(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    service, authority, journal, artifact_bytes, _ = _setup(tmp_path)
+    request = _request(
+        artifact_bytes,
+        operation=VerificationAPIOperation.VERIFY_ADVANCE,
+        request_id="journal-finalize-error",
+        idempotency_key="idem-journal-finalize-error",
+    )
+
+    original_finalize = journal.finalize
+
+    def fail_finalize(*args, **kwargs):
+        raise VerificationAPIIdempotencyError("simulated finalize failure")
+
+    monkeypatch.setattr(journal, "finalize", fail_finalize)
+    response = service.handle(request)
+    monkeypatch.setattr(journal, "finalize", original_finalize)
+
+    assert response["result_class"] == (
+        VerificationAPIResultClass.AUTHORITY_ERROR.value
+    )
+    assert response["failure_code"] == "IDEMPOTENCY_FINALIZE_ERROR"
+    assert authority.current().generation == 1
+
+
+def test_authority_committed_journal_state_recovers_to_finalized(tmp_path) -> None:
+    service, authority, journal, artifact_bytes, roots = _setup(tmp_path)
+    before = authority.current()
+    request = _request(
+        artifact_bytes,
+        operation=VerificationAPIOperation.VERIFY_ADVANCE,
+        request_id="committed-recovery",
+        idempotency_key="idem-committed-recovery",
+    )
+    artifact = decode_portable_qualification_artifact_json(artifact_bytes)
+    bundle = decode_typed_portable_qualification_bundle_v4(artifact)
+    checkpoint = bundle.signed_trust_checkpoint_v4.checkpoint
+    root_registry = VerificationTrustedRootRegistryV1({"good-roots": roots})
+    _, root_sha = root_registry.resolve_with_digest("good-roots")
+    verification = QualificationVerificationServiceV4(
+        trusted_root_public_keys=roots
+    ).verify(
+        QualificationVerificationRequestV4(
+            bundle=bundle,
+            previous_keyring_generation=artifact.previous_keyring_generation,
+            trusted_state=before.trust_state,
+            observed_at=request.observed_at,
+        )
+    )
+    if verification.next_trust_state is None:
+        raise AssertionError("fixture must produce next TrustState")
+    journal.prepare(
+        idempotency_key=request.idempotency_key or "",
+        request_sha256=request.computed_request_sha256,
+        authority_id="primary",
+        trusted_root_set_id="good-roots",
+        trusted_root_set_sha256=root_sha,
+        authority_before=VerificationAPIAuthoritySnapshot(
+            generation=before.generation,
+            record_sha256=before.record_sha256,
+            trust_state_sha256=before.trust_state_sha256,
+        ),
+        artifact_id=artifact.artifact_id,
+        artifact_sha256=artifact.artifact_sha256,
+        bundle_id=artifact.bundle_id,
+        bundle_sha256=artifact.bundle_sha256,
+        checkpoint_v4_id=checkpoint.checkpoint_id,
+        checkpoint_v4_sha256=checkpoint.checkpoint_sha256,
+        observed_at=request.observed_at,
+    )
+    committed, receipt = authority.advance(
+        next_state=verification.next_trust_state,
+        transition=TrustStateTransitionContext(
+            artifact_id=artifact.artifact_id,
+            artifact_sha256=artifact.artifact_sha256,
+            bundle_id=artifact.bundle_id,
+            bundle_sha256=artifact.bundle_sha256,
+            checkpoint_v4_id=checkpoint.checkpoint_id,
+            checkpoint_v4_sha256=checkpoint.checkpoint_sha256,
+            verified_at=request.observed_at,
+            operation_context_sha256=request.computed_request_sha256,
+        ),
+        expected_generation=before.generation,
+        expected_record_sha256=before.record_sha256,
+        expected_trust_state_sha256=before.trust_state_sha256,
+    )
+    journal.mark_authority_committed(
+        idempotency_key=request.idempotency_key or "",
+        request_sha256=request.computed_request_sha256,
+        authority_after=VerificationAPIAuthoritySnapshot(
+            generation=committed.generation,
+            record_sha256=committed.record_sha256,
+            trust_state_sha256=committed.trust_state_sha256,
+        ),
+        transition_receipt=receipt.payload(),
+    )
+
+    response = service.handle(request)
+
+    assert response["result_class"] == (
+        VerificationAPIResultClass.VERIFIED_USABLE.value
+    )
+    stored = journal.current(idempotency_key=request.idempotency_key or "")
+    assert stored is not None
+    assert stored.state is VerificationAPIIdempotencyState.FINALIZED
     assert authority.current().generation == 1
