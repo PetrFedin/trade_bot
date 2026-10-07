@@ -55,7 +55,19 @@ def _dataset_identity(paths: list[Path]) -> tuple[str, str]:
 
 
 def _common_timestamps(paths: list[Path]):
-    loaded = {path.stem: load_bars(path) for path in paths}
+    loaded = {}
+    for path in paths:
+        bars = load_bars(path)
+        symbols = {bar.symbol for bar in bars}
+        if len(symbols) != 1:
+            raise ValueError(
+                f"historical dataset must contain exactly one symbol: {path.name}"
+            )
+        symbol = next(iter(symbols))
+        if symbol in loaded:
+            raise ValueError(f"duplicate historical symbol dataset: {symbol}")
+        loaded[symbol] = bars
+
     timestamp_sets = [
         {bar.timestamp for bar in bars}
         for bars in loaded.values()
