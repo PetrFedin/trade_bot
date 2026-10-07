@@ -389,3 +389,61 @@ def test_prepared_request_fails_closed_when_root_set_content_changes(
     assert response["result_class"] == VerificationAPIResultClass.AUTHORITY_ERROR.value
     assert response["failure_code"] == "TRUST_ROOT_SET_CHANGED"
     assert authority.current() == before
+
+
+def test_finalized_replay_does_not_require_live_registry_configuration(
+    tmp_path,
+) -> None:
+    service, authority, journal, artifact_bytes, _ = _setup(tmp_path)
+    request = _request(
+        artifact_bytes,
+        operation=VerificationAPIOperation.VERIFY_ADVANCE,
+        request_id="finalized-replay-1",
+        idempotency_key="idem-finalized-replay-1",
+    )
+    first = service.handle(request)
+    after_first = authority.current()
+
+    replay_only_service = VerificationAPIServiceV1(
+        authority_registry=VerificationAuthorityRegistryV1({}),
+        trusted_root_registry=VerificationTrustedRootRegistryV1({}),
+        idempotency_journal=journal,
+    )
+    second = replay_only_service.handle(request)
+
+    assert first["result_class"] == (
+        VerificationAPIResultClass.VERIFIED_USABLE.value
+    )
+    assert canonical_json_bytes(first) == canonical_json_bytes(second)
+    assert authority.current() == after_first
+
+
+def test_finalized_replay_still_rejects_same_key_different_request(
+    tmp_path,
+) -> None:
+    service, authority, journal, artifact_bytes, _ = _setup(tmp_path)
+    first_request = _request(
+        artifact_bytes,
+        operation=VerificationAPIOperation.VERIFY_ADVANCE,
+        request_id="finalized-conflict-1",
+        idempotency_key="idem-finalized-conflict",
+    )
+    conflict_request = _request(
+        artifact_bytes,
+        operation=VerificationAPIOperation.VERIFY_ADVANCE,
+        request_id="finalized-conflict-2",
+        idempotency_key="idem-finalized-conflict",
+    )
+    service.handle(first_request)
+
+    replay_only_service = VerificationAPIServiceV1(
+        authority_registry=VerificationAuthorityRegistryV1({}),
+        trusted_root_registry=VerificationTrustedRootRegistryV1({}),
+        idempotency_journal=journal,
+    )
+    response = replay_only_service.handle(conflict_request)
+
+    assert response["result_class"] == (
+        VerificationAPIResultClass.IDEMPOTENCY_CONFLICT.value
+    )
+    assert authority.current().generation == 1
