@@ -201,7 +201,10 @@ def test_same_idempotency_key_with_different_request_fails_closed(tmp_path) -> N
 
 
 def test_rejected_advance_is_finalized_without_authority_mutation(tmp_path) -> None:
-    service, authority, journal, artifact_bytes, _ = _setup(tmp_path)
+    service, authority, journal, artifact_bytes, roots = _setup(tmp_path)
+    _, root_set_sha256 = VerificationTrustedRootRegistryV1(
+        {"good-roots": roots}
+    ).resolve_with_digest("good-roots")
     before = authority.current()
     request = _request(
         artifact_bytes,
@@ -248,7 +251,7 @@ def test_prepared_competing_request_becomes_cas_conflict_not_false_recovery(
         request_sha256=request_b.computed_request_sha256,
         authority_id="primary",
         trusted_root_set_id="good-roots",
-        trusted_root_set_sha256="e" * 64,
+        trusted_root_set_sha256=root_set_sha256,
         authority_before=VerificationAPIAuthoritySnapshot(
             generation=before.generation,
             record_sha256=before.record_sha256,
@@ -275,6 +278,9 @@ def test_prepared_competing_request_becomes_cas_conflict_not_false_recovery(
 
 def test_crash_after_authority_commit_recovers_without_second_commit(tmp_path) -> None:
     service, authority, journal, artifact_bytes, roots = _setup(tmp_path)
+    _, root_set_sha256 = VerificationTrustedRootRegistryV1(
+        {"good-roots": roots}
+    ).resolve_with_digest("good-roots")
     before = authority.current()
     request = _request(
         artifact_bytes,
@@ -290,7 +296,7 @@ def test_crash_after_authority_commit_recovers_without_second_commit(tmp_path) -
         request_sha256=request.computed_request_sha256,
         authority_id="primary",
         trusted_root_set_id="good-roots",
-        trusted_root_set_sha256="e" * 64,
+        trusted_root_set_sha256=root_set_sha256,
         authority_before=VerificationAPIAuthoritySnapshot(
             generation=before.generation,
             record_sha256=before.record_sha256,
@@ -342,3 +348,44 @@ def test_crash_after_authority_commit_recovers_without_second_commit(tmp_path) -
     stored = journal.current(idempotency_key="idem-crash-1")
     assert stored is not None
     assert stored.state is VerificationAPIIdempotencyState.FINALIZED
+
+
+def test_prepared_request_fails_closed_when_root_set_content_changes(
+    tmp_path,
+) -> None:
+    service, authority, journal, artifact_bytes, _ = _setup(tmp_path)
+    before = authority.current()
+    artifact = decode_portable_qualification_artifact_json(artifact_bytes)
+    bundle = decode_typed_portable_qualification_bundle_v4(artifact)
+    checkpoint = bundle.signed_trust_checkpoint_v4.checkpoint
+    request = _request(
+        artifact_bytes,
+        operation=VerificationAPIOperation.VERIFY_ADVANCE,
+        request_id="root-drift-1",
+        idempotency_key="idem-root-drift-1",
+    )
+    journal.prepare(
+        idempotency_key="idem-root-drift-1",
+        request_sha256=request.computed_request_sha256,
+        authority_id="primary",
+        trusted_root_set_id="good-roots",
+        trusted_root_set_sha256="f" * 64,
+        authority_before=VerificationAPIAuthoritySnapshot(
+            generation=before.generation,
+            record_sha256=before.record_sha256,
+            trust_state_sha256=before.trust_state_sha256,
+        ),
+        artifact_id=artifact.artifact_id,
+        artifact_sha256=artifact.artifact_sha256,
+        bundle_id=artifact.bundle_id,
+        bundle_sha256=artifact.bundle_sha256,
+        checkpoint_v4_id=checkpoint.checkpoint_id,
+        checkpoint_v4_sha256=checkpoint.checkpoint_sha256,
+        observed_at=request.observed_at,
+    )
+
+    response = service.handle(request)
+
+    assert response["result_class"] == VerificationAPIResultClass.AUTHORITY_ERROR.value
+    assert response["failure_code"] == "TRUST_ROOT_SET_CHANGED"
+    assert authority.current() == before
