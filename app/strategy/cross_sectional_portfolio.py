@@ -84,8 +84,14 @@ class PortfolioTrade:
     symbol: str
     entry_time: datetime
     exit_time: datetime
+    entry_reference_price: Decimal
+    exit_reference_price: Decimal
     entry_execution_price: Decimal
     exit_execution_price: Decimal
+    entry_fee: Decimal
+    exit_fee: Decimal
+    slippage_cost: Decimal
+    gross_pnl_before_costs: Decimal
     quantity: Decimal
     net_pnl: Decimal
     holding_bars: int
@@ -141,6 +147,7 @@ class CrossSectionalPortfolioResult:
 class _OpenPositionState:
     entry_time: datetime
     entry_execution_index: int
+    entry_reference_price: Decimal
     entry_execution_price: Decimal
     entry_fee: Decimal
     intrabar_state: IntrabarPositionState
@@ -282,6 +289,8 @@ class CrossSectionalPortfolioBacktester:
                     symbol=symbol,
                     state=state,
                     exit_time=execution_time,
+                    exit_reference_price=current_bars[symbol].open,
+                    exit_reference_price=intrabar.exit_price_before_costs,
                     exit_price=exit_price,
                     quantity=position.quantity,
                     average_cost=position.average_cost,
@@ -371,6 +380,7 @@ class CrossSectionalPortfolioBacktester:
                 open_states[symbol] = _OpenPositionState(
                     entry_time=execution_time,
                     entry_execution_index=execution_index,
+                    entry_reference_price=current_bars[symbol].open,
                     entry_execution_price=entry_price,
                     entry_fee=entry_fee,
                     intrabar_state=IntrabarPositionState(
@@ -395,6 +405,7 @@ class CrossSectionalPortfolioBacktester:
                     open_states[symbol] = _OpenPositionState(
                         entry_time=state.entry_time,
                         entry_execution_index=state.entry_execution_index,
+                        entry_reference_price=state.entry_reference_price,
                         entry_execution_price=state.entry_execution_price,
                         entry_fee=state.entry_fee,
                         intrabar_state=intrabar.state,
@@ -555,6 +566,7 @@ def _closed_trade(
     symbol: str,
     state: _OpenPositionState,
     exit_time: datetime,
+    exit_reference_price: Decimal,
     exit_price: Decimal,
     quantity: Decimal,
     average_cost: Decimal,
@@ -564,15 +576,29 @@ def _closed_trade(
     ambiguous: bool = False,
     gap: bool = False,
 ) -> PortfolioTrade:
+    gross_pnl_before_costs = (
+        exit_reference_price - state.entry_reference_price
+    ) * quantity
+    slippage_cost = (
+        (state.entry_execution_price - state.entry_reference_price) * quantity
+        + (exit_reference_price - exit_price) * quantity
+    )
     return PortfolioTrade(
         symbol=symbol,
         entry_time=state.entry_time,
         exit_time=exit_time,
+        entry_reference_price=state.entry_reference_price,
+        exit_reference_price=exit_reference_price,
         entry_execution_price=state.entry_execution_price,
         exit_execution_price=exit_price,
+        entry_fee=state.entry_fee,
+        exit_fee=exit_fee,
+        slippage_cost=slippage_cost,
+        gross_pnl_before_costs=gross_pnl_before_costs,
         quantity=quantity,
         net_pnl=(
-            (exit_price - average_cost) * quantity
+            gross_pnl_before_costs
+            - slippage_cost
             - state.entry_fee
             - exit_fee
         ),
