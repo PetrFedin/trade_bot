@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
+
+from app.qualification.portable_artifact_codec import canonical_json_bytes
 
 from app.qualification.persistent_trust_state_authority_v1 import (
     PersistentTrustStateAuthorityV1,
@@ -96,14 +100,32 @@ class VerificationTrustedRootRegistryV1:
         )
 
     def resolve(self, trusted_root_set_id: str) -> Mapping[str, bytes]:
+        return self.resolve_with_digest(trusted_root_set_id)[0]
+
+    def resolve_with_digest(
+        self,
+        trusted_root_set_id: str,
+    ) -> tuple[Mapping[str, bytes], str]:
         set_id = trusted_root_set_id.strip()
         if not set_id:
             raise VerificationAPIRegistryError(
                 "trusted_root_set_id cannot be blank"
             )
         try:
-            return self.root_sets[set_id]
+            roots = self.root_sets[set_id]
         except KeyError as exc:
             raise VerificationAPIRegistryError(
                 f"unknown trusted_root_set_id: {set_id}"
             ) from exc
+        payload = {
+            "trusted_root_set_id": set_id,
+            "roots": [
+                {
+                    "key_id": key_id,
+                    "public_key_b64": base64.b64encode(roots[key_id]).decode("ascii"),
+                }
+                for key_id in sorted(roots)
+            ],
+        }
+        digest = hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
+        return roots, digest
