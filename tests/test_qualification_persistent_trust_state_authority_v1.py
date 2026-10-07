@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import app.qualification.persistent_trust_state_authority_v1 as authority_module
 from app.qualification.persistent_trust_state_authority_v1 import (
     PersistentTrustStateAuthorityError,
     PersistentTrustStateAuthorityV1,
@@ -336,3 +337,290 @@ def test_receipt_is_deterministic_for_committed_transition(tmp_path: Path) -> No
 
     assert first == second
     assert receipt.current_record_sha256 == current.record_sha256
+
+
+def test_initialize_twice_is_rejected(tmp_path: Path) -> None:
+    authority = PersistentTrustStateAuthorityV1(tmp_path)
+    authority.initialize(
+        initial_state=_initial_state(),
+        transition=_transition("a", "0" * 64),
+    )
+
+    with pytest.raises(PersistentTrustStateAuthorityError, match="already initialized"):
+        authority.initialize(
+            initial_state=_initial_state(),
+            transition=_transition("a", "0" * 64),
+        )
+
+
+def test_current_before_initialize_is_rejected(tmp_path: Path) -> None:
+    authority = PersistentTrustStateAuthorityV1(tmp_path)
+
+    with pytest.raises(PersistentTrustStateAuthorityError, match="not initialized"):
+        authority.current()
+
+
+@pytest.mark.parametrize(
+    ("record_sha", "state_sha", "message"),
+    [
+        ("f" * 64, None, "record SHA CAS mismatch"),
+        (None, "f" * 64, "payload SHA CAS mismatch"),
+    ],
+)
+def test_hash_cas_mismatch_rejected_without_mutation(
+    tmp_path: Path,
+    record_sha: str | None,
+    state_sha: str | None,
+    message: str,
+) -> None:
+    authority = PersistentTrustStateAuthorityV1(tmp_path)
+    initial = authority.initialize(
+        initial_state=_initial_state(),
+        transition=_transition("a", "0" * 64),
+    )
+    current_before = (tmp_path / "current.json").read_bytes()
+
+    with pytest.raises(PersistentTrustStateCASMismatch, match=message):
+        authority.advance(
+            next_state=_next_state(),
+            transition=_transition("b", "4" * 64),
+            expected_generation=initial.generation,
+            expected_record_sha256=record_sha or initial.record_sha256,
+            expected_trust_state_sha256=state_sha or initial.trust_state_sha256,
+        )
+
+    assert (tmp_path / "current.json").read_bytes() == current_before
+    assert authority.current() == initial
+
+
+def test_noop_advancement_is_rejected(tmp_path: Path) -> None:
+    authority = PersistentTrustStateAuthorityV1(tmp_path)
+    initial = authority.initialize(
+        initial_state=_initial_state(),
+        transition=_transition("a", "0" * 64),
+    )
+
+    with pytest.raises(PersistentTrustStateAuthorityError, match="no-op"):
+        authority.advance(
+            next_state=_initial_state(),
+            transition=_transition("a", "0" * 64),
+            expected_generation=initial.generation,
+            expected_record_sha256=initial.record_sha256,
+            expected_trust_state_sha256=initial.trust_state_sha256,
+        )
+
+
+def test_transition_checkpoint_mismatch_is_rejected(tmp_path: Path) -> None:
+    authority = PersistentTrustStateAuthorityV1(tmp_path)
+    initial = authority.initialize(
+        initial_state=_initial_state(),
+        transition=_transition("a", "0" * 64),
+    )
+
+    with pytest.raises(
+        PersistentTrustStateAuthorityError,
+        match="checkpoint SHA does not match",
+    ):
+        authority.advance(
+            next_state=_next_state(),
+            transition=_transition("b", "9" * 64),
+            expected_generation=initial.generation,
+            expected_record_sha256=initial.record_sha256,
+            expected_trust_state_sha256=initial.trust_state_sha256,
+        )
+
+
+def test_profile_head_cannot_change_without_count_advance(tmp_path: Path) -> None:
+    authority = PersistentTrustStateAuthorityV1(tmp_path)
+    initial = authority.initialize(
+        initial_state=_initial_state(),
+        transition=_transition("a", "0" * 64),
+    )
+    invalid = _state(
+        profile_count=0,
+        profile_head="2" * 64,
+        tree_size=2,
+        tree_root="3" * 64,
+        checkpoint="4" * 64,
+    )
+
+    with pytest.raises(PersistentTrustStateAuthorityError, match="profile head changed"):
+        authority.advance(
+            next_state=invalid,
+            transition=_transition("b", "4" * 64),
+            expected_generation=initial.generation,
+            expected_record_sha256=initial.record_sha256,
+            expected_trust_state_sha256=initial.trust_state_sha256,
+        )
+
+
+def test_transparency_root_cannot_change_without_size_advance(tmp_path: Path) -> None:
+    authority = PersistentTrustStateAuthorityV1(tmp_path)
+    initial = authority.initialize(
+        initial_state=_initial_state(),
+        transition=_transition("a", "0" * 64),
+    )
+    invalid = _state(
+        profile_count=1,
+        profile_head="2" * 64,
+        tree_size=1,
+        tree_root="3" * 64,
+        checkpoint="4" * 64,
+    )
+
+    with pytest.raises(
+        PersistentTrustStateAuthorityError,
+        match="transparency root changed",
+    ):
+        authority.advance(
+            next_state=invalid,
+            transition=_transition("b", "4" * 64),
+            expected_generation=initial.generation,
+            expected_record_sha256=initial.record_sha256,
+            expected_trust_state_sha256=initial.trust_state_sha256,
+        )
+
+
+def test_missing_current_pointer_at_genesis_recovers(tmp_path: Path) -> None:
+    authority = PersistentTrustStateAuthorityV1(tmp_path)
+    initial = authority.initialize(
+        initial_state=_initial_state(),
+        transition=_transition("a", "0" * 64),
+    )
+    (tmp_path / "current.json").unlink()
+
+    recovered = authority.current()
+
+    assert recovered == initial
+    assert (tmp_path / "current.json").is_file()
+
+
+def test_missing_current_pointer_with_non_genesis_history_fails_closed(
+    tmp_path: Path,
+) -> None:
+    authority = PersistentTrustStateAuthorityV1(tmp_path)
+    initial = authority.initialize(
+        initial_state=_initial_state(),
+        transition=_transition("a", "0" * 64),
+    )
+    authority.advance(
+        next_state=_next_state(),
+        transition=_transition("b", "4" * 64),
+        expected_generation=initial.generation,
+        expected_record_sha256=initial.record_sha256,
+        expected_trust_state_sha256=initial.trust_state_sha256,
+    )
+    (tmp_path / "current.json").unlink()
+
+    with pytest.raises(PersistentTrustStateCorruption, match="current TrustState pointer is missing"):
+        authority.current()
+
+
+def test_history_generation_gap_fails_closed(tmp_path: Path) -> None:
+    authority = PersistentTrustStateAuthorityV1(tmp_path)
+    initial = authority.initialize(
+        initial_state=_initial_state(),
+        transition=_transition("a", "0" * 64),
+    )
+    record = PersistentTrustStateRecord.build(
+        generation=2,
+        previous_record_sha256=initial.record_sha256,
+        trust_state=_next_state(),
+        transition=_transition("b", "4" * 64),
+    )
+    (tmp_path / "history" / "00000000000000000002.json").write_bytes(
+        canonical_json_bytes(record.payload())
+    )
+
+    with pytest.raises(PersistentTrustStateCorruption, match="generation gap"):
+        authority.current()
+
+
+def test_history_parent_hash_mismatch_fails_closed(tmp_path: Path) -> None:
+    authority = PersistentTrustStateAuthorityV1(tmp_path)
+    authority.initialize(
+        initial_state=_initial_state(),
+        transition=_transition("a", "0" * 64),
+    )
+    record = PersistentTrustStateRecord.build(
+        generation=1,
+        previous_record_sha256="f" * 64,
+        trust_state=_next_state(),
+        transition=_transition("b", "4" * 64),
+    )
+    (tmp_path / "history" / "00000000000000000001.json").write_bytes(
+        canonical_json_bytes(record.payload())
+    )
+
+    with pytest.raises(PersistentTrustStateCorruption, match="hash chain mismatch"):
+        authority.current()
+
+
+def test_current_pointer_unknown_generation_fails_closed(tmp_path: Path) -> None:
+    authority = PersistentTrustStateAuthorityV1(tmp_path)
+    authority.initialize(
+        initial_state=_initial_state(),
+        transition=_transition("a", "0" * 64),
+    )
+    (tmp_path / "current.json").write_bytes(
+        canonical_json_bytes(
+            {
+                "schema_version": "astra-persistent-trust-state-current-v1",
+                "generation": 9,
+                "record_sha256": "f" * 64,
+            }
+        )
+    )
+
+    with pytest.raises(PersistentTrustStateCorruption, match="missing TrustState history record"):
+        authority.current()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"",
+        b"\xef\xbb\xbf{}",
+        b'{"a":1,"a":2}',
+        b'{"value":1.5}',
+        b'{"value":NaN}',
+        b'{ "not":"canonical" }',
+    ],
+)
+def test_strict_json_rejects_noncanonical_or_ambiguous_input(payload: bytes) -> None:
+    with pytest.raises(PersistentTrustStateCorruption):
+        authority_module._strict_json(payload, source="test")
+
+
+def test_tampered_receipt_digest_is_rejected(tmp_path: Path) -> None:
+    authority = PersistentTrustStateAuthorityV1(tmp_path)
+    initial = authority.initialize(
+        initial_state=_initial_state(),
+        transition=_transition("a", "0" * 64),
+    )
+    _, receipt = authority.advance(
+        next_state=_next_state(),
+        transition=_transition("b", "4" * 64),
+        expected_generation=initial.generation,
+        expected_record_sha256=initial.record_sha256,
+        expected_trust_state_sha256=initial.trust_state_sha256,
+    )
+    tampered = authority_module.TrustStateAdvanceReceipt(
+        previous_generation=receipt.previous_generation,
+        current_generation=receipt.current_generation,
+        previous_record_sha256=receipt.previous_record_sha256,
+        current_record_sha256=receipt.current_record_sha256,
+        previous_trust_state_sha256=receipt.previous_trust_state_sha256,
+        current_trust_state_sha256=receipt.current_trust_state_sha256,
+        artifact_id=receipt.artifact_id,
+        artifact_sha256=receipt.artifact_sha256,
+        bundle_id=receipt.bundle_id,
+        bundle_sha256=receipt.bundle_sha256,
+        checkpoint_v4_id=receipt.checkpoint_v4_id,
+        checkpoint_v4_sha256=receipt.checkpoint_v4_sha256,
+        verified_at=receipt.verified_at,
+        receipt_sha256="f" * 64,
+    )
+
+    with pytest.raises(ValueError, match="receipt digest mismatch"):
+        tampered.payload()
