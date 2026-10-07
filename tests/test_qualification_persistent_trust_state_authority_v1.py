@@ -184,7 +184,7 @@ def test_state_regression_rejected_without_mutation(tmp_path: Path) -> None:
     with pytest.raises(PersistentTrustStateAuthorityError, match="regression"):
         authority.advance(
             next_state=regressed,
-            transition=_transition("c", "7" * 64),
+            transition=_transition("c", "9" * 64),
             expected_generation=current.generation,
             expected_record_sha256=current.record_sha256,
             expected_trust_state_sha256=current.trust_state_sha256,
