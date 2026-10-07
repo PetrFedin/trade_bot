@@ -122,8 +122,15 @@ class VerificationAPIIdempotencyRecord:
             if self.authority_after is None:
                 raise ValueError("FINALIZED requires authority_after")
             self.authority_after.validate()
-            if self.transition_receipt is None:
-                raise ValueError("FINALIZED requires transition_receipt")
+            committed = self.authority_after != self.authority_before
+            if committed and self.transition_receipt is None:
+                raise ValueError(
+                    "committed FINALIZED record requires transition_receipt"
+                )
+            if not committed and self.transition_receipt is not None:
+                raise ValueError(
+                    "non-committed FINALIZED record cannot carry transition_receipt"
+                )
             if self.response_payload is None or self.response_sha256 is None:
                 raise ValueError("FINALIZED requires canonical response")
             if _sha256(self.response_payload) != self.response_sha256:
@@ -332,12 +339,25 @@ class VerificationAPIIdempotencyJournalV1:
                         "finalized response replay mismatch"
                     )
                 return current
-            if current.state is not VerificationAPIIdempotencyState.AUTHORITY_COMMITTED:
+            if current.state not in (
+                VerificationAPIIdempotencyState.PREPARED,
+                VerificationAPIIdempotencyState.AUTHORITY_COMMITTED,
+            ):
                 raise VerificationAPIIdempotencyError(
-                    "idempotency record must be AUTHORITY_COMMITTED before finalize"
+                    "idempotency record cannot be finalized from current state"
                 )
             response = dict(response_payload)
             response_sha = _sha256(response)
+            authority_after = (
+                current.authority_before
+                if current.state is VerificationAPIIdempotencyState.PREPARED
+                else current.authority_after
+            )
+            transition_receipt = (
+                None
+                if current.state is VerificationAPIIdempotencyState.PREPARED
+                else current.transition_receipt
+            )
             record = VerificationAPIIdempotencyRecord.build(
                 idempotency_key_sha256=current.idempotency_key_sha256,
                 request_sha256=current.request_sha256,
@@ -353,8 +373,8 @@ class VerificationAPIIdempotencyJournalV1:
                 checkpoint_v4_id=current.checkpoint_v4_id,
                 checkpoint_v4_sha256=current.checkpoint_v4_sha256,
                 observed_at=current.observed_at,
-                authority_after=current.authority_after,
-                transition_receipt=current.transition_receipt,
+                authority_after=authority_after,
+                transition_receipt=transition_receipt,
                 response_payload=response,
                 response_sha256=response_sha,
             )
