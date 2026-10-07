@@ -165,7 +165,8 @@ def test_response_round_trip_is_canonical_and_typed() -> None:
         expected_request=prepared.request,
     )
 
-    assert decoded == response
+    assert decoded.response_sha256 == response.computed_response_sha256
+    assert decoded.payload() == response.payload()
     assert encode_verification_response(decoded) == encoded
 
 
