@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import time
 import urllib.error
@@ -108,6 +109,7 @@ def write_dataset(rows: list[dict], symbol: str, start: datetime, end: datetime,
         writer.writeheader()
         writer.writerows(rows)
     rates = [float(row["funding_rate"]) for row in rows]
+    dataset_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
     manifest = {
         "schema_version": "bybit-funding-manifest-v1",
         "source_classification": "PUBLIC_VENUE_DATA_NON_AUTHORITATIVE",
@@ -121,6 +123,7 @@ def write_dataset(rows: list[dict], symbol: str, start: datetime, end: datetime,
         "mean_rate": round(sum(rates) / len(rates), 10) if rates else None,
         "positive_share": round(sum(1 for r in rates if r > 0) / len(rates), 6) if rates else None,
         "dataset_file": path.name,
+        "dataset_sha256": dataset_sha256,
         "limitations": (
             "A positive rate means longs pay shorts. Settlements with no printed rate "
             "are absent rather than zero, and the venue may revise history."

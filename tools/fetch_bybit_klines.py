@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import time
 import urllib.error
@@ -137,6 +138,7 @@ def write_dataset(bars: list[dict], request: Request, directory: Path) -> Path:
         )
         writer.writeheader()
         writer.writerows(bars)
+    dataset_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
     manifest = {
         "schema_version": "bybit-kline-manifest-v1",
         "source_classification": "PUBLIC_VENUE_DATA_NON_AUTHORITATIVE",
@@ -150,6 +152,7 @@ def write_dataset(bars: list[dict], request: Request, directory: Path) -> Path:
         "first_bar": bars[0]["timestamp"] if bars else None,
         "last_bar": bars[-1]["timestamp"] if bars else None,
         "dataset_file": path.name,
+        "dataset_sha256": dataset_sha256,
         "limitations": (
             "Public venue data retrieved without authentication. Gaps, revisions and "
             "listing history are not asserted; the venue may omit bars with no trades."

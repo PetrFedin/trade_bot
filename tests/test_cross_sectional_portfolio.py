@@ -168,3 +168,100 @@ def test_ranking_rotation_exits_old_symbol_before_entering_new_symbol() -> None:
         if trade.symbol == "AAPL" and trade.exit_reason is PortfolioExitReason.SELECTION_EXIT
     )
     assert trade.exit_time == second.execution_time
+
+
+def test_proportional_fees_are_charged_on_entry_and_exit() -> None:
+    fee_bps = Decimal("8")
+    result = CrossSectionalPortfolioBacktester(
+        selector=CrossSectionalSelector(top_k=2),
+        portfolio_policy=CrossSectionalPortfolioPolicy(
+            opening_cash=Decimal("10000"),
+            fee_per_fill=Decimal("0"),
+            fee_bps_per_fill=fee_bps,
+            slippage_bps=Decimal("5"),
+            maximum_gross_exposure_fraction=Decimal("0.60"),
+            new_position_target_equity_fraction=Decimal("0.29"),
+        ),
+        position_policy=PositionManagementPolicy(),
+        reentry_policy=ReentryConfirmationPolicy(
+            minimum_consecutive_eligible_bars=2
+        ),
+    ).run(stable_universe(aapl_stop_on_entry=True))
+
+    trade = next(trade for trade in result.closed_trades if trade.symbol == "AAPL")
+    entry_notional = trade.entry_execution_price * trade.quantity
+    exit_notional = trade.exit_execution_price * trade.quantity
+    expected_entry_fee = (
+        entry_notional * fee_bps / Decimal("10000")
+    )
+    expected_exit_fee = (
+        exit_notional * fee_bps / Decimal("10000")
+    )
+
+    assert trade.entry_fee == expected_entry_fee
+    assert trade.exit_fee == expected_exit_fee
+    assert result.fees_paid > trade.entry_fee + trade.exit_fee
+    assert trade.net_pnl == (
+        trade.gross_pnl_before_costs
+        - trade.slippage_cost
+        - trade.entry_fee
+        - trade.exit_fee
+    )
+
+
+def test_fixed_fee_is_included_on_both_sides_of_closed_trade() -> None:
+    fixed_fee = Decimal("0.50")
+    result = CrossSectionalPortfolioBacktester(
+        selector=CrossSectionalSelector(top_k=2),
+        portfolio_policy=CrossSectionalPortfolioPolicy(
+            opening_cash=Decimal("10000"),
+            fee_per_fill=fixed_fee,
+            fee_bps_per_fill=Decimal("0"),
+            slippage_bps=Decimal("5"),
+            maximum_gross_exposure_fraction=Decimal("0.60"),
+            new_position_target_equity_fraction=Decimal("0.29"),
+        ),
+        position_policy=PositionManagementPolicy(),
+        reentry_policy=ReentryConfirmationPolicy(
+            minimum_consecutive_eligible_bars=2
+        ),
+    ).run(stable_universe(aapl_stop_on_entry=True))
+
+    trade = next(trade for trade in result.closed_trades if trade.symbol == "AAPL")
+    expected_net = (
+        (trade.exit_execution_price - trade.entry_execution_price) * trade.quantity
+        - fixed_fee
+        - fixed_fee
+    )
+
+    assert trade.net_pnl == expected_net
+
+
+def test_trade_cost_attribution_reconciles_exactly_to_net_pnl() -> None:
+    result = CrossSectionalPortfolioBacktester(
+        selector=CrossSectionalSelector(top_k=2),
+        portfolio_policy=CrossSectionalPortfolioPolicy(
+            opening_cash=Decimal("10000"),
+            fee_per_fill=Decimal("0"),
+            fee_bps_per_fill=Decimal("8"),
+            slippage_bps=Decimal("5"),
+            maximum_gross_exposure_fraction=Decimal("0.60"),
+            new_position_target_equity_fraction=Decimal("0.29"),
+        ),
+        position_policy=PositionManagementPolicy(),
+        reentry_policy=ReentryConfirmationPolicy(
+            minimum_consecutive_eligible_bars=2
+        ),
+    ).run(stable_universe(aapl_stop_on_entry=True))
+
+    assert result.closed_trades
+    for trade in result.closed_trades:
+        assert trade.slippage_cost >= 0
+        assert trade.entry_fee >= 0
+        assert trade.exit_fee >= 0
+        assert trade.net_pnl == (
+            trade.gross_pnl_before_costs
+            - trade.slippage_cost
+            - trade.entry_fee
+            - trade.exit_fee
+        )
