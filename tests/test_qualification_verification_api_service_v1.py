@@ -247,6 +247,8 @@ def test_prepared_competing_request_becomes_cas_conflict_not_false_recovery(
         idempotency_key="idem-b",
         request_sha256=request_b.computed_request_sha256,
         authority_id="primary",
+        trusted_root_set_id="good-roots",
+        trusted_root_set_sha256="e" * 64,
         authority_before=VerificationAPIAuthoritySnapshot(
             generation=before.generation,
             record_sha256=before.record_sha256,
@@ -287,6 +289,8 @@ def test_crash_after_authority_commit_recovers_without_second_commit(tmp_path) -
         idempotency_key="idem-crash-1",
         request_sha256=request.computed_request_sha256,
         authority_id="primary",
+        trusted_root_set_id="good-roots",
+        trusted_root_set_sha256="e" * 64,
         authority_before=VerificationAPIAuthoritySnapshot(
             generation=before.generation,
             record_sha256=before.record_sha256,
