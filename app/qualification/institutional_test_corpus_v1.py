@@ -229,7 +229,9 @@ class InstitutionalCorpusObservationV1:
         if self.failure_code is not None and not self.failure_code.strip():
             raise ValueError("institutional corpus observation failure_code cannot be blank")
         if self.generation_delta < 0:
-            raise ValueError("institutional corpus observation generation_delta must be non-negative")
+            raise ValueError(
+                "institutional corpus observation generation_delta must be non-negative"
+            )
         if self.output_sha256 is not None:
             _digest(self.output_sha256, "output_sha256")
 
