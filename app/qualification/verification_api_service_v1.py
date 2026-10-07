@@ -104,7 +104,13 @@ class VerificationAPIServiceV1:
         self,
         request: VerificationAPIRequestV1,
     ) -> dict[str, object] | None:
-        assert request.idempotency_key is not None
+        if request.idempotency_key is None:
+            return self._error_response(
+                request,
+                VerificationAPIResultClass.INPUT_ERROR,
+                "MISSING_IDEMPOTENCY_KEY",
+                "verify.advance requires idempotency_key",
+            )
         try:
             existing = self._idempotency.current(
                 idempotency_key=request.idempotency_key
@@ -126,7 +132,13 @@ class VerificationAPIServiceV1:
                 "idempotency key is already bound to another request",
             )
         if existing.state is VerificationAPIIdempotencyState.FINALIZED:
-            assert existing.response_payload is not None
+            if existing.response_payload is None:
+                return self._error_response(
+                    request,
+                    VerificationAPIResultClass.AUTHORITY_ERROR,
+                    "IDEMPOTENCY_CORRUPTION",
+                    "FINALIZED idempotency record is missing response payload",
+                )
             return dict(existing.response_payload)
         return None
 
