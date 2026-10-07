@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import NoReturn
 
 from app.qualification.persistent_trust_state_authority_v1 import (
+    PersistentTrustStateAuthorityError,
     PersistentTrustStateAuthorityV1,
     PersistentTrustStateCASMismatch,
     TrustStateTransitionContext,
@@ -78,7 +79,9 @@ def run_authority_verification(
     )
     payload = {
         **payload,
+        "persistence_mode": "persistent-authority",
         "authority_mode": "verify-and-advance" if advance else "read-only",
+        "authority_commit_outcome": "NOT_COMMITTED" if advance else "NOT_REQUESTED",
         "authority_generation_before": current.generation,
         "authority_record_sha256_before": current.record_sha256,
         "authority_trust_state_sha256_before": current.trust_state_sha256,
@@ -155,6 +158,7 @@ def initialize_authority_from_artifact(
         return (
             {
                 **payload,
+                "persistence_mode": "persistent-authority",
                 "authority_mode": "initialize",
                 "authority_commit_outcome": "NOT_INITIALIZED",
             },
@@ -178,6 +182,7 @@ def initialize_authority_from_artifact(
     return (
         {
             **payload,
+            "persistence_mode": "persistent-authority",
             "authority_mode": "initialize",
             "authority_commit_outcome": "INITIALIZED",
             "authority_generation_after": record.generation,
@@ -460,6 +465,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         QualificationArtifactCodecError,
         QualificationBundleDecodeError,
         OfflineQualificationVerifierInputError,
+        PersistentTrustStateAuthorityError,
         ValueError,
     ) as exc:
         print(
