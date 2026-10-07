@@ -243,7 +243,10 @@ class VerificationSDKClientV1:
                 transport_status=transport_response.status,
             )
 
-        assert last_failure is not None
+        if last_failure is None:
+            raise VerificationSDKError(
+                "transport retry loop exited without result or failure"
+            )
         raise last_failure
 
 
