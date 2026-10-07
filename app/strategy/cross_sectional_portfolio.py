@@ -118,6 +118,8 @@ class PortfolioDecisionTrace:
 
 @dataclass(frozen=True)
 class CrossSectionalPortfolioResult:
+    opening_cash: Decimal
+    ending_equity: Decimal
     fill_count: int
     closed_trade_count: int
     winning_trades: int
@@ -500,6 +502,8 @@ class CrossSectionalPortfolioBacktester:
         )
         profit_factor = gross_profit / abs(gross_loss) if gross_loss < 0 else None
         return CrossSectionalPortfolioResult(
+            opening_cash=self.portfolio_policy.opening_cash,
+            ending_equity=snapshot.equity,
             fill_count=fill_count,
             closed_trade_count=len(closed_trades),
             winning_trades=wins,
