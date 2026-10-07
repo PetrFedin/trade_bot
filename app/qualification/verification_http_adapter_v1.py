@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import socket
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -96,6 +97,14 @@ def decode_http_request(
         )
     if max_body_bytes <= 0:
         raise ValueError("max_body_bytes must be positive")
+
+    transfer_encoding = _header(headers, "transfer-encoding")
+    if transfer_encoding is not None:
+        raise VerificationHTTPTransportError(
+            status=400,
+            code="TRANSFER_ENCODING_UNSUPPORTED",
+            detail="Transfer-Encoding is not supported",
+        )
 
     content_type = _header(headers, "content-type")
     if content_type is None:
@@ -237,7 +246,8 @@ def create_local_http_server(
         service=service,
         max_body_bytes=max_body_bytes,
     )
-    server = ThreadingHTTPServer((host, port), handler_type)
+    server_type = _server_type_for_host(host)
+    server = server_type((host, port), handler_type)
     server.daemon_threads = True
     return server
 
@@ -250,8 +260,36 @@ def _handler_factory(
     class VerificationHandler(BaseHTTPRequestHandler):
         server_version = "ASTRAVerificationHTTP/1"
         sys_version = ""
+        protocol_version = "HTTP/1.1"
 
         def do_POST(self) -> None:
+            transfer_encoding = self.headers.get("Transfer-Encoding")
+            if transfer_encoding is not None:
+                self._write_response(
+                    _transport_error_response(
+                        VerificationHTTPTransportError(
+                            status=400,
+                            code="TRANSFER_ENCODING_UNSUPPORTED",
+                            detail="Transfer-Encoding is not supported",
+                        )
+                    )
+                )
+                self.close_connection = True
+                return
+
+            content_lengths = self.headers.get_all("Content-Length") or []
+            if len(content_lengths) > 1:
+                self._write_response(
+                    _transport_error_response(
+                        VerificationHTTPTransportError(
+                            status=400,
+                            code="AMBIGUOUS_CONTENT_LENGTH",
+                            detail="multiple Content-Length headers are forbidden",
+                        )
+                    )
+                )
+                self.close_connection = True
+                return
             declared = self.headers.get("Content-Length")
             if declared is None:
                 response = _transport_error_response(
@@ -472,6 +510,19 @@ def _integer(value: object, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{name} must be an integer")
     return value
+
+
+def _server_type_for_host(host: str) -> type[ThreadingHTTPServer]:
+    try:
+        address = ip_address(host)
+    except ValueError:
+        return ThreadingHTTPServer
+    if address.version == 6:
+        class IPv6ThreadingHTTPServer(ThreadingHTTPServer):
+            address_family = socket.AF_INET6
+
+        return IPv6ThreadingHTTPServer
+    return ThreadingHTTPServer
 
 
 def _is_loopback(host: str) -> bool:
