@@ -188,7 +188,13 @@ class VerificationAPIServiceV1:
         roots: Mapping[str, bytes],
         root_set_sha256: str,
     ) -> dict[str, object]:
-        assert request.idempotency_key is not None
+        if request.idempotency_key is None:
+            return self._error_response(
+                request,
+                VerificationAPIResultClass.INPUT_ERROR,
+                "MISSING_IDEMPOTENCY_KEY",
+                "verify.advance requires idempotency_key",
+            )
         request_sha = request.computed_request_sha256
 
         try:
@@ -222,7 +228,13 @@ class VerificationAPIServiceV1:
                     "trusted root set changed since request preparation",
                 )
             if existing.state is VerificationAPIIdempotencyState.FINALIZED:
-                assert existing.response_payload is not None
+                if existing.response_payload is None:
+                    return self._error_response(
+                        request,
+                        VerificationAPIResultClass.AUTHORITY_ERROR,
+                        "IDEMPOTENCY_CORRUPTION",
+                        "FINALIZED idempotency record has no response payload",
+                    )
                 return dict(existing.response_payload)
 
         try:
@@ -365,7 +377,14 @@ class VerificationAPIServiceV1:
                 response=response,
             )
 
-        assert verification.next_trust_state is not None
+        if verification.next_trust_state is None:
+            return self._error_response(
+                request,
+                VerificationAPIResultClass.AUTHORITY_ERROR,
+                "VERIFICATION_INVARIANT_ERROR",
+                "VERIFIED result has no next TrustState",
+                authority_before=before_snapshot,
+            )
         transition = TrustStateTransitionContext(
             artifact_id=artifact.artifact_id,
             artifact_sha256=artifact.artifact_sha256,
@@ -443,7 +462,14 @@ class VerificationAPIServiceV1:
         bundle,
         record: VerificationAPIIdempotencyRecord,
     ) -> dict[str, object]:
-        assert record.authority_after is not None
+        if record.authority_after is None:
+            return self._error_response(
+                request,
+                VerificationAPIResultClass.AUTHORITY_ERROR,
+                "IDEMPOTENCY_CORRUPTION",
+                "AUTHORITY_COMMITTED record has no authority_after snapshot",
+                authority_before=record.authority_before,
+            )
         before = self._record_for_snapshot(authority, record.authority_before)
         after = self._record_for_snapshot(authority, record.authority_after)
         verification = self._verify(
@@ -521,7 +547,13 @@ class VerificationAPIServiceV1:
         request: VerificationAPIRequestV1,
         response: dict[str, object],
     ) -> dict[str, object]:
-        assert request.idempotency_key is not None
+        if request.idempotency_key is None:
+            return self._error_response(
+                request,
+                VerificationAPIResultClass.INPUT_ERROR,
+                "MISSING_IDEMPOTENCY_KEY",
+                "mutating verification requires idempotency_key",
+            )
         try:
             finalized = self._idempotency.finalize(
                 idempotency_key=request.idempotency_key,
@@ -535,7 +567,13 @@ class VerificationAPIServiceV1:
                 "IDEMPOTENCY_FINALIZE_ERROR",
                 str(exc),
             )
-        assert finalized.response_payload is not None
+        if finalized.response_payload is None:
+            return self._error_response(
+                request,
+                VerificationAPIResultClass.AUTHORITY_ERROR,
+                "IDEMPOTENCY_CORRUPTION",
+                "FINALIZED idempotency record has no response payload",
+            )
         return dict(finalized.response_payload)
 
     def _finalize_response(
@@ -544,7 +582,13 @@ class VerificationAPIServiceV1:
         request: VerificationAPIRequestV1,
         response: dict[str, object],
     ) -> dict[str, object]:
-        assert request.idempotency_key is not None
+        if request.idempotency_key is None:
+            return self._error_response(
+                request,
+                VerificationAPIResultClass.INPUT_ERROR,
+                "MISSING_IDEMPOTENCY_KEY",
+                "mutating verification requires idempotency_key",
+            )
         try:
             finalized = self._idempotency.finalize(
                 idempotency_key=request.idempotency_key,
@@ -558,7 +602,13 @@ class VerificationAPIServiceV1:
                 "IDEMPOTENCY_FINALIZE_ERROR",
                 str(exc),
             )
-        assert finalized.response_payload is not None
+        if finalized.response_payload is None:
+            return self._error_response(
+                request,
+                VerificationAPIResultClass.AUTHORITY_ERROR,
+                "IDEMPOTENCY_CORRUPTION",
+                "FINALIZED idempotency record has no response payload",
+            )
         return dict(finalized.response_payload)
 
     def _decode_for_authority(
