@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from collections.abc import Mapping
 
 from app.qualification.persistent_trust_state_authority_v1 import (
     PersistentTrustStateAuthorityV1,
