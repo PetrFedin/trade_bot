@@ -73,6 +73,11 @@ class VerificationAPIServiceV1:
         if request.operation is VerificationAPIOperation.AUTHORITY_STATUS:
             return self._authority_status(request)
 
+        if request.operation is VerificationAPIOperation.VERIFY_ADVANCE:
+            replay = self._finalized_replay_or_conflict(request)
+            if replay is not None:
+                return replay
+
         try:
             authority = self._authorities.resolve(request.authority_id)
             roots, root_set_sha256 = self._root_sets.resolve_with_digest(
@@ -94,6 +99,36 @@ class VerificationAPIServiceV1:
             roots,
             root_set_sha256,
         )
+
+    def _finalized_replay_or_conflict(
+        self,
+        request: VerificationAPIRequestV1,
+    ) -> dict[str, object] | None:
+        assert request.idempotency_key is not None
+        try:
+            existing = self._idempotency.current(
+                idempotency_key=request.idempotency_key
+            )
+        except VerificationAPIIdempotencyCorruption as exc:
+            return self._error_response(
+                request,
+                VerificationAPIResultClass.AUTHORITY_ERROR,
+                "IDEMPOTENCY_CORRUPTION",
+                str(exc),
+            )
+        if existing is None:
+            return None
+        if existing.request_sha256 != request.computed_request_sha256:
+            return self._error_response(
+                request,
+                VerificationAPIResultClass.IDEMPOTENCY_CONFLICT,
+                "IDEMPOTENCY_CONFLICT",
+                "idempotency key is already bound to another request",
+            )
+        if existing.state is VerificationAPIIdempotencyState.FINALIZED:
+            assert existing.response_payload is not None
+            return dict(existing.response_payload)
+        return None
 
     def _authority_status(
         self,
