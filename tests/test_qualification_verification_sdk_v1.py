@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -10,6 +11,10 @@ from app.qualification.verification_api_contract_v1 import (
     VerificationAPIOperation,
     VerificationAPIResponseV1,
     VerificationAPIResultClass,
+)
+from app.qualification.verification_http_adapter_v1 import create_local_http_server
+from app.qualification.verification_sdk_http_transport_v1 import (
+    VerificationSDKHTTPTransportV1,
 )
 from app.qualification.verification_sdk_v1 import (
     VerificationSDKClientV1,
@@ -24,6 +29,7 @@ from app.qualification.verification_sdk_v1 import (
     decode_verification_response,
     encode_verification_response,
 )
+from tests.test_qualification_verification_api_service_v1 import _setup
 
 NOW = datetime(2026, 10, 7, 15, 30, tzinfo=UTC)
 ARTIFACT = b'{"artifact":"portable"}'
@@ -425,3 +431,76 @@ def test_transport_status_is_advisory_not_semantic() -> None:
     assert result.result_class is VerificationAPIResultClass.CAS_CONFLICT
     assert result.transport_status == 503
     assert len(transport.requests) == 1
+
+
+def test_sdk_http_transport_round_trip_over_local_adapter(tmp_path) -> None:
+    service, authority, _, _, _ = _setup(tmp_path)
+    prepared = build_authority_status_request(
+        request_id="sdk-http-status-1",
+        authority_id="primary",
+        trusted_root_set_id="good-roots",
+        observed_at=NOW,
+    )
+    before = authority.current()
+
+    with create_local_http_server(service=service) as server:
+        host, port = server.server_address[:2]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            transport = VerificationSDKHTTPTransportV1(
+                host=host,
+                port=port,
+                timeout_seconds=5.0,
+            )
+            result = VerificationSDKClientV1().execute(
+                prepared=prepared,
+                transport=transport,
+            )
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+
+    assert result.result_class is VerificationAPIResultClass.STATUS_OK
+    assert result.transport_status == 200
+    assert authority.current() == before
+
+
+def test_sdk_http_transport_rejects_non_loopback_and_invalid_config() -> None:
+    with pytest.raises(ValueError, match="only loopback"):
+        VerificationSDKHTTPTransportV1(
+            host="0.0.0.0",
+            port=8080,
+        ).validate()
+    with pytest.raises(ValueError, match="between 1 and 65535"):
+        VerificationSDKHTTPTransportV1(
+            host="127.0.0.1",
+            port=0,
+        ).validate()
+    with pytest.raises(ValueError, match="timeout_seconds must be positive"):
+        VerificationSDKHTTPTransportV1(
+            host="127.0.0.1",
+            port=8080,
+            timeout_seconds=0,
+        ).validate()
+
+
+def test_sdk_http_transport_connection_failure_is_retryable_transport_error() -> None:
+    transport = VerificationSDKHTTPTransportV1(
+        host="127.0.0.1",
+        port=1,
+        timeout_seconds=0.1,
+    )
+    prepared = build_authority_status_request(
+        request_id="sdk-http-failure-1",
+        authority_id="primary",
+        trusted_root_set_id="roots-v1",
+        observed_at=NOW,
+    )
+
+    with pytest.raises(VerificationSDKTransportFailure, match="HTTP transport failure"):
+        VerificationSDKClientV1().execute(
+            prepared=prepared,
+            transport=transport,
+            max_transport_retries=1,
+        )
