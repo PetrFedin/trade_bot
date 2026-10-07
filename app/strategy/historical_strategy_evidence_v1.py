@@ -8,7 +8,6 @@ from hashlib import sha256
 from app.qualification.portable_artifact_codec import canonical_json_bytes
 from app.strategy.cross_sectional_portfolio import CrossSectionalPortfolioResult
 
-
 _SCHEMA = "astra-historical-strategy-evidence-v1"
 
 
