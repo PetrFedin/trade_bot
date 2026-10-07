@@ -63,6 +63,8 @@ class VerificationAPIIdempotencyRecord:
     idempotency_key_sha256: str
     request_sha256: str
     authority_id: str
+    trusted_root_set_id: str
+    trusted_root_set_sha256: str
     state: VerificationAPIIdempotencyState
     generation: int
     previous_record_sha256: str
@@ -86,6 +88,9 @@ class VerificationAPIIdempotencyRecord:
             raise ValueError("idempotency record schema mismatch")
         if not self.authority_id.strip():
             raise ValueError("authority_id is required")
+        if not self.trusted_root_set_id.strip():
+            raise ValueError("trusted_root_set_id is required")
+        _digest(self.trusted_root_set_sha256, "trusted_root_set_sha256")
         if self.generation < 0:
             raise ValueError("idempotency generation must be non-negative")
         _digest(self.idempotency_key_sha256, "idempotency_key_sha256")
@@ -147,6 +152,8 @@ class VerificationAPIIdempotencyRecord:
             "idempotency_key_sha256": self.idempotency_key_sha256,
             "request_sha256": self.request_sha256,
             "authority_id": self.authority_id,
+            "trusted_root_set_id": self.trusted_root_set_id,
+            "trusted_root_set_sha256": self.trusted_root_set_sha256,
             "state": self.state.value,
             "generation": self.generation,
             "previous_record_sha256": self.previous_record_sha256,
@@ -184,6 +191,8 @@ class VerificationAPIIdempotencyRecord:
         idempotency_key_sha256: str,
         request_sha256: str,
         authority_id: str,
+        trusted_root_set_id: str,
+        trusted_root_set_sha256: str,
         state: VerificationAPIIdempotencyState,
         generation: int,
         previous_record_sha256: str,
@@ -204,6 +213,8 @@ class VerificationAPIIdempotencyRecord:
             idempotency_key_sha256=idempotency_key_sha256,
             request_sha256=request_sha256,
             authority_id=authority_id,
+            trusted_root_set_id=trusted_root_set_id,
+            trusted_root_set_sha256=trusted_root_set_sha256,
             state=state,
             generation=generation,
             previous_record_sha256=previous_record_sha256,
@@ -241,6 +252,8 @@ class VerificationAPIIdempotencyJournalV1:
         idempotency_key: str,
         request_sha256: str,
         authority_id: str,
+        trusted_root_set_id: str,
+        trusted_root_set_sha256: str,
         authority_before: VerificationAPIAuthoritySnapshot,
         artifact_id: str | None,
         artifact_sha256: str | None,
@@ -266,6 +279,8 @@ class VerificationAPIIdempotencyJournalV1:
                 idempotency_key_sha256=key_sha,
                 request_sha256=request_sha256,
                 authority_id=authority_id,
+                trusted_root_set_id=trusted_root_set_id,
+                trusted_root_set_sha256=trusted_root_set_sha256,
                 state=VerificationAPIIdempotencyState.PREPARED,
                 generation=0,
                 previous_record_sha256=_GENESIS,
@@ -305,6 +320,8 @@ class VerificationAPIIdempotencyJournalV1:
                 idempotency_key_sha256=current.idempotency_key_sha256,
                 request_sha256=current.request_sha256,
                 authority_id=current.authority_id,
+                trusted_root_set_id=current.trusted_root_set_id,
+                trusted_root_set_sha256=current.trusted_root_set_sha256,
                 state=VerificationAPIIdempotencyState.AUTHORITY_COMMITTED,
                 generation=current.generation + 1,
                 previous_record_sha256=current.record_sha256,
@@ -362,6 +379,8 @@ class VerificationAPIIdempotencyJournalV1:
                 idempotency_key_sha256=current.idempotency_key_sha256,
                 request_sha256=current.request_sha256,
                 authority_id=current.authority_id,
+                trusted_root_set_id=current.trusted_root_set_id,
+                trusted_root_set_sha256=current.trusted_root_set_sha256,
                 state=VerificationAPIIdempotencyState.FINALIZED,
                 generation=current.generation + 1,
                 previous_record_sha256=current.record_sha256,
@@ -503,6 +522,8 @@ def _decode_record(raw: Mapping[str, object]) -> VerificationAPIIdempotencyRecor
             "idempotency_key_sha256",
             "request_sha256",
             "authority_id",
+            "trusted_root_set_id",
+            "trusted_root_set_sha256",
             "state",
             "generation",
             "previous_record_sha256",
@@ -549,6 +570,14 @@ def _decode_record(raw: Mapping[str, object]) -> VerificationAPIIdempotencyRecor
         ),
         request_sha256=_string(raw["request_sha256"], "$.request_sha256"),
         authority_id=_string(raw["authority_id"], "$.authority_id"),
+        trusted_root_set_id=_string(
+            raw["trusted_root_set_id"],
+            "$.trusted_root_set_id",
+        ),
+        trusted_root_set_sha256=_string(
+            raw["trusted_root_set_sha256"],
+            "$.trusted_root_set_sha256",
+        ),
         state=state,
         generation=_integer(raw["generation"], "$.generation"),
         previous_record_sha256=_string(
