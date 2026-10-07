@@ -19,6 +19,7 @@ class VerificationAPIOperation(StrEnum):
 
 
 class VerificationAPIResultClass(StrEnum):
+    STATUS_OK = "STATUS_OK"
     VERIFIED_USABLE = "VERIFIED_USABLE"
     VERIFIED_UNUSABLE = "VERIFIED_UNUSABLE"
     REJECTED = "REJECTED"
