@@ -75,7 +75,9 @@ class VerificationAPIServiceV1:
 
         try:
             authority = self._authorities.resolve(request.authority_id)
-            roots = self._root_sets.resolve(request.trusted_root_set_id)
+            roots, root_set_sha256 = self._root_sets.resolve_with_digest(
+                request.trusted_root_set_id
+            )
         except VerificationAPIRegistryError as exc:
             return self._error_response(
                 request,
@@ -86,7 +88,12 @@ class VerificationAPIServiceV1:
 
         if request.operation is VerificationAPIOperation.VERIFY_READ_ONLY:
             return self._verify_read_only(request, authority, roots)
-        return self._verify_advance(request, authority, roots)
+        return self._verify_advance(
+            request,
+            authority,
+            roots,
+            root_set_sha256,
+        )
 
     def _authority_status(
         self,
@@ -179,6 +186,7 @@ class VerificationAPIServiceV1:
         request: VerificationAPIRequestV1,
         authority: PersistentTrustStateAuthorityV1,
         roots: Mapping[str, bytes],
+        root_set_sha256: str,
     ) -> dict[str, object]:
         assert request.idempotency_key is not None
         request_sha = request.computed_request_sha256
@@ -202,6 +210,16 @@ class VerificationAPIServiceV1:
                     VerificationAPIResultClass.IDEMPOTENCY_CONFLICT,
                     "IDEMPOTENCY_CONFLICT",
                     "idempotency key is already bound to another request",
+                )
+            if (
+                existing.trusted_root_set_id != request.trusted_root_set_id
+                or existing.trusted_root_set_sha256 != root_set_sha256
+            ):
+                return self._error_response(
+                    request,
+                    VerificationAPIResultClass.AUTHORITY_ERROR,
+                    "TRUST_ROOT_SET_CHANGED",
+                    "trusted root set changed since request preparation",
                 )
             if existing.state is VerificationAPIIdempotencyState.FINALIZED:
                 assert existing.response_payload is not None
@@ -249,6 +267,8 @@ class VerificationAPIServiceV1:
                     idempotency_key=request.idempotency_key,
                     request_sha256=request_sha,
                     authority_id=request.authority_id,
+                    trusted_root_set_id=request.trusted_root_set_id,
+                    trusted_root_set_sha256=root_set_sha256,
                     authority_before=before_snapshot,
                     artifact_id=artifact.artifact_id,
                     artifact_sha256=artifact.artifact_sha256,
