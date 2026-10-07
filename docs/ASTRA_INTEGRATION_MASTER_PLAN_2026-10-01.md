@@ -1694,68 +1694,72 @@ Verified by merged repository history / file presence in current `main`:
 - per-idempotency-key single-flight semantics for mutating Verification API calls (#280);
 - localhost-first stdlib HTTP Transport Adapter v1 (#281);
 - deterministic Verification SDK Contract v1 (#284);
-- Verification Reference Profiles v1 with canonical profile identity, exact operation-set contracts and deterministic conformance evidence (#287).
+- Verification Reference Profiles v1 with canonical profile identity, exact operation-set contracts and deterministic conformance evidence (#287);
+- Institutional Test Corpus v1 with portable deterministic vectors, mutation expectations and corpus report identity (#290).
 
-These layers collectively provide deterministic portable verification, strict typed reconstruction, persistent local trust authority, crash-safe idempotent mutation, transport-neutral institutional API semantics, a qualified local HTTP transport, a deterministic client SDK contract and versioned deployment/reference profiles. They do not prove profitability or enable live/mainnet trading.
+These layers collectively provide deterministic portable verification, strict typed reconstruction, persistent local trust authority, crash-safe idempotent mutation, transport-neutral institutional API semantics, a qualified local HTTP transport, a deterministic client SDK contract, versioned deployment/reference profiles and an independently runnable institutional conformance corpus. They do not prove profitability or enable live/mainnet trading.
 
-### Next required implementation gate — Institutional Test Corpus v1
+### Current priority gate — Historical Strategy Evidence / PnL Authority v1
 
-The Institutional Test Corpus must provide portable, immutable test vectors that independently exercise the canonical verification stack and Reference Profile conformance surface.
+The trust stack is now mature enough that the highest-value unresolved question is economic rather than architectural:
 
-Required corpus classes:
+**What would the shipped trading logic have done to capital on historical market data after realistic execution costs?**
 
-- canonical positive verification vectors;
-- deterministic rejection vectors;
-- rollback / replay / stale-state vectors;
-- idempotency and single-flight vectors;
-- CAS conflict vectors;
-- malformed / non-canonical serialization vectors;
-- trusted-root-set configuration mismatch vectors;
-- Reference Profile conformance pass/fail vectors;
-- SDK retry/correlation vectors;
-- transport framing vectors;
-- crash-recovery vectors;
-- forward-compatibility / unknown-schema vectors.
+This is a separate evidence track. Historical performance must never grant live authority or weaken qualification.
 
-Each corpus case must include:
+Required historical-evidence contract:
 
-- stable case ID;
-- corpus schema version;
-- case class;
-- human-readable intent;
-- exact input bytes or canonical input payload;
-- expected stable result/failure class;
-- expected authority mutation behavior;
-- expected deterministic hashes where applicable;
-- profile_ref/profile_sha256 when a Reference Profile applies;
-- provenance metadata for generated fixtures;
-- canonical case SHA-256.
+- exact strategy/config SHA;
+- exact hash-locked market-data snapshot;
+- explicit symbol universe and synchronized replay window;
+- no look-ahead;
+- same production/shadow strategy and exit logic;
+- explicit fixed and proportional fees;
+- explicit slippage;
+- perpetual funding lower/upper bound;
+- gross PnL before costs;
+- slippage attribution;
+- entry and exit fees;
+- net PnL;
+- opening/ending equity;
+- max drawdown;
+- turnover;
+- win rate;
+- profit factor;
+- exposure;
+- passive benchmarks;
+- deterministic evidence SHA.
 
-Corpus requirements:
+For every closed trade:
 
-- no external network;
-- no wall-clock dependence;
-- no hidden randomness;
-- no private signing keys in committed fixtures;
-- no broker/OMS/risk/live-routing authority;
-- immutable case identity;
-- strict canonical decode;
-- deterministic runner/report output;
-- runner must never weaken API/SDK/Reference Profile semantics;
-- positive and negative vectors must be independently inspectable.
+`gross PnL - entry slippage - exit slippage - entry fee - exit fee = net PnL`
 
-Acceptance evidence:
+Profitability verdicts are limited to:
 
-- same corpus case => byte-identical canonical bytes and case SHA;
-- full corpus run => byte-identical report ordering and report SHA;
-- mutation expectations are explicit for every stateful case;
-- all five canonical Reference Profiles have conformance vectors;
-- malformed fixtures fail before semantic mutation;
-- replay/idempotency/CAS vectors prove no double-commit;
-- corpus runner can operate without external network;
-- frozen runtime import boundary remains unchanged.
+- `PROFITABILITY_NOT_PROVEN`;
+- `RESEARCH_EDGE_CANDIDATE`;
+- `OOS_EDGE_CONFIRMED`.
 
-Only after Institutional Test Corpus v1 qualifies and merges may OEM / Embedded Qualification begin.
+For perpetual strategies, missing proportional fees, slippage or funding forces `PROFITABILITY_NOT_PROVEN`.
+
+Required sequence:
+
+1. correct trade-level fee/slippage attribution;
+2. proportional fee model;
+3. hash-lock Bybit OHLCV and funding snapshots;
+4. reproducible six-major three-year portfolio replay;
+5. reproducible 21-symbol three-year portfolio replay;
+6. funding-aware lower/upper bound;
+7. walk-forward / out-of-sample portfolio evidence;
+8. fee/slippage sensitivity matrix;
+9. maker/taker execution sensitivity with explicit fill probability;
+10. regime and capital-size decomposition.
+
+Only after this economic-evidence gate may ASTRA make any stronger strategy-performance claim.
+
+### Next trust-layer gate after Historical Strategy Evidence — OEM / Embedded Qualification
+
+OEM / Embedded Qualification remains the next institutional-trust layer after the economic-evidence priority cycle. It must reuse the canonical Verification API, SDK, Reference Profiles and Institutional Test Corpus rather than introducing new trust semantics.
 
 ### Next sequence after verified merge
 
