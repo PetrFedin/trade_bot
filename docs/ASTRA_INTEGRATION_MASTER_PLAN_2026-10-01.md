@@ -1694,68 +1694,55 @@ Verified by merged repository history / file presence in current `main`:
 - per-idempotency-key single-flight semantics for mutating Verification API calls (#280);
 - localhost-first stdlib HTTP Transport Adapter v1 (#281);
 - deterministic Verification SDK Contract v1 (#284);
-- Verification Reference Profiles v1 with canonical profile identity, exact operation-set contracts and deterministic conformance evidence (#287).
+- Verification Reference Profiles v1 (#287);
+- Institutional Test Corpus v1 with portable canonical cases, deterministic report identity and real-stack verification vectors (#290).
 
-These layers collectively provide deterministic portable verification, strict typed reconstruction, persistent local trust authority, crash-safe idempotent mutation, transport-neutral institutional API semantics, a qualified local HTTP transport, a deterministic client SDK contract and versioned deployment/reference profiles. They do not prove profitability or enable live/mainnet trading.
+These layers collectively provide deterministic portable verification, strict typed reconstruction, persistent local trust authority, crash-safe idempotent mutation, transport-neutral institutional API semantics, qualified local transport, deterministic client SDK semantics, versioned deployment/reference profiles and an independently portable conformance corpus. They do not prove profitability or enable live/mainnet trading.
 
-### Next required implementation gate — Institutional Test Corpus v1
+### Next required implementation gate — OEM / Embedded Qualification v1
 
-The Institutional Test Corpus must provide portable, immutable test vectors that independently exercise the canonical verification stack and Reference Profile conformance surface.
+OEM / Embedded Qualification must prove that an external or embedded implementation can consume the canonical SDK/Reference Profile/Test Corpus stack without gaining authority to redefine trust semantics.
 
-Required corpus classes:
+Required dimensions:
 
-- canonical positive verification vectors;
-- deterministic rejection vectors;
-- rollback / replay / stale-state vectors;
-- idempotency and single-flight vectors;
-- CAS conflict vectors;
-- malformed / non-canonical serialization vectors;
-- trusted-root-set configuration mismatch vectors;
-- Reference Profile conformance pass/fail vectors;
-- SDK retry/correlation vectors;
-- transport framing vectors;
-- crash-recovery vectors;
-- forward-compatibility / unknown-schema vectors.
+- implementation identity and version;
+- selected canonical Reference Profile identity;
+- declared SDK/transport integration mode;
+- exact Institutional Test Corpus version/SHA;
+- corpus execution report SHA;
+- local/offline execution evidence;
+- persistent authority behavior where the selected profile requires it;
+- idempotency/single-flight/CAS conformance;
+- crash-recovery conformance;
+- canonical serialization conformance;
+- trusted-root-set configuration boundary;
+- frozen runtime dependency/import evidence;
+- qualification decision with stable failure taxonomy;
+- immutable qualification receipt SHA.
 
-Each corpus case must include:
+OEM / Embedded Qualification must not:
 
-- stable case ID;
-- corpus schema version;
-- case class;
-- human-readable intent;
-- exact input bytes or canonical input payload;
-- expected stable result/failure class;
-- expected authority mutation behavior;
-- expected deterministic hashes where applicable;
-- profile_ref/profile_sha256 when a Reference Profile applies;
-- provenance metadata for generated fixtures;
-- canonical case SHA-256.
-
-Corpus requirements:
-
-- no external network;
-- no wall-clock dependence;
-- no hidden randomness;
-- no private signing keys in committed fixtures;
-- no broker/OMS/risk/live-routing authority;
-- immutable case identity;
-- strict canonical decode;
-- deterministic runner/report output;
-- runner must never weaken API/SDK/Reference Profile semantics;
-- positive and negative vectors must be independently inspectable.
+- embed private signing keys in qualification metadata;
+- redefine VerificationService semantics;
+- weaken Reference Profile requirements;
+- skip corpus vectors selectively;
+- replace failed corpus cases with vendor-specific exceptions;
+- authorize broker/OMS/risk/live routing;
+- claim profitability or regulatory certification.
 
 Acceptance evidence:
 
-- same corpus case => byte-identical canonical bytes and case SHA;
-- full corpus run => byte-identical report ordering and report SHA;
-- mutation expectations are explicit for every stateful case;
-- all five canonical Reference Profiles have conformance vectors;
-- malformed fixtures fail before semantic mutation;
-- replay/idempotency/CAS vectors prove no double-commit;
-- corpus runner can operate without external network;
+- same implementation/profile/corpus evidence => byte-identical qualification receipt and SHA;
+- qualification decision is derived from complete corpus evidence, not vendor assertion;
+- corpus SHA and report SHA are bound into the qualification receipt;
+- all selected Reference Profile requirements are bound and cannot be weakened;
+- failed required corpus case => qualification fails closed;
+- missing/partial corpus evidence => qualification fails closed;
+- no external network required for embedded qualification tests;
+- OEM adapter can be tested with a fake/embedded implementation boundary;
 - frozen runtime import boundary remains unchanged.
 
-Only after Institutional Test Corpus v1 qualifies and merges may OEM / Embedded Qualification begin.
+Only after OEM / Embedded Qualification v1 qualifies and merges may Continuous Requalification work begin.
 
 ### Next sequence after verified merge
 
