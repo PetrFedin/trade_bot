@@ -4,7 +4,8 @@ import hashlib
 from types import MappingProxyType
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from app.qualification.portable_artifact_codec import (
     DecodedQualificationPortableArtifact,
