@@ -29,6 +29,7 @@ from app.qualification.verification_api_idempotency_v1 import (
     VerificationAPIAuthoritySnapshot,
     VerificationAPIIdempotencyConflict,
     VerificationAPIIdempotencyCorruption,
+    VerificationAPIIdempotencyError,
     VerificationAPIIdempotencyJournalV1,
     VerificationAPIIdempotencyRecord,
     VerificationAPIIdempotencyState,
@@ -111,7 +112,7 @@ class VerificationAPIServiceV1:
 
         snapshot = _snapshot(current)
         return VerificationAPIResponseV1(
-            request_id=request.request_id,
+            request_id=request.request_id.strip() or "invalid-request",
             operation=request.operation,
             request_sha256=request.computed_request_sha256,
             result_class=VerificationAPIResultClass.STATUS_OK,
@@ -299,7 +300,7 @@ class VerificationAPIServiceV1:
                     authority_after=committed_snapshot,
                     transition_receipt=receipt,
                 )
-            except VerificationAPIIdempotencyErrorGroup as exc:
+            except VerificationAPIIdempotencyError as exc:
                 return self._error_response(
                     request,
                     VerificationAPIResultClass.AUTHORITY_ERROR,
@@ -386,7 +387,7 @@ class VerificationAPIServiceV1:
                 authority_after=after_snapshot,
                 transition_receipt=receipt.payload(),
             )
-        except VerificationAPIIdempotencyErrorGroup as exc:
+        except VerificationAPIIdempotencyError as exc:
             return self._error_response(
                 request,
                 VerificationAPIResultClass.AUTHORITY_ERROR,
@@ -499,7 +500,7 @@ class VerificationAPIServiceV1:
                 request_sha256=request.computed_request_sha256,
                 response_payload=response,
             )
-        except VerificationAPIIdempotencyErrorGroup:
+        except VerificationAPIIdempotencyError:
             return response
         assert finalized.response_payload is not None
         return dict(finalized.response_payload)
@@ -517,7 +518,7 @@ class VerificationAPIServiceV1:
                 request_sha256=request.computed_request_sha256,
                 response_payload=response,
             )
-        except VerificationAPIIdempotencyErrorGroup as exc:
+        except VerificationAPIIdempotencyError as exc:
             return self._error_response(
                 request,
                 VerificationAPIResultClass.AUTHORITY_ERROR,
@@ -672,13 +673,6 @@ class VerificationAPIServiceV1:
             failure_code=failure_code,
             failure_detail=failure_detail,
         ).payload()
-
-
-VerificationAPIIdempotencyErrorGroup = (
-    VerificationAPIIdempotencyConflict,
-    VerificationAPIIdempotencyCorruption,
-    RuntimeError,
-)
 
 
 def _snapshot(record: PersistentTrustStateRecord) -> VerificationAPIAuthoritySnapshot:
