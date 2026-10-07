@@ -436,21 +436,31 @@ def test_profile_head_cannot_change_without_count_advance(tmp_path: Path) -> Non
         initial_state=_initial_state(),
         transition=_transition("a", "0" * 64),
     )
+    current, _ = authority.advance(
+        next_state=_next_state(),
+        transition=_transition("b", "4" * 64),
+        expected_generation=initial.generation,
+        expected_record_sha256=initial.record_sha256,
+        expected_trust_state_sha256=initial.trust_state_sha256,
+    )
     invalid = _state(
-        profile_count=0,
-        profile_head="2" * 64,
-        tree_size=2,
-        tree_root="3" * 64,
-        checkpoint="4" * 64,
+        profile_count=current.trust_state.profile_event_count,
+        profile_head="8" * 64,
+        tree_size=current.trust_state.transparency_tree_size + 1,
+        tree_root="9" * 64,
+        checkpoint="a" * 64,
     )
 
-    with pytest.raises(PersistentTrustStateAuthorityError, match="profile head changed"):
+    with pytest.raises(
+        PersistentTrustStateAuthorityError,
+        match="profile head changed",
+    ):
         authority.advance(
             next_state=invalid,
-            transition=_transition("b", "4" * 64),
-            expected_generation=initial.generation,
-            expected_record_sha256=initial.record_sha256,
-            expected_trust_state_sha256=initial.trust_state_sha256,
+            transition=_transition("c", "a" * 64),
+            expected_generation=current.generation,
+            expected_record_sha256=current.record_sha256,
+            expected_trust_state_sha256=current.trust_state_sha256,
         )
 
 
@@ -512,7 +522,10 @@ def test_missing_current_pointer_with_non_genesis_history_fails_closed(
     )
     (tmp_path / "current.json").unlink()
 
-    with pytest.raises(PersistentTrustStateCorruption, match="current TrustState pointer is missing"):
+    with pytest.raises(
+        PersistentTrustStateCorruption,
+        match="current TrustState pointer is missing",
+    ):
         authority.current()
 
 
