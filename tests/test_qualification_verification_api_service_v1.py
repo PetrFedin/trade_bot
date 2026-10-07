@@ -201,10 +201,7 @@ def test_same_idempotency_key_with_different_request_fails_closed(tmp_path) -> N
 
 
 def test_rejected_advance_is_finalized_without_authority_mutation(tmp_path) -> None:
-    service, authority, journal, artifact_bytes, roots = _setup(tmp_path)
-    _, root_set_sha256 = VerificationTrustedRootRegistryV1(
-        {"good-roots": roots}
-    ).resolve_with_digest("good-roots")
+    service, authority, journal, artifact_bytes, _ = _setup(tmp_path)
     before = authority.current()
     request = _request(
         artifact_bytes,
@@ -229,7 +226,10 @@ def test_rejected_advance_is_finalized_without_authority_mutation(tmp_path) -> N
 def test_prepared_competing_request_becomes_cas_conflict_not_false_recovery(
     tmp_path,
 ) -> None:
-    service, authority, journal, artifact_bytes, _ = _setup(tmp_path)
+    service, authority, journal, artifact_bytes, roots = _setup(tmp_path)
+    _, root_set_sha256 = VerificationTrustedRootRegistryV1(
+        {"good-roots": roots}
+    ).resolve_with_digest("good-roots")
     before = authority.current()
     artifact = decode_portable_qualification_artifact_json(artifact_bytes)
     bundle = decode_typed_portable_qualification_bundle_v4(artifact)
