@@ -35,7 +35,7 @@ class VerificationTrustedRootPolicy(StrEnum):
 
 
 class VerificationReferenceConformanceFailure(StrEnum):
-    OPERATION_UNSUPPORTED = "OPERATION_UNSUPPORTED"
+    OPERATION_SET_MISMATCH = "OPERATION_SET_MISMATCH"
     ARTIFACT_TYPE_MISMATCH = "ARTIFACT_TYPE_MISMATCH"
     ARTIFACT_CODEC_SCHEMA_MISMATCH = "ARTIFACT_CODEC_SCHEMA_MISMATCH"
     BUNDLE_SCHEMA_MISMATCH = "BUNDLE_SCHEMA_MISMATCH"
@@ -287,9 +287,9 @@ def evaluate_reference_profile_conformance(
     capability.validate()
     failures: set[VerificationReferenceConformanceFailure] = set()
 
-    if not set(capability.operations).issubset(set(profile.supported_operations)):
+    if capability.operations != profile.supported_operations:
         failures.add(
-            VerificationReferenceConformanceFailure.OPERATION_UNSUPPORTED
+            VerificationReferenceConformanceFailure.OPERATION_SET_MISMATCH
         )
     if capability.artifact_type != profile.artifact_type:
         failures.add(
