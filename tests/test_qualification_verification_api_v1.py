@@ -14,6 +14,7 @@ from app.qualification.verification_api_contract_v1 import (
 from app.qualification.verification_api_idempotency_v1 import (
     VerificationAPIAuthoritySnapshot,
     VerificationAPIIdempotencyConflict,
+    VerificationAPIIdempotencyCorruption,
     VerificationAPIIdempotencyJournalV1,
     VerificationAPIIdempotencyState,
 )
@@ -298,3 +299,132 @@ def test_idempotency_key_is_hashed_for_storage_path(tmp_path) -> None:
     assert secret_key not in children
     assert len(children) == 1
     assert len(children[0]) == 64
+
+
+def test_idempotency_recovers_crash_after_commit_history_before_current(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    journal = VerificationAPIIdempotencyJournalV1(tmp_path)
+    journal.prepare(
+        idempotency_key="idem-crash-commit",
+        request_sha256="a" * 64,
+        authority_id="primary",
+        trusted_root_set_id="roots-v1",
+        trusted_root_set_sha256="e" * 64,
+        authority_before=_snapshot(),
+        artifact_id="qartifact_a",
+        artifact_sha256="b" * 64,
+        bundle_id="qverifyv4_a",
+        bundle_sha256="c" * 64,
+        checkpoint_v4_id="qtrustv4_a",
+        checkpoint_v4_sha256="d" * 64,
+        observed_at=NOW,
+    )
+    original_write_current = journal._write_current
+
+    def crash_before_current(*args, **kwargs) -> None:
+        raise OSError("simulated crash before current pointer")
+
+    monkeypatch.setattr(journal, "_write_current", crash_before_current)
+    with pytest.raises(OSError, match="simulated crash"):
+        journal.mark_authority_committed(
+            idempotency_key="idem-crash-commit",
+            request_sha256="a" * 64,
+            authority_after=_snapshot(1, record="3", state="4"),
+            transition_receipt={"receipt_sha256": "5" * 64},
+        )
+
+    monkeypatch.setattr(journal, "_write_current", original_write_current)
+    recovered = journal.current(idempotency_key="idem-crash-commit")
+
+    assert recovered is not None
+    assert recovered.state is VerificationAPIIdempotencyState.AUTHORITY_COMMITTED
+    assert recovered.generation == 1
+    replay = journal.mark_authority_committed(
+        idempotency_key="idem-crash-commit",
+        request_sha256="a" * 64,
+        authority_after=_snapshot(1, record="3", state="4"),
+        transition_receipt={"receipt_sha256": "5" * 64},
+    )
+    assert replay == recovered
+
+
+def test_idempotency_recovers_crash_after_finalize_history_before_current(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    journal = VerificationAPIIdempotencyJournalV1(tmp_path)
+    journal.prepare(
+        idempotency_key="idem-crash-finalize",
+        request_sha256="a" * 64,
+        authority_id="primary",
+        trusted_root_set_id="roots-v1",
+        trusted_root_set_sha256="e" * 64,
+        authority_before=_snapshot(),
+        artifact_id="qartifact_a",
+        artifact_sha256="b" * 64,
+        bundle_id="qverifyv4_a",
+        bundle_sha256="c" * 64,
+        checkpoint_v4_id="qtrustv4_a",
+        checkpoint_v4_sha256="d" * 64,
+        observed_at=NOW,
+    )
+    journal.mark_authority_committed(
+        idempotency_key="idem-crash-finalize",
+        request_sha256="a" * 64,
+        authority_after=_snapshot(1, record="3", state="4"),
+        transition_receipt={"receipt_sha256": "5" * 64},
+    )
+    response = {"result_class": "VERIFIED_USABLE"}
+    original_write_current = journal._write_current
+
+    def crash_before_current(*args, **kwargs) -> None:
+        raise OSError("simulated crash before final current pointer")
+
+    monkeypatch.setattr(journal, "_write_current", crash_before_current)
+    with pytest.raises(OSError, match="simulated crash"):
+        journal.finalize(
+            idempotency_key="idem-crash-finalize",
+            request_sha256="a" * 64,
+            response_payload=response,
+        )
+
+    monkeypatch.setattr(journal, "_write_current", original_write_current)
+    recovered = journal.current(idempotency_key="idem-crash-finalize")
+
+    assert recovered is not None
+    assert recovered.state is VerificationAPIIdempotencyState.FINALIZED
+    assert recovered.generation == 2
+    assert recovered.response_payload == response
+
+
+def test_idempotency_history_gap_or_duplicate_fails_closed(tmp_path) -> None:
+    journal = VerificationAPIIdempotencyJournalV1(tmp_path)
+    prepared = journal.prepare(
+        idempotency_key="idem-corrupt-chain",
+        request_sha256="a" * 64,
+        authority_id="primary",
+        trusted_root_set_id="roots-v1",
+        trusted_root_set_sha256="e" * 64,
+        authority_before=_snapshot(),
+        artifact_id=None,
+        artifact_sha256=None,
+        bundle_id=None,
+        bundle_sha256=None,
+        checkpoint_v4_id=None,
+        checkpoint_v4_sha256=None,
+        observed_at=NOW,
+    )
+    key_dir = next(tmp_path.iterdir())
+    duplicate_path = key_dir / "history" / "00000000000000000001.json"
+    source_path = key_dir / "history" / "00000000000000000000.json"
+    duplicate_path.write_bytes(source_path.read_bytes())
+
+    with pytest.raises(
+        VerificationAPIIdempotencyCorruption,
+        match="generation gap or duplicate",
+    ):
+        journal.current(idempotency_key="idem-corrupt-chain")
+
+    assert prepared.generation == 0
