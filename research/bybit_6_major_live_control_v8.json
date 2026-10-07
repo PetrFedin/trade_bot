@@ -1,0 +1,103 @@
+{
+  "schema_version": "strategy-research-measurement-v8",
+  "research_only": true,
+  "strategy_promotion_allowed": false,
+  "measurement": "bybit_6_major_live_control_2026_10_07",
+  "source": {
+    "provider": "bybit",
+    "category": "linear",
+    "interval": "D",
+    "retrieved_at": "2026-10-07",
+    "symbols": [
+      "BNBUSDT",
+      "BTCUSDT",
+      "DOGEUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "XRPUSDT"
+    ],
+    "synchronized_bars": 199,
+    "first_execution": "2026-03-30T00:00:00.000Z",
+    "last_complete_bar": "2026-10-06T00:00:00.000Z",
+    "current_partial_bar_excluded": true,
+    "snapshot_hash_locked": false
+  },
+  "strategy": {
+    "type": "cross-sectional-selection-shadow-v1",
+    "top_k": 2,
+    "maximum_gross_exposure_fraction": 0.60,
+    "new_position_target_equity_fraction": 0.29,
+    "stop_loss_fraction": 0.02,
+    "take_profit_fraction": 0.04,
+    "trailing_activation_fraction": 0.02,
+    "trailing_stop_fraction": 0.015,
+    "maximum_holding_bars": 10,
+    "reentry_confirmation_bars": 2,
+    "decision_execution": "prior completed close to next open",
+    "intrabar_ambiguity_policy": "protective exit first"
+  },
+  "opening_cash": 10000,
+  "scenarios": {
+    "current_shadow_cost_model": {
+      "fixed_fee_per_fill": 0.50,
+      "fee_bps_per_fill": 0,
+      "slippage_bps_per_side": 5,
+      "ending_equity": 10185.640113,
+      "total_pnl": 185.640113,
+      "total_return": 0.01856401,
+      "max_drawdown": 278.53268232,
+      "max_drawdown_fraction": 0.02688115,
+      "fills": 113,
+      "closed_trades": 56,
+      "winning_trades": 24,
+      "losing_trades": 32,
+      "win_rate": 0.42857143,
+      "profit_factor": 1.13504672,
+      "fees_paid": 56.5,
+      "turnover_fraction": 33.22851978,
+      "maximum_gross_exposure_fraction_observed": 0.58494097,
+      "maximum_concurrent_positions": 2
+    },
+    "conservative_taker_fee_plus_slippage": {
+      "fixed_fee_per_fill": 0,
+      "fee_bps_per_fill": 8,
+      "slippage_bps_per_side": 5,
+      "ending_equity": 9977.44626061,
+      "total_pnl": -22.55373939,
+      "total_return": -0.00225537,
+      "max_drawdown": 319.2589867,
+      "max_drawdown_fraction": 0.03113926,
+      "fills": 113,
+      "closed_trades": 56,
+      "winning_trades": 21,
+      "losing_trades": 35,
+      "win_rate": 0.375,
+      "profit_factor": 0.98901054,
+      "fees_paid": 263.15864759,
+      "turnover_fraction": 32.89483095,
+      "maximum_gross_exposure_fraction_observed": 0.5851509,
+      "maximum_concurrent_positions": 2
+    }
+  },
+  "benchmarks": {
+    "equal_weight_6_full_capital_return": 0.26457662,
+    "equal_weight_6_60pct_capital_matched_return": 0.15874597,
+    "btc_buy_hold_return": 0.29578865
+  },
+  "verdict": "PROFITABILITY_NOT_PROVEN",
+  "interpretation": "The positive return under the legacy fixed-fee shadow model does not survive a simple proportional taker-fee assumption. On this roughly six-month control window the strategy preserved capital but materially lagged both the capital-matched equal-weight benchmark and BTC buy-and-hold. The result is useful negative evidence: execution costs are material and must be modelled before any profitability claim.",
+  "limitations": [
+    "The live-retrieved 200-bar dataset is not yet committed as a hash-locked snapshot, so this measurement is not independently reproducible from repository contents alone.",
+    "Historical perpetual funding is not included in this control run.",
+    "Daily OHLCV cannot model queue position, partial fills or order-book depth.",
+    "The conservative scenario assumes 8 bps fee on every fill; venue tier and maker/taker mix may differ.",
+    "This is one recent market window and is not a walk-forward or out-of-sample profitability proof."
+  ],
+  "next_required_evidence": [
+    "hash-locked three-year six-major portfolio replay",
+    "hash-locked three-year 21-symbol portfolio replay",
+    "funding-aware lower and upper bound",
+    "walk-forward out-of-sample portfolio evidence",
+    "maker/taker execution sensitivity with fill probability"
+  ]
+}
