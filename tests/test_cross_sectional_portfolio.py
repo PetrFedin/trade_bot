@@ -191,16 +191,22 @@ def test_proportional_fees_are_charged_on_entry_and_exit() -> None:
     trade = next(trade for trade in result.closed_trades if trade.symbol == "AAPL")
     entry_notional = trade.entry_execution_price * trade.quantity
     exit_notional = trade.exit_execution_price * trade.quantity
-    expected_fees = (
-        entry_notional + exit_notional
-    ) * fee_bps / Decimal("10000")
-    expected_net = (
-        (trade.exit_execution_price - trade.entry_execution_price) * trade.quantity
-        - expected_fees
+    expected_entry_fee = (
+        entry_notional * fee_bps / Decimal("10000")
+    )
+    expected_exit_fee = (
+        exit_notional * fee_bps / Decimal("10000")
     )
 
-    assert result.fees_paid > expected_fees
-    assert trade.net_pnl == expected_net
+    assert trade.entry_fee == expected_entry_fee
+    assert trade.exit_fee == expected_exit_fee
+    assert result.fees_paid > trade.entry_fee + trade.exit_fee
+    assert trade.net_pnl == (
+        trade.gross_pnl_before_costs
+        - trade.slippage_cost
+        - trade.entry_fee
+        - trade.exit_fee
+    )
 
 
 def test_fixed_fee_is_included_on_both_sides_of_closed_trade() -> None:
