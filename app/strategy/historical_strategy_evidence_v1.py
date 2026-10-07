@@ -325,16 +325,8 @@ def build_historical_strategy_evidence(
         start=start,
         end=end,
         symbols=tuple(sorted(symbols)),
-        opening_cash=result.total_pnl * Decimal("0")
-        + (result.total_pnl / result.total_return if result.total_return != 0 else Decimal("10000")),
-        ending_equity=(
-            result.total_pnl
-            + (
-                result.total_pnl / result.total_return
-                if result.total_return != 0
-                else Decimal("10000")
-            )
-        ),
+        opening_cash=result.opening_cash,
+        ending_equity=result.ending_equity,
         total_pnl=result.total_pnl,
         total_return=result.total_return,
         max_drawdown=result.max_drawdown,
