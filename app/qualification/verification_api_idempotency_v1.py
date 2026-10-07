@@ -431,10 +431,23 @@ class VerificationAPIIdempotencyJournalV1:
         self,
         key_sha: str,
     ) -> VerificationAPIIdempotencyRecord | None:
+        records = self._validated_history_chain(key_sha)
         current_path = self._key_directory(key_sha) / "current.json"
+
         if not current_path.exists():
-            return None
-        current_raw = _strict_json(current_path.read_bytes(), source="idempotency current")
+            if not records:
+                return None
+            if len(records) == 1 and records[0].generation == 0:
+                self._write_current(key_sha, records[0])
+                return records[0]
+            raise VerificationAPIIdempotencyCorruption(
+                "idempotency current pointer is missing with non-genesis history"
+            )
+
+        current_raw = _strict_json(
+            current_path.read_bytes(),
+            source="idempotency current",
+        )
         _exact_fields(
             current_raw,
             {"schema_version", "generation", "record_sha256"},
@@ -446,12 +459,59 @@ class VerificationAPIIdempotencyJournalV1:
             )
         generation = _integer(current_raw["generation"], "$.generation")
         record_sha = _string(current_raw["record_sha256"], "$.record_sha256")
-        record = self._read_record(key_sha, generation)
+        by_generation = {record.generation: record for record in records}
+        record = by_generation.get(generation)
+        if record is None:
+            raise VerificationAPIIdempotencyCorruption(
+                "idempotency current generation is not retained"
+            )
         if record.record_sha256 != record_sha:
             raise VerificationAPIIdempotencyCorruption(
                 "idempotency current record SHA mismatch"
             )
-        return record
+
+        newer = [item for item in records if item.generation > generation]
+        if not newer:
+            return record
+        if len(newer) == 1 and newer[0].generation == generation + 1:
+            candidate = newer[0]
+            if candidate.previous_record_sha256 != record.record_sha256:
+                raise VerificationAPIIdempotencyCorruption(
+                    "recoverable idempotency successor has wrong parent"
+                )
+            self._write_current(key_sha, candidate)
+            return candidate
+        raise VerificationAPIIdempotencyCorruption(
+            "ambiguous idempotency history after current pointer"
+        )
+
+    def _validated_history_chain(
+        self,
+        key_sha: str,
+    ) -> list[VerificationAPIIdempotencyRecord]:
+        history = self._key_directory(key_sha) / "history"
+        if not history.exists():
+            return []
+        paths = sorted(history.glob("*.json"))
+        records = [self._read_record_path(path) for path in paths]
+        expected_generation = 0
+        previous_sha = _GENESIS
+        for record in records:
+            if record.idempotency_key_sha256 != key_sha:
+                raise VerificationAPIIdempotencyCorruption(
+                    "idempotency history key digest mismatch"
+                )
+            if record.generation != expected_generation:
+                raise VerificationAPIIdempotencyCorruption(
+                    "idempotency history generation gap or duplicate"
+                )
+            if record.previous_record_sha256 != previous_sha:
+                raise VerificationAPIIdempotencyCorruption(
+                    "idempotency history hash chain mismatch"
+                )
+            expected_generation += 1
+            previous_sha = record.record_sha256
+        return records
 
     def _append_record(
         self,
@@ -496,7 +556,15 @@ class VerificationAPIIdempotencyJournalV1:
             raise VerificationAPIIdempotencyCorruption(
                 "missing idempotency history record"
             )
-        return _decode_record(_strict_json(path.read_bytes(), source=path.name))
+        return self._read_record_path(path)
+
+    def _read_record_path(
+        self,
+        path: Path,
+    ) -> VerificationAPIIdempotencyRecord:
+        return _decode_record(
+            _strict_json(path.read_bytes(), source=path.name)
+        )
 
     def _key_directory(self, key_sha: str) -> Path:
         return self._directory / key_sha
