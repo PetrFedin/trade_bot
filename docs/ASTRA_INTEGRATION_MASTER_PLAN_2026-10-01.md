@@ -1693,57 +1693,69 @@ Verified by merged repository history / file presence in current `main`:
 - transport-neutral Contract-first Verification API v1 core (#275);
 - per-idempotency-key single-flight semantics for mutating Verification API calls (#280);
 - localhost-first stdlib HTTP Transport Adapter v1 (#281);
-- deterministic Verification SDK Contract v1 with strict canonical response decoding, request/response correlation, transport-only retry discipline and no duplicated trust logic (#284).
+- deterministic Verification SDK Contract v1 (#284);
+- Verification Reference Profiles v1 with canonical profile identity, exact operation-set contracts and deterministic conformance evidence (#287).
 
-These layers collectively provide deterministic portable verification, strict typed reconstruction, persistent local trust authority, crash-safe idempotent mutation, transport-neutral institutional API semantics, a qualified local HTTP transport and a deterministic client SDK contract. They do not prove profitability or enable live/mainnet trading.
+These layers collectively provide deterministic portable verification, strict typed reconstruction, persistent local trust authority, crash-safe idempotent mutation, transport-neutral institutional API semantics, a qualified local HTTP transport, a deterministic client SDK contract and versioned deployment/reference profiles. They do not prove profitability or enable live/mainnet trading.
 
-### Next required implementation gate — Reference Profiles v1
+### Next required implementation gate — Institutional Test Corpus v1
 
-Reference Profiles must define portable, versioned usage profiles over the already-canonical verification stack. A profile is configuration and conformance metadata, not a new trust authority.
+The Institutional Test Corpus must provide portable, immutable test vectors that independently exercise the canonical verification stack and Reference Profile conformance surface.
 
-Required responsibilities:
+Required corpus classes:
 
-- explicit profile identity and schema version;
-- declared supported Verification API operation set;
-- declared artifact/profile compatibility constraints;
-- declared trusted-root-set identifier expectations without embedding private material;
-- declared clock-skew policy bounds;
-- declared transport expectations;
-- declared SDK retry/idempotency requirements;
-- declared authority persistence / recovery assumptions;
-- deterministic canonical profile encoding;
-- stable profile SHA-256 identity;
-- compatibility/conformance evaluation without invoking broker, OMS, strategy, risk or live-routing authority.
+- canonical positive verification vectors;
+- deterministic rejection vectors;
+- rollback / replay / stale-state vectors;
+- idempotency and single-flight vectors;
+- CAS conflict vectors;
+- malformed / non-canonical serialization vectors;
+- trusted-root-set configuration mismatch vectors;
+- Reference Profile conformance pass/fail vectors;
+- SDK retry/correlation vectors;
+- transport framing vectors;
+- crash-recovery vectors;
+- forward-compatibility / unknown-schema vectors.
 
-Reference Profile v1 must not:
+Each corpus case must include:
 
-- reimplement VerificationService semantics;
-- mutate TrustState;
-- contain private signing keys;
-- silently change trusted roots;
-- authorize live trading;
-- define profit/performance claims.
+- stable case ID;
+- corpus schema version;
+- case class;
+- human-readable intent;
+- exact input bytes or canonical input payload;
+- expected stable result/failure class;
+- expected authority mutation behavior;
+- expected deterministic hashes where applicable;
+- profile_ref/profile_sha256 when a Reference Profile applies;
+- provenance metadata for generated fixtures;
+- canonical case SHA-256.
 
-Initial reference profiles should cover at minimum:
+Corpus requirements:
 
-- Offline Institutional Verifier;
-- Local HTTP Institutional Verifier;
-- Embedded/OEM Verifier;
-- Read-only Auditor;
-- Stateful Authority Operator.
+- no external network;
+- no wall-clock dependence;
+- no hidden randomness;
+- no private signing keys in committed fixtures;
+- no broker/OMS/risk/live-routing authority;
+- immutable case identity;
+- strict canonical decode;
+- deterministic runner/report output;
+- runner must never weaken API/SDK/Reference Profile semantics;
+- positive and negative vectors must be independently inspectable.
 
 Acceptance evidence:
 
-- same logical profile => byte-identical canonical bytes and profile SHA;
-- strict schema decode and unknown-field rejection;
-- compatibility evaluation is deterministic;
-- incompatible operation/transport/retry assumptions fail closed;
-- profile identity is included in conformance evidence;
-- no profile may weaken API/SDK idempotency or CAS semantics;
-- no profile may expand the frozen runtime import boundary;
-- tests require no external network.
+- same corpus case => byte-identical canonical bytes and case SHA;
+- full corpus run => byte-identical report ordering and report SHA;
+- mutation expectations are explicit for every stateful case;
+- all five canonical Reference Profiles have conformance vectors;
+- malformed fixtures fail before semantic mutation;
+- replay/idempotency/CAS vectors prove no double-commit;
+- corpus runner can operate without external network;
+- frozen runtime import boundary remains unchanged.
 
-Only after Reference Profiles v1 qualifies and merges may Institutional Test Corpus work begin.
+Only after Institutional Test Corpus v1 qualifies and merges may OEM / Embedded Qualification begin.
 
 ### Next sequence after verified merge
 
