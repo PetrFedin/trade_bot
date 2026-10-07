@@ -1663,9 +1663,9 @@ Avoid artificial lock-in: export and independent verification should remain poss
 **Moat:** ASTRA's defensibility compounds when institutions reuse the same deterministic profiles, test corpora, signed evidence format and requalification history across multiple adapters and providers.
 
 
-## Qualification trust execution map — 2026-10-06
+## Qualification trust execution map — 2026-10-07
 
-This snapshot records the qualification/trust layers that are already present in canonical `main`, the current in-flight slice and the next planned sequence. It is descriptive evidence, not live-trading authority.
+This snapshot records the qualification/trust layers that are already present in canonical `main`, the current integration gap and the next planned sequence. It is descriptive evidence, not live-trading authority.
 
 ### Canonical in `main`
 
@@ -1683,20 +1683,38 @@ Verified by merged repository history / file presence in current `main`:
 - Portable Qualification Verification v4 (#254);
 - institutional adoption / mandatory master-plan governance (#255);
 - stateful Qualification Verification Service v4 with TrustState transition output (#256);
-- Portable Artifact Codec v1 with deterministic `ASTRA_CANONICAL_JSON_V1` representation (#257).
+- Portable Artifact Codec v1 with deterministic `ASTRA_CANONICAL_JSON_V1` representation (#257);
+- master-plan typed-decoder / rollback-discipline gate (#258);
+- safe typed Portable Verification Bundle v4 decoder (#260);
+- independent Offline Qualification Verifier CLI v1 with local TrustState discipline (#262);
+- hash-locked `urllib3 2.8.0` supply-chain remediation with fresh release/security qualification (#267);
+- Persistent TrustState Authority v1 with generation history, CAS, process locking, crash recovery, rollback/fork detection within retained local history and deterministic transition receipts (#269).
 
-These layers collectively provide immutable qualification/profile bindings, signed evidence, lifecycle state, append-only lifecycle history, transparency publication, incremental continuity, portable verification and deterministic artifact transport. They do not prove profitability or enable live/mainnet trading.
+These layers collectively provide deterministic portable verification, strict typed reconstruction, explicit local trust anchors, independent offline verification, qualified dependency integrity and a bounded persistent TrustState authority. They do not prove profitability or enable live/mainnet trading.
 
-### In-flight
+### Current integration gap — ADOPT
 
-- PR #258 — master-plan typed-decoder gate, offline local trust-anchor discipline and Persistent TrustState Authority requirements.
-- PR #260 — safe typed Portable Verification Bundle v4 decoder.
-- PR #262 — independent Offline Qualification Verifier CLI v1.
-- PR #264 — Persistent TrustState Authority v1.
+The Offline Qualification Verifier CLI still retains a legacy single-file TrustState persistence path. Now that Persistent TrustState Authority v1 is canonical, the CLI must be bound to the authority before any Verification API is exposed.
 
-The implementation PRs are intentionally stacked and must merge in dependency order after their own CI/regression evidence:
+Required sequence:
 
-`#258 -> #260 -> #262 -> #264`.
+`#270 CLI <-> Persistent TrustState Authority integration -> contract-first Verification API -> SDK contract -> Reference Profiles -> Institutional Test Corpus -> OEM/Embedded Qualification -> stronger external anti-rollback witness -> Continuous Requalification`.
+
+The CLI-authority integration must provide:
+
+- explicit read-only verification mode;
+- explicit verify-and-advance mode;
+- authority current state as the local trust anchor;
+- exact equality with artifact embedded TrustState before verification;
+- CAS-protected state advancement;
+- deterministic CAS-conflict failure without silent retry;
+- no mutation on REJECTED;
+- authenticated VERIFIED-but-unusable lifecycle advancement;
+- canonical transition receipt on committed advancement;
+- separate explicit authority initialization/bootstrap;
+- legacy single-file mode clearly labeled as weaker/stateless persistence and excluded from API/SDK authority claims.
+
+Only after this integration is qualified may Verification API implementation begin.
 
 ### Next sequence after verified merge
 
