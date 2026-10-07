@@ -1690,47 +1690,45 @@ Verified by merged repository history / file presence in current `main`:
 - hash-locked `urllib3 2.8.0` supply-chain remediation (#267);
 - Persistent TrustState Authority v1 (#269);
 - authority-backed Offline CLI integration (#272);
-- transport-neutral Contract-first Verification API v1 core with canonical request/response envelopes, server-side authority/root registries, durable idempotency journal, crash recovery and stable result taxonomy (#275).
+- transport-neutral Contract-first Verification API v1 core (#275);
+- per-idempotency-key single-flight semantics for mutating Verification API calls (#280);
+- localhost-first stdlib HTTP Transport Adapter v1 with strict framing/canonical JSON enforcement and no trust-semantic duplication (#281).
 
-These layers collectively provide deterministic portable verification, strict typed reconstruction, explicit local trust anchors, persistent authority state, CAS-protected advancement, independent offline verification and transport-neutral institutional API semantics. They do not prove profitability or enable live/mainnet trading.
+These layers collectively provide deterministic portable verification, strict typed reconstruction, persistent local trust authority, crash-safe idempotent mutation, transport-neutral institutional API semantics and a qualified local HTTP transport. They do not prove profitability or enable live/mainnet trading.
 
-### Next required implementation gate — Transport Adapter v1
+### Next required implementation gate — SDK Contract v1
 
-The next layer may expose Verification API v1 through a concrete transport, but it must not redefine trust semantics.
+The SDK must remain a deterministic client contract, not a second verifier.
 
-Requirements:
+Required responsibilities:
 
-- adapter delegates all semantic decisions to `VerificationAPIServiceV1`;
-- no transport-specific bypass around PersistentTrustStateAuthorityV1;
-- no caller-supplied filesystem paths;
-- canonical request bytes decode into the existing API request contract;
-- canonical response payload is returned unchanged apart from transport framing;
-- transport status codes are advisory mapping only and never replace stable API result classes;
-- request body size and content-type limits are explicit and fail closed;
-- no dynamic import/eval/pickle;
-- no private signing-key requirement;
-- no broker/OMS/risk/live-routing imports;
-- deterministic malformed-request handling;
-- adapter-level authentication/authorization policy must be separable from evidence verification semantics;
-- optional local-only binding must be available for qualification tests and embedded/OEM usage.
-
-Preferred first implementation:
-
-`stdlib HTTP/1.1 local adapter -> optional hardened network deployment profile later`
-
-Rationale: avoid adding a web framework dependency to the qualified trust core before there is a concrete need.
+- deterministic request builder for `authority.status`, `verify.read_only`, `verify.advance`;
+- canonical request digest generation;
+- canonical response decoding;
+- typed result/error taxonomy preserving API `result_class`;
+- explicit idempotency-key helper for mutating calls;
+- retry discipline that retries transport failures only when the request/idempotency contract makes replay safe;
+- no automatic retry after CAS_CONFLICT against a newer authority state;
+- no hidden regeneration of idempotency keys during retries;
+- no client-side trust decision, signature verification, TrustState mutation or root-set interpretation;
+- no caller-controlled server-side filesystem paths;
+- transport abstraction so stdlib HTTP is the first adapter, not the SDK's semantic authority;
+- byte-stable request construction for the same logical input;
+- byte-stable decoded/re-encoded canonical response representation.
 
 Acceptance evidence:
 
-- `authority.status`, `verify.read_only`, `verify.advance` round-trip through transport;
-- byte-stable canonical response body for the same finalized idempotent request;
-- malformed/oversized/non-JSON request fails before service mutation;
-- transport disconnect after authority commit cannot cause a second commit on retry;
-- concurrent mutating requests preserve one-winner CAS semantics;
-- local adapter imports no broker/OMS/risk/live authority;
-- transport adapter tests require no external network.
+- same logical SDK request => byte-identical canonical payload and request SHA;
+- verify.advance requires explicit or deterministically preserved idempotency key;
+- same request retried after transport disconnect preserves idempotency key and request SHA;
+- CAS_CONFLICT surfaces as typed result and is never silently retried;
+- IDEMPOTENCY_CONFLICT surfaces distinctly;
+- malformed/non-canonical response fails closed;
+- unknown future result classes fail closed or use an explicitly versioned compatibility policy;
+- SDK contains no VerificationService, signature, keyring, broker, OMS, strategy, risk or live-routing authority imports;
+- SDK tests can run against an in-memory/fake transport without external network.
 
-Only after Transport Adapter v1 is qualified may SDK contract work begin.
+Only after SDK Contract v1 is qualified may Reference Profiles implementation begin.
 
 ### Next sequence after verified merge
 
