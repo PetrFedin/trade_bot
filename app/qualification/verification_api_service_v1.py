@@ -209,16 +209,17 @@ class VerificationAPIServiceV1:
 
         try:
             current = authority.current()
+            before_record = (
+                current
+                if existing is None
+                else self._record_for_snapshot(
+                    authority,
+                    existing.authority_before,
+                )
+            )
             artifact, bundle = self._decode_for_authority(
                 request=request,
-                authority_record=(
-                    current
-                    if existing is None
-                    else self._record_for_snapshot(
-                        authority,
-                        existing.authority_before,
-                    )
-                ),
+                authority_record=before_record,
             )
         except (
             QualificationArtifactCodecError,
@@ -240,11 +241,6 @@ class VerificationAPIServiceV1:
             )
 
         checkpoint = bundle.signed_trust_checkpoint_v4.checkpoint
-        before_record = (
-            current
-            if existing is None
-            else self._record_for_snapshot(authority, existing.authority_before)
-        )
         before_snapshot = _snapshot(before_record)
 
         if existing is None:
@@ -287,10 +283,19 @@ class VerificationAPIServiceV1:
                 record=existing,
             )
 
-        recovered = self._recover_commit_if_present(
-            authority=authority,
-            record=existing,
-        )
+        try:
+            recovered = self._recover_commit_if_present(
+                authority=authority,
+                record=existing,
+            )
+        except (PersistentTrustStateAuthorityError, OSError) as exc:
+            return self._error_response(
+                request,
+                VerificationAPIResultClass.AUTHORITY_ERROR,
+                "IDEMPOTENCY_RECOVERY_ERROR",
+                str(exc),
+                authority_before=before_snapshot,
+            )
         if recovered is not None:
             committed_snapshot, receipt = recovered
             try:
@@ -503,8 +508,13 @@ class VerificationAPIServiceV1:
                 request_sha256=request.computed_request_sha256,
                 response_payload=response,
             )
-        except VerificationAPIIdempotencyError:
-            return response
+        except VerificationAPIIdempotencyError as exc:
+            return self._error_response(
+                request,
+                VerificationAPIResultClass.AUTHORITY_ERROR,
+                "IDEMPOTENCY_FINALIZE_ERROR",
+                str(exc),
+            )
         assert finalized.response_payload is not None
         return dict(finalized.response_payload)
 
@@ -589,7 +599,7 @@ class VerificationAPIServiceV1:
             result_class = VerificationAPIResultClass.VERIFIED_UNUSABLE
 
         return VerificationAPIResponseV1(
-            request_id=request.request_id,
+            request_id=request.request_id.strip() or "invalid-request",
             operation=request.operation,
             request_sha256=request.computed_request_sha256,
             result_class=result_class,
