@@ -50,7 +50,7 @@ def _case(
     return InstitutionalCorpusCaseV1.from_input_bytes(
         case_class=case_class,
         intent=f"exercise {case_class.value} {suffix}",
-        input_bytes=f"input:{case_class.value}:{suffix}".encode("utf-8"),
+        input_bytes=f"input:{case_class.value}:{suffix}".encode(),
         expected_result_class=result_class,
         expected_failure_code=failure_code,
         expected_mutation=mutation,
