@@ -4,8 +4,6 @@ import hashlib
 from types import MappingProxyType
 
 import pytest
-from hypothesis import given, settings
-from hypothesis import strategies as st
 
 from app.qualification.portable_artifact_codec import (
     DecodedQualificationPortableArtifact,
@@ -222,20 +220,14 @@ def _nested_object(payload: dict[str, object], path: tuple[str, ...]) -> dict[st
     return node
 
 
-@settings(max_examples=30, deadline=None)
-@given(
-    path=st.sampled_from(_NESTED_OBJECT_PATHS),
-    suffix=st.integers(min_value=0, max_value=1_000_000),
-)
-def test_typed_decoder_property_rejects_unknown_fields_at_nested_boundaries(
-    path: tuple[str, ...],
-    suffix: int,
-) -> None:
-    def mutate(payload: dict[str, object]) -> None:
-        node = _nested_object(payload, path)
-        node[f"__unknown_{suffix}"] = "must-fail-closed"
+def test_typed_decoder_property_sweep_rejects_unknown_fields_at_nested_boundaries() -> None:
+    for index, path in enumerate(_NESTED_OBJECT_PATHS):
+        for suffix in (0, index, 1_000_000 - index):
+            def mutate(payload: dict[str, object]) -> None:
+                node = _nested_object(payload, path)
+                node[f"__unknown_{suffix}"] = "must-fail-closed"
 
-    artifact = _mutated_artifact(mutate)
+            artifact = _mutated_artifact(mutate)
 
-    with pytest.raises(QualificationBundleDecodeError, match="fields mismatch"):
-        decode_typed_portable_qualification_bundle_v4(artifact)
+            with pytest.raises(QualificationBundleDecodeError, match="fields mismatch"):
+                decode_typed_portable_qualification_bundle_v4(artifact)
