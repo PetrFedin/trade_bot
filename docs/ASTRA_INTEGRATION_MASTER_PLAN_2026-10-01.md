@@ -1663,9 +1663,7 @@ Avoid artificial lock-in: export and independent verification should remain poss
 **Moat:** ASTRA's defensibility compounds when institutions reuse the same deterministic profiles, test corpora, signed evidence format and requalification history across multiple adapters and providers.
 
 
-## Qualification trust execution map — 2026-10-06
-
-This snapshot records the qualification/trust layers that are already present in canonical `main`, the current in-flight slice and the next planned sequence. It is descriptive evidence, not live-trading authority.
+## Qualification trust execution map
 
 ### Canonical in `main`
 
@@ -1683,166 +1681,37 @@ Verified by merged repository history / file presence in current `main`:
 - Portable Qualification Verification v4 (#254);
 - institutional adoption / mandatory master-plan governance (#255);
 - stateful Qualification Verification Service v4 with TrustState transition output (#256);
-- Portable Artifact Codec v1 with deterministic `ASTRA_CANONICAL_JSON_V1` representation (#257).
+- Portable Artifact Codec v1 with deterministic `ASTRA_CANONICAL_JSON_V1` representation (#257);
+- master-plan typed-decoder / rollback-discipline gate (#258);
+- safe typed Portable Verification Bundle v4 decoder (#260);
+- independent Offline Qualification Verifier CLI v1 with local TrustState authority discipline (#262).
 
-These layers collectively provide immutable qualification/profile bindings, signed evidence, lifecycle state, append-only lifecycle history, transparency publication, incremental continuity, portable verification and deterministic artifact transport. They do not prove profitability or enable live/mainnet trading.
+These layers collectively provide immutable qualification/profile bindings, signed evidence, lifecycle state, append-only lifecycle history, transparency publication, portable verification, deterministic artifact transport, strict typed reconstruction and independent offline verification. They do not prove profitability or enable live/mainnet trading.
 
 ### In-flight
 
-- PR #258 — master-plan typed-decoder gate, offline local trust-anchor discipline and Persistent TrustState Authority requirements.
-- PR #260 — safe typed Portable Verification Bundle v4 decoder.
-- PR #262 — independent Offline Qualification Verifier CLI v1.
+- PR #267 — fresh rebuild of the `urllib3 2.8.0` hash-locked security remediation on current canonical `main`; supersedes #266.
+  - lock freshness;
+  - strict dependency audit;
+  - release provenance/integrity;
+  - full execution/security regression.
 - PR #264 — Persistent TrustState Authority v1.
+  - immutable generation history;
+  - previous/current hash chain;
+  - CAS on generation/record/state;
+  - process locking;
+  - crash recovery;
+  - rollback/fork detection within retained local authority;
+  - canonical transition receipts;
+  - explicit limitation: complete-directory rollback requires an external witness/TPM/HSM/remote monotonic anchor for stronger protection.
 
-The implementation PRs are intentionally stacked and must merge in dependency order after their own CI/regression evidence:
+### Strict merge sequence
 
-`#258 -> #260 -> #262 -> #264`.
+`#267 full PASS -> merge -> retarget/rebuild #264 on new main -> #264 qualification coverage/regression PASS -> merge`
 
-### Next sequence after verified merge
+Only after those two layers are canonical may the next implementation wave begin:
 
-Current canonical `main` now includes:
-
-1. Qualification Verification Service v4;
-2. Portable Artifact Codec v1;
-3. deterministic `ASTRA_CANONICAL_JSON_V1` representation;
-4. persisted TrustState v4 bound into the portable artefact.
-
-Before the offline CLI verifier, add one explicit prerequisite:
-
-5. safe typed Portable Verification Bundle v4 decoder;
-   - reconstruct only known qualification dataclasses from the already canonical, hash-validated JSON tree;
-   - reject unknown/missing fields at every typed boundary;
-   - reject arbitrary-object or pickle-style deserialisation;
-   - preserve exact timestamps, integer domains, tuple/list semantics and signature bytes;
-   - re-run the existing `bundle.validate()` after reconstruction;
-   - prove `decoded typed bundle -> payload()` is byte-for-byte equal to the canonical embedded bundle payload;
-   - fuzz/property-test malformed nested payloads and fail closed.
-
-This prerequisite is **ADOPT** because the current Portable Artifact Codec deliberately returns the embedded bundle as an immutable JSON mapping while `QualificationVerificationServiceV4` deliberately accepts a typed `PortableQualificationVerificationBundleV4`. The decoder must remain a narrow validation boundary rather than hidden ad-hoc conversion inside a CLI/API.
-
-Then continue:
-
-6. offline CLI verifier;
-7. CBOR representation only if canonical encoding rules and cross-implementation interoperability tests are explicit;
-8. contract-first Verification API;
-9. SDK contract;
-10. reference profiles and institutional test corpus;
-11. OEM/embedded qualification and enterprise verification integration;
-12. continuous requalification and evidence-history export.
-
-### Typed decoder acceptance evidence — ADOPT
-
-The typed decoder slice is complete only when:
-
-- every nested bundle object has an explicit schema-to-dataclass conversion path;
-- canonical JSON digest and bundle identity are checked before typed reconstruction;
-- reconstructed `payload()` exactly matches the embedded canonical bundle payload;
-- malformed/unknown nested fields fail closed;
-- no dynamic import, eval, pickle or arbitrary class instantiation is used;
-- the decoder itself cannot call broker, OMS, risk or live-routing authority;
-- the offline verifier can consume only the decoded typed bundle plus explicit trusted roots / persisted TrustState.
-
-### Offline verifier local trust-anchor discipline — ADOPT
-
-The offline verifier must not treat the portable artefact's embedded TrustState as sufficient local authority.
-
-Required model:
-
-`local trusted state -> artifact embedded state equality -> typed bundle verification -> next trusted state`
-
-Rules:
-
-- normal verification requires an independently persisted local TrustState input;
-- the embedded TrustState is transport context and must exactly match local trusted state before verification proceeds;
-- a mismatch fails closed before any state advancement;
-- missing local state never silently implies genesis;
-- genesis bootstrap requires an explicit operator flag;
-- genesis bootstrap is allowed only when profile event count/head and Trust Checkpoint v4 SHA are at genesis and the transparency anchor exactly matches the root-anchored base v3 transparency head;
-- REJECTED verification never advances TrustState;
-- VERIFIED verification may advance TrustState even when the qualification result is currently unusable, so authenticated revocation/supersession history cannot be ignored;
-- state persistence uses temp-write + flush/fsync where supported + atomic replace, preserving the previous state on every error;
-- rollback to an older otherwise valid artefact/state pair is treated as a trust-anchor violation, not as a valid replay.
-
-Acceptance evidence must include:
-
-- local-state mismatch rejection;
-- explicit genesis-bootstrap tests;
-- wrong trusted-root rejection;
-- byte-for-byte state preservation after REJECTED/error outcomes;
-- deterministic state-file encoding;
-- successful advancement on authenticated lifecycle changes, including unusable/revoked outcomes.
-
-This is an **ADOPT** requirement for the offline CLI, Verification API and SDK contract. It strengthens independent verification only and does not create trading authority.
-
-### Persistent TrustState Authority v1 — ADOPT
-
-After the offline CLI is qualified, replace ad-hoc single-file state advancement with a bounded local authority.
-
-State record:
-
-- authority/schema version;
-- monotonically increasing generation;
-- previous record SHA-256;
-- current TrustState v4 payload and state SHA-256;
-- source artifact ID/SHA;
-- verified bundle/checkpoint identity where available;
-- verification timestamp;
-- record SHA-256 over canonical JSON.
-
-Storage model:
-
-- one immutable canonical history record per generation;
-- one canonical current pointer/record;
-- history record is durably committed before current advances;
-- temporary/partial files are never authoritative;
-- all writes use flush/fsync where supported plus atomic replace;
-- current generation advances only under an exclusive process lock.
-
-CAS discipline:
-
-- caller supplies expected generation, expected current record SHA and expected TrustState SHA;
-- authority reloads current state while holding the lock;
-- any mismatch rejects the update without mutation;
-- generation increments exactly by one;
-- TrustState event/tree counters cannot regress;
-- duplicate/no-op advancement is rejected unless an explicit idempotent replay contract is later defined.
-
-Crash recovery:
-
-- on open, validate every relevant canonical record before trusting it;
-- verify generation continuity and previous-record hash chain;
-- if current points to a valid history record, it is authoritative;
-- if exactly one fully committed next history record exists after a crash-before-current-update, recovery may deterministically advance current to it;
-- ambiguous forks, gaps, multiple competing next records, malformed records or hash mismatches fail closed and require operator recovery;
-- orphan temporary files are ignored/cleaned only after the authoritative chain is established.
-
-Rollback semantics:
-
-- local hash-chain/history makes ordinary rollback detectable when newer history remains;
-- it does **not** make rollback impossible against an attacker able to replace the entire local authority directory and all external anchors;
-- stronger anti-rollback requires an external monotonic/checkpoint anchor, remote witness, TPM/HSM counter or equivalent separately qualified mechanism;
-- documentation and product claims must say tamper-evident / rollback-detecting within the retained authority boundary, not tamper-proof.
-
-Receipts:
-
-- every accepted advancement yields an exportable canonical receipt bound to previous/current record SHA, generation, state SHA and verification artifact/checkpoint;
-- receipt signing is optional in v1 through an explicit signing-provider interface;
-- private keys are never stored by the TrustState authority;
-- an unsigned receipt remains hash-verifiable but must not be described as independently signed evidence.
-
-Acceptance evidence:
-
-- two concurrent writers cannot both advance the same generation;
-- stale CAS is rejected without mutation;
-- process interruption after history commit and before current update recovers deterministically;
-- malformed/forked history fails closed;
-- current/history rollback is detected when a newer retained chain exists;
-- complete-directory rollback limitation is explicitly documented and tested as out-of-bound without an external witness;
-- export receipt reproduces exact transition hashes;
-- optional receipt signature verifies through the existing qualified signing boundary;
-- no TrustState persistence code imports broker, OMS, strategy, risk or live-routing authority.
-
-**Sequencing:** offline CLI v1 -> Persistent TrustState Authority v1 -> contract-first Verification API -> SDK contract -> reference profiles/corpus -> OEM/embedded qualification.
+`contract-first Verification API -> SDK contract -> Reference Profiles -> Institutional Test Corpus -> OEM/Embedded Qualification -> stronger external anti-rollback witness -> Continuous Requalification`.
 
 Every step remains bounded by the authority rules in this master plan. None of these layers proves strategy profitability or enables live/mainnet trading.
 
