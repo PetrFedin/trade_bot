@@ -24,7 +24,6 @@ from app.qualification.verification_api_contract_v1 import (
 )
 from app.qualification.verification_api_idempotency_v1 import (
     VerificationAPIAuthoritySnapshot,
-    VerificationAPIIdempotencyCorruption,
     VerificationAPIIdempotencyError,
     VerificationAPIIdempotencyJournalV1,
     VerificationAPIIdempotencyState,
