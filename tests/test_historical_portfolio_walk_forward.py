@@ -7,7 +7,6 @@ from pathlib import Path
 
 from tools.historical_portfolio_walk_forward import folds, run_walk_forward
 
-
 SYMBOLS = ("AAPL", "MSFT", "NVDA")
 
 
