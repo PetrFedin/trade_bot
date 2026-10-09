@@ -1,0 +1,202 @@
+name: portfolio-walk-forward-stability
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/historical_portfolio_walk_forward.py'
+      - 'tools/historical_portfolio_evidence.py'
+      - 'tools/historical_portfolio_funding.py'
+      - 'app/strategy/**'
+      - 'tests/test_historical_portfolio_walk_forward.py'
+      - 'tests/test_historical_portfolio_evidence_tool.py'
+      - 'research/snapshots/bybit_3y_2023-10-09_2026-10-08/**'
+      - 'research/snapshots/bybit_funding_2023-10-09_2026-10-08/**'
+      - 'docs/ASTRA_INTEGRATION_MASTER_PLAN_2026-10-01.md'
+      - 'docs/STRATEGY_EVIDENCE_LEARNING_LOG.md'
+      - '.github/workflows/portfolio-walk-forward-stability.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portfolio-walk-forward-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  six-major-full-window:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked qualification graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint and compile walk-forward evidence surface
+        run: |
+          ruff check --output-format=github \
+            tools/historical_portfolio_walk_forward.py \
+            tools/historical_portfolio_evidence.py \
+            tests/test_historical_portfolio_walk_forward.py \
+            tests/test_historical_portfolio_evidence_tool.py
+          python -m compileall -q \
+            tools/historical_portfolio_walk_forward.py \
+            tools/historical_portfolio_evidence.py
+
+      - name: Unit-test fixed-policy walk-forward semantics
+        run: >-
+          pytest -q
+          tests/test_historical_portfolio_walk_forward.py
+          tests/test_historical_portfolio_evidence_tool.py
+          tests/test_historical_portfolio_funding.py
+
+      - name: Run six-major walk-forward stability
+        run: |
+          mkdir -p walk-forward-evidence
+          python -m tools.historical_portfolio_walk_forward             --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08             --funding-dir research/snapshots/bybit_funding_2023-10-09_2026-10-08             --symbols BNBUSDT BTCUSDT DOGEUSDT ETHUSDT SOLUSDT XRPUSDT             --train-bars 365             --test-bars 90             --fee-bps-per-fill 8             --slippage-bps 5             --output walk-forward-evidence/six-major-full.json
+
+      - name: Print six-major stability summary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("walk-forward-evidence/six-major-full.json").read_text())
+          print("summary", json.dumps(payload["summary"], sort_keys=True))
+          for fold in payload["folds"]:
+              print(
+                  "fold", fold["fold"],
+                  fold["test_start"], fold["test_end"],
+                  "adjusted=", (
+                      fold["funding_adjusted_return_lower"],
+                      fold["funding_adjusted_return_upper"],
+                  ),
+                  "matched=", fold["capital_matched_benchmark_return"],
+                  "alpha=", (
+                      fold["alpha_vs_matched_lower"],
+                      fold["alpha_vs_matched_upper"],
+                  ),
+                  "trades=", fold["closed_trade_count"],
+                  "turnover=", fold["turnover_fraction"],
+              )
+          PY
+
+      - name: Verify no untouched-OOS claim
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("walk-forward-evidence/six-major-full.json").read_text())
+          assert payload["research_only"] is True
+          assert payload["strategy_promotion_allowed"] is False
+          assert payload["walk_forward_verdict"] == "STABILITY_ONLY_NO_PROMOTION"
+          assert payload["evaluation_class"] == "REUSED_HISTORICAL_WALK_FORWARD_STABILITY"
+          assert payload["historical_window_previously_inspected"] is True
+          assert payload["untouched_holdout"] is False
+          assert payload["out_of_sample_promotion_claim_allowed"] is False
+          assert payload["parameter_tuning_performed"] is False
+          assert payload["strategy_config_fixed"] is True
+          assert all(fold["verdict"] for fold in payload["folds"])
+          PY
+
+      - name: Upload six-major walk-forward evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: portfolio-walk-forward-six-${{ github.run_id }}
+          path: walk-forward-evidence/six-major-full.json
+          if-no-files-found: error
+          retention-days: 30
+
+  common-window-universe-comparison:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked qualification graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Run same-window six-major stability
+        run: |
+          mkdir -p walk-forward-evidence
+          python -m tools.historical_portfolio_walk_forward             --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08             --funding-dir research/snapshots/bybit_funding_2023-10-09_2026-10-08             --symbols BNBUSDT BTCUSDT DOGEUSDT ETHUSDT SOLUSDT XRPUSDT             --train-bars 365             --test-bars 90             --fee-bps-per-fill 8             --slippage-bps 5             --end-time 2026-06-15T00:00:00+00:00             --output walk-forward-evidence/six-major-common.json
+
+      - name: Run broad-21 stability
+        run: |
+          python -m tools.historical_portfolio_walk_forward             --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08             --funding-dir research/snapshots/bybit_funding_2023-10-09_2026-10-08             --symbols ADAUSDT APTUSDT ARBUSDT ATOMUSDT AVAXUSDT BNBUSDT BTCUSDT DOGEUSDT DOTUSDT ETHUSDT FILUSDT INJUSDT LINKUSDT LTCUSDT NEARUSDT OPUSDT SOLUSDT SUIUSDT TONUSDT TRXUSDT XRPUSDT             --train-bars 365             --test-bars 90             --fee-bps-per-fill 8             --slippage-bps 5             --output walk-forward-evidence/broad-21-common.json
+
+      - name: Print common-window comparison
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          for label, filename in (
+              ("six_common", "walk-forward-evidence/six-major-common.json"),
+              ("broad21", "walk-forward-evidence/broad-21-common.json"),
+          ):
+              payload = json.loads(Path(filename).read_text())
+              print(label, json.dumps(payload["summary"], sort_keys=True))
+              for fold in payload["folds"]:
+                  print(
+                      label, "fold", fold["fold"],
+                      fold["test_start"], fold["test_end"],
+                      "adjusted=", (
+                          fold["funding_adjusted_return_lower"],
+                          fold["funding_adjusted_return_upper"],
+                      ),
+                      "matched=", fold["capital_matched_benchmark_return"],
+                      "alpha=", (
+                          fold["alpha_vs_matched_lower"],
+                          fold["alpha_vs_matched_upper"],
+                      ),
+                  )
+          PY
+
+      - name: Verify comparison semantics
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          six = json.loads(Path("walk-forward-evidence/six-major-common.json").read_text())
+          broad = json.loads(Path("walk-forward-evidence/broad-21-common.json").read_text())
+          assert six["source_window"]["end"] == broad["source_window"]["end"]
+          assert six["summary"]["folds"] == broad["summary"]["folds"]
+          for payload in (six, broad):
+              assert payload["strategy_promotion_allowed"] is False
+              assert payload["walk_forward_verdict"] == "STABILITY_ONLY_NO_PROMOTION"
+              assert payload["untouched_holdout"] is False
+              assert payload["parameter_tuning_performed"] is False
+              assert all(fold["verdict"] for fold in payload["folds"])
+          PY
+
+      - name: Upload common-window walk-forward evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: portfolio-walk-forward-common-${{ github.run_id }}
+          path: walk-forward-evidence/*.json
+          if-no-files-found: error
+          retention-days: 30

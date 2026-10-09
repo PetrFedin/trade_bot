@@ -1792,6 +1792,61 @@ Immediate strict sequence:
 `3-year six-major portfolio replay -> cost sensitivity -> benchmark-relative diagnosis -> 3-year 21-symbol replay -> funding bounds -> walk-forward portfolio -> untouched final holdout -> regime/capacity decomposition -> only then passive-entry execution refinement`.
 
 
+
+### Portfolio Walk-Forward Stability v1 — ADOPT
+
+After fixed-window and funding-aware portfolio evidence, measure temporal stability of the
+unchanged shipped policy before any exit-policy redesign.
+
+Protocol:
+
+- use the same shipped selector, sizing, re-entry and exit policy;
+- use the conservative execution profile: 8 bps proportional fee per fill plus 5 bps
+  slippage per side;
+- include the immutable funding snapshots and timing-bound funding model;
+- use 365 completed daily bars only as warm-up/history for every fold;
+- start a fresh USD portfolio at the first bar of each 90-bar test window;
+- use non-overlapping test windows;
+- report funding-adjusted lower/upper return, drawdown, trades, turnover, fees and
+  capital-matched passive benchmark in every fold;
+- run six-major full-window stability and six-major vs broad-21 on their exact common
+  synchronized window;
+- do not tune signal, universe, stop, target, trailing, sizing, costs or fold geometry
+  from the resulting fold scores.
+
+Evidence class:
+
+`REUSED_HISTORICAL_WALK_FORWARD_STABILITY`
+
+The 2023-10-09..2026-10-08 history has already been inspected. Therefore this walk-forward
+is useful for temporal instability diagnosis, but it is **not** an untouched final holdout,
+cannot set `out_of_sample_promotion_claim_allowed=true`, and cannot grant
+`OOS_EDGE_CONFIRMED`.
+
+### Final Untouched Holdout preregistration — ADOPT / FUTURE GATE
+
+A final untouched holdout cannot be manufactured retrospectively from already inspected
+2023-2026 data.
+
+Pre-register the next holdout before any strategy result exists:
+
+- venue/data family: Bybit linear perpetual daily evidence;
+- holdout start: **2026-10-11T00:00:00Z**;
+- minimum observation length: **180 complete daily bars**;
+- earliest evaluation after the 180th bar is complete: **2027-04-09T00:00:00Z**;
+- strategy/config under evaluation must be frozen and hash-identified before the first
+  holdout bar;
+- raw data may be collected and hash-locked, but no strategy PnL, fold score, parameter
+  diagnostic or benchmark-relative result from the holdout may be inspected before the
+  evaluation boundary;
+- any strategy/config change after holdout start creates a new candidate and cannot
+  inherit the same untouched-holdout claim;
+- failures are retained permanently in the Strategy Evidence Learning Log.
+
+Until this future gate is complete, ASTRA may continue engineering qualification and
+research on already inspected history, but must not claim that any retrospective window
+is a final untouched test.
+
 ### Next trust-layer gate after Historical Strategy Evidence — OEM / Embedded Qualification
 
 OEM / Embedded Qualification remains the next institutional-trust layer after the economic-evidence priority cycle. It must reuse the canonical Verification API, SDK, Reference Profiles and Institutional Test Corpus rather than introducing new trust semantics.

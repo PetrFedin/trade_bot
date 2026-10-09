@@ -74,3 +74,24 @@ def test_historical_portfolio_evidence_runner_is_deterministic(tmp_path: Path) -
     assert first["cost_coverage"]["funding_modelled"] is False
     assert first["verdict"] == StrategyProfitabilityVerdict.PROFITABILITY_NOT_PROVEN.value
     assert first["evidence_sha256"] == second["evidence_sha256"]
+
+
+def test_explicit_first_execution_index_preserves_warmup_only_history(
+    tmp_path: Path,
+) -> None:
+    _write_symbol_csvs(tmp_path)
+    symbols = ("AAPL", "MSFT", "NVDA")
+    timeline = sorted({bar.timestamp for bar in stable_universe()})
+    first_execution_index = len(timeline) - 2
+
+    evidence = build_evidence(
+        bars_dir=tmp_path,
+        symbols=symbols,
+        opening_cash=Decimal("10000"),
+        fee_per_fill=Decimal("0"),
+        fee_bps_per_fill=Decimal("8"),
+        slippage_bps=Decimal("5"),
+        first_execution_index=first_execution_index,
+    )
+
+    assert evidence["start"] == timeline[first_execution_index].isoformat()
