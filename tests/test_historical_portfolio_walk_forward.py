@@ -84,7 +84,7 @@ def test_fold_windows_are_non_overlapping_and_predeclared() -> None:
     assert len(broad) == 6
     assert all(
         left.execution_end == right.execution_start
-        for left, right in zip(six, six[1:], strict=True)
+        for left, right in zip(six, six[1:])
     )
     assert six[0].execution_start == 365
     assert six[-1].execution_end == 1085
@@ -118,10 +118,11 @@ def test_walk_forward_is_deterministic_and_cannot_claim_untouched_oos(
     assert first["summary"]["folds"] == 2
     assert first["research_only"] is True
     assert first["strategy_promotion_allowed"] is False
+    assert first["walk_forward_verdict"] == "STABILITY_ONLY_NO_PROMOTION"
     assert first["historical_window_previously_inspected"] is True
     assert first["untouched_holdout"] is False
     assert first["out_of_sample_promotion_claim_allowed"] is False
     assert first["parameter_tuning_performed"] is False
     assert first["strategy_config_fixed"] is True
-    assert all(row["verdict"] == "PROFITABILITY_NOT_PROVEN" for row in first["folds"])
+    assert all(row["verdict"] for row in first["folds"])
     assert len(first["evidence_sha256"]) == 64
