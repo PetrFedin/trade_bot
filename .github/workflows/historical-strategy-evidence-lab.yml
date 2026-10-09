@@ -45,31 +45,36 @@ jobs:
       - name: Unit-test historical matrix
         run: pytest -q tests/test_historical_strategy_matrix.py tests/test_historical_strategy_evidence_v1.py tests/test_historical_portfolio_evidence_tool.py
 
-      - name: Fetch fixed three-year six-major snapshot
+      - name: Verify committed three-year snapshot integrity
         run: |
-          mkdir -p historical-data
           python - <<'PY'
-          from datetime import UTC, datetime
+          import csv
+          import hashlib
           from pathlib import Path
-          from tools.fetch_bybit_klines import Request, fetch, write_dataset
 
+          root = Path("research/snapshots/bybit_3y_2023-10-09_2026-10-08")
           symbols = ("BNBUSDT", "BTCUSDT", "DOGEUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT")
-          start = datetime(2023, 10, 9, tzinfo=UTC)
-          end = datetime(2026, 10, 9, tzinfo=UTC)
-          out = Path("historical-data")
+          expected_first = "2023-10-09T00:00:00.000Z"
+          expected_last = "2026-10-08T00:00:00.000Z"
+          timelines = []
           for symbol in symbols:
-              request = Request(symbol=symbol, interval="D", start=start, end=end)
-              bars = fetch(request)
-              if not bars:
-                  raise SystemExit(f"empty snapshot for {symbol}")
-              write_dataset(bars, request, out)
-              print(symbol, len(bars), bars[0]["timestamp"], bars[-1]["timestamp"])
+              path = root / f"{symbol}_D.csv"
+              rows = list(csv.DictReader(path.open(encoding="utf-8")))
+              assert len(rows) == 1096, (symbol, len(rows))
+              assert rows[0]["timestamp"] == expected_first
+              assert rows[-1]["timestamp"] == expected_last
+              assert all(row["symbol"] == symbol for row in rows)
+              timeline = tuple(row["timestamp"] for row in rows)
+              assert len(set(timeline)) == len(timeline)
+              timelines.append(timeline)
+              print(symbol, len(rows), hashlib.sha256(path.read_bytes()).hexdigest())
+          assert all(timeline == timelines[0] for timeline in timelines[1:])
           PY
 
       - name: Run exact shipped strategy cost matrix
         run: |
           mkdir -p historical-evidence
-          python -m tools.historical_strategy_matrix             --bars-dir historical-data             --symbols BNBUSDT BTCUSDT DOGEUSDT ETHUSDT SOLUSDT XRPUSDT             --opening-cash 10000             --output historical-evidence/six-major-three-year-cost-matrix.json
+          python -m tools.historical_strategy_matrix             --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08             --symbols BNBUSDT BTCUSDT DOGEUSDT ETHUSDT SOLUSDT XRPUSDT             --opening-cash 10000             --output historical-evidence/six-major-three-year-cost-matrix.json
 
       - name: Print decision summary
         run: |
@@ -108,8 +113,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: historical-strategy-evidence-${{ github.run_id }}
-          path: |
-            historical-data/*.manifest.json
-            historical-evidence/*.json
+          path: historical-evidence/*.json
           if-no-files-found: error
           retention-days: 30
