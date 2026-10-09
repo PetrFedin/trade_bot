@@ -50,3 +50,39 @@ promotion decisions.
 6. Regime decomposition.
 7. Capital-size/capacity sensitivity.
 8. Passive-entry study only after queue/partial-fill assumptions are explicit.
+
+
+### 2023-10-09..2026-10-08 fixed six-major portfolio replay
+
+Run: GitHub Actions historical-strategy-evidence-lab #8, exact branch evidence on six
+committed daily snapshots (1,096 bars per symbol; 6,576 bars total).
+
+Benchmarks over the synchronized execution window:
+
+- 60% capital-matched equal-weight: +105.9506%;
+- equal-weight full capital: +176.5843%;
+- BTC buy-and-hold: +186.9284%.
+
+Shipped strategy, USD 10,000 opening cash, 256 closed trades:
+
+| Cost scenario | Return | Ending equity | Max DD | Win rate | Profit factor | Fees |
+|---|---:|---:|---:|---:|---:|---:|
+| legacy shadow: $0.50/fill + 5 bps slippage/side | +10.7198% | $11,071.98 | 8.8945% | 42.58% | 1.1355 | $256.00 |
+| optimistic taker: 6 bps/fill + 3 bps slippage/side | +5.9852% | $10,598.52 | 10.0596% | 41.80% | 1.0756 | $910.24 |
+| conservative taker: 8 bps/fill + 5 bps slippage/side | +0.7516% | $10,075.16 | 12.4008% | 40.63% | 1.0094 | $1,184.11 |
+| stress taker: 10 bps/fill + 10 bps slippage/side | -8.7346% | $9,126.54 | 16.1405% | 38.67% | 0.8924 | $1,408.05 |
+
+Turnover was approximately 141x–156x opening capital depending on the cost scenario.
+All scenarios remain PROFITABILITY_NOT_PROVEN because perpetual funding is not yet
+integrated into this portfolio replay.
+
+Interpretation: this is materially weaker than the passive alternatives. Even the legacy
+cost model underperformed the capital-matched equal-weight benchmark by roughly 95
+percentage points. Under the conservative taker model the strategy preserved nominal
+capital but added essentially no economic value over three years while taking trading,
+execution and model risk. The stress case loses capital.
+
+This result must not be “repaired” by tuning on the same window. The next test is the
+pre-declared broad 21-symbol replay, followed by funding-aware and walk-forward/final
+holdout evidence. Strategy changes, if any, must be treated as a new candidate with new
+untouched evidence.
