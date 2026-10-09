@@ -1,0 +1,142 @@
+name: final-holdout-guard
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/final_holdout_guard.py'
+      - 'tests/test_final_holdout_guard.py'
+      - 'research/final_untouched_holdout_strategy_a_v1.json'
+      - 'docs/ASTRA_INTEGRATION_MASTER_PLAN_2026-10-01.md'
+      - 'docs/STRATEGY_EVIDENCE_LEARNING_LOG.md'
+      - '.github/workflows/final-holdout-guard.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/final_holdout_guard.py'
+      - 'tests/test_final_holdout_guard.py'
+      - 'research/final_untouched_holdout_strategy_a_v1.json'
+      - 'docs/ASTRA_INTEGRATION_MASTER_PLAN_2026-10-01.md'
+      - '.github/workflows/final-holdout-guard.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: final-holdout-guard-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sealed-control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked qualification graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Lint and compile holdout guard
+        run: |
+          ruff check --output-format=github             tools/final_holdout_guard.py             tests/test_final_holdout_guard.py
+          python -m compileall -q tools/final_holdout_guard.py
+
+      - name: Prove guard has no strategy or PnL authority imports
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          path = Path("tools/final_holdout_guard.py")
+          tree = ast.parse(path.read_text(encoding="utf-8"))
+          forbidden = (
+              "app.strategy",
+              "app.portfolio",
+              "app.risk",
+              "app.oms",
+              "tools.historical_portfolio",
+              "tools.historical_strategy",
+              "tools.walk_forward",
+              "tools.replay",
+          )
+          imports = []
+          for node in ast.walk(tree):
+              if isinstance(node, ast.Import):
+                  imports.extend(alias.name for alias in node.names)
+              elif isinstance(node, ast.ImportFrom):
+                  imports.append(node.module or "")
+          violations = sorted(
+              name
+              for name in imports
+              if any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden)
+          )
+          assert not violations, violations
+          print("imports", sorted(imports))
+          PY
+
+      - name: Unit-test fail-closed holdout semantics
+        run: pytest -q tests/test_final_holdout_guard.py
+
+      - name: Validate preregistered sealed contract only
+        run: |
+          mkdir -p holdout-guard-evidence
+          python -m tools.final_holdout_guard             --manifest research/final_untouched_holdout_strategy_a_v1.json             --contract-only             > holdout-guard-evidence/contract.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(
+              Path("holdout-guard-evidence/contract.json").read_text(encoding="utf-8")
+          )
+          assert payload["status"] == "PREREGISTERED_SEALED_CONTROL"
+          assert payload["strategy_promotion_allowed"] is False
+          assert payload["pnl_evaluation_performed"] is False
+          assert payload["candidate_source_sha"] == (
+              "e053bba6e69e900844806e5c61f53e56fe296c90"
+          )
+          assert payload["holdout"]["start"] == "2026-10-11T00:00:00Z"
+          assert payload["holdout"]["minimum_complete_daily_bars"] == 180
+          assert payload["holdout"]["evaluation_not_before"] == "2027-04-09T00:00:00Z"
+          PY
+
+      - name: Prove current gate cannot authorize promotion
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(
+              Path("research/final_untouched_holdout_strategy_a_v1.json")
+              .read_text(encoding="utf-8")
+          )
+          assert manifest["research_only"] is True
+          assert manifest["strategy_promotion_allowed"] is False
+          assert manifest["holdout_role"] == "FROZEN_CONTROL_ONLY"
+          semantics = manifest["promotion_semantics"]
+          assert semantics["successful_holdout_cannot_clear_preexisting_blockers"] is True
+          assert semantics["successful_holdout_cannot_enable_live_trading"] is True
+          assert semantics["successful_holdout_cannot_mutate_trust_state"] is True
+          assert manifest["preexisting_promotion_blockers"] == [
+              "BROAD_UNIVERSE_ROBUSTNESS_FAILED",
+              "TYPICAL_WALK_FORWARD_FOLD_NEGATIVE",
+              "CAPITAL_MATCHED_PASSIVE_BENCHMARK_UNDERPERFORMANCE",
+          ]
+          PY
+
+      - name: Upload holdout guard contract evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: final-holdout-guard-${{ github.run_id }}
+          path: holdout-guard-evidence/contract.json
+          if-no-files-found: error
+          retention-days: 30
