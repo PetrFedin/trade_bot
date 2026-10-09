@@ -77,7 +77,7 @@ jobs:
       - name: Run exact shipped strategy cost matrix
         run: |
           mkdir -p historical-evidence
-          python -m tools.historical_strategy_matrix             --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08             --symbols BNBUSDT BTCUSDT DOGEUSDT ETHUSDT SOLUSDT XRPUSDT             --opening-cash 10000             --output historical-evidence/six-major-three-year-cost-matrix.json
+          python -m tools.historical_strategy_matrix             --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08             --funding-dir research/snapshots/bybit_funding_2023-10-09_2026-10-08             --symbols BNBUSDT BTCUSDT DOGEUSDT ETHUSDT SOLUSDT XRPUSDT             --opening-cash 10000             --output historical-evidence/six-major-three-year-cost-matrix.json
 
       - name: Print decision summary
         run: |
