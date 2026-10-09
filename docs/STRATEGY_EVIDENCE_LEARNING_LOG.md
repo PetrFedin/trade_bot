@@ -169,3 +169,57 @@ PROFITABILITY_NOT_PROVEN.
 The next admissible research layer is walk-forward portfolio evidence. No stop/target,
 signal, universe or cost parameter may be tuned using these already inspected windows
 and later described as untouched out-of-sample evidence.
+
+
+### Fixed-policy portfolio walk-forward stability — reused 2023-2026 history
+
+This study freezes the shipped policy and uses 365 completed daily bars only as warm-up
+for each fresh portfolio. Every test window is 90 daily bars and test windows do not
+overlap. No signal, exit, universe, sizing or cost parameter is tuned.
+
+Because this entire historical source window was already inspected by earlier ASTRA
+research, the evidence class is REUSED_HISTORICAL_WALK_FORWARD_STABILITY. These folds
+are temporal-stability diagnostics, not an untouched final holdout and not promotion
+evidence.
+
+Six-major full synchronized history produced eight test folds:
+
+- funding-adjusted positive folds: **2 / 8**;
+- mean funding-adjusted return per 90-bar fold: **-0.4141% .. -0.2785%**;
+- median funding-adjusted return: **-2.0677% .. -1.9776%**;
+- worst fold lower bound: **-3.1614%**;
+- best fold upper bound: **+8.8110%**;
+- beat the 60% capital-matched passive benchmark: **4 / 8 folds**.
+
+The mean is materially lifted by a small number of positive folds. The median fold is
+negative, so the typical 90-bar experience is loss-making after funding bounds.
+
+On the exact broad common window, six-major produced six folds:
+
+- positive funding-adjusted folds: **2 / 6**;
+- mean: **+0.0476% .. +0.1965%**;
+- median: **-2.2421% .. -2.1629%**;
+- beat capital-matched benchmark: **3 / 6 folds**.
+
+Broad-21 on the identical six test windows produced:
+
+- positive funding-adjusted folds: **1 / 6**;
+- mean: **-3.7840% .. -3.5376%**;
+- median: **-4.4403% .. -4.0491%**;
+- worst lower-bound fold: **-8.6305%**;
+- best upper-bound fold: **+4.0248%**;
+- beat capital-matched benchmark: **3 / 6 folds**.
+
+The benchmark-relative wins are concentrated in periods when the long-only passive
+benchmark itself is negative. In strong positive benchmark periods ASTRA generally
+lags badly. This is consistent with a defensive / reduced-exposure effect, not with a
+stable absolute-return edge.
+
+Interpretation: the fixed shipped policy is temporally unstable. Six-major is closer to
+flat than broad-21 but still has a negative median fold and only two positive folds.
+Broad-21 is clearly negative across most folds. No OOS_EDGE_CONFIRMED or strategy
+promotion claim is permitted.
+
+The next canonical gate is the preregistered final untouched holdout beginning
+2026-10-11T00:00:00Z for at least 180 complete daily bars. Already inspected history
+must not be recycled into that claim.
