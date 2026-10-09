@@ -109,3 +109,63 @@ robustly generalize to the broader universe. A same-window six-major control is 
 before attributing the entire difference to universe selection rather than date-window
 composition, and has been added to the evidence pipeline. Exact settlement funding is the
 next cost layer; these pre-funding numbers remain retained and must not be overwritten.
+
+
+### Funding-aware portfolio evidence — fixed six-major and broad-21
+
+Official Bybit funding settlements were captured from the public venue endpoint and
+hash-locked as immutable snapshots. Actual settlement timestamps are used; the data show
+that a universal fixed 8-hour assumption is not valid for every instrument.
+
+The portfolio funding model is deliberately conservative. Daily OHLCV does not reveal
+the exact second of an intrabar exit or the exact settlement mark price, so the evidence
+reports a timing range using entry execution notional rather than claiming exchange-
+statement-exact funding cash flow. Negative funding is not promoted into an optimistic
+profitability claim.
+
+Full six-major window, 2023-10-09..2026-10-08:
+
+| Cost scenario | Pre-funding return | Funding-adjusted return range |
+|---|---:|---:|
+| legacy shadow | +10.7198% | +7.9618% .. +10.2294% |
+| optimistic taker | +5.9852% | +3.3177% .. +5.5410% |
+| conservative taker | +0.7516% | **-1.8611% .. +0.3193%** |
+| stress taker | -8.7346% | -11.2621% .. -9.1639% |
+
+The 60% capital-matched six-major passive benchmark remains +105.9506%. Under the
+conservative taker assumptions, funding uncertainty spans both sides of zero: the
+strategy is economically indistinguishable from roughly flat while passive exposure
+wins by more than one hundred percentage points.
+
+Broad 21-symbol common window, 2023-10-09..2026-06-15:
+
+| Cost scenario | Pre-funding return | Funding-adjusted return range |
+|---|---:|---:|
+| legacy shadow | -11.7316% | -14.5872% .. -12.1111% |
+| optimistic taker | -13.6571% | -16.4889% .. -14.0330% |
+| conservative taker | -17.9709% | **-20.7441% .. -18.3279%** |
+| stress taker | -26.4858% | -29.1292% .. -26.8239% |
+
+The broad 60% capital-matched equal-weight benchmark is +17.8020%.
+
+Same-window six-major control, also ending 2026-06-15:
+
+| Cost scenario | Pre-funding return | Funding-adjusted return range |
+|---|---:|---:|
+| legacy shadow | +12.6614% | +10.0794% .. +12.2116% |
+| optimistic taker | +8.1751% | +5.6764% .. +7.7699% |
+| conservative taker | +3.4185% | **+0.9599% .. +3.0233%** |
+| stress taker | -5.4976% | -7.8850% .. -5.8932% |
+
+The same-window six-major 60% capital-matched benchmark is +73.7254%.
+
+Interpretation: the broad-universe failure is not merely an artifact of its earlier end
+date. On the identical 981-bar window, six majors remain weakly positive under the
+conservative cost model while the broad universe is materially negative. The universe
+effect is therefore real, but even the six-major control is economically weak relative
+to passive capital-matched exposure. All scenarios remain
+PROFITABILITY_NOT_PROVEN.
+
+The next admissible research layer is walk-forward portfolio evidence. No stop/target,
+signal, universe or cost parameter may be tuned using these already inspected windows
+and later described as untouched out-of-sample evidence.
