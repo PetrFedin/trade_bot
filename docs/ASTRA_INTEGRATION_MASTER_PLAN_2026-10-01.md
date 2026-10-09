@@ -1757,6 +1757,41 @@ Required sequence:
 
 Only after this economic-evidence gate may ASTRA make any stronger strategy-performance claim.
 
+### Historical Strategy Evidence Lab v2 — ADOPT
+
+The next economic-evidence iteration turns Historical Strategy Evidence from one-off measurements into a reproducible evidence lab.
+
+Required capabilities:
+
+- fixed-date multi-year portfolio replays using the shipped strategy/config;
+- hash-locked dataset manifests retained with every run;
+- a declared cost sensitivity matrix rather than one preferred fee assumption;
+- benchmark-relative return gaps in addition to absolute PnL;
+- append-only retention of negative and null findings;
+- one untouched final holdout that is never re-labelled after inspection;
+- explicit distinction between parameter research, validation and final holdout;
+- regime, turnover, exposure and capital-size decomposition;
+- funding-aware lower/upper bounds before any positive profitability verdict;
+- execution-model experiments kept separate from the shipped-strategy control.
+
+Research discipline:
+
+1. Never delete a losing run because a later run looks better.
+2. Never optimize parameters on the final holdout.
+3. Never call a repeatedly inspected period out-of-sample.
+4. A positive absolute return is not evidence of edge when passive capital-matched exposure materially outperforms it.
+5. Narrow-universe evidence must be challenged by a broader liquid universe.
+6. Best-of-many parameter searches require explicit multiplicity awareness.
+7. Execution assumptions may improve economics only when fill/queue/partial-fill evidence supports them.
+8. No historical result, including OOS_EDGE_CONFIRMED, can mutate TrustState or live authority.
+
+Canonical learning memory: `docs/STRATEGY_EVIDENCE_LEARNING_LOG.md`.
+
+Immediate strict sequence:
+
+`3-year six-major portfolio replay -> cost sensitivity -> benchmark-relative diagnosis -> 3-year 21-symbol replay -> funding bounds -> walk-forward portfolio -> untouched final holdout -> regime/capacity decomposition -> only then passive-entry execution refinement`.
+
+
 ### Next trust-layer gate after Historical Strategy Evidence — OEM / Embedded Qualification
 
 OEM / Embedded Qualification remains the next institutional-trust layer after the economic-evidence priority cycle. It must reuse the canonical Verification API, SDK, Reference Profiles and Institutional Test Corpus rather than introducing new trust semantics.

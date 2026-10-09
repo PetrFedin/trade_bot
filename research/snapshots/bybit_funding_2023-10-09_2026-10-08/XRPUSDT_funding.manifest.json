@@ -1,0 +1,16 @@
+{
+  "category": "linear",
+  "dataset_sha256": "a0cfa948a050a931be4fbb614c379bd8ffe6bdfc9c67386215ea64d9b188186e",
+  "endpoint": "https://api.bytick.com/v5/market/funding/history",
+  "first_settlement": "2023-10-09T00:00:00Z",
+  "last_settlement": "2026-10-09T00:00:00Z",
+  "limitations": "Official public venue endpoint. Funding intervals are inferred from actual settlement timestamps; no fixed 8h assumption is made. Venue history may be revised.",
+  "mean_rate": 7.711211614472484e-05,
+  "positive_share": 0.771967163271511,
+  "requested_end": "2026-10-09T00:00:00Z",
+  "requested_start": "2023-10-09T00:00:00Z",
+  "schema_version": "bybit-funding-snapshot-v2",
+  "settlement_count": 3289,
+  "source_classification": "PUBLIC_VENUE_DATA_NON_AUTHORITATIVE",
+  "symbol": "XRPUSDT"
+}

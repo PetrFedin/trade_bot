@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import sys
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -32,6 +33,11 @@ from app.strategy.historical_strategy_evidence_v1 import (  # noqa: E402
 )
 from app.strategy.position_management import PositionManagementPolicy  # noqa: E402
 from app.strategy.reentry_confirmation import ReentryConfirmationPolicy  # noqa: E402
+from tools.historical_portfolio_funding import (  # noqa: E402
+    FundingOpenPosition,
+    funding_bounds_for_trades,
+    load_funding_schedule,
+)
 from tools.replay_episodes import load_bars  # noqa: E402
 
 
@@ -128,6 +134,7 @@ def build_evidence(
     fee_per_fill: Decimal,
     fee_bps_per_fill: Decimal,
     slippage_bps: Decimal,
+    funding_dir: Path | None = None,
 ) -> dict[str, object]:
     if tuple(sorted(set(symbols))) != symbols:
         raise ValueError("symbols must be unique and canonically sorted")
@@ -136,6 +143,18 @@ def build_evidence(
     missing = [str(path) for path in paths if not path.is_file()]
     if missing:
         raise ValueError(f"missing historical datasets: {missing}")
+
+    funding_paths: list[Path] = []
+    funding_schedules = None
+    if funding_dir is not None:
+        funding_paths = [funding_dir / f"{symbol}_funding.csv" for symbol in symbols]
+        missing_funding = [str(path) for path in funding_paths if not path.is_file()]
+        if missing_funding:
+            raise ValueError(f"missing funding datasets: {missing_funding}")
+        funding_schedules = {
+            symbol: load_funding_schedule(funding_dir / f"{symbol}_funding.csv")
+            for symbol in symbols
+        }
 
     loaded, timeline = _common_timestamps(paths)
     bars = [
@@ -163,7 +182,50 @@ def build_evidence(
         ),
     ).run(bars)
 
-    dataset_id, dataset_sha256 = _dataset_identity(paths)
+    funding_open_positions: tuple[FundingOpenPosition, ...] = ()
+    if funding_schedules is not None:
+        slip = slippage_bps / Decimal("10000")
+        open_items: list[FundingOpenPosition] = []
+        for symbol, quantity in sorted(result.final_quantities.items()):
+            if quantity <= 0:
+                continue
+            entry_trace = next(
+                (
+                    trace
+                    for trace in reversed(result.decision_trace)
+                    if symbol in trace.entered_symbols
+                ),
+                None,
+            )
+            if entry_trace is None:
+                raise ValueError(f"open position missing entry trace: {symbol}")
+            entry_bar = next(
+                bar
+                for bar in loaded[symbol]
+                if bar.timestamp == entry_trace.execution_time
+            )
+            open_items.append(
+                FundingOpenPosition(
+                    symbol=symbol,
+                    entry_time=entry_trace.execution_time,
+                    valuation_end=timeline[-1] + timedelta(days=1),
+                    quantity=quantity,
+                    entry_execution_price=entry_bar.open * (Decimal("1") + slip),
+                )
+            )
+        funding_open_positions = tuple(open_items)
+
+    funding_bounds = (
+        funding_bounds_for_trades(
+            result.closed_trades,
+            funding_schedules,
+            open_positions=funding_open_positions,
+        )
+        if funding_schedules is not None
+        else None
+    )
+    identity_paths = paths + funding_paths
+    dataset_id, dataset_sha256 = _dataset_identity(identity_paths)
     strategy_config = {
         "selector": {
             "top_k": 2,
@@ -203,6 +265,11 @@ def build_evidence(
         "reentry_confirmation": {
             "minimum_consecutive_eligible_bars": 2,
         },
+        "funding_model": {
+            "enabled": funding_bounds is not None,
+            "method": "TIMING_BOUNDS_ENTRY_EXECUTION_NOTIONAL_V1",
+            "mark_price_modelled": False,
+        },
     }
     benchmarks = _benchmarks(
         loaded=loaded,
@@ -224,11 +291,17 @@ def build_evidence(
             fixed_fees_modelled=fee_per_fill > 0,
             proportional_fees_modelled=fee_bps_per_fill > 0,
             slippage_modelled=slippage_bps > 0,
-            funding_modelled=False,
+            funding_modelled=funding_bounds is not None,
             queue_position_modelled=False,
             partial_fills_modelled=False,
         ),
         benchmarks=benchmarks,
+        funding_cost_lower_bound=(
+            None if funding_bounds is None else funding_bounds.lower_cost
+        ),
+        funding_cost_upper_bound=(
+            None if funding_bounds is None else funding_bounds.upper_cost
+        ),
         out_of_sample=False,
         walk_forward=False,
     )
@@ -243,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fee-per-fill", type=Decimal, default=Decimal("0"))
     parser.add_argument("--fee-bps-per-fill", type=Decimal, default=Decimal("8"))
     parser.add_argument("--slippage-bps", type=Decimal, default=Decimal("5"))
+    parser.add_argument("--funding-dir", type=Path)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
 
@@ -253,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
         fee_per_fill=args.fee_per_fill,
         fee_bps_per_fill=args.fee_bps_per_fill,
         slippage_bps=args.slippage_bps,
+        funding_dir=args.funding_dir,
     )
     encoded = json.dumps(payload, indent=2, sort_keys=True)
     print(encoded)

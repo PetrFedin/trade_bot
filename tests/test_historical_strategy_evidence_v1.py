@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import hashlib
 from decimal import Decimal
 
@@ -167,3 +168,50 @@ def test_positive_complete_cost_result_without_oos_is_only_research_candidate() 
             evidence.verdict
             is StrategyProfitabilityVerdict.PROFITABILITY_NOT_PROVEN
         )
+
+
+def test_positive_absolute_return_that_loses_to_capital_matched_benchmark_is_not_edge() -> None:
+    result = replace(
+        _result(),
+        ending_equity=Decimal("11000"),
+        total_pnl=Decimal("1000"),
+        total_return=Decimal("0.10"),
+    )
+    evidence = build_historical_strategy_evidence(
+        result=result,
+        strategy_id="cross-sectional-shadow-v1",
+        strategy_config={"top_k": 2},
+        dataset_id="synthetic-benchmark-relative-gate",
+        dataset_sha256="4" * 64,
+        start="2026-01-02T00:00:00+00:00",
+        end="2026-01-12T00:00:00+00:00",
+        symbols=("AAPL", "MSFT", "NVDA"),
+        cost_coverage=HistoricalCostCoverageV1(
+            fixed_fees_modelled=True,
+            proportional_fees_modelled=True,
+            slippage_modelled=True,
+            funding_modelled=True,
+            queue_position_modelled=False,
+            partial_fills_modelled=False,
+        ),
+        benchmarks=(
+            HistoricalBenchmarkV1(
+                benchmark_id="cash",
+                total_return=Decimal("0"),
+            ),
+            HistoricalBenchmarkV1(
+                benchmark_id="equal_weight_capital_matched",
+                total_return=Decimal("0.20"),
+            ),
+        ),
+        funding_cost_lower_bound=Decimal("0"),
+        funding_cost_upper_bound=Decimal("0"),
+        out_of_sample=False,
+        walk_forward=False,
+    )
+
+    assert evidence.cost_adjusted_return_lower_bound == Decimal("0.10")
+    assert (
+        evidence.verdict
+        is StrategyProfitabilityVerdict.PROFITABILITY_NOT_PROVEN
+    )

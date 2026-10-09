@@ -192,10 +192,15 @@ class HistoricalStrategyEvidenceV1:
         lower = self.cost_adjusted_return_lower_bound
         if lower is None or lower <= 0:
             return StrategyProfitabilityVerdict.PROFITABILITY_NOT_PROVEN
+        comparable_ids = {"cash", "equal_weight_capital_matched"}
+        comparable_returns = [
+            item.total_return
+            for item in self.benchmarks
+            if item.benchmark_id in comparable_ids
+        ]
+        if comparable_returns and lower <= max(comparable_returns):
+            return StrategyProfitabilityVerdict.PROFITABILITY_NOT_PROVEN
         if not self.out_of_sample or not self.walk_forward:
-            return StrategyProfitabilityVerdict.RESEARCH_EDGE_CANDIDATE
-        benchmark_returns = [item.total_return for item in self.benchmarks]
-        if benchmark_returns and lower <= max(benchmark_returns):
             return StrategyProfitabilityVerdict.RESEARCH_EDGE_CANDIDATE
         return StrategyProfitabilityVerdict.OOS_EDGE_CONFIRMED
 
