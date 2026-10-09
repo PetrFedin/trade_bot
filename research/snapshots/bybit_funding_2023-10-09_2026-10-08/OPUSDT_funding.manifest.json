@@ -1,6 +1,6 @@
 {
   "category": "linear",
-  "dataset_sha256": "474e3ebb01128a18face89cb427ae4d8dc3a79070b3d3fc2b9ff4fa4c2d99b43",
+  "dataset_sha256": "3b5ecfff3654d77bc45551569ddcc54b86f3463881a2bd91298cc2e03fa15934",
   "endpoint": "https://api.bytick.com/v5/market/funding/history",
   "first_settlement": "2023-10-09T00:00:00Z",
   "last_settlement": "2026-10-09T00:00:00Z",
