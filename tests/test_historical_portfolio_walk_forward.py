@@ -5,10 +5,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from tools.historical_portfolio_walk_forward import (
-    folds,
-    run_walk_forward,
-)
+from tools.historical_portfolio_walk_forward import folds, run_walk_forward
 
 
 SYMBOLS = ("AAPL", "MSFT", "NVDA")
