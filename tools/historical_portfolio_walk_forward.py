@@ -235,6 +235,7 @@ def run_walk_forward(
         "schema_version": "astra-portfolio-walk-forward-stability-v1",
         "research_only": True,
         "strategy_promotion_allowed": False,
+        "walk_forward_verdict": "STABILITY_ONLY_NO_PROMOTION",
         "evaluation_class": "REUSED_HISTORICAL_WALK_FORWARD_STABILITY",
         "historical_window_previously_inspected": True,
         "untouched_holdout": False,
