@@ -5,7 +5,10 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from tools.historical_portfolio_walk_forward import folds, run_walk_forward
+from tools.historical_portfolio_walk_forward import (
+    folds,
+    run_walk_forward,
+)
 
 
 SYMBOLS = ("AAPL", "MSFT", "NVDA")
@@ -84,7 +87,7 @@ def test_fold_windows_are_non_overlapping_and_predeclared() -> None:
     assert len(broad) == 6
     assert all(
         left.execution_end == right.execution_start
-        for left, right in zip(six, six[1:])
+        for left, right in zip(six, six[1:], strict=False)
     )
     assert six[0].execution_start == 365
     assert six[-1].execution_end == 1085
