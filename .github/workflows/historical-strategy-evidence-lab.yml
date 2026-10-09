@@ -116,3 +116,110 @@ jobs:
           path: historical-evidence/*.json
           if-no-files-found: error
           retention-days: 30
+
+
+  broad-21-three-year:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install hash-locked qualification graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+
+      - name: Verify broad-universe listing history
+        run: |
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+
+          root = Path("research/snapshots/bybit_3y_2023-10-09_2026-10-08")
+          symbols = (
+              "ADAUSDT", "APTUSDT", "ARBUSDT", "ATOMUSDT", "AVAXUSDT",
+              "BNBUSDT", "BTCUSDT", "DOGEUSDT", "DOTUSDT", "ETHUSDT",
+              "FILUSDT", "INJUSDT", "LINKUSDT", "LTCUSDT", "NEARUSDT",
+              "OPUSDT", "SOLUSDT", "SUIUSDT", "TONUSDT", "TRXUSDT", "XRPUSDT",
+          )
+          timelines = {}
+          for symbol in symbols:
+              path = root / f"{symbol}_D.csv"
+              rows = list(csv.DictReader(path.open(encoding="utf-8")))
+              timelines[symbol] = {row["timestamp"] for row in rows}
+              if symbol == "TONUSDT":
+                  assert len(rows) == 981
+                  assert rows[-1]["timestamp"] == "2026-06-15T00:00:00.000Z"
+              else:
+                  assert len(rows) == 1096
+                  assert rows[-1]["timestamp"] == "2026-10-08T00:00:00.000Z"
+              assert rows[0]["timestamp"] == "2023-10-09T00:00:00.000Z"
+              print(symbol, len(rows), rows[0]["timestamp"], rows[-1]["timestamp"])
+          common = set.intersection(*timelines.values())
+          assert len(common) == 981
+          assert min(common) == "2023-10-09T00:00:00.000Z"
+          assert max(common) == "2026-06-15T00:00:00.000Z"
+          print("common synchronized bars", len(common), min(common), max(common))
+          PY
+
+      - name: Run broad-universe shipped strategy cost matrix
+        run: |
+          mkdir -p historical-evidence
+          python -m tools.historical_strategy_matrix \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --symbols ADAUSDT APTUSDT ARBUSDT ATOMUSDT AVAXUSDT BNBUSDT BTCUSDT DOGEUSDT DOTUSDT ETHUSDT FILUSDT INJUSDT LINKUSDT LTCUSDT NEARUSDT OPUSDT SOLUSDT SUIUSDT TONUSDT TRXUSDT XRPUSDT \
+            --opening-cash 10000 \
+            --output historical-evidence/broad-21-three-year-cost-matrix.json
+
+      - name: Print broad-universe decision summary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("historical-evidence/broad-21-three-year-cost-matrix.json").read_text())
+          for scenario_id, scenario in payload["scenarios"].items():
+              s = scenario["summary"]
+              print(
+                  scenario_id,
+                  "return=", s["total_return"],
+                  "max_dd=", s["max_drawdown_fraction"],
+                  "pf=", s["profit_factor"],
+                  "trades=", s["closed_trade_count"],
+                  "win_rate=", s["win_rate"],
+                  "fees=", s["fees_paid"],
+                  "turnover=", s["turnover_fraction"],
+                  "alpha_matched=", s["alpha_vs_capital_matched_equal_weight"],
+                  "alpha_btc=", s["alpha_vs_btc_buy_hold"],
+                  "verdict=", s["verdict"],
+              )
+          PY
+
+      - name: Verify broad research-only boundary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("historical-evidence/broad-21-three-year-cost-matrix.json").read_text())
+          assert payload["research_only"] is True
+          assert payload["strategy_promotion_allowed"] is False
+          for scenario in payload["scenarios"].values():
+              assert scenario["summary"]["verdict"] == "PROFITABILITY_NOT_PROVEN"
+          PY
+
+      - name: Upload broad-universe evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: broad-historical-strategy-evidence-${{ github.run_id }}
+          path: historical-evidence/broad-21-three-year-cost-matrix.json
+          if-no-files-found: error
+          retention-days: 30
