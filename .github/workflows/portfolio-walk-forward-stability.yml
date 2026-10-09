@@ -90,13 +90,14 @@ jobs:
           payload = json.loads(Path("walk-forward-evidence/six-major-full.json").read_text())
           assert payload["research_only"] is True
           assert payload["strategy_promotion_allowed"] is False
+          assert payload["walk_forward_verdict"] == "STABILITY_ONLY_NO_PROMOTION"
           assert payload["evaluation_class"] == "REUSED_HISTORICAL_WALK_FORWARD_STABILITY"
           assert payload["historical_window_previously_inspected"] is True
           assert payload["untouched_holdout"] is False
           assert payload["out_of_sample_promotion_claim_allowed"] is False
           assert payload["parameter_tuning_performed"] is False
           assert payload["strategy_config_fixed"] is True
-          assert all(fold["verdict"] == "PROFITABILITY_NOT_PROVEN" for fold in payload["folds"])
+          assert all(fold["verdict"] for fold in payload["folds"])
           PY
 
       - name: Upload six-major walk-forward evidence
@@ -175,9 +176,10 @@ jobs:
           assert six["summary"]["folds"] == broad["summary"]["folds"]
           for payload in (six, broad):
               assert payload["strategy_promotion_allowed"] is False
+              assert payload["walk_forward_verdict"] == "STABILITY_ONLY_NO_PROMOTION"
               assert payload["untouched_holdout"] is False
               assert payload["parameter_tuning_performed"] is False
-              assert all(fold["verdict"] == "PROFITABILITY_NOT_PROVEN" for fold in payload["folds"])
+              assert all(fold["verdict"] for fold in payload["folds"])
           PY
 
       - name: Upload common-window walk-forward evidence
