@@ -43,6 +43,17 @@ jobs:
           python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
           python -m pip check
 
+      - name: Lint and compile walk-forward evidence surface
+        run: |
+          ruff check --output-format=github \
+            tools/historical_portfolio_walk_forward.py \
+            tools/historical_portfolio_evidence.py \
+            tests/test_historical_portfolio_walk_forward.py \
+            tests/test_historical_portfolio_evidence_tool.py
+          python -m compileall -q \
+            tools/historical_portfolio_walk_forward.py \
+            tools/historical_portfolio_evidence.py
+
       - name: Unit-test fixed-policy walk-forward semantics
         run: >-
           pytest -q
