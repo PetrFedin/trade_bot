@@ -7,9 +7,12 @@ on:
     paths:
       - 'app/strategy/**'
       - 'tools/historical_portfolio_evidence.py'
+      - 'tools/historical_portfolio_funding.py'
       - 'tools/historical_strategy_matrix.py'
       - 'tools/fetch_bybit_klines.py'
       - 'tests/test_historical_strategy_matrix.py'
+      - 'tests/test_historical_portfolio_funding.py'
+      - 'research/snapshots/bybit_funding_2023-10-09_2026-10-08/**'
       - 'docs/HISTORICAL_STRATEGY_EVIDENCE_V1.md'
       - 'docs/STRATEGY_EVIDENCE_LEARNING_LOG.md'
       - 'docs/ASTRA_INTEGRATION_MASTER_PLAN_2026-10-01.md'
@@ -43,7 +46,7 @@ jobs:
           python -m pip check
 
       - name: Unit-test historical matrix
-        run: pytest -q tests/test_historical_strategy_matrix.py tests/test_historical_strategy_evidence_v1.py tests/test_historical_portfolio_evidence_tool.py
+        run: pytest -q tests/test_historical_portfolio_funding.py tests/test_historical_strategy_matrix.py tests/test_historical_strategy_evidence_v1.py tests/test_historical_portfolio_evidence_tool.py
 
       - name: Verify committed three-year snapshot integrity
         run: |
@@ -90,6 +93,8 @@ jobs:
                   "return=", s["total_return"],
                   "max_dd=", s["max_drawdown_fraction"],
                   "pf=", s["profit_factor"],
+                  "funding=", (s["funding_cost_lower_bound"], s["funding_cost_upper_bound"]),
+                  "funding_adjusted=", (s["cost_adjusted_return_lower_bound"], s["cost_adjusted_return_upper_bound"]),
                   "alpha_matched=", s["alpha_vs_capital_matched_equal_weight"],
                   "alpha_btc=", s["alpha_vs_btc_buy_hold"],
                   "verdict=", s["verdict"],
@@ -106,6 +111,7 @@ jobs:
           assert payload["research_only"] is True
           assert payload["strategy_promotion_allowed"] is False
           for scenario in payload["scenarios"].values():
+              assert scenario["evidence"]["cost_coverage"]["funding_modelled"] is True
               assert scenario["summary"]["verdict"] == "PROFITABILITY_NOT_PROVEN"
           PY
 
@@ -170,14 +176,67 @@ jobs:
           print("common synchronized bars", len(common), min(common), max(common))
           PY
 
+      - name: Verify immutable funding snapshot integrity
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path("research/snapshots/bybit_funding_2023-10-09_2026-10-08")
+          symbols = (
+              "ADAUSDT", "APTUSDT", "ARBUSDT", "ATOMUSDT", "AVAXUSDT",
+              "BNBUSDT", "BTCUSDT", "DOGEUSDT", "DOTUSDT", "ETHUSDT",
+              "FILUSDT", "INJUSDT", "LINKUSDT", "LTCUSDT", "NEARUSDT",
+              "OPUSDT", "SOLUSDT", "SUIUSDT", "TONUSDT", "TRXUSDT", "XRPUSDT",
+          )
+          for symbol in symbols:
+              csv_path = root / f"{symbol}_funding.csv"
+              manifest = json.loads((root / f"{symbol}_funding.manifest.json").read_text())
+              assert manifest["endpoint"] == "https://api.bytick.com/v5/market/funding/history"
+              assert manifest["settlement_count"] > 0
+              assert hashlib.sha256(csv_path.read_bytes()).hexdigest() == manifest["dataset_sha256"]
+              print(symbol, manifest["settlement_count"], manifest["first_settlement"], manifest["last_settlement"])
+          PY
+
+      - name: Build same-window six-major control
+        run: |
+          mkdir -p historical-data-six-common
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+
+          source = Path("research/snapshots/bybit_3y_2023-10-09_2026-10-08")
+          target = Path("historical-data-six-common")
+          cutoff = "2026-06-15T00:00:00.000Z"
+          for symbol in ("BNBUSDT", "BTCUSDT", "DOGEUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"):
+              src = source / f"{symbol}_D.csv"
+              rows = list(csv.DictReader(src.open(encoding="utf-8")))
+              kept = [row for row in rows if row["timestamp"] <= cutoff]
+              assert len(kept) == 981
+              dst = target / src.name
+              with dst.open("w", newline="", encoding="utf-8") as handle:
+                  writer = csv.DictWriter(handle, fieldnames=rows[0].keys())
+                  writer.writeheader()
+                  writer.writerows(kept)
+              print(symbol, len(kept), kept[0]["timestamp"], kept[-1]["timestamp"])
+          PY
+
       - name: Run broad-universe shipped strategy cost matrix
         run: |
           mkdir -p historical-evidence
           python -m tools.historical_strategy_matrix \
             --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --funding-dir research/snapshots/bybit_funding_2023-10-09_2026-10-08 \
             --symbols ADAUSDT APTUSDT ARBUSDT ATOMUSDT AVAXUSDT BNBUSDT BTCUSDT DOGEUSDT DOTUSDT ETHUSDT FILUSDT INJUSDT LINKUSDT LTCUSDT NEARUSDT OPUSDT SOLUSDT SUIUSDT TONUSDT TRXUSDT XRPUSDT \
             --opening-cash 10000 \
             --output historical-evidence/broad-21-three-year-cost-matrix.json
+          python -m tools.historical_strategy_matrix \
+            --bars-dir historical-data-six-common \
+            --funding-dir research/snapshots/bybit_funding_2023-10-09_2026-10-08 \
+            --symbols BNBUSDT BTCUSDT DOGEUSDT ETHUSDT SOLUSDT XRPUSDT \
+            --opening-cash 10000 \
+            --output historical-evidence/six-major-broad-common-window-cost-matrix.json
 
       - name: Print broad-universe decision summary
         run: |
@@ -185,22 +244,27 @@ jobs:
           import json
           from pathlib import Path
 
-          payload = json.loads(Path("historical-evidence/broad-21-three-year-cost-matrix.json").read_text())
-          for scenario_id, scenario in payload["scenarios"].items():
-              s = scenario["summary"]
-              print(
-                  scenario_id,
-                  "return=", s["total_return"],
-                  "max_dd=", s["max_drawdown_fraction"],
-                  "pf=", s["profit_factor"],
-                  "trades=", s["closed_trade_count"],
-                  "win_rate=", s["win_rate"],
-                  "fees=", s["fees_paid"],
-                  "turnover=", s["turnover_fraction"],
-                  "alpha_matched=", s["alpha_vs_capital_matched_equal_weight"],
-                  "alpha_btc=", s["alpha_vs_btc_buy_hold"],
-                  "verdict=", s["verdict"],
-              )
+          for label, filename in (
+              ("broad21", "historical-evidence/broad-21-three-year-cost-matrix.json"),
+              ("six_common", "historical-evidence/six-major-broad-common-window-cost-matrix.json"),
+          ):
+              payload = json.loads(Path(filename).read_text())
+              for scenario_id, scenario in payload["scenarios"].items():
+                  s = scenario["summary"]
+                  print(
+                      label, scenario_id,
+                      "return=", s["total_return"],
+                      "funding=", (s["funding_cost_lower_bound"], s["funding_cost_upper_bound"]),
+                      "funding_adjusted=", (s["cost_adjusted_return_lower_bound"], s["cost_adjusted_return_upper_bound"]),
+                      "max_dd=", s["max_drawdown_fraction"],
+                      "pf=", s["profit_factor"],
+                      "trades=", s["closed_trade_count"],
+                      "win_rate=", s["win_rate"],
+                      "fees=", s["fees_paid"],
+                      "turnover=", s["turnover_fraction"],
+                      "alpha_matched=", s["alpha_vs_capital_matched_equal_weight"],
+                      "verdict=", s["verdict"],
+                  )
           PY
 
       - name: Verify broad research-only boundary
@@ -209,17 +273,24 @@ jobs:
           import json
           from pathlib import Path
 
-          payload = json.loads(Path("historical-evidence/broad-21-three-year-cost-matrix.json").read_text())
-          assert payload["research_only"] is True
-          assert payload["strategy_promotion_allowed"] is False
-          for scenario in payload["scenarios"].values():
-              assert scenario["summary"]["verdict"] == "PROFITABILITY_NOT_PROVEN"
+          for filename in (
+              "historical-evidence/broad-21-three-year-cost-matrix.json",
+              "historical-evidence/six-major-broad-common-window-cost-matrix.json",
+          ):
+              payload = json.loads(Path(filename).read_text())
+              assert payload["research_only"] is True
+              assert payload["strategy_promotion_allowed"] is False
+              for scenario in payload["scenarios"].values():
+                  assert scenario["evidence"]["cost_coverage"]["funding_modelled"] is True
+                  assert scenario["summary"]["verdict"] == "PROFITABILITY_NOT_PROVEN"
           PY
 
       - name: Upload broad-universe evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: broad-historical-strategy-evidence-${{ github.run_id }}
-          path: historical-evidence/broad-21-three-year-cost-matrix.json
+          path: |
+            historical-evidence/broad-21-three-year-cost-matrix.json
+            historical-evidence/six-major-broad-common-window-cost-matrix.json
           if-no-files-found: error
           retention-days: 30

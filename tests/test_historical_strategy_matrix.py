@@ -13,6 +13,10 @@ def test_summary_exposes_benchmark_relative_gap():
         "profit_factor": "1.2",
         "turnover_fraction": "4.0",
         "fees_paid": "25",
+        "funding_cost_lower_bound": None,
+        "funding_cost_upper_bound": None,
+        "cost_adjusted_return_lower_bound": None,
+        "cost_adjusted_return_upper_bound": None,
         "maximum_gross_exposure_fraction": "0.6",
         "symbols": ["BTCUSDT", "ETHUSDT"],
         "benchmarks": [

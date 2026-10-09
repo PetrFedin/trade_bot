@@ -1,0 +1,16 @@
+{
+  "category": "linear",
+  "dataset_sha256": "bd1d289eb54ef3e7130a874b7c09eb72b10a00fba486850e58de9cbbd9f5e937",
+  "endpoint": "https://api.bytick.com/v5/market/funding/history",
+  "first_settlement": "2023-10-09T00:00:00Z",
+  "last_settlement": "2026-10-09T00:00:00Z",
+  "limitations": "Official public venue endpoint. Funding intervals are inferred from actual settlement timestamps; no fixed 8h assumption is made. Venue history may be revised.",
+  "mean_rate": 6.907533292794163e-05,
+  "positive_share": 0.8263910003040438,
+  "requested_end": "2026-10-09T00:00:00Z",
+  "requested_start": "2023-10-09T00:00:00Z",
+  "schema_version": "bybit-funding-snapshot-v2",
+  "settlement_count": 3289,
+  "source_classification": "PUBLIC_VENUE_DATA_NON_AUTHORITATIVE",
+  "symbol": "BTCUSDT"
+}

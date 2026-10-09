@@ -1,0 +1,16 @@
+{
+  "category": "linear",
+  "dataset_sha256": "d58dab4fa563c69f3d37c7805ebc166068a2688ee41ced2d82e016d6d5a9e4f3",
+  "endpoint": "https://api.bytick.com/v5/market/funding/history",
+  "first_settlement": "2023-10-09T00:00:00Z",
+  "last_settlement": "2026-10-09T00:00:00Z",
+  "limitations": "Official public venue endpoint. Funding intervals are inferred from actual settlement timestamps; no fixed 8h assumption is made. Venue history may be revised.",
+  "mean_rate": 8.799858315597447e-05,
+  "positive_share": 0.8172696868349042,
+  "requested_end": "2026-10-09T00:00:00Z",
+  "requested_start": "2023-10-09T00:00:00Z",
+  "schema_version": "bybit-funding-snapshot-v2",
+  "settlement_count": 3289,
+  "source_classification": "PUBLIC_VENUE_DATA_NON_AUTHORITATIVE",
+  "symbol": "SUIUSDT"
+}

@@ -44,6 +44,16 @@ def _summary(payload: dict[str, object]) -> dict[str, object]:
     strategy_return = Decimal(payload["total_return"])
     matched = _benchmark_return(payload, "equal_weight_capital_matched")
     btc = _benchmark_return(payload, "btc_buy_hold") if "BTCUSDT" in payload["symbols"] else None
+    adjusted_lower = (
+        None
+        if payload["cost_adjusted_return_lower_bound"] is None
+        else Decimal(payload["cost_adjusted_return_lower_bound"])
+    )
+    adjusted_upper = (
+        None
+        if payload["cost_adjusted_return_upper_bound"] is None
+        else Decimal(payload["cost_adjusted_return_upper_bound"])
+    )
     return {
         "ending_equity": payload["ending_equity"],
         "total_return": payload["total_return"],
@@ -53,9 +63,19 @@ def _summary(payload: dict[str, object]) -> dict[str, object]:
         "profit_factor": payload["profit_factor"],
         "turnover_fraction": payload["turnover_fraction"],
         "fees_paid": payload["fees_paid"],
+        "funding_cost_lower_bound": payload["funding_cost_lower_bound"],
+        "funding_cost_upper_bound": payload["funding_cost_upper_bound"],
+        "cost_adjusted_return_lower_bound": payload["cost_adjusted_return_lower_bound"],
+        "cost_adjusted_return_upper_bound": payload["cost_adjusted_return_upper_bound"],
         "maximum_gross_exposure_fraction": payload["maximum_gross_exposure_fraction"],
         "equal_weight_capital_matched_return": str(matched),
         "alpha_vs_capital_matched_equal_weight": str(strategy_return - matched),
+        "funding_adjusted_alpha_vs_capital_matched_lower_bound": (
+            None if adjusted_lower is None else str(adjusted_lower - matched)
+        ),
+        "funding_adjusted_alpha_vs_capital_matched_upper_bound": (
+            None if adjusted_upper is None else str(adjusted_upper - matched)
+        ),
         "btc_buy_hold_return": None if btc is None else str(btc),
         "alpha_vs_btc_buy_hold": None if btc is None else str(strategy_return - btc),
         "verdict": payload["verdict"],
@@ -68,6 +88,7 @@ def run_matrix(
     bars_dir: Path,
     symbols: tuple[str, ...],
     opening_cash: Decimal,
+    funding_dir: Path | None = None,
 ) -> dict[str, object]:
     scenarios: dict[str, object] = {}
     for scenario in SCENARIOS:
@@ -78,6 +99,7 @@ def run_matrix(
             fee_per_fill=scenario.fee_per_fill,
             fee_bps_per_fill=scenario.fee_bps_per_fill,
             slippage_bps=scenario.slippage_bps,
+            funding_dir=funding_dir,
         )
         scenarios[scenario.scenario_id] = {
             "costs": {
@@ -110,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bars-dir", type=Path, required=True)
     parser.add_argument("--symbols", nargs="+", required=True)
     parser.add_argument("--opening-cash", type=Decimal, default=Decimal("10000"))
+    parser.add_argument("--funding-dir", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
 
@@ -118,6 +141,7 @@ def main(argv: list[str] | None = None) -> int:
         bars_dir=args.bars_dir,
         symbols=symbols,
         opening_cash=args.opening_cash,
+        funding_dir=args.funding_dir,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     encoded = json.dumps(payload, indent=2, sort_keys=True)

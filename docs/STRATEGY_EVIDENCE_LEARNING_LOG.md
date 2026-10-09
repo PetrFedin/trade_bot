@@ -86,3 +86,26 @@ This result must not be “repaired” by tuning on the same window. The next te
 pre-declared broad 21-symbol replay, followed by funding-aware and walk-forward/final
 holdout evidence. Strategy changes, if any, must be treated as a new candidate with new
 untouched evidence.
+
+### 2023-10-09..2026-06-15 broad 21-symbol portfolio replay
+
+The original 21-symbol liquid-perpetual universe was replayed on the common synchronized
+window forced by actual listing history. TONUSDT ends on 2026-06-15, so the broad test
+uses 981 common daily bars and does not forward-fill, replace or silently drop TON.
+
+Pre-funding results on USD 10,000 opening cash:
+
+- legacy shadow: -11.7316%, max drawdown 20.9033%, profit factor 0.8587;
+- optimistic taker: -13.6571%, max drawdown 22.1107%, profit factor 0.8366;
+- conservative taker: -17.9709%, max drawdown 24.8050%, profit factor 0.7878;
+- stress taker: -26.4858%, max drawdown 29.9024%, profit factor 0.6893.
+
+The 60% capital-matched equal-weight benchmark returned +17.8020% and BTC buy-and-hold
+returned +132.7426% on the same broad synchronized window. The broad strategy is therefore
+negative in absolute terms and materially behind passive exposure under every cost scenario.
+
+This strengthens the earlier episode-level finding that the six-major result does not
+robustly generalize to the broader universe. A same-window six-major control is required
+before attributing the entire difference to universe selection rather than date-window
+composition, and has been added to the evidence pipeline. Exact settlement funding is the
+next cost layer; these pre-funding numbers remain retained and must not be overwritten.
