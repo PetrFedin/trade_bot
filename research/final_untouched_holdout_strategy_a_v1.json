@@ -1,0 +1,86 @@
+{
+  "schema_version": "astra-final-untouched-holdout-v1",
+  "research_only": true,
+  "strategy_promotion_allowed": false,
+  "holdout_role": "FROZEN_CONTROL_ONLY",
+  "candidate_id": "cross-sectional-selection-shadow-v1-strategy-a",
+  "candidate_source_sha": "e053bba6e69e900844806e5c61f53e56fe296c90",
+  "candidate_frozen_before_holdout": true,
+  "venue": "bybit",
+  "category": "linear",
+  "interval": "D",
+  "primary_universe": [
+    "BNBUSDT",
+    "BTCUSDT",
+    "DOGEUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "XRPUSDT"
+  ],
+  "holdout": {
+    "start": "2026-10-11T00:00:00Z",
+    "minimum_complete_daily_bars": 180,
+    "evaluation_not_before": "2027-04-09T00:00:00Z"
+  },
+  "candidate_config": {
+    "selector": {
+      "top_k": 2,
+      "fast_bars": 3,
+      "slow_bars": 8,
+      "momentum_lookback_bars": 3,
+      "volatility_bars": 5,
+      "minimum_momentum_return": "0.002",
+      "minimum_trend_strength": "0.001",
+      "maximum_realized_volatility": "0.03"
+    },
+    "portfolio": {
+      "opening_cash": "10000",
+      "maximum_gross_exposure_fraction": "0.60",
+      "new_position_target_equity_fraction": "0.29",
+      "allow_leverage": false,
+      "rebalance_existing_positions": false
+    },
+    "position_management": {
+      "stop_loss_fraction": "0.02",
+      "take_profit_fraction": "0.04",
+      "trailing_activation_fraction": "0.02",
+      "trailing_stop_fraction": "0.015",
+      "maximum_holding_bars": 10
+    },
+    "reentry_confirmation": {
+      "minimum_consecutive_eligible_bars": 2
+    },
+    "evidence_cost_policy": {
+      "fee_bps_per_fill": "8",
+      "slippage_bps": "5",
+      "funding_model": "TIMING_BOUNDS_ENTRY_EXECUTION_NOTIONAL_V1"
+    }
+  },
+  "preexisting_promotion_blockers": [
+    "BROAD_UNIVERSE_ROBUSTNESS_FAILED",
+    "TYPICAL_WALK_FORWARD_FOLD_NEGATIVE",
+    "CAPITAL_MATCHED_PASSIVE_BENCHMARK_UNDERPERFORMANCE"
+  ],
+  "promotion_semantics": {
+    "successful_holdout_cannot_clear_preexisting_blockers": true,
+    "successful_holdout_cannot_enable_live_trading": true,
+    "successful_holdout_cannot_mutate_trust_state": true
+  },
+  "allowed_before_evaluation": [
+    "collect_raw_daily_ohlcv",
+    "collect_raw_funding_settlements",
+    "validate_timestamp_continuity",
+    "hash_lock_raw_data",
+    "record_data_quality_failures"
+  ],
+  "prohibited_before_evaluation": [
+    "compute_strategy_pnl",
+    "compute_strategy_fold_scores",
+    "compute_benchmark_relative_performance",
+    "inspect_strategy_outcome_metrics",
+    "tune_signal_parameters",
+    "tune_exit_parameters",
+    "tune_position_sizing",
+    "change_universe_and_reuse_holdout_claim"
+  ]
+}
