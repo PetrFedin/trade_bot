@@ -135,6 +135,7 @@ def build_evidence(
     fee_bps_per_fill: Decimal,
     slippage_bps: Decimal,
     funding_dir: Path | None = None,
+    first_execution_index: int | None = None,
 ) -> dict[str, object]:
     if tuple(sorted(set(symbols))) != symbols:
         raise ValueError("symbols must be unique and canonically sorted")
@@ -164,7 +165,11 @@ def build_evidence(
         if bar.timestamp in set(timeline)
     ]
     selector = CrossSectionalSelector(top_k=2)
-    first_execution_index = selector.signal_config.minimum_history_bars
+    effective_first_execution_index = (
+        selector.signal_config.minimum_history_bars
+        if first_execution_index is None
+        else first_execution_index
+    )
     policy = CrossSectionalPortfolioPolicy(
         opening_cash=opening_cash,
         fee_per_fill=fee_per_fill,
@@ -180,7 +185,7 @@ def build_evidence(
         reentry_policy=ReentryConfirmationPolicy(
             minimum_consecutive_eligible_bars=2
         ),
-    ).run(bars)
+    ).run(bars, first_execution_index=effective_first_execution_index)
 
     funding_open_positions: tuple[FundingOpenPosition, ...] = ()
     if funding_schedules is not None:
@@ -275,7 +280,7 @@ def build_evidence(
         loaded=loaded,
         timeline=timeline,
         symbols=symbols,
-        first_execution_index=first_execution_index,
+        first_execution_index=effective_first_execution_index,
         capital_fraction=Decimal("0.60"),
     )
     evidence = build_historical_strategy_evidence(
@@ -284,7 +289,7 @@ def build_evidence(
         strategy_config=strategy_config,
         dataset_id=dataset_id,
         dataset_sha256=dataset_sha256,
-        start=timeline[first_execution_index].isoformat(),
+        start=timeline[effective_first_execution_index].isoformat(),
         end=timeline[-1].isoformat(),
         symbols=symbols,
         cost_coverage=HistoricalCostCoverageV1(
@@ -317,6 +322,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fee-bps-per-fill", type=Decimal, default=Decimal("8"))
     parser.add_argument("--slippage-bps", type=Decimal, default=Decimal("5"))
     parser.add_argument("--funding-dir", type=Path)
+    parser.add_argument("--first-execution-index", type=int)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
 
@@ -328,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
         fee_bps_per_fill=args.fee_bps_per_fill,
         slippage_bps=args.slippage_bps,
         funding_dir=args.funding_dir,
+        first_execution_index=args.first_execution_index,
     )
     encoded = json.dumps(payload, indent=2, sort_keys=True)
     print(encoded)
