@@ -110,6 +110,10 @@ def run_entry_forensics(
             "same_bar_exits": sum(t.holding_bars == 0 for t in subset),
             "net_closed_pnl_before_funding": str(pnl),
             "early_exit_fraction": str(Decimal(len(early[key])) / Decimal(len(subset))),
+            "ambiguous_intrabar_exits": sum(
+                t.ambiguous_intrabar_exit for t in subset
+            ),
+            "gap_through_stops": sum(t.gap_through_stop for t in subset),
         }
     source_sha = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
                   for path in paths}
@@ -136,6 +140,20 @@ def run_entry_forensics(
             "same_bar_exits": sum(t.holding_bars == 0 for t in trades),
             "next_bar_exits": sum(t.holding_bars == 1 for t in trades),
             "early_exits": sum(t.holding_bars <= 1 for t in trades),
+            "intrabar_ambiguous_exits": sum(
+                t.ambiguous_intrabar_exit for t in trades
+            ),
+            "gap_through_protective_stops": sum(
+                t.gap_through_stop for t in trades
+            ),
+            "same_bar_ambiguous_exits": sum(
+                t.holding_bars == 0 and t.ambiguous_intrabar_exit
+                for t in trades
+            ),
+            "same_bar_gap_through_stops": sum(
+                t.holding_bars == 0 and t.gap_through_stop
+                for t in trades
+            ),
             "closed_trade_net_pnl": str(sum((t.net_pnl for t in trades), Decimal("0"))),
             "portfolio_pnl_including_open_positions": str(result.total_pnl),
             "by_prior_regime": summary,
@@ -148,6 +166,8 @@ def run_entry_forensics(
             "Execution-bar range is post-entry and forbidden as predictor",
             "Closed-trade PnL excludes unclosed positions; funding not allocated",
             "Daily OHLC cannot reconstruct stop/target intrabar ordering",
+            "Ambiguous stop/target bars are conservatively charged stop-side fills",
+            "Gap-through-stop counts flag execution uncertainty; not a price impact model",
             "No candidate strategy or untouched holdout has been tested",
         ],
     }
