@@ -2,7 +2,7 @@
 import csv
 import hashlib
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -14,7 +14,7 @@ from tools.intraday_evidence_admission import (
 
 def fixture(tmp_path, *, gap=False):
     path = tmp_path / "BTCUSDT_60m.csv"
-    start = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    start = datetime(2026, 10, 1, tzinfo=UTC)
     with path.open("w", newline="") as fp:
         out = csv.writer(fp)
         out.writerow(("timestamp", "open", "high", "low", "close", "volume"))
