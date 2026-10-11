@@ -2127,3 +2127,22 @@ Acceptance: adversarial zero-trade legacy success -> v2 failure with explicit
 reasons; no history -> failure; active/positive tests; no execution imports;
 separate exact-head CI before merging. Extend with frozen sample/regime/fee
 and true independent holdout qualification before any investor/live claims.
+## Entry/regime forensics (2026-10-12) — ADOPT research-only
+
+After 532 historical closed trades revealed 94% exits within one daily bar,
+separate `holding_bars == 0` from `holding_bars == 1`; neither should be
+silently presented as "first candle" without a precise clock definition.
+`tools/historical_entry_regime_forensics.py` replays the **unchanged**
+historical strategy from frozen Bybit CSVs. Each closed trade gets only
+prior-completed-bar entry predictors (20-bar mean high/low range, 20-bar
+momentum), plus separately labelled *post-entry* open gap/first-bar range.
+Fixed LOW/MID/HIGH descriptive volatility bins are not fitted thresholds.
+Regime partitions conserve counts; entry- and regime-conditional PnL is
+observational, not causal proof that a new entry filter earns more.
+
+Acceptance: matched baseline 256/276 closed trades on 6/21 symbols,
+unique CSV hashes, no current-bar feature in signal, zero broker activity,
+no auto-promotion, exact-head CI, negative findings saved append-only.
+Do not train Candidate Strategy B or optimize volatility cutoffs using a
+purported untouched 2026-10-11 holdout; use a newly frozen future period.
+Operational result remains PROFITABILITY_NOT_PROVEN.
