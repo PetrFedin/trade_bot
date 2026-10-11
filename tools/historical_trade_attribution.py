@@ -29,7 +29,12 @@ def _totals(trades: tuple[PortfolioTrade, ...]) -> dict[str, object]:
     slippage = sum((t.slippage_cost for t in trades), Decimal("0"))
     fees = sum((t.entry_fee + t.exit_fee for t in trades), Decimal("0"))
     net = sum((t.net_pnl for t in trades), Decimal("0"))
-    if gross - slippage - fees != net:
+    # Decimal's finite context can round differently when monetary sums are
+    # associated in another order. Tolerance is <= 1e-8 USD per closed trade:
+    # materially inconsistent cashflows must still fail closed.
+    discrepancy = abs((gross - slippage - fees) - net)
+    tolerance = Decimal("0.00000001") * max(1, len(trades))
+    if discrepancy > tolerance:
         raise ValueError("closed trade PnL accounting is inconsistent")
     return {
         "trades": len(trades),
