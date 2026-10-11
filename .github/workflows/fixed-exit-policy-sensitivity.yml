@@ -1,0 +1,130 @@
+name: fixed-exit-policy-sensitivity
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/historical_exit_policy_sensitivity.py'
+      - 'tools/historical_portfolio_evidence.py'
+      - 'tests/test_historical_exit_policy_sensitivity.py'
+      - 'tests/test_historical_portfolio_evidence_tool.py'
+      - '.github/workflows/fixed-exit-policy-sensitivity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fixed-exit-policy-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  six-major:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install frozen research dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Test fixed-policy and backward-compatible evidence contract
+        run: |
+          ruff check tools/historical_exit_policy_sensitivity.py tools/historical_portfolio_evidence.py tests/test_historical_exit_policy_sensitivity.py tests/test_historical_portfolio_evidence_tool.py
+          pytest -q tests/test_historical_exit_policy_sensitivity.py tests/test_historical_portfolio_evidence_tool.py tests/test_historical_portfolio_funding.py
+      - name: Run six-major original conservative costs
+        run: |
+          mkdir -p sensitivity
+          python -m tools.historical_exit_policy_sensitivity \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --funding-dir research/snapshots/bybit_funding_2023-10-09_2026-10-08 \
+            --symbols BNBUSDT BTCUSDT DOGEUSDT ETHUSDT SOLUSDT XRPUSDT \
+            --fee-bps-per-fill 8 --slippage-bps 5 \
+            --output sensitivity/six-major-8fee5slip.json
+      - name: Run six-major stressed costs
+        run: |
+          python -m tools.historical_exit_policy_sensitivity \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --funding-dir research/snapshots/bybit_funding_2023-10-09_2026-10-08 \
+            --symbols BNBUSDT BTCUSDT DOGEUSDT ETHUSDT SOLUSDT XRPUSDT \
+            --fee-bps-per-fill 10 --slippage-bps 10 \
+            --output sensitivity/six-major-10fee10slip.json
+      - name: Assert baseline and no research promotion
+        run: |
+          python - <<'PY'
+          from decimal import Decimal
+          from pathlib import Path
+          import json
+          for path in sorted(Path("sensitivity").glob("*.json")):
+              data = json.loads(path.read_text())
+              assert data["research_only"] is True
+              assert data["strategy_promotion_allowed"] is False
+              assert data["no_winner_selected"] is True
+              assert len(data["arms"]) == 3
+              for arm in data["arms"].values():
+                  assert arm["verdict"] == "PROFITABILITY_NOT_PROVEN"
+              baseline = data["arms"]["SHIPPED_STOP_2P"]
+              if path.name == "six-major-8fee5slip.json":
+                  expected = Decimal("0.007515525902184908204853186")
+                  assert abs(Decimal(baseline["total_return_before_funding"]) - expected) < Decimal("0.0000001")
+              print(path.name, json.dumps(data["arms"], sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: six-major-exit-sensitivity-${{ github.run_id }}
+          path: sensitivity/*.json
+          if-no-files-found: error
+          retention-days: 30
+
+  broad-21:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install frozen research dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Run broad-21 common-window conservative costs
+        run: |
+          mkdir -p sensitivity
+          python -m tools.historical_exit_policy_sensitivity \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --funding-dir research/snapshots/bybit_funding_2023-10-09_2026-10-08 \
+            --symbols ADAUSDT APTUSDT ARBUSDT ATOMUSDT AVAXUSDT BNBUSDT BTCUSDT DOGEUSDT DOTUSDT ETHUSDT FILUSDT INJUSDT LINKUSDT LTCUSDT NEARUSDT OPUSDT SOLUSDT SUIUSDT TONUSDT TRXUSDT XRPUSDT \
+            --fee-bps-per-fill 8 --slippage-bps 5 \
+            --output sensitivity/broad21-8fee5slip.json
+      - name: Assert broad baseline and bounded funding without promotion
+        run: |
+          python - <<'PY'
+          from decimal import Decimal
+          from pathlib import Path
+          import json
+          data = json.loads(Path("sensitivity/broad21-8fee5slip.json").read_text())
+          assert data["research_only"] is True
+          assert data["strategy_promotion_allowed"] is False
+          assert len(data["symbols"]) == 21
+          assert len(data["arms"]) == 3
+          for arm in data["arms"].values():
+              assert arm["verdict"] == "PROFITABILITY_NOT_PROVEN"
+              assert Decimal(arm["funding_adjusted_lower"]) <= Decimal(arm["funding_adjusted_upper"])
+          baseline = data["arms"]["SHIPPED_STOP_2P"]
+          assert abs(Decimal(baseline["total_return_before_funding"]) - Decimal("-0.1797085857706086935251021902")) < Decimal("0.0000001")
+          print(json.dumps(data["arms"], sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: broad21-exit-sensitivity-${{ github.run_id }}
+          path: sensitivity/*.json
+          if-no-files-found: error
+          retention-days: 30
