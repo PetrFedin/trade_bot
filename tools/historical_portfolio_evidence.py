@@ -136,9 +136,14 @@ def build_evidence(
     slippage_bps: Decimal,
     funding_dir: Path | None = None,
     first_execution_index: int | None = None,
+    position_policy: PositionManagementPolicy | None = None,
 ) -> dict[str, object]:
     if tuple(sorted(set(symbols))) != symbols:
         raise ValueError("symbols must be unique and canonically sorted")
+    active_position_policy = (
+        PositionManagementPolicy() if position_policy is None else position_policy
+    )
+    active_position_policy.validate()
 
     paths = [bars_dir / f"{symbol}_D.csv" for symbol in symbols]
     missing = [str(path) for path in paths if not path.is_file()]
@@ -181,7 +186,7 @@ def build_evidence(
     result = CrossSectionalPortfolioBacktester(
         selector=selector,
         portfolio_policy=policy,
-        position_policy=PositionManagementPolicy(),
+        position_policy=active_position_policy,
         reentry_policy=ReentryConfirmationPolicy(
             minimum_consecutive_eligible_bars=2
         ),
@@ -261,11 +266,13 @@ def build_evidence(
             "new_position_target_equity_fraction": "0.29",
         },
         "position_management": {
-            "stop_loss_fraction": "0.02",
-            "take_profit_fraction": "0.04",
-            "trailing_activation_fraction": "0.02",
-            "trailing_stop_fraction": "0.015",
-            "maximum_holding_bars": 10,
+            "stop_loss_fraction": str(active_position_policy.stop_loss_fraction),
+            "take_profit_fraction": str(active_position_policy.take_profit_fraction),
+            "trailing_activation_fraction": str(
+                active_position_policy.trailing_activation_fraction
+            ),
+            "trailing_stop_fraction": str(active_position_policy.trailing_stop_fraction),
+            "maximum_holding_bars": active_position_policy.maximum_holding_bars,
         },
         "reentry_confirmation": {
             "minimum_consecutive_eligible_bars": 2,
