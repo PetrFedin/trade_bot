@@ -5,17 +5,13 @@ evidence objects are constructed in memory by the tests, so what is qualified is
 evaluator rather than the recoverability of the product. This runs the chain the issue
 asks for and derives its evidence from the operation instead of from a caller's claim.
 
-    read declared backup set -> pg_dump -> mutate the source -> restore into a fresh
-    isolated database -> read it back -> compare table digests
+    read declared backup set -> pg_dump -> create new isolated target ->
+    restore from artifact -> compare table digests
 
-The mutation between backup and restore is not incidental. Without it a drill can pass by
-reading the source twice, and a restore that silently did nothing would look identical to
-one that worked. Deleting rows after the backup is what forces the comparison to run
-against the artifact.
-
-The target is created fresh and named separately every run. It is never the source, and
-the tool refuses to proceed if it were: restoring over the database being backed up is
-the one mistake in this procedure that destroys what it was meant to protect.
+The source database is never mutated by this tool. Restores only CREATE a newly
+named isolated target and refuse to overwrite an existing database. The operator
+must use a disposable, non-routing qualification environment. Independent restores
+prove data recovery without deleting any source state.
 
 Digest comparison, snapshot shape and divergence reporting live in
 app/runtime/recovery_digest.py and hold no transport. This module owns the subprocesses
@@ -230,35 +226,28 @@ def take_backup(dsn: str, destination: Path) -> BackupArtifact:
     )
 
 
-def mutate_source(dsn: str, tables: tuple[str, ...]) -> int:
-    """Delete rows from the source after the backup, proving the restore uses the artifact.
+def _validate_target(source_dsn: str, admin_dsn: str, target_database: str) -> None:
+    """Fail closed unless a new, unambiguous isolated database is requested."""
+    import re
 
-    Append-only tables refuse deletion by design, which is itself correct: those are the
-    ones a restore must reproduce exactly. Whatever can be deleted is deleted, and the
-    count is reported so a drill that mutated nothing cannot be mistaken for one that did.
-    """
-    removed = 0
-    present = existing_tables(dsn)
-    with _connect(dsn) as connection:
-        for table in tables:
-            if table not in present:
-                continue
-            try:
-                cursor = connection.execute(f'DELETE FROM "{table}"')
-                removed += cursor.rowcount or 0
-            except Exception:  # noqa: BLE001 - append-only guards are expected here
-                continue
-    return removed
+    if not re.fullmatch(r"astra_drill_[a-z0-9_]{8,64}", target_database):
+        raise DrillError("target name must match astra_drill_ plus 8-64 safe characters")
+    if target_database in {_database_of(source_dsn), _database_of(admin_dsn)}:
+        raise DrillError("target must differ from source and admin databases")
+    source, admin = urlsplit(source_dsn), urlsplit(admin_dsn)
+    if source.scheme not in {"postgresql", "postgres"} or admin.scheme not in {"postgresql", "postgres"}:
+        raise DrillError("PostgreSQL DSNs required")
+    if not source.hostname or source.hostname != admin.hostname or source.port != admin.port:
+        raise DrillError("source and admin must be on the same declared server")
 
 
 def restore(dsn_admin: str, target_database: str, artifact: Path) -> float:
-    """Create a fresh isolated database and restore the artifact into it."""
+    """Create only: refuse an existing destination instead of destroying it."""
     started = time.monotonic()
     with _connect(dsn_admin) as connection:
-        connection.execute(f'DROP DATABASE IF EXISTS "{target_database}"')
         connection.execute(f'CREATE DATABASE "{target_database}"')
     target_dsn = _dsn_with_database(dsn_admin, target_database)
-    _run(["pg_restore", "--no-owner", "--no-acl", "--dbname", target_dsn, str(artifact)])
+    _run(["pg_restore", "--exit-on-error", "--no-owner", "--no-acl", "--dbname", target_dsn, str(artifact)])
     return time.monotonic() - started
 
 
@@ -268,25 +257,22 @@ def run_drill(
     admin_dsn: str,
     target_database: str,
     environment: str = "drill",
-    mutate: bool = True,
+    mutate: bool = False,
     tables: tuple[str, ...] = BACKUP_SET,
 ) -> dict:
-    """Run the full chain and report what the restore reproduced."""
-    if _database_of(source_dsn) == target_database:
-        raise DrillError("the restore target must not be the database being backed up")
-
+    """Backup and verify an isolated restore; never mutate source data."""
+    if mutate:
+        raise DrillError("source mutation is forbidden")
+    _validate_target(source_dsn, admin_dsn, target_database)
     client_version, server_version = assert_client_is_compatible(source_dsn)
     source_before = read_snapshot(source_dsn, environment=environment, tables=tables)
     with tempfile.TemporaryDirectory() as workspace:
         artifact_path = Path(workspace) / "astra-drill.dump"
         artifact = take_backup(source_dsn, artifact_path)
-        deleted = mutate_source(source_dsn, tables) if mutate else 0
         restore_seconds = restore(admin_dsn, target_database, artifact_path)
-
     target_dsn = _dsn_with_database(admin_dsn, target_database)
     restored = read_snapshot(target_dsn, environment=f"{environment}-restored", tables=tables)
     comparison: RecoveryComparison = compare_snapshots(source_before, restored)
-
     return {
         "versions": {"pg_dump_major": client_version, "server_major": server_version},
         "backup": {
@@ -296,7 +282,7 @@ def run_drill(
             "postgres_version": artifact.postgres_version,
             "duration_seconds": round(artifact.duration_seconds, 3),
         },
-        "mutation": {"applied": mutate, "rows_deleted": deleted},
+        "mutation": {"applied": False, "rows_deleted": 0},
         "restore": {
             "target_database": target_database,
             "duration_seconds": round(restore_seconds, 3),
@@ -316,7 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--no-mutate",
         action="store_true",
-        help="skip deleting the source after backup; the drill then proves much less",
+        help="deprecated: the source is never mutated",
     )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
@@ -334,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
             args.source_dsn,
             admin_dsn=admin_dsn,
             target_database=args.target_database,
-            mutate=not args.no_mutate,
+            mutate=False,
         )
     except DrillError as error:
         print(f"DRILL_FAILED: {error}", file=sys.stderr)
@@ -349,7 +335,7 @@ def main(argv: list[str] | None = None) -> int:
         f"backup   : {report['backup']['size_bytes']} bytes in "
         f"{report['backup']['duration_seconds']}s at LSN {report['backup']['source_lsn']}"
     )
-    print(f"mutation : {report['mutation']['rows_deleted']} rows deleted from the source")
+    print("mutation : source immutable, no rows deleted")
     print(
         f"restore  : {report['restore']['target_database']} in "
         f"{report['restore']['duration_seconds']}s"
