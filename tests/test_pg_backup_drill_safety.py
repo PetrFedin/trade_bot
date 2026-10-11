@@ -68,3 +68,18 @@ def test_source_never_deleted_on_failed_drill() -> None:
         with pytest.raises(drill.DrillError, match="mismatch"):
             drill.run_drill(SOURCE, admin_dsn=ADMIN, target_database=TARGET)
     connect.assert_not_called()
+
+def test_json_mode_mismatch_exits_nonzero(capsys) -> None:
+    report = {"comparison": {"identical": False, "schema_matches": True, "divergences": []}}
+    with patch.object(drill, "run_drill", return_value=report):
+        result = drill.main(["--source-dsn", SOURCE, "--json"])
+    assert result == 1
+    assert '"identical": false' in capsys.readouterr().out
+
+
+def test_json_mode_schema_drift_exits_nonzero(capsys) -> None:
+    report = {"comparison": {"identical": True, "schema_matches": False, "divergences": []}}
+    with patch.object(drill, "run_drill", return_value=report):
+        result = drill.main(["--source-dsn", SOURCE, "--json"])
+    assert result == 1
+    assert '"schema_matches": false' in capsys.readouterr().out
