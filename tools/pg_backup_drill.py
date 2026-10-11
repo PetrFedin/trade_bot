@@ -326,11 +326,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"DRILL_FAILED: {error}", file=sys.stderr)
         return 1
 
+    comparison = report["comparison"]
+    passed = comparison["identical"] and comparison["schema_matches"]
     if args.json:
         print(json.dumps(report, indent=2))
-        return 0
+        return 0 if passed else 1
 
-    comparison = report["comparison"]
     print(
         f"backup   : {report['backup']['size_bytes']} bytes in "
         f"{report['backup']['duration_seconds']}s at LSN {report['backup']['source_lsn']}"
@@ -346,10 +347,10 @@ def main(argv: list[str] | None = None) -> int:
         f"schema matches: {comparison['schema_matches']}   "
         f"rows lost: {comparison['rows_lost']}"
     )
-    if comparison["identical"]:
-        print("RESULT: restored state is identical to the backup point")
+    if passed:
+        print("RESULT: restored state matches the source snapshot and server schema")
         return 0
-    print("RESULT: restored state diverged")
+    print("RESULT: restored data or server schema diverged")
     for item in comparison["divergences"]:
         print(
             f"  {item['table']:<44}{item['kind']:<22}"
