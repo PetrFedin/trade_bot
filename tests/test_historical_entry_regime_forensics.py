@@ -24,7 +24,9 @@ def test_frozen_replay_and_entry_regimes(tmp_path: Path) -> None:
     assert (payload["summary"]["same_bar_exits"] +
             payload["summary"]["next_bar_exits"] <=
             payload["summary"]["early_exits"])
-    assert sum(x["closed_trades"] for x in payload["summary"]["by_prior_regime"].values()) == len(payload["trades"])
+    assert sum(
+        x["closed_trades"] for x in payload["summary"]["by_prior_regime"].values()
+    ) == len(payload["trades"])
     for row in payload["trades"]:
         assert "prior_20_bar_mean_range_fraction" in row
         assert "entry_bar_range_fraction_post_entry" in row
