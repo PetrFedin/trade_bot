@@ -30,6 +30,9 @@ def test_frozen_replay_and_entry_regimes(tmp_path: Path) -> None:
     for row in payload["trades"]:
         assert "prior_20_bar_mean_range_fraction" in row
         assert "entry_bar_range_fraction_post_entry" in row
+        if not row["prior_20_bar_features_available"]:
+            assert row["prior_20_bar_mean_range_fraction"] is None
+            assert row["prior_volatility_regime"] == "INSUFFICIENT_HISTORY"
 
 
 def test_research_runner_makes_no_network_calls(tmp_path: Path) -> None:
