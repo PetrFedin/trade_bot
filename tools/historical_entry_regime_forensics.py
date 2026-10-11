@@ -40,7 +40,7 @@ def run_entry_forensics(
     for trade in trades:
         bars = synchronized[trade.symbol]
         index = lookup[trade.symbol][trade.entry_time]
-        if index < 21:
+        if index < 20:
             raise ValueError("trade entry lacks 20 completed bars")
         prior = bars[index - 1]
         history = bars[index - 20:index]
@@ -49,7 +49,7 @@ def run_entry_forensics(
         prior_volatility = sum(
             (bar.high - bar.low) / bar.close for bar in history
         ) / Decimal(len(history))
-        momentum = prior.close / bars[index - 21].close - Decimal("1")
+        momentum = prior.close / bars[index - 20].close - Decimal("1")
         gap = bars[index].open / prior.close - Decimal("1")
         entry_bar = bars[index]
         entry_range = (entry_bar.high - entry_bar.low) / entry_bar.open
