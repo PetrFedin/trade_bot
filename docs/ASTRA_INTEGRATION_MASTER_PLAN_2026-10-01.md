@@ -2017,3 +2017,33 @@ Before opening or materially extending an implementation PR:
 New assurance, qualification, ecosystem or commercial ideas should first be reconciled against this file so ASTRA evolves as one coherent system rather than as disconnected feature additions.
 
 This discipline does not authorise strategy promotion or live/mainnet trading.
+
+
+## Research diagnostics: historical trade-exit attribution v1 — ADOPT (2026-10-12)
+
+Implementation slice: `tools/historical_trade_attribution.py`, driven by the
+unchanged `CrossSectionalPortfolioBacktester`. It reports closed-trade gross
+PnL -> slippage -> entry/exit fees -> net PnL grouped by exit reason, symbol and
+holding-bar band. The report has SHA-256 source identities and explicit
+`REUSED_INSPECTED_HISTORY_DIAGNOSTIC_ONLY` classification.
+
+- The closed-trade PnL total is **not** the entire marked-to-market portfolio
+  return when positions remain open; do not pretend otherwise.
+- This diagnostic deliberately excludes funding, queue priority, partial fills,
+  market impact and execution latency; neither a positive gross bucket nor a
+  positive net bucket is proof of strategy edge.
+- Mandatory exact-head CI should rerun the original six-major full and broad-21
+  common-window snapshots, fail if trade PnL accounting is inconsistent, and
+  publish immutable per-run evidence artifacts.
+- This is explanation of the **current shipped strategy**, not an optimization
+  search or a change to strategy/risk/live authority.
+- Next ADAPT: add funding-bound by-trade attribution, slippage-by-regime
+  stress, per-symbol loss budgets and negative-case trend diagnostics; do not
+  auto-disable symbols merely because they lost on already inspected data.
+- Candidate exit changes require independent predeclared hypotheses, parallel
+  unchanged control, regime robustness, trading cost stress and a genuinely
+  untouched final holdout. No research-only metric can auto-promote strategy.
+
+Acceptance: deterministic summaries; exact closed-trade cost identity;
+per-group count and PnL conservation; absence of broker imports and routing;
+negative-result preservation and separate profitability qualification.
