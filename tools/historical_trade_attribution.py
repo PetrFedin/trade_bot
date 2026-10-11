@@ -52,12 +52,16 @@ def attribute_closed_trades(trades: tuple[PortfolioTrade, ...]) -> dict[str, obj
     for trade in trades:
         by_reason[trade.exit_reason.value].append(trade)
         by_symbol[trade.symbol].append(trade)
-        by_holding["0-1" if trade.holding_bars <= 1 else "2-3" if trade.holding_bars <= 3 else "4+"].append(trade)
+        band = ("0-1" if trade.holding_bars <= 1 else
+                "2-3" if trade.holding_bars <= 3 else "4+")
+        by_holding[band].append(trade)
     return {
         "total": _totals(trades),
         "by_exit_reason": {key: _totals(tuple(value)) for key, value in sorted(by_reason.items())},
         "by_symbol": {key: _totals(tuple(value)) for key, value in sorted(by_symbol.items())},
-        "by_holding_bars": {key: _totals(tuple(value)) for key, value in sorted(by_holding.items())},
+        "by_holding_bars": {
+            key: _totals(tuple(value)) for key, value in sorted(by_holding.items())
+        },
     }
 
 
@@ -102,7 +106,10 @@ def run_attribution(
         "source_sha256": dict(sorted(identity.items())),
         "start": timeline[0].isoformat(),
         "end": timeline[-1].isoformat(),
-        "cost_policy": {"fee_bps_per_fill": str(fee_bps_per_fill), "slippage_bps": str(slippage_bps)},
+        "cost_policy": {
+            "fee_bps_per_fill": str(fee_bps_per_fill),
+            "slippage_bps": str(slippage_bps),
+        },
         "portfolio": {
             "opening_cash": str(result.opening_cash),
             "ending_equity": str(result.ending_equity),
