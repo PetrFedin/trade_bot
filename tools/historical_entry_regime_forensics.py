@@ -40,24 +40,36 @@ def run_entry_forensics(
     for trade in trades:
         bars = synchronized[trade.symbol]
         index = lookup[trade.symbol][trade.entry_time]
-        if index < 20:
-            raise ValueError("trade entry lacks 20 completed bars")
+        # Some test fixtures and legitimate early-backtest entries have fewer
+        # than 20 completed bars. Keep ALL trades in the sample but do not
+        # mislabel a partial rolling window as a full 20-bar observation.
+        if index < 1:
+            raise ValueError("trade entry has no completed prior bar")
         prior = bars[index - 1]
-        history = bars[index - 20:index]
+        complete_history = index >= 20
+        history = bars[index - 20:index] if complete_history else ()
         if any(bar.timestamp >= trade.entry_time for bar in history):
             raise ValueError("entry features include non-completed bars")
-        prior_volatility = sum(
-            (bar.high - bar.low) / bar.close for bar in history
-        ) / Decimal(len(history))
-        momentum = prior.close / bars[index - 20].close - Decimal("1")
+        prior_volatility = (
+            sum((bar.high - bar.low) / bar.close for bar in history)
+            / Decimal(len(history))
+            if complete_history else None
+        )
+        momentum = (
+            prior.close / bars[index - 20].close - Decimal("1")
+            if complete_history else None
+        )
         gap = bars[index].open / prior.close - Decimal("1")
         entry_bar = bars[index]
         entry_range = (entry_bar.high - entry_bar.low) / entry_bar.open
-        volatility_bucket = _bucket(
-            prior_volatility, Decimal("0.025"), Decimal("0.055")
+        volatility_bucket = (
+            _bucket(prior_volatility, Decimal("0.025"), Decimal("0.055"))
+            if prior_volatility is not None else "INSUFFICIENT_HISTORY"
         )
-        trend_bucket = ("UP" if momentum > Decimal("0.03")
-                        else "DOWN" if momentum < Decimal("-0.03") else "FLAT")
+        trend_bucket = (
+            "UP" if momentum > Decimal("0.03")
+            else "DOWN" if momentum < Decimal("-0.03") else "FLAT"
+        ) if momentum is not None else "INSUFFICIENT_HISTORY"
         early_exit = trade.holding_bars <= 1
         same_bar_exit = trade.holding_bars == 0
         group_id = f"{volatility_bucket}:{trend_bucket}"
@@ -72,8 +84,14 @@ def run_entry_forensics(
             "holding_bars": trade.holding_bars,
             "same_bar_exit": same_bar_exit,
             "within_one_bar_exit": early_exit,
-            "prior_20_bar_mean_range_fraction": str(prior_volatility),
-            "prior_20_bar_momentum": str(momentum),
+            "completed_bars_before_entry": index,
+            "prior_20_bar_features_available": complete_history,
+            "prior_20_bar_mean_range_fraction": (
+                str(prior_volatility) if prior_volatility is not None else None
+            ),
+            "prior_20_bar_momentum": (
+                str(momentum) if momentum is not None else None
+            ),
             "entry_open_gap_vs_prior_close": str(gap),
             "entry_bar_range_fraction_post_entry": str(entry_range),
             "prior_volatility_regime": volatility_bucket,
@@ -112,6 +130,9 @@ def run_entry_forensics(
         },
         "summary": {
             "trades": len(trades),
+            "trades_with_insufficient_prior_history": sum(
+                not row["prior_20_bar_features_available"] for row in rows
+            ),
             "same_bar_exits": sum(t.holding_bars == 0 for t in trades),
             "next_bar_exits": sum(t.holding_bars == 1 for t in trades),
             "early_exits": sum(t.holding_bars <= 1 for t in trades),
@@ -122,6 +143,7 @@ def run_entry_forensics(
         "trades": rows,
         "limitations": [
             "Volatility ranges are fixed descriptive bins, not fitted signal thresholds",
+            "Early trades with fewer than 20 completed bars are retained but have null features",
             "Price-based realized range is a proxy, not order-book spread or ATR",
             "Execution-bar range is post-entry and forbidden as predictor",
             "Closed-trade PnL excludes unclosed positions; funding not allocated",
