@@ -2146,3 +2146,26 @@ no auto-promotion, exact-head CI, negative findings saved append-only.
 Do not train Candidate Strategy B or optimize volatility cutoffs using a
 purported untouched 2026-10-11 holdout; use a newly frozen future period.
 Operational result remains PROFITABILITY_NOT_PROVEN.
+
+
+## Intraday execution evidence admission (2026-10-12) — ADOPT, research only
+
+After PR #305, daily-bar collision and gap-through diagnostics are implemented,
+but the committed Bybit price archives cover only daily OHLCV (`*_D.csv`).
+No real 1m/5m/15m/60m instrument-level candles have been established in the
+canonical historical snapshot tree.
+
+Before any claim of intraday fill reconstruction, source a real timestamped
+intraday record and retain independent provenance, UTC timing, monotone bars,
+nonduplicate timestamps, source SHA-256 and per-day coverage verification.
+`tools/intraday_evidence_admission.py` is a **schema/integrity preflight** only:
+a self-declared provenance field is not an attestation of actual exchange origin;
+an operator must still verify source against upstream exchange/audit records.
+The test-only synthetic fixture is NOT market data or performance evidence.
+Missing, modified, incomplete or improperly timed files fail closed.
+
+Admission permits only further research; no OHLCV daily extrapolation should
+be relabelled as intraday verification. Next: replay same-entry-day 158/256
+and 179/276 events with authentic 1m/5m bars, fees, funding settlement,
+stop/take-profit ordering, gaps and slippage/queue assumptions. Preserve
+the original shipped strategy baseline; no live/demo strategy promotion.
