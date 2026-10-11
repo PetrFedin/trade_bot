@@ -66,12 +66,12 @@ def validate_intraday_fixture(
                 if last_ts is not None and ts <= last_ts:
                     raise IntradayAdmissionError("nonmonotonic or duplicated intraday timestamp")
                 last_ts = ts
-                o, h, l, c, v = (Decimal(row[field]) for field in
+                o, h, low, c, v = (Decimal(row[field]) for field in
                                   ("open", "high", "low", "close", "volume"))
-                if not all(x.is_finite() for x in (o, h, l, c, v)):
+                if not all(x.is_finite() for x in (o, h, low, c, v)):
                     raise IntradayAdmissionError("nonfinite OHLCV")
-                invalid = (min(o, h, l, c) <= 0 or v < 0
-                           or h < max(o, c, l) or l > min(o, c, h))
+                invalid = (min(o, h, low, c) <= 0 or v < 0
+                           or h < max(o, c, low) or low > min(o, c, h))
                 if invalid:
                     raise IntradayAdmissionError("invalid OHLCV bounds")
                 day = ts.date().isoformat()
