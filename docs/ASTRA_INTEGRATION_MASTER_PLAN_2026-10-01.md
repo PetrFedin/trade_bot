@@ -2110,3 +2110,20 @@ Next: confirm the reason for same-day hard-stop concentration using execution
 and bar-ambiguity tests; run regimes and capacity, then preregister genuinely
 uninspected data for Candidate B. Changes to live stops, leverage, capital,
 paper execution authority and trading permissions are prohibited from this study.
+
+
+## Non-vacuous Research Eligibility v2 — ADOPT, NON-PROMOTING (2026-10-12)
+
+Legacy v1 `WalkForwardQualifier` can intentionally mark zero-trade windows
+qualified, which cannot demonstrate actual tradable edge (issue #139).
+Keep frozen legacy evidence and tests unchanged. Add a distinct
+`ResearchEligibilityPolicyV2` requiring positive closed trade count,
+active OOS window coverage, positive mean return and excess return and bounded
+drawdown before labelling further research eligible.
+All v2 outcomes explicitly forbid runtime promotion and live trading;
+they do not replace immutable source/config/cost/hash qualification, fresh
+untouched holdout, independent review or operator deployment permissions.
+Acceptance: adversarial zero-trade legacy success -> v2 failure with explicit
+reasons; no history -> failure; active/positive tests; no execution imports;
+separate exact-head CI before merging. Extend with frozen sample/regime/fee
+and true independent holdout qualification before any investor/live claims.
