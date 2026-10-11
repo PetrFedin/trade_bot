@@ -295,3 +295,58 @@ artifacts if permanent audit evidence is needed.
 These results **strengthen** the existing `PROFITABILITY_NOT_PROVEN` verdict.
 They are evidence of where the current execution model loses money, not
 evidence that a different model would automatically make that money back.
+
+
+### 2026-10-12 — predeclared protective-stop sensitivity, fixed entry policy
+
+Source: successful `fixed-exit-policy-sensitivity` Actions run
+[38177515880](https://github.com/PetrFedin/trade_bot/actions/runs/38177515880)
+on exact research revision `fe8489382e11db4c4294f7aef0fba4ec23b596f4`.
+The existing historical `build_evidence` implementation reproduces shipped
+2% stop evidence byte-for-byte; alternative 3% and 4% protective stops have
+distinct strategy config SHA-256. All else unchanged: take-profit 4%,
+trailing activation 2%, trailing distance 1.5%, 10-bar time exit,
+2-symbol selection, confirmation, gross/entry exposure, $10,000 cash.
+All bars/funding inputs were already inspected. The results are not OOS.
+
+**Conservative taker: 8 bps/fill commission + 5 bps/side slippage**
+
+| Stop | Six-major full pre-funding | Six-major funding range | Broad-21 common pre-funding | Broad-21 funding range |
+|---|---:|---:|---:|---:|
+| shipped 2% | +0.7516% | -1.8611% .. +0.3193% | -17.9709% | -20.7441% .. -18.3279% |
+| 3% | +2.2416% | -0.6190% .. +1.5581% | -27.2530% | -29.9854% .. -27.6870% |
+| 4% | +1.1535% | -1.8239% .. +0.3518% | -31.8251% | -34.4962% .. -32.3157% |
+
+On broad-21, max drawdown rises from **24.8050%** at 2% stop to
+**32.7885%** at 3% stop and **39.8398%** at 4% stop.
+Trade counts: broad 276/276/274; six-major full 256/247/246.
+Wider stops change the path and losses, not just the commission line.
+
+**Six-major stressed taker: 10 bps/fill + 10 bps/side**
+
+| Stop | Pre-funding | Funding-adjusted range | Max drawdown |
+|---|---:|---:|---:|
+| 2% | -8.7346% | -11.2621% .. -9.1639% | 16.1405% |
+| 3% | -8.7817% | -11.5336% .. -9.4379% | 16.7369% |
+| 4% | -7.0070% | -9.9161% .. -7.8073% | 16.9096% |
+
+**Conclusions to retain**
+
+- **REJECT** blanket widening of the shipped protective stop as a cross-
+  universe profitability fix. On the broad universe it made outcomes much
+  worse, including more downside risk. Do not update live/shadow shipped stops.
+- **ADOPT** mandatory two-universe (same-window where possible), fee/slippage
+  stress and funding-bound checks before interpreting any exit-policy trial.
+- **ADAPT** the narrower 3% six-major nominal improvement as only an exploratory
+  hypothesis. The funding lower bound remains negative, the matched passive
+  benchmark returned +105.95% and the effect reverses on broad instruments.
+- **ADOPT** an explicit guard against choosing the highest historical arm and
+  relabelling it independent OOS or trading approval; all candidate arms remain
+  `PROFITABILITY_NOT_PROVEN` and promotion forbidden.
+- Next diagnostic: instrument-level volatility-relative entry, gap/stop timing,
+  regime clustering, selection churn, and independent untouched holdout after
+  a candidate is frozen. Stop-loss and tail safety remain required.
+
+These are **actual backtest observations under an OHLCV execution model**, not
+executed account fills. Queue, partial execution, depth/impact, mark-price
+funding, stop-order venue mechanics and exact intrabar path remain unproven.

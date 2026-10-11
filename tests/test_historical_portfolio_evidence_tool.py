@@ -95,3 +95,41 @@ def test_explicit_first_execution_index_preserves_warmup_only_history(
     )
 
     assert evidence["start"] == timeline[first_execution_index].isoformat()
+
+def test_explicit_default_exit_policy_preserves_existing_evidence_identity(tmp_path: Path) -> None:
+    from app.strategy.position_management import PositionManagementPolicy
+
+    _write_symbol_csvs(tmp_path)
+    kwargs = {
+        "bars_dir": tmp_path,
+        "symbols": ("AAPL", "MSFT", "NVDA"),
+        "opening_cash": Decimal("10000"),
+        "fee_per_fill": Decimal("0"),
+        "fee_bps_per_fill": Decimal("8"),
+        "slippage_bps": Decimal("5"),
+    }
+    original = build_evidence(**kwargs)
+    explicit = build_evidence(**kwargs, position_policy=PositionManagementPolicy())
+    assert original == explicit
+
+
+def test_changed_stop_alters_strategy_config_identity(tmp_path: Path) -> None:
+    from app.strategy.position_management import PositionManagementPolicy
+
+    _write_symbol_csvs(tmp_path)
+    kwargs = {
+        "bars_dir": tmp_path,
+        "symbols": ("AAPL", "MSFT", "NVDA"),
+        "opening_cash": Decimal("10000"),
+        "fee_per_fill": Decimal("0"),
+        "fee_bps_per_fill": Decimal("8"),
+        "slippage_bps": Decimal("5"),
+    }
+    baseline = build_evidence(**kwargs)
+    changed = build_evidence(
+        **kwargs,
+        position_policy=PositionManagementPolicy(stop_loss_fraction=Decimal("0.03")),
+    )
+    assert baseline["strategy_config_sha256"] != changed["strategy_config_sha256"]
+    assert baseline["dataset_sha256"] == changed["dataset_sha256"]
+    assert changed["verdict"] == StrategyProfitabilityVerdict.PROFITABILITY_NOT_PROVEN.value

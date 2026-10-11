@@ -2047,3 +2047,33 @@ holding-bar band. The report has SHA-256 source identities and explicit
 Acceptance: deterministic summaries; exact closed-trade cost identity;
 per-group count and PnL conservation; absence of broker imports and routing;
 negative-result preservation and separate profitability qualification.
+
+
+## Experimental exit-policy sensitivity v1 (2026-10-12) — ADAPT, research only
+
+Predeclared *illustrative* sensitivity arms on reused, previously inspected daily
+Bybit history: unchanged shipped long-only portfolio with 2% stop versus otherwise
+identical protective 3% and 4% stops. The 4% take-profit, 2% trailing activation,
+1.5% trailing stop, 10-bar time limit, selection, entry confirmation, 60% gross
+cap, 29% entry allocation and $10,000 initial equity remain unchanged.
+Protection is never disabled. Runs use conservative 8 bps/fill plus 5 bps/side
+slippage, funding timing upper/lower bounds, and six-major fee/slippage stress
+at 10/10 bps. Both six-major full and broad21 synchronized history are tested.
+
+Architecture boundary: optional frozen `PositionManagementPolicy` is injected
+into the existing research evidence builder. The emitted strategy configuration
+hash MUST change when stop policy changes. Default/no-option evidence MUST remain
+byte-for-byte identical to the preexisting shipped reference. Each arm preserves
+its own data/cost/strategy SHA-256 and the capital-matched passive benchmark.
+A positive historical variation is exploratory and does not override
+`PROFITABILITY_NOT_PROVEN`.
+
+Acceptance: three arms predeclared, no winner selected, baseline reproduction,
+independent cost stress, exact research-only CI, explicit negative outcomes,
+no broker/routing import, no strategy promotion. Funding remains a bounded
+settlement model without exact intrabar execution and account-statement proof.
+
+Next: confirm the reason for same-day hard-stop concentration using execution
+and bar-ambiguity tests; run regimes and capacity, then preregister genuinely
+uninspected data for Candidate B. Changes to live stops, leverage, capital,
+paper execution authority and trading permissions are prohibited from this study.
