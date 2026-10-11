@@ -350,3 +350,27 @@ Wider stops change the path and losses, not just the commission line.
 These are **actual backtest observations under an OHLCV execution model**, not
 executed account fills. Queue, partial execution, depth/impact, mark-price
 funding, stop-order venue mechanics and exact intrabar path remain unproven.
+
+
+### 2026-10-12 — completed-bar entry-regime forensics (REUSED HISTORY)
+
+Evidence: GitHub Actions #38180222040 on source commit
+`fb3337ae47f45dcc81d2c7e68143d763bf38aff2`.
+Exact shipped strategy, fees 8bps/fill, slippage 5bps/side.
+Closed trades before funding:
+
+- Six majors: 256 trades, 158 same-entry-bar exits, 83 next-bar exits,
+  241 exits within 0–1 daily bars. Nine trades lack complete 20-bar
+  prior history, preserved with explicit null features.
+- Broad21: 276 trades, 179 same-bar, 80 next-bar, 259 within
+  0–1 daily bars. Fifteen trades lack full prior 20-bar history.
+- Six-major fixed descriptive MID:UP prior regime: 127 trades,
+  -$1473.33 net closed PnL; broad HIGH:UP 71 trades, -$1067.16,
+  HIGH:FLAT 17 trades, -$412.79 and MID:UP 94 trades, -$373.11.
+- Features use only prior completed candles. Execution-bar range is
+  labelled post-entry; no point-in-time leakage into selection.
+- Study is observational and already inspected, NOT independent OOS.
+  Do not auto-filter these buckets, change live stops or lift permissions.
+- ADOPT: report same-bar separately from next-bar exits; ADAPT:
+  investigate late momentum chasing and stop execution order.
+  PROFITABILITY_NOT_PROVEN remains.
