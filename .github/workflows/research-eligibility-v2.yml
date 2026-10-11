@@ -1,0 +1,26 @@
+name: research-eligibility-v2
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/strategy/research_eligibility_v2.py'
+      - 'tests/test_research_eligibility_v2.py'
+      - '.github/workflows/research-eligibility-v2.yml'
+permissions:
+  contents: read
+jobs:
+  fail-closed-eligibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - run: python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+      - run: |
+          ruff check app/strategy/research_eligibility_v2.py tests/test_research_eligibility_v2.py
+          pytest -q tests/test_research_eligibility_v2.py tests/test_strategy_qualification.py
