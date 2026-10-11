@@ -1,0 +1,61 @@
+name: historical-entry-regime-forensics
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/historical_entry_regime_forensics.py'
+      - 'tools/historical_trade_attribution.py'
+      - 'tests/test_historical_entry_regime_forensics.py'
+      - '.github/workflows/historical-entry-regime-forensics.yml'
+permissions:
+  contents: read
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - run: python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+      - name: Verify deterministic diagnostic contracts
+        run: |
+          ruff check tools/historical_entry_regime_forensics.py tools/historical_trade_attribution.py tests/test_historical_entry_regime_forensics.py
+          pytest -q tests/test_historical_entry_regime_forensics.py tests/test_historical_trade_attribution.py
+      - name: Reproduce six-major entry regimes
+        run: |
+          mkdir -p evidence
+          python -m tools.historical_entry_regime_forensics \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --symbols BNBUSDT BTCUSDT DOGEUSDT ETHUSDT SOLUSDT XRPUSDT \
+            --output evidence/six-major-entries.json
+      - name: Reproduce broad21 common-window regimes
+        run: |
+          python -m tools.historical_entry_regime_forensics \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --symbols ADAUSDT APTUSDT ARBUSDT ATOMUSDT AVAXUSDT BNBUSDT BTCUSDT DOGEUSDT DOTUSDT ETHUSDT FILUSDT INJUSDT LINKUSDT LTCUSDT NEARUSDT OPUSDT SOLUSDT SUIUSDT TONUSDT TRXUSDT XRPUSDT \
+            --output evidence/broad21-entries.json
+      - name: Validate no optimistic claims and baseline trades
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path, expected in [(Path("evidence/six-major-entries.json"), 256), (Path("evidence/broad21-entries.json"), 276)]:
+              data = json.loads(path.read_text())
+              assert data["research_only"] is True
+              assert data["strategy_promotion_allowed"] is False
+              assert data["summary"]["trades"] == expected
+              assert sum(bucket["closed_trades"] for bucket in data["summary"]["by_prior_regime"].values()) == expected
+              assert data["summary"]["same_bar_exits"] + data["summary"]["next_bar_exits"] == data["summary"]["early_exits"]
+              print(path, data["summary"])
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: historical-entry-regime-${{ github.run_id }}
+          path: evidence/*.json
+          if-no-files-found: error
+          retention-days: 30
