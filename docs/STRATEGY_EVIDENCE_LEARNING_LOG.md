@@ -223,3 +223,75 @@ promotion claim is permitted.
 The next canonical gate is the preregistered final untouched holdout beginning
 2026-10-11T00:00:00Z for at least 180 complete daily bars. Already inspected history
 must not be recycled into that claim.
+
+
+### 2026-10-12 — shipped-policy closed-trade exit/cost attribution (REUSED HISTORY)
+
+Evidence: GitHub Actions `historical-trade-attribution` run
+[38176996459](https://github.com/PetrFedin/trade_bot/actions/runs/38176996459),
+exact passed code head `9512d366a34fd4a38f7905a64397a780b5bc3420`.
+Analysis used the existing committed snapshots, unchanged shipped 2-of-N
+cross-sectional strategy, USD 10,000 starting cash, 8 bps/fill taker fees and
+5 bps/side slippage. The source already was inspected, so evidence class is
+`REUSED_INSPECTED_HISTORY_DIAGNOSTIC_ONLY`, not untouched holdout.
+The source hashes and complete by-exit/by-symbol/by-holding results are retained
+in the run's uploaded JSON artifacts (retention policy: 30 days). Back up
+artifacts if permanent audit evidence is needed.
+
+**Six majors, 2023-10-09..2026-10-08 (256 completed trades)**
+
+- Closed-trade gross PnL **+$1,999.3287**; closed-trade fees **$1,184.1064**;
+  execution slippage **$740.0670**; net closed-trade PnL before funding
+  **+$75.1553** (portfolio ending equity $10,075.1553).
+- **241/256** closed trades held 0–1 daily bar (94.14%).
+- HARD_STOP: **119 exits**, gross **-$6,456.77**, net **-$7,344.89**.
+- TAKE_PROFIT: **62 exits**, net **+$6,884.83**.
+- TRAILING_STOP: **26 exits**, net **+$788.03**.
+- SELECTION_EXIT: **49 exits**, net **-$252.81**.
+- **17** ambiguous intrabar outcomes and **11** gap-through protective stops.
+- One-bar group net **+$117.35** despite gross **+$1,930.89**; the
+  total portfolio result remains economically weak and far behind passive
+  matched exposure. Funding-adjusted 6-major conservative range is still
+  **-1.8611% .. +0.3193%** from the earlier independent funding study.
+
+**Broad 21, synchronized 2023-10-09..2026-06-15 (276 completed trades)**
+
+- Closed-trade gross PnL **+$28.5178**; fees **$1,132.8182**;
+  slippage **$708.0114**; net closed-trade PnL before funding
+  **-$1,812.3118**. Portfolio-marked PnL (including final open positions)
+  **-$1,797.0859**: do NOT conflate closed-trade cash PnL with equity PnL.
+- **259/276** completed trades held 0–1 daily bar (93.84%).
+- HARD_STOP: **140 exits**, net **-$7,745.27**.
+- TAKE_PROFIT: **55 exits**, net **+$5,433.18**.
+- TRAILING_STOP: **19 exits**, net **+$575.52**.
+- SELECTION_EXIT: **62 exits**, net **-$75.75**.
+- **24** ambiguous intrabar outcomes and **8** gap-through protective stops.
+- One-bar trades combined gross **-$121.73**, net **-$1,851.90**.
+- Previously measured conservative funding-adjusted portfolio range remains
+  **-20.7441% .. -18.3279%**.
+
+**Conclusions and learning constraints**
+
+1. **ADOPT:** turn gross->slippage->fees->net attribution, exit-reason
+   conservation, one-bar frequency, source SHA and negative observations
+   into permanent recurring research checks. Never grade performance before
+   fee/slippage/funding coverage and capital-matched benchmarks.
+2. **ADAPT:** the high HARD_STOP loss is a *diagnostic concentration*, not proof
+   stops should be removed. Disabling protection on inspected history would be
+   hindsight bias. Investigate entry/stop volatility alignment, bar-level
+   ambiguity and adverse selection with parallel unchanged control.
+3. **ADAPT:** investigate selection churn and entry timing, but do not use
+   these 2023–2026 observations to auto-ban instruments or tune stops.
+4. **ADOPT:** analytical PnL rounding errors are checked with a bounded
+   micro-cent tolerance; material conservation failures still reject output.
+5. **CONDITIONAL:** any candidate exit-policy revision must be versioned as
+   a distinct research strategy with explicit cost, regimes, capacity,
+   funding and fresh untouched evidence. Do not mutate the shipped strategy,
+   live risk limits or promotion authority from these results.
+6. **NOT PROVEN:** no order-book execution, queue, partial fills, venue
+   rejections or exact intrabar funding cashflow. Observational attribution
+   cannot estimate the causal PnL impact of changing an exit.
+
+These results **strengthen** the existing `PROFITABILITY_NOT_PROVEN` verdict.
+They are evidence of where the current execution model loses money, not
+evidence that a different model would automatically make that money back.
