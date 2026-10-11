@@ -2017,3 +2017,37 @@ Before opening or materially extending an implementation PR:
 New assurance, qualification, ecosystem or commercial ideas should first be reconciled against this file so ASTRA evolves as one coherent system rather than as disconnected feature additions.
 
 This discipline does not authorise strategy promotion or live/mainnet trading.
+
+
+## P0 recovery drill source-immutability gate (2026-10-11) — ADOPT
+
+Source: review of `tools/pg_backup_drill.py` against issue #144, current main `e053bba6`.
+Legacy drill performed a post-backup DELETE against the source and an unconditional
+DROP DATABASE against the restore destination. Such a qualification actuator must
+never be pointed at production state.
+
+- Hard invariant: source is read-only for the entire drill, including failure paths.
+- Restore requires a newly named isolated `astra_drill_*` database; an existing
+  database must fail rather than be replaced.
+- Source/admin DSN identity and target naming must be validated before I/O.
+- The restored database is evidence only, never a routing runtime or live authority.
+- Recovery digest comparisons are insufficient to qualify semantic journal replay,
+  complete backup coverage, point-in-time consistency, RPO, encryption, retention,
+  crash recovery, or restored HALT/reconciliation-required state.
+- A consistent point-in-time snapshot across concurrent source writers must be
+  qualified separately; the current pre-dump read is not a PostgreSQL transaction
+  snapshot shared with pg_dump. This tool must not claim zero RPO or exact-PITR proof.
+- The current helper's admin DSN inherits source credentials for compatibility;
+  separate explicit non-routing administration identity, strong environment guard,
+  source-role privilege enforcement, and cleanup authority remain follow-on gates.
+- Acceptance: static source-mutation prevention, create-only target negative tests,
+  exact-head CI, isolated PostgreSQL integration with seeded journals,
+  actual restore/replay, fail-closed boot and source invariance after every failure.
+- Strategy research stays independent: the walk-forward record is
+  REUSED_HISTORICAL_WALK_FORWARD_STABILITY and PROFITABILITY_NOT_PROVEN. Next
+  experiments: turnover attribution, exits, regime/capacity sensitivity, then
+  preregistered untouched final holdout without tuning on inspected history.
+
+Sequencing: safety PR -> CI -> isolated integration drill -> full restore recovery
+qualification -> runtime operational gates -> independently qualified paper/demo.
+No automated live promotion is authorized.
