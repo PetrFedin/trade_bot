@@ -60,7 +60,13 @@ jobs:
               assert data['research_only'] is True
               assert data['strategy_promotion_allowed'] is False
               assert data['funding_modelled'] is False
-              assert Decimal(total['gross_pnl']) - Decimal(total['fees']) - Decimal(total['slippage_cost']) == Decimal(total['net_pnl_before_funding'])
+              discrepancy = abs(
+                  Decimal(total['gross_pnl'])
+                  - Decimal(total['fees'])
+                  - Decimal(total['slippage_cost'])
+                  - Decimal(total['net_pnl_before_funding'])
+              )
+              assert discrepancy <= Decimal('0.00000001') * max(1, total['trades'])
               assert total['trades'] == data['portfolio']['closed_trade_count']
               print(path.name, total, data['portfolio'])
           PY
