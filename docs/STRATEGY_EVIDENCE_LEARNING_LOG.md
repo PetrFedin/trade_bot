@@ -350,3 +350,45 @@ Wider stops change the path and losses, not just the commission line.
 These are **actual backtest observations under an OHLCV execution model**, not
 executed account fills. Queue, partial execution, depth/impact, mark-price
 funding, stop-order venue mechanics and exact intrabar path remain unproven.
+
+
+### 2026-10-12 — exact entry-bar timing and causal pre-entry regime forensics
+
+Evidence: CI [run #38180222040](https://github.com/PetrFedin/trade_bot/actions/runs/38180222040),
+exact head `fb3337ae47f45dcc81d2c7e68143d763bf38aff2`. The unchanged shipped
+strategy was replayed from the already-inspected hash-identified Bybit OHLCV
+snapshots, 8 bps/fill fee and 5 bps/side slippage, funding excluded from
+the per-trade decomposition. No parameter optimization or untouched OOS claim.
+
+- Six-major 256 closed trades: **158 same execution bar** (61.72%),
+  **83 following bar** (32.42%), **241 <=1 bar** (94.14%).
+  Nine early trades had insufficient 20 completed-bar context and are retained
+  with explicit null features and an `INSUFFICIENT_HISTORY` regime.
+- Broad21 276 closed trades: **179 same execution bar** (64.86%),
+  **80 following bar** (28.99%), **259 <=1 bar** (93.84%).
+  Fifteen early trades have insufficient history, not fabricated indicators.
+- Six-major `MID:UP` (fixed 20-bar mean high/low range bin, positive
+  20-bar momentum >3%) had **127 trades**, closed net PnL **-$1,473.33**
+  before funding. `MID:DOWN` had 17 trades, +$688.27.
+- Broad21 `HIGH:UP`: **71 trades**, **-$1,067.16**;
+  `HIGH:FLAT`: **17 trades**, **-$412.79**;
+  `MID:UP`: **94 trades**, **-$373.11**.
+  These are conditional subsets, not an independently tested entry filter.
+- All entry predictor features use completed prior bars only.
+  Execution-bar price range and the opening gap are explicitly labelled
+  post-entry observations and must not leak into earlier decisions.
+- Conservative same-bar stop/target ordering is a model choice; a daily OHLC
+  candle cannot prove exchange sequence. Same-bar closure need not mean
+  "wrong signal" without order-book and intraday replay.
+
+**ADOPT:** separate same-bar vs next-bar exits in every strategy QA report.
+**ADAPT:** investigate late momentum chasing, entry-day price excursion,
+stop/TP collision, false breakouts, selection turnover and instrument
+volatility using strictly point-in-time measurements, unchanged risk controls
+and same-window capital-matched baselines.
+**REJECT:** post-hoc automatic filtering of `MID:UP`, `HIGH:UP` or
+individual symbols based solely on these already-inspected outcomes.
+Before any Candidate Strategy B: preregister features, entry policy and
+loss budgets, preserve the current control, run fees/slippage/funding/
+capacity/regime stress, and freeze new truly untouched holdout.
+**PROFITABILITY_NOT_PROVEN** remains in force.
