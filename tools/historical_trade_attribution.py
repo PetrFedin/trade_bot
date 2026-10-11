@@ -70,6 +70,51 @@ def attribute_closed_trades(trades: tuple[PortfolioTrade, ...]) -> dict[str, obj
     }
 
 
+def run_shipped_portfolio(
+    *,
+    bars_dir: Path,
+    symbols: tuple[str, ...],
+    opening_cash: Decimal = Decimal("10000"),
+    fee_bps_per_fill: Decimal = Decimal("8"),
+    slippage_bps: Decimal = Decimal("5"),
+):
+    """Replay the exact frozen shipped strategy; return its synchronized bars.
+
+    The same single implementation is used by the original attribution and
+    the new entry-regime diagnostic to avoid silent portfolio-policy drift.
+    """
+    if not symbols or symbols != tuple(sorted(set(symbols))):
+        raise ValueError("symbols must be nonempty, unique and sorted")
+    paths = [bars_dir / f"{symbol}_D.csv" for symbol in symbols]
+    if any(not path.is_file() for path in paths):
+        raise ValueError("one or more historical datasets are missing")
+    loaded, timeline = _common_timestamps(paths)
+    selected_times = set(timeline)
+    synchronized = {
+        symbol: tuple(bar for bar in loaded[symbol] if bar.timestamp in selected_times)
+        for symbol in symbols
+    }
+    bars = [bar for symbol in symbols for bar in synchronized[symbol]]
+    selector = CrossSectionalSelector(top_k=2)
+    policy = CrossSectionalPortfolioPolicy(
+        opening_cash=opening_cash,
+        fee_per_fill=Decimal("0"),
+        fee_bps_per_fill=fee_bps_per_fill,
+        slippage_bps=slippage_bps,
+        maximum_gross_exposure_fraction=Decimal("0.60"),
+        new_position_target_equity_fraction=Decimal("0.29"),
+    )
+    result = CrossSectionalPortfolioBacktester(
+        selector=selector,
+        portfolio_policy=policy,
+        position_policy=PositionManagementPolicy(),
+        reentry_policy=ReentryConfirmationPolicy(
+            minimum_consecutive_eligible_bars=2,
+        ),
+    ).run(bars)
+    return result, synchronized, timeline, tuple(paths)
+
+
 def run_attribution(
     *,
     bars_dir: Path,
@@ -78,26 +123,13 @@ def run_attribution(
     fee_bps_per_fill: Decimal = Decimal("8"),
     slippage_bps: Decimal = Decimal("5"),
 ) -> dict[str, object]:
-    if not symbols or symbols != tuple(sorted(set(symbols))):
-        raise ValueError("symbols must be nonempty, unique and sorted")
-    paths = [bars_dir / f"{symbol}_D.csv" for symbol in symbols]
-    if any(not path.is_file() for path in paths):
-        raise ValueError("one or more historical datasets are missing")
-    loaded, timeline = _common_timestamps(paths)
-    selected_times = set(timeline)
-    bars = [bar for symbol in symbols for bar in loaded[symbol] if bar.timestamp in selected_times]
-    selector = CrossSectionalSelector(top_k=2)
-    policy = CrossSectionalPortfolioPolicy(
-        opening_cash=opening_cash, fee_per_fill=Decimal("0"),
-        fee_bps_per_fill=fee_bps_per_fill, slippage_bps=slippage_bps,
-        maximum_gross_exposure_fraction=Decimal("0.60"),
-        new_position_target_equity_fraction=Decimal("0.29"),
+    result, _synchronized, timeline, paths = run_shipped_portfolio(
+        bars_dir=bars_dir,
+        symbols=symbols,
+        opening_cash=opening_cash,
+        fee_bps_per_fill=fee_bps_per_fill,
+        slippage_bps=slippage_bps,
     )
-    result = CrossSectionalPortfolioBacktester(
-        selector=selector, portfolio_policy=policy,
-        position_policy=PositionManagementPolicy(),
-        reentry_policy=ReentryConfirmationPolicy(minimum_consecutive_eligible_bars=2),
-    ).run(bars)
     identity = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
     payload: dict[str, object] = {
         "schema_version": "astra-trade-attribution-research-v1",
