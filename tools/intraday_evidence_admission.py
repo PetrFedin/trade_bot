@@ -10,7 +10,7 @@ import argparse
 import csv
 import hashlib
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 
 
@@ -53,7 +53,8 @@ def validate_intraday_fixture(
         last_ts = None
         with path.open(newline="", encoding="utf-8") as stream:
             reader = csv.DictReader(stream)
-            if not {"timestamp", "open", "high", "low", "close", "volume"} <= set(reader.fieldnames or ()):
+            required = {"timestamp", "open", "high", "low", "close", "volume"}
+            if not required <= set(reader.fieldnames or ()):
                 raise IntradayAdmissionError("intraday CSV schema mismatch")
             from decimal import Decimal
             for row in reader:
@@ -69,7 +70,9 @@ def validate_intraday_fixture(
                                   ("open", "high", "low", "close", "volume"))
                 if not all(x.is_finite() for x in (o, h, l, c, v)):
                     raise IntradayAdmissionError("nonfinite OHLCV")
-                if min(o, h, l, c) <= 0 or v < 0 or h < max(o, c, l) or l > min(o, c, h):
+                invalid = (min(o, h, l, c) <= 0 or v < 0
+                           or h < max(o, c, l) or l > min(o, c, h))
+                if invalid:
                     raise IntradayAdmissionError("invalid OHLCV bounds")
                 day = ts.date().isoformat()
                 if day in rows_by_day:
@@ -79,7 +82,11 @@ def validate_intraday_fixture(
                 raise IntradayAdmissionError(
                     f"incomplete intraday coverage: {symbol} {day}"
                 )
-        report[symbol] = {"sha256": digest, "days": len(days), "interval_minutes": interval_minutes}
+        report[symbol] = {
+            "sha256": digest,
+            "days": len(days),
+            "interval_minutes": interval_minutes,
+        }
     return {
         "admitted_for_research_only": True,
         "strategy_promotion_allowed": False,
