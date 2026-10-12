@@ -12,7 +12,6 @@ import argparse
 import csv
 import hashlib
 import json
-from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -186,7 +185,7 @@ def inspect_cases(*, bars_dir: Path, cases_dir: Path) -> dict[str, object]:
                 - hypothetical_exit_fee
             )
         identity = hashlib.sha256(hourly_path.read_bytes()).hexdigest()
-        hashes[str(hourly_path)] = identity
+        hashes[f"{folder.name}/{hourly_path.name}"] = identity
         cases.append({
             "symbol": symbol,
             "entry_day": entry_date,
