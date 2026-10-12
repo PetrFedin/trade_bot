@@ -66,7 +66,4 @@ def test_five_minute_case_evidence_deterministic_and_non_promoting() -> None:
         assert case["five_minute_vs_hourly_ohlcv_reconciled"] is True
         assert case["exact_provider_fill_observed"] is False
         assert case["capital_redeployment_replayed"] is False
-        assert (
-            case["original_daily_net_before_funding"]
-            == case["original_daily_net_before_funding"]
-        )
+        assert Decimal(case["original_daily_net_before_funding"]).is_finite()
