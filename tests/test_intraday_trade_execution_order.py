@@ -57,6 +57,7 @@ def test_real_frozen_bybit_examples_reconcile_without_promotion() -> None:
     assert report["provider_authenticity_independently_verified"] is False
     assert report["original_closed_trade_count"] == 256
     assert len(report["cases"]) == 4
+    assert report["summary"]["daily_volume_precision_loss_cases"] >= 1
 
     cases = {(case["symbol"], case["exit_day"]): case for case in report["cases"]}
     assert cases["ETHUSDT", "2024-02-28"]["hourly"]["ordering"] == (
@@ -76,6 +77,9 @@ def test_real_frozen_bybit_examples_reconcile_without_promotion() -> None:
             > Decimal(case["entry_execution_price"])
         )
         assert len(case["source_sha256"]) == 64
+        assert Decimal(case["raw_daily_volume"]) == Decimal(
+            case["hourly_aggregate_volume"]
+        )
     assert len(report["evidence_sha256"]) == 64
 
 
