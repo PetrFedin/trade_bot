@@ -2218,3 +2218,59 @@ narrow evidence sample, NOT for full-universe intraday replay.
 Admission boundary: exact-head regression + research case tests + artifact
 hashes, append-only negative results, no broker/OMS/routing imports, no
 production authority changes. Preserve `PROFITABILITY_NOT_PROVEN`.
+
+## Capital-size historical participation and turnover diagnostics v1 — ADOPT (2026-10-13)
+
+Run the unchanged Strategy A six-major and broad-21 daily portfolio on immutable
+Bybit source bars, using **raw Decimal base-asset volume**, never legacy
+`OhlcvBar.volume` after `int(float(...))` truncation. Classify results
+`REUSED_INSPECTED_HISTORY_CAPACITY_PROXY_ONLY`: these are research
+constraints, not real order-book depth, historical fills or proven capacity.
+
+Frozen conservative baseline: USD 10,000, fee 8bps per fill, 5bps/side
+slippage; no parameter or stop-policy changes. For USD 100k/1m/10m,
+scale *required fill quantity* from the USD 10k control; do not rerun
+an order-book model that does not exist or claim the same slippage remains
+executable. Denominator is the entire day's base-unit volume; it is
+optimistic relative to actual instantaneous executable depth.
+
+Exact-head research workflow: `historical-capacity-raw-volume`
+(six-major and broad-21 jobs) with SHA identities, unchanged trade counts,
+lossless volume, negative/invalid raw-volume tests, day-specific
+participation percentiles, limit exceedances and JSON evidence.
+
+Initial six-major model, 256 closed trades and 512 fills:
+- total turnover 148.01x opening cash; +0.7516% return **before** funding;
+- at USD 1m max single-fill/day volume need 2.068%; p95 0.933%;
+  22 fills exceed 1% of the full-day volume;
+- at USD 10m max need 20.679%; p95 9.334%; 52 fills exceed 5%;
+  worst case BNBUSDT 2026-08-14.
+
+Initial broad-21 model, 276 closed trades, 553 fills (incl one final
+open-position buy), turnover 141.84x cash; -17.9709% before funding:
+- at USD 1m max need 14.454% of daily volume; p95 3.557%;
+  136 fills exceed 1%, 20 fills exceed 5%;
+- at USD 10m maximum would require 144.536% of entire daily volume,
+  with p95 35.57% and 231 fills above 5%; the worst historical
+  participation event is a TONUSDT buy on 2024-01-01.
+  Such a scaled event could not fit into that day's **reported entire
+  volume** under the same venue/contract assumptions.
+
+Mandatory conclusions:
+1. ADOPT lossless raw base-volume and per-fill participation gating before
+   *any* capacity claim; preserve previously discovered truncation (Issue #308).
+2. REJECT linear PnL extrapolation or any "tradable at USD 1m/10m"
+   claim. Depth, spreads, fee tiers, queue, market impact, partial
+   execution and funding capital-sensitivity are not observed.
+3. ADAPT staged capital-size/slippage/liquidity stress and finer actual
+   fill-time market-depth data. A daily-volume ratio cannot prove
+   counterfactual strategy profit, effective capacity or execution quality.
+4. ADOPT separate immutable six vs broad negative findings and capital
+   concentration audit; do not optimize universe on these inspected data.
+5. Keep production trading/ARM/risk authority unchanged and
+   `PROFITABILITY_NOT_PROVEN`.
+
+Further research sequence: genuine intraday stop/target reconstruction
+-> bull/bear/sideways/high/low-vol regime diagnostics -> turnover and
+cost-attribution -> exit-policy diagnosis -> Candidate Strategy B with a
+new, independently preregistered untouched future holdout.
