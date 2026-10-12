@@ -1,0 +1,56 @@
+{
+  "schema_version": "astra-declared-intraday-provenance-v1",
+  "data_origin": "BYBIT_CONNECTOR_PUBLIC_KLINE",
+  "source_endpoint": "plugin://Bybit/get_kline",
+  "collector": "OpenAI-connected Bybit public get_kline tool; unauthenticated linear historical candles",
+  "collected_at_utc": "2026-10-12T22:45:29.723Z",
+  "user_requested_historical_research": true,
+  "category": "linear",
+  "interval_minutes": 60,
+  "evaluation_class": "HISTORICAL_INTRADAY_DATA_QUALITY_AND_EXECUTION_RECONSTRUCTION_ONLY",
+  "research_only": true,
+  "strategy_promotion_allowed": false,
+  "independently_provider_signed": false,
+  "provider_authenticity_independently_verified": false,
+  "window": {
+    "start_utc": "2025-07-01T00:00:00Z",
+    "end_exclusive_utc": "2025-07-05T00:00:00Z"
+  },
+  "days": [
+    "2025-07-01",
+    "2025-07-02",
+    "2025-07-03",
+    "2025-07-04"
+  ],
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+  ],
+  "observations_per_symbol": 96,
+  "request_parameters_by_symbol": {
+    "BTCUSDT": {
+      "symbol": "BTCUSDT",
+      "interval": "1h",
+      "category": "linear",
+      "limit": 120,
+      "endTime": 1751673600000
+    },
+    "ETHUSDT": {
+      "symbol": "ETHUSDT",
+      "interval": "1h",
+      "category": "linear",
+      "limit": 120,
+      "endTime": 1751673600000
+    }
+  },
+  "sha256": {
+    "BTCUSDT_60m.csv": "d7c3cd890114c8f8ee3bdac39467d6e8d495aaba3231dfdd6c59f7a50a55a405",
+    "ETHUSDT_60m.csv": "02065f28e0576c399615f92efd602900e836f218b1a7386b3d9c3ca5a9022c4a"
+  },
+  "limitations": [
+    "Retrieved through Bybit public connector, not directly authenticated exchange statement",
+    "No orderbook/queue/partial-fills/slippage evidence",
+    "Timestamp-ordered hourly OHLC cannot resolve within-hour stop/target ordering",
+    "Historical slice is previously inspected development data; not final untouched holdout"
+  ]
+}
