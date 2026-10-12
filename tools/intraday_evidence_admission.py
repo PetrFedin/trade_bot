@@ -35,15 +35,29 @@ def validate_intraday_fixture(
         raise IntradayAdmissionError("declared provenance is missing")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     origin = manifest.get("data_origin")
-    if origin not in ("BYBIT_V5_PUBLIC_KLINE", "TEST_FIXTURE_ONLY"):
+    expected_origins = {
+        "BYBIT_V5_PUBLIC_KLINE": "https://api.bybit.com/v5/market/kline",
+        "BYBIT_CONNECTOR_PUBLIC_KLINE": "plugin://Bybit/get_kline",
+        "TEST_FIXTURE_ONLY": None,
+    }
+    if origin not in expected_origins:
         raise IntradayAdmissionError("unsupported or fabricated provenance claim")
     fixture_only = origin == "TEST_FIXTURE_ONLY"
-    if not fixture_only and (
-        manifest.get("source_endpoint") != "https://api.bybit.com/v5/market/kline"
-        or not manifest.get("collector")
-        or not manifest.get("collected_at_utc")
-    ):
-        raise IntradayAdmissionError("real upstream provenance fields missing")
+    if not fixture_only:
+        if (
+            manifest.get("source_endpoint") != expected_origins[origin]
+            or not manifest.get("collector")
+            or not manifest.get("collected_at_utc")
+        ):
+            raise IntradayAdmissionError("real upstream provenance fields missing")
+        try:
+            collected_at = datetime.fromisoformat(
+                manifest["collected_at_utc"].replace("Z", "+00:00")
+            )
+        except (ValueError, TypeError) as exc:
+            raise IntradayAdmissionError("invalid provenance collection time") from exc
+        if collected_at.tzinfo is None or collected_at.utcoffset() != timedelta(0):
+            raise IntradayAdmissionError("provenance collection time must be UTC")
     if manifest.get("interval_minutes") != interval_minutes:
         raise IntradayAdmissionError("manifest interval mismatch")
     expected_per_day = 1440 // interval_minutes
