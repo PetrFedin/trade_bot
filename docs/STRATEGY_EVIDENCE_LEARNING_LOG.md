@@ -427,3 +427,42 @@ record unresolved cases explicitly, run finer 5m/1m stop/target ordering
 where available, then examine capacity/turnover and exit policy under
 matched capital. Keep frozen Strategy A as the control; do not train
 Candidate B on an allegedly untouched segment of already inspected data.
+
+### 2026-10-13 — lossless historical base-volume capital-participation proxy
+
+Source: unchanged frozen six-major and broad-21 daily Bybit historical
+portfolio replay on USD 10k, 8bps taker fees per fill and 5bps/side
+slippage; hourly source-fidelity Issue #308 is a prerequisite. Unlike
+the legacy loader that converts provider volume with `int(float(...))`,
+this research view uses **raw Decimal base-asset daily volume**. The
+whole day's traded base quantity is an optimistic denominator, NOT
+depth executable at the fill timestamp. No actual capital-size-dependent
+market-impact model exists.
+
+| Hypothetical capital | Six max per-fill/daily volume | Six p95 | Broad21 max | Broad21 p95 |
+|---|---:|---:|---:|---:|
+| USD 10,000 | 0.0207% | 0.0093% | 0.1445% | 0.0356% |
+| USD 100,000 | 0.2068% | 0.0933% | 1.4454% | 0.3557% |
+| USD 1,000,000 | 2.0679% | 0.9334% | 14.4536% | 3.5570% |
+| USD 10,000,000 | 20.6793% | 9.3337% | **144.5362%** | **35.5699%** |
+
+At USD 1m, six-major has 22 modelled fills above 1% of complete
+daily volume; broad21 has **136 above 1% and 20 above 5%**.
+At USD 10m, six has 52 above 5%; broad21 **231 above 5%**.
+Worst six: BNBUSDT SELL on 2026-08-14, 4.7883 BNB model
+on USD 10k versus raw daily volume 23154.93 BNB.
+Worst broad: TONUSDT BUY on 2024-01-01, 1214.30 TON model
+on USD 10k versus daily volume 840135.8 TON.
+
+The unchanged USD 10k backtests remain *before funding*
++0.7516% six-major (256 closed, 512 fills, 148.01x turnover) and
+-17.9709% broad21 (276 closed, 553 fills, 141.84x turnover).
+The larger-capital rows are **scaled quantity requirements only**,
+not separate portfolio backtests or simulated PnL.
+
+CONCLUSION: meaningful fill-time capacity is unproven; USD 10m broad
+mechanical scaling fails even a full-day volume bound in at least
+one modelled event. Static original slippage/fee inputs would be
+unjustified for these order sizes. Retain this as adverse evidence,
+not an argument for strategy edge or automatic symbol exclusion.
+`PROFITABILITY_NOT_PROVEN` persists.
