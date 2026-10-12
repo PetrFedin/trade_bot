@@ -25,6 +25,9 @@ BULL_RETURN = Decimal("0.10")
 BEAR_RETURN = Decimal("-0.10")
 HIGH_MEAN_ABS_DAILY_RETURN = Decimal("0.015")
 D = Decimal
+BASE_CAPITAL = Decimal("10000")
+FEE_PER_FILL_BPS = Decimal("8")
+SLIPPAGE_BPS = Decimal("5")
 
 
 def prior_completed_btc_regime(bars: tuple, execution_index: int) -> tuple[str, str]:
@@ -85,9 +88,9 @@ def run_market_regime_attribution(
     *,
     bars_dir: Path,
     symbols: tuple[str, ...],
-    opening_cash: Decimal = D("10000"),
-    fee_bps_per_fill: Decimal = D("8"),
-    slippage_bps: Decimal = D("5"),
+    opening_cash: Decimal = BASE_CAPITAL,
+    fee_bps_per_fill: Decimal = FEE_PER_FILL_BPS,
+    slippage_bps: Decimal = SLIPPAGE_BPS,
 ) -> dict:
     if "BTCUSDT" not in symbols:
         raise ValueError("BTCUSDT must be in universe as exogenous regime anchor")
@@ -207,7 +210,8 @@ def run_market_regime_attribution(
             for key, group in sorted(bucket_rows.items())
         },
         "limitations": [
-            "Attribution of marked daily portfolio PnL, not an alternative regime-filtered strategy",
+            "Attribution of marked daily portfolio PnL, "
+            "not an alternative regime-filtered strategy",
             "Prior BTC regime bins are descriptive fixed thresholds, not fitted market classifiers",
             "First execution days may be INSUFFICIENT_PRIOR_CONTEXT; preserved explicitly",
             "Original execution assumptions use daily OHLC and worst-case ambiguous exits",
