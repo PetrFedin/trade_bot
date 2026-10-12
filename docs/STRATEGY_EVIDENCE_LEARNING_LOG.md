@@ -466,3 +466,37 @@ one modelled event. Static original slippage/fee inputs would be
 unjustified for these order sizes. Retain this as adverse evidence,
 not an argument for strategy edge or automatic symbol exclusion.
 `PROFITABILITY_NOT_PROVEN` persists.
+
+### 2026-10-13 — five-minute price-path check, four already selected ambiguities
+
+Follow-up to real hourly trade-attribution PR #306. Four previously
+recorded ambiguous daily exits received real public Bybit 5-minute
+historical prices: **1,152 5m candles (288 per UTC day)**. All 96
+corresponding hours reconstruct the earlier frozen 60m O/H/L/C/volume
+exactly, the full dataset is hashed and accompanied by declared source
+provenance, and CI includes fail-closed missing/changed/misaligned
+source tests. Provider data is NOT independently signed evidence of
+individual executions.
+
+| Historical six-major trade | First 5m target touch (UTC) | First protection touch (UTC) | Observed first-touch order |
+|---|---|---|---|
+| ETH 2024-02-28 | 15:15 | 17:30 | Target first |
+| ETH 2024-03-04 | 23:05 | 00:45 | Protection first |
+| BNB 2024-04-12 | 05:50 | 17:25 | Target first |
+| BTC 2024-01-30 | 02:40 | 23:40 | Target first |
+
+Three target-first, one protective-first among the **four deliberately
+selected ambiguity cases**. This is NOT a 75% expected profitable-trade
+rate; the sample was selected from previously detected problematic trades.
+All reported conditional single-trade net amounts from hourly research
+remain sensitivity illustrations, not independent fills or a rerun of
+all subsequent portfolio positions. Within-5m paths remain unobserved,
+and the broad 21-symbol portfolio's 24 historical ambiguous bars
+are not covered by this four-case experiment.
+
+The test and CI guard forbids reclassifying this as uninspected
+out-of-sample performance, exit-policy promotion, broker evidence,
+or a reason to disable protective orders. The negative ETH 2024-03-04
+protective-first result is retained. Next: whole ambiguous-case census
+under a preregistered protocol, then conditional full portfolio replay
+under realistic costs/impact. `PROFITABILITY_NOT_PROVEN` persists.

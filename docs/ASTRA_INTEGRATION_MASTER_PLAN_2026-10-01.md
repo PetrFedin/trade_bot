@@ -2274,3 +2274,47 @@ Further research sequence: genuine intraday stop/target reconstruction
 -> bull/bear/sideways/high/low-vol regime diagnostics -> turnover and
 cost-attribution -> exit-policy diagnosis -> Candidate Strategy B with a
 new, independently preregistered untouched future holdout.
+
+## Real Bybit five-minute historical execution-order research — ADOPT (2026-10-13)
+
+Supersedes the earlier statement that only hourly evidence exists, for FOUR
+previously identified six-major Strategy A daily stop/target ambiguities.
+PR #310 supplies 1,152 continuous public Bybit 5m candles (288 for each of
+ETH 2024-02-28, ETH 2024-03-04, BNB 2024-04-12, BTC 2024-01-30).
+All 96 reconstructed hourly candles exactly agree with the separately
+hash-locked PR #306 hourly OHLCV records. The 5m provider archive and
+its manifests are separately hash-identified, but NOT independently
+exchange-signed.
+
+The unchanged model's actual entry fills, fees, ledger average cost,
+protective peak, stop and target govern this second resolution check.
+Hours are UTC, and the FIRST observed 5m bar threshold touch is recorded:
+
+- ETH 2024-02-28 target 15:15; protective 17:30: TARGET_FIRST_5M.
+- ETH 2024-03-04 protective 00:45; target 23:05: PROTECTIVE_FIRST_5M.
+- BNB 2024-04-12 target 05:50; protective 17:25: TARGET_FIRST_5M.
+- BTC 2024-01-30 target 02:40; protective 23:40: TARGET_FIRST_5M.
+
+The research gate checks timestamp completeness, raw 5m->60m OHLCV
+conservation, first-touch 5m order, source digests and explicit
+UNRESOLVED_SAME_FIVE_MINUTE_BAR on synthetic collision fixtures.
+A finer candle cannot resolve the sequence *inside* that same 5m candle;
+no order book, queue, slippage distribution or actual fill is observed.
+
+**ADOPT:** extend source coverage to ALL 17 six-major daily collision
+cases and all 24 broad-21 cases, not just the four deliberately selected
+examples. Preserve denominator, uncovered/missing venue data and negative
+results. Only after complete case-set pre-registration may proportions be
+reported descriptively; no causal alpha or whole-portfolio profit
+extrapolation from 3/4 selected cases.
+
+**ADAPT:** use even finer authentic 1m data for unresolved 5m collisions,
+and require exact fee/size/venue order/funding assumptions, robust
+cross-universe control and full path-dependent portfolio replay before
+making claims about improved exit policy.
+
+**REJECT:** automatic replacement of original daily-model PnL with
+conditional target-first trade PnL, implied guaranteed fills,
+live release or promotion from 5m bar ordering. Evidence class stays
+`REUSED_INSPECTED_HISTORY_FINE_EXECUTION_ORDER_DIAGNOSTIC_ONLY`.
+`PROFITABILITY_NOT_PROVEN` remains.
