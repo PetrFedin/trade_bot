@@ -25,3 +25,49 @@ jobs:
       - run: |
           ruff check tools/intraday_evidence_admission.py tests/test_intraday_evidence_admission.py tests/test_bybit_intraday_hourly_reconciliation.py
           pytest -q tests/test_intraday_evidence_admission.py tests/test_bybit_intraday_hourly_reconciliation.py
+      - name: Inspect actual historical strategy trades overlapping 1h sample
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from tools.historical_trade_attribution import run_shipped_portfolio
+
+          symbols = (
+              "BNBUSDT", "BTCUSDT", "DOGEUSDT",
+              "ETHUSDT", "SOLUSDT", "XRPUSDT",
+          )
+          result, _, _, _ = run_shipped_portfolio(
+              bars_dir=Path("research/snapshots/bybit_3y_2023-10-09_2026-10-08"),
+              symbols=symbols,
+          )
+          target = {"BTCUSDT", "ETHUSDT"}
+          trades = [
+              trade
+              for trade in result.closed_trades
+              if trade.symbol in target
+              and "2025-07-01" <= trade.entry_time.date().isoformat() <= "2025-07-04"
+          ]
+          print("REAL_HOURLY_OVERLAP_TRADES", len(trades))
+          for trade in trades:
+              print(
+                  "TRADE", trade.symbol, trade.entry_time.isoformat(),
+                  trade.exit_time.isoformat(), trade.exit_reason.value,
+                  "entry=", trade.entry_execution_price,
+                  "exit=", trade.exit_execution_price,
+                  "net_before_funding=", trade.net_pnl,
+                  "holding_bars=", trade.holding_bars,
+                  "ambiguous_daily=", trade.ambiguous_intrabar_exit,
+              )
+          unresolved = [
+              trade for trade in result.closed_trades
+              if trade.ambiguous_intrabar_exit
+          ]
+          print("SIX_MAJOR_DAILY_AMBIGUOUS", len(unresolved))
+          for trade in unresolved[:12]:
+              print(
+                  "DAILY_AMBIGUOUS_TO_RECONSTRUCT",
+                  trade.symbol, trade.entry_time.isoformat(),
+                  "entry=", trade.entry_execution_price,
+                  "exit=", trade.exit_time.isoformat(),
+                  "net_before_funding=", trade.net_pnl,
+              )
+          PY
