@@ -32,10 +32,18 @@ def validate_intraday_fixture(
         raise IntradayAdmissionError("missing fraction must be bounded")
     manifest_path = directory / "provenance.json"
     if not manifest_path.is_file():
-        raise IntradayAdmissionError("signed/declared provenance is missing")
+        raise IntradayAdmissionError("declared provenance is missing")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("data_origin") in (None, "", "SYNTHETIC", "DAILY_RESAMPLED"):
-        raise IntradayAdmissionError("real upstream data provenance required")
+    origin = manifest.get("data_origin")
+    if origin not in ("BYBIT_V5_PUBLIC_KLINE", "TEST_FIXTURE_ONLY"):
+        raise IntradayAdmissionError("unsupported or fabricated provenance claim")
+    fixture_only = origin == "TEST_FIXTURE_ONLY"
+    if not fixture_only and (
+        manifest.get("source_endpoint") != "https://api.bybit.com/v5/market/kline"
+        or not manifest.get("collector")
+        or not manifest.get("collected_at_utc")
+    ):
+        raise IntradayAdmissionError("real upstream provenance fields missing")
     if manifest.get("interval_minutes") != interval_minutes:
         raise IntradayAdmissionError("manifest interval mismatch")
     expected_per_day = 1440 // interval_minutes
@@ -88,10 +96,14 @@ def validate_intraday_fixture(
             "interval_minutes": interval_minutes,
         }
     return {
-        "admitted_for_research_only": True,
+        "schema_validated": True,
+        "admitted_for_research_only": not fixture_only,
+        "test_fixture_only": fixture_only,
+        "provider_authenticity_independently_verified": False,
+        "source_claim_is_self_declared": True,
         "strategy_promotion_allowed": False,
         "live_trading_allowed": False,
-        "source_provenance": manifest["data_origin"],
+        "source_provenance": origin,
         "instruments": report,
         "replay_completed": False,
         "profitability_proven": False,
