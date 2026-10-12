@@ -4,9 +4,12 @@ on:
     branches: [main]
     paths:
       - 'tools/intraday_evidence_admission.py'
+      - 'tools/intraday_trade_execution_order.py'
       - 'tests/test_intraday_evidence_admission.py'
+      - 'tests/test_intraday_trade_execution_order.py'
       - 'tests/test_bybit_intraday_hourly_reconciliation.py'
       - 'research/snapshots/bybit_intraday_2025-07-01_2025-07-04_60m/**'
+      - 'research/snapshots/bybit_intraday_trade_cases_60m/**'
       - '.github/workflows/intraday-evidence-admission.yml'
 permissions:
   contents: read
@@ -23,8 +26,8 @@ jobs:
           cache-dependency-path: requirements.lock
       - run: python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
       - run: |
-          ruff check tools/intraday_evidence_admission.py tests/test_intraday_evidence_admission.py tests/test_bybit_intraday_hourly_reconciliation.py
-          pytest -q tests/test_intraday_evidence_admission.py tests/test_bybit_intraday_hourly_reconciliation.py
+          ruff check tools/intraday_evidence_admission.py tools/intraday_trade_execution_order.py tests/test_intraday_evidence_admission.py tests/test_bybit_intraday_hourly_reconciliation.py tests/test_intraday_trade_execution_order.py
+          pytest -q tests/test_intraday_evidence_admission.py tests/test_bybit_intraday_hourly_reconciliation.py tests/test_intraday_trade_execution_order.py
       - name: Inspect actual historical strategy trades overlapping 1h sample
         run: |
           python - <<'PY'
@@ -71,3 +74,37 @@ jobs:
                   "net_before_funding=", trade.net_pnl,
               )
           PY
+
+      - name: Reconstruct pinned historical trades on actual 1h bars
+        run: |
+          mkdir -p intraday-evidence
+          python -m tools.intraday_trade_execution_order \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --cases-dir research/snapshots/bybit_intraday_trade_cases_60m \
+            --output intraday-evidence/strategy-a-hourly-cases.json
+
+      - name: Verify non-promoting intraday evidence boundary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = json.loads(Path("intraday-evidence/strategy-a-hourly-cases.json").read_text())
+          assert p["research_only"] is True
+          assert p["strategy_promotion_allowed"] is False
+          assert p["live_trading_allowed"] is False
+          assert p["untouched_holdout"] is False
+          assert p["provider_authenticity_independently_verified"] is False
+          assert p["original_closed_trade_count"] == 256
+          assert p["summary"]["cases"] == 4
+          assert p["summary"]["take_profit_first_hourly"] >= 2
+          assert all(case["conditional_net_not_portfolio_replay"] is True for case in p["cases"])
+          PY
+
+      - name: Upload inspected-history intraday case evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: intraday-research-cases-${{ github.run_id }}
+          path: intraday-evidence/strategy-a-hourly-cases.json
+          if-no-files-found: error
+          retention-days: 30
