@@ -1,0 +1,34 @@
+{
+  "schema_version": "astra-declared-intraday-provenance-v1",
+  "data_origin": "BYBIT_CONNECTOR_PUBLIC_KLINE",
+  "source_endpoint": "plugin://Bybit/get_kline",
+  "collector": "OpenAI-connected Bybit public get_kline tool",
+  "collected_at_utc": "2026-10-12T22:51:23.039Z",
+  "category": "linear",
+  "interval_minutes": 60,
+  "evaluation_class": "REUSED_INSPECTED_HISTORY_EXECUTION_ORDER_DIAGNOSTIC_ONLY",
+  "research_only": true,
+  "strategy_promotion_allowed": false,
+  "provider_authenticity_independently_verified": false,
+  "symbol": "ETHUSDT",
+  "days": [
+    "2024-02-28"
+  ],
+  "selection_reason": "Existing frozen Strategy A ambiguous daily exit; dates chosen before hourly reconstruction",
+  "existing_trade_entry_day": "2024-02-28",
+  "source_query": {
+    "symbol": "ETHUSDT",
+    "interval": "1h",
+    "category": "linear",
+    "limit": 48,
+    "endTime": 1709164800000
+  },
+  "sha256": {
+    "ETHUSDT_60m.csv": "edfdf6947b6c8fc484a8e3d23975c7fa49c0e8b5157121b038e96fce1d6c1d7c"
+  },
+  "limitations": [
+    "No exchange signed data attestation",
+    "Hourly OHLC cannot resolve same-hour ordering",
+    "No orderbook, queue, partial fill, latency, market impact or mark-price funding"
+  ]
+}

@@ -374,3 +374,56 @@ Closed trades before funding:
 - ADOPT: report same-bar separately from next-bar exits; ADAPT:
   investigate late momentum chasing and stop execution order.
   PROFITABILITY_NOT_PROVEN remains.
+
+### 2026-10-13 — genuine 60m Bybit evidence on four ambiguous Strategy A trades
+
+Source: public Bybit connector K-line responses, separately frozen UTC
+hourly CSVs with SHA-256 manifests under
+`research/snapshots/bybit_intraday_trade_cases_60m/`. Source declaration is
+not independent exchange cryptographic attestation. Research baseline:
+unchanged six-major Strategy A, USD 10,000 initial capital, conservative
+8 bps/fill fee and 5 bps/side slippage; inspected 2024 history only.
+
+Before trade diagnosis, hourly BTCUSDT and ETHUSDT 2025-07-01..07-04
+reconstructed the frozen daily O/H/L/C/volume on all 8 days, 192 hourly bars.
+That sample contained **zero actual Strategy A BTC/ETH entries** and must
+not be used to pretend historical trading has been tested on those dates.
+
+Detailed historical examples (time in UTC):
+
+| Pinned trade | Original daily-model trade net before funding | Hourly order | Conditional one-trade target-first net |
+|---|---:|---|---:|
+| ETHUSDT 2024-02-28 | -$63.51 | target hour 15, protection hour 17 | +$115.38 |
+| ETHUSDT 2024-03-04 | -$64.84 | protection hour 00, target hour 23 | Not applicable |
+| BNBUSDT 2024-04-12 | -$63.30 | target hour 05, protection hour 17 | +$115.01 |
+| BTCUSDT exit 2024-01-30 | +$45.28 | target hour 02, protection hour 23 | +$111.72 |
+
+The target-first figures are conditional single-trade calculations using
+the already chosen position quantity, ledger average cost including entry
+fees, exit slippage and exit fee. They are NOT independent venue fills,
+NOT the resulting portfolio equity, and NOT proof of a profitable strategy.
+One out of four examples is protective-first; the sample is deliberately
+selected from ambiguous daily bars and is statistically nonrepresentative.
+Full strategy profitability is still `PROFITABILITY_NOT_PROVEN`.
+
+The hourly case test passed 15 tests, including actual OHLCV reconciliation,
+timestamp completeness, source hashes, synthetic/real provenance separation,
+unresolved same-hour logic, unchanged trade reconstruction, and explicit
+non-promoting evidence. Remaining venue limits include 60m within-hour
+uncertainty, queue, order-book market impact, latency, fill gaps and exact
+funding for each trade.
+
+**New data-quality defect:** the legacy daily CSV loader casts decimal base
+volume to `int(float(...))` (and therefore loses fractions). All four
+sampled days exposed a loader-vs-raw volume precision difference, even
+though original hourly aggregate volume matches the raw daily provider CSV
+exactly. Existing price-only replay findings are not claimed invalid by
+this finding; however, *future capacity inference from the lossy in-memory
+volume is disallowed*. Use raw Decimal base volume for liquidity checks and
+qualify a lossless ingestion boundary separately.
+
+Next research: extend real intra-day sourcing to the entire ambiguity set,
+record unresolved cases explicitly, run finer 5m/1m stop/target ordering
+where available, then examine capacity/turnover and exit policy under
+matched capital. Keep frozen Strategy A as the control; do not train
+Candidate B on an allegedly untouched segment of already inspected data.
