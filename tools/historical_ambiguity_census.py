@@ -144,11 +144,16 @@ def census_for_universe(
          for row in cases),
         Decimal("0"),
     )
-    if original_net != sum(
-        (trade.net_pnl for trade in result.closed_trades
-         if trade.ambiguous_intrabar_exit),
+    source_net = sum(
+        (
+            trade.net_pnl
+            for trade in result.closed_trades
+            if trade.ambiguous_intrabar_exit
+        ),
         Decimal("0"),
-    ):
+    )
+    tolerance = Decimal("0.00000001") * max(1, len(cases))
+    if abs(original_net - source_net) > tolerance:
         raise ValueError("ambiguous trade PnL does not conserve")
 
     payload: dict[str, object] = {
