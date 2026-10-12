@@ -15,7 +15,6 @@ from pathlib import Path
 
 from tools.intraday_evidence_admission import validate_intraday_fixture
 
-
 HOURLY = Path("research/snapshots/bybit_intraday_2025-07-01_2025-07-04_60m")
 DAILY = Path("research/snapshots/bybit_3y_2023-10-09_2026-10-08")
 SYMBOLS = ("BTCUSDT", "ETHUSDT")
