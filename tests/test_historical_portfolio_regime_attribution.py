@@ -117,6 +117,8 @@ def test_real_shipped_portfolio_regime_buckets_conserve_marked_equity(
             + int(row["flat_days"]) == int(row["days"])
             for row in groups.values()
         )
-    assert report["definition"]["regime_at_execution_time_has_no_current_execution_bar_leakage"] is True
+    assert report["definition"][
+        "regime_at_execution_time_has_no_current_execution_bar_leakage"
+    ] is True
     assert len(report["data_sha256"]) == len(symbols)
     assert len(report["evidence_sha256"]) == 64
