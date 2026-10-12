@@ -2169,3 +2169,52 @@ be relabelled as intraday verification. Next: replay same-entry-day 158/256
 and 179/276 events with authentic 1m/5m bars, fees, funding settlement,
 stop/take-profit ordering, gaps and slippage/queue assumptions. Preserve
 the original shipped strategy baseline; no live/demo strategy promotion.
+
+## Real Bybit hourly case reconstruction and raw-volume integrity — ADOPT (2026-10-13)
+
+The preceding 2026-10-12 intraday admission section stated that no real intraday
+data was committed. That historical status is now superseded for a deliberately
+narrow evidence sample, NOT for full-universe intraday replay.
+
+- A hash-locked Bybit public connector dataset now contains 96 hourly candles
+  for BTCUSDT and ETHUSDT for each of 2025-07-01..2025-07-04; eight UTC daily
+  bars reconstruct exactly from hourly O/H/L/C/volume. No Strategy A BTC/ETH
+  entries overlapped that sample; it is data-quality evidence only.
+- Four additional historical daily ambiguity cases are hash-pinned separately:
+  ETHUSDT 2024-02-28, ETHUSDT 2024-03-04, BNBUSDT 2024-04-12 and
+  BTCUSDT 2024-01-30. They are selected from earlier observed six-major
+  backtester ambiguity cases, NOT from untouched future data.
+- The independent hourly reconstruction uses the exact unchanged
+  shipped-strategy `PortfolioTrade`, its actual entry fee and quantity,
+  the ledger average cost including entry fees, and prior completed-bar
+  peak when trailing protection could be active.
+- ETH 2024-02-28, BNB 2024-04-12 and BTC 2024-01-30 first reach the relevant
+  profit objective in an earlier UTC hour than the effective protective
+  level; ETH 2024-03-04 reaches protection first. Any residual same-hour
+  collision must remain `UNRESOLVED_SAME_HOUR`.
+- Conditional per-trade target-first PnL is explicitly not a new portfolio
+  replay: changed exits modify future buying power, selection, exposure,
+  funding and subsequent fills. Do not infer Strategy A profitability from
+  the 3/4 deliberately selected ambiguity cases.
+- Public Bybit connector responses are declared and SHA-locked, not
+  independently venue-signed. Synthetic fixtures are schema tests only,
+  and may not be admitted as actual market/trading evidence.
+- ADOPT: use real 5m/1m candles to investigate unresolved within-hour cases
+  and the full selected ambiguity population; account for fee tier, limit/
+  market fill semantics, funding timestamps, venue order behaviour and
+  the possibility of source revision. Never alter the frozen controls.
+- ADOPT (pre-capacity prerequisite): `tools/replay_episodes.py::load_bars`
+  currently converts provider base volume with `int(float(row["volume"]))`.
+  This discards fractional base-unit volume (e.g. BNBUSDT 2024-04-12
+  460417.9 -> 460417). A capacity/liquidity study MUST use exact raw
+  Decimal CSV volume and test raw-hourly/daily conservation; do not
+  silently treat lossy `OhlcvBar.volume` as exact depth.
+- ADAPT: relative exposure/turnover and by-symbol volume participation
+  can be reported as descriptive bounds; real historical order-book
+  capacity, queue, impact and executable price are still NOT PROVEN.
+- REJECT: treating a conditional target-first improvement as an
+  authorization to widen/remove stops or enable live trading.
+
+Admission boundary: exact-head regression + research case tests + artifact
+hashes, append-only negative results, no broker/OMS/routing imports, no
+production authority changes. Preserve `PROFITABILITY_NOT_PROVEN`.
