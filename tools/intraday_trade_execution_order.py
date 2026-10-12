@@ -26,7 +26,12 @@ def _hour_rows(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
-def _reconcile_daily(rows: list[dict[str, str]], daily_bar) -> None:
+def _reconcile_daily(
+    rows: list[dict[str, str]],
+    daily_bar,
+    *,
+    raw_daily_volume: Decimal,
+) -> None:
     if len(rows) != 24:
         raise ValueError("hourly case must cover one entire UTC daily bar")
     derived = (
@@ -38,7 +43,7 @@ def _reconcile_daily(rows: list[dict[str, str]], daily_bar) -> None:
     )
     expected = (
         daily_bar.open, daily_bar.high, daily_bar.low, daily_bar.close,
-        daily_bar.volume,
+        raw_daily_volume,
     )
     if derived != expected:
         raise ValueError("hourly case does not reconcile to frozen daily OHLCV")
@@ -127,7 +132,25 @@ def inspect_cases(*, bars_dir: Path, cases_dir: Path) -> dict[str, object]:
             bar.timestamp.date().isoformat(): bar
             for bar in synchronized[symbol]
         }
-        _reconcile_daily(hourly, frozen[day])
+        with (bars_dir / f"{symbol}_D.csv").open(
+            newline="", encoding="utf-8"
+        ) as handle:
+            raw_daily = next(
+                (
+                    row for row in csv.DictReader(handle)
+                    if row["timestamp"][:10] == day
+                ),
+                None,
+            )
+        if raw_daily is None:
+            raise ValueError("frozen raw daily candle missing")
+        raw_daily_volume = Decimal(raw_daily["volume"])
+        _reconcile_daily(
+            hourly, frozen[day], raw_daily_volume=raw_daily_volume
+        )
+        daily_volume_precision_lost_by_loader = (
+            Decimal(frozen[day].volume) != raw_daily_volume
+        )
         entry_date = manifest["existing_trade_entry_day"]
         match = [
             trade for trade in result.closed_trades
@@ -210,6 +233,13 @@ def inspect_cases(*, bars_dir: Path, cases_dir: Path) -> dict[str, object]:
             ),
             "conditional_net_not_portfolio_replay": True,
             "source_sha256": identity,
+            "raw_daily_volume": str(raw_daily_volume),
+            "hourly_aggregate_volume": str(
+                sum((Decimal(row["volume"]) for row in hourly), Decimal("0"))
+            ),
+            "daily_volume_precision_lost_by_legacy_loader": (
+                daily_volume_precision_lost_by_loader
+            ),
         })
 
     if not cases:
@@ -242,6 +272,10 @@ def inspect_cases(*, bars_dir: Path, cases_dir: Path) -> dict[str, object]:
             ),
             "same_hour_ambiguous": sum(
                 row["hourly"]["ordering"] == "UNRESOLVED_SAME_HOUR"
+                for row in cases
+            ),
+            "daily_volume_precision_loss_cases": sum(
+                row["daily_volume_precision_lost_by_legacy_loader"]
                 for row in cases
             ),
         },
