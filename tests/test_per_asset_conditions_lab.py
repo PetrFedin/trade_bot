@@ -6,7 +6,10 @@ import pytest
 
 from app.strategy.regime_momentum import RegimeAwareMomentumConfig
 from tools.per_asset_conditions_lab import (
-    SIX, SingleAssetResearchSelector, _signal_variant, run_experiments,
+    SIX,
+    SingleAssetResearchSelector,
+    _signal_variant,
+    run_experiments,
 )
 
 BASE = Path("research/snapshots/bybit_3y_2023-10-09_2026-10-08")
