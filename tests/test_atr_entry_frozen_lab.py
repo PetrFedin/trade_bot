@@ -136,9 +136,17 @@ def test_frozen_selection_cache_is_identical_to_regular_portfolio() -> None:
     replayed = _portfolio(selector=cached).run(bars)
     assert original == replayed
     with pytest.raises(ValueError, match="unregistered decision"):
-        cached.select(_universe(n=6))
+        cached.select([
+            *_series("BTCUSDT", drift=D("1.2"), n=6),
+            *_series("DOGEUSDT", drift=D("-0.4"), n=6),
+            *_series("ETHUSDT", drift=D("0.7"), n=6),
+        ])
     with pytest.raises(ValueError, match="incomplete or altered"):
-        cached.select(_universe(n=10))
+        cached.select([
+            *_series("BTCUSDT", drift=D("1.2"), n=7),
+            *_series("DOGEUSDT", drift=D("-0.4"), n=8),
+            *_series("ETHUSDT", drift=D("0.7"), n=8),
+        ])
 
 
 def test_entry_policy_is_frozen_across_later_market_bars() -> None:
