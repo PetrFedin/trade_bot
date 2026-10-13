@@ -127,3 +127,11 @@ Canonical implementation plan:
 - [docs/ASTRA_INTEGRATION_MASTER_PLAN_2026-10-01.md](./docs/ASTRA_INTEGRATION_MASTER_PLAN_2026-10-01.md)
 
 This file is a **planned implementation source**, not evidence that all listed capabilities are already live. Future full-roadmap implementation should cite this filename explicitly and follow its phases, authority boundaries, dependencies and acceptance gates.
+
+## Обязательные работы (0 ₽ новых расходов)
+
+Перед следующим проходом разработки прочитать [план обязательного внедрения и критерии приёмки](docs/REQUIRED_ZERO_COST_IMPLEMENTATION_2026-10-12.md). Он задаёт приоритеты и запрет новых затрат, **не заменяет** архитектурную спецификацию, инструкции AGENTS.md, обязательные CI/review или доказательства production readiness. Пункты плана считаются незавершёнными, пока нет проверки кода и точного релиза.
+
+## Обязательное внедрение без новых затрат
+
+Перед работой прочитать [план приоритетов, интеграций и доказательств](docs/REQUIRED_ZERO_COST_IMPLEMENTATION_2026-10-12.md). Дополнительный бюджет **0 ₽**; этот план не заменяет архитектуру, AGENTS.md, CI или обязательное ревью. Без доказательства работы кода/релиза пункт не считается выполненным.
