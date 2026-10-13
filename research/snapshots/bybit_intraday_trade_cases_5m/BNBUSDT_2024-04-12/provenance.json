@@ -1,0 +1,44 @@
+{
+  "schema_version": "astra-declared-intraday-provenance-v1",
+  "data_origin": "BYBIT_CONNECTOR_PUBLIC_KLINE",
+  "source_endpoint": "plugin://Bybit/get_kline",
+  "collector": "OpenAI-connected Bybit public get_kline tool; two overlapping 200-candle 5m queries",
+  "collected_at_utc": "2026-10-12T23:08:02.820Z",
+  "category": "linear",
+  "interval_minutes": 5,
+  "evaluation_class": "REUSED_INSPECTED_HISTORY_FINE_EXECUTION_ORDER_DIAGNOSTIC_ONLY",
+  "research_only": true,
+  "strategy_promotion_allowed": false,
+  "provider_authenticity_independently_verified": false,
+  "symbol": "BNBUSDT",
+  "days": [
+    "2024-04-12"
+  ],
+  "selection_reason": "Pre-existing pinned Strategy A ambiguous daily exit case; no post-hoc 5m strategy optimization",
+  "sha256": {
+    "BNBUSDT_5m.csv": "be03a5f1f180103a36f6f597301e25fddaf775c3039ba60a7aa62784a827c36a"
+  },
+  "source_queries": [
+    {
+      "symbol": "BNBUSDT",
+      "interval": "5m",
+      "category": "linear",
+      "limit": 200,
+      "endTime": 1712923200000
+    },
+    {
+      "symbol": "BNBUSDT",
+      "interval": "5m",
+      "category": "linear",
+      "limit": 200,
+      "endTime": 1712966400000
+    }
+  ],
+  "hourly_reference_sha256": "05ecae46d0ec41139d85b2f828f155c670d5521ed489da813383045127857020",
+  "cross_resolution_result": "288 continuous 5m bars exactly match 24 pre-pinned real Bybit 1h OHLCV bars",
+  "limitations": [
+    "Public provider data not venue-signed",
+    "No intra-5m ordering, queue, actual fills, mark-price funding",
+    "No portfolio replay or trade performance from this data alone"
+  ]
+}
