@@ -63,9 +63,11 @@ class SingleAssetResearchSelector(CrossSectionalSelector):
         # The alternate signal is injected through a separate per-symbol
         # evaluation while keeping the original ranking and history clock.
         from collections import defaultdict
+
         from app.domain.trading import Bar
         from app.strategy.cross_sectional_selection import (
-            CrossSectionalSelection, SelectionCandidate,
+            CrossSectionalSelection,
+            SelectionCandidate,
         )
         from app.strategy.regime_momentum import RegimeAwareMomentumStrategy
 
