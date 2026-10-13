@@ -173,6 +173,37 @@ class FrozenHistoricalSelections(CrossSectionalSelector):
         )
 
 
+def make_atr_entry_resolver(
+    *,
+    experiment_symbol: str,
+    profile: AtrEntryProfile,
+    audit: list[dict[str, object]],
+):
+    """Bind each coin/profile/audit independently; no mutable loop capture."""
+
+    def entry_policy(
+        selected_symbol: str, completed: tuple[OhlcvBar, ...]
+    ) -> PositionManagementPolicy:
+        if selected_symbol != experiment_symbol:
+            return PositionManagementPolicy()
+        derived, atr_fraction = fixed_entry_policy(
+            completed_bars=completed, profile=profile,
+        )
+        audit.append({
+            "symbol": selected_symbol,
+            "decision_bar_timestamp": completed[-1].timestamp.isoformat(),
+            "prior_completed_bars": len(completed),
+            "atr_fraction": None if atr_fraction is None else str(atr_fraction),
+            "stop_fraction": str(derived.stop_loss_fraction),
+            "target_fraction": str(derived.take_profit_fraction),
+            "insufficient_atr_history_fallback": atr_fraction is None,
+            "policy_frozen_at_entry": True,
+        })
+        return derived
+
+    return entry_policy
+
+
 def run_atr_matrix(*, bars_dir: Path, funding_dir: Path) -> dict:
     original, synchronized, timeline, bar_paths = run_shipped_portfolio(
         bars_dir=bars_dir,
@@ -234,27 +265,10 @@ def run_atr_matrix(*, bars_dir: Path, funding_dir: Path) -> dict:
             audit = []
             profile = AtrEntryProfile(stop_mult, target_mult)
 
-            def entry_policy(
-                selected_symbol: str, completed: tuple[OhlcvBar, ...]
-            ) -> PositionManagementPolicy:
-                if selected_symbol != symbol:
-                    return PositionManagementPolicy()
-                derived, atr_fraction = fixed_entry_policy(
-                    completed_bars=completed, profile=profile,
-                )
-                audit.append({
-                    "symbol": selected_symbol,
-                    "decision_bar_timestamp": completed[-1].timestamp.isoformat(),
-                    "prior_completed_bars": len(completed),
-                    "atr_fraction": None if atr_fraction is None else str(atr_fraction),
-                    "stop_fraction": str(derived.stop_loss_fraction),
-                    "target_fraction": str(derived.take_profit_fraction),
-                    "insufficient_atr_history_fallback": atr_fraction is None,
-                    "policy_frozen_at_entry": True,
-                })
-                return derived
-
-            result = replay(entry_policy)
+            resolver = make_atr_entry_resolver(
+                experiment_symbol=symbol, profile=profile, audit=audit,
+            )
+            result = replay(resolver)
             metrics = _row(
                 result,
                 funding=_funding_for_result(result, schedules, synchronized, timeline),
