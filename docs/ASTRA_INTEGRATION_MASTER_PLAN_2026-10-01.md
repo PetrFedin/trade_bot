@@ -2318,3 +2318,38 @@ conditional target-first trade PnL, implied guaranteed fills,
 live release or promotion from 5m bar ordering. Evidence class stays
 `REUSED_INSPECTED_HISTORY_FINE_EXECUTION_ORDER_DIAGNOSTIC_ONLY`.
 `PROFITABILITY_NOT_PROVEN` remains.
+
+## Fixed prior-BTC regime attribution of shipped portfolio v1 — ADOPT (2026-10-13)
+
+Research sequence continues after exact 6-major / broad-21 capacity proxies
+and real 5m exit-order attribution; it DOES NOT promote Strategy A or create
+a new policy. Use ONLY BTCUSDT prior completed daily bars to assign each
+execution day to a descriptive regime. The fixed, not optimized, labels are:
+- prior 30 close-to-close daily returns: BULL when cumulative BTC
+  >= +10%, BEAR when <= -10%, otherwise SIDEWAYS;
+- prior 20 close-to-close absolute returns: HIGH_VOL when mean absolute
+  daily return >= 1.5%, otherwise LOW_VOL;
+- insufficient prior data remains `INSUFFICIENT_PRIOR_CONTEXT`, never
+  silently discarded. The execution day's own OHLC is not a predictor.
+
+Keep shipped 2-of-N selection, stop/trailing/target, confirmation, 60%
+gross cap, 29% entry allocation and USD 10k capital UNCHANGED. For both
+six-major 1096-day and broad-21 synchronized common histories, allocate
+the exact marked **daily equity delta** to prior-BTC regime categories.
+All daily equity deltas must sum back to portfolio total PnL; exit-day
+closed-trade counts and reason totals must conserve. Keep gross exposure,
+entries, exits, negative/positive/flat days, hard-stop concentration,
+best/worst daily cash PnL and the complete source SHA-256.
+
+This is **descriptive attribution, NOT a backtest of regime gating**.
+Class `REUSED_INSPECTED_HISTORY_REGIME_DIAGNOSTIC_ONLY`; figures are
+before funding allocation; fee 8bps/fill and 5bps/side slippage. Do not
+mistake regime-conditional PnL for an independent OOS filter,
+alpha signal or causality. No automatic live gating or removal of weak
+regimes/instruments. Run adversarial no-lookahead and cash-PnL
+conservation tests in exact-head CI; preserve negative observations.
+
+Next ADAPT: allocate settled funding and venue-execution uncertainty to
+the same timestamp grain, use independently frozen training windows for
+Candidate Strategy B hypotheses, and perform new untouched holdout only
+after genuine future coverage. Existing `PROFITABILITY_NOT_PROVEN` remains.
