@@ -2318,3 +2318,47 @@ conditional target-first trade PnL, implied guaranteed fills,
 live release or promotion from 5m bar ordering. Evidence class stays
 `REUSED_INSPECTED_HISTORY_FINE_EXECUTION_ORDER_DIAGNOSTIC_ONLY`.
 `PROFITABILITY_NOT_PROVEN` remains.
+
+## Adaptive per-asset research lanes — ADOPT for qualification only (2026-10-13)
+
+Research decision: Stop treating universal signal thresholds and a single
+2%/4% stop/target as assumed optimal for BTC, ETH, BNB, SOL, XRP and DOGE.
+Develop **per-symbol and per-regime hypotheses** with an immutable original
+Strategy A portfolio control, not symbol cherry-picking on inspected history.
+
+**Lane A (PR #315, pending):** Six major symbols × two alternative
+symbol-specific trend/momentum/volatility eligibility filters. All other
+symbols use the shipped signal and original ranking. Validate 12 arms with
+8bps/fill taker fee and 5bps/side slippage; this first diagnostic lacks
+funding and is not a profitability proof.
+
+**Lane B (PR #316, pending):** 6 symbols × stop-only 1%, stop-only 3%,
+target-only 3%, target-only 6%. All other symbol exits remain shipped 2%
+stop / 4% take-profit. Preserve the 2% trailing activation and 1.5% peak
+drawdown, ten daily bars maximum hold and two-bar reentry. The optional
+per-symbol `PositionManagementPolicy` lookup is disabled by default; core
+regression proves original behavior unchanged. The research tool reconstructs
+entire portfolio cash/equity paths on each independent arm and includes
+conservative funding timing bounds. Use data/source SHA and immutable full
+negative outcome table, never choose the best historical arm for deployment.
+
+**Next qualifying lanes:** ATR-scaled per-symbol stops and targets frozen
+at each entry using *prior completed candles only*; trend/range/volatility
+regime adaptation, relative volume and spread filters; constrained
+risk/capital participation. Do not fit all parameters independently for
+all coins to inspected PnL. Preregister research budget, candidate family,
+chronological train/validation/test partition and nested walk-forward.
+Use a new untouched future holdout strictly after any final candidate freeze.
+
+Require model-agnostic acceptance: all tested arms logged; equal capital,
+unchanged universe comparison and cash/BTC/capital-matched benchmarks;
+fee/funding/slippage and adverse 10/10 stress; drawdown/tail loss and
+by-regime robustness; no zero-trade vacuous qualification; true provider
+source/fill limits. A regime feature must have been observable at the
+entry decision, never current bar's high/low. Negative results and
+counter-examples append-only.
+
+**Reject:** retrospective win-based per-coin blacklists or optimization,
+mechanical aggregation of target-first selected cases into portfolio alpha,
+automatic stop removal, leverage increase, or live/paper/broker activation.
+No production merge from experiments alone. `PROFITABILITY_NOT_PROVEN`.
