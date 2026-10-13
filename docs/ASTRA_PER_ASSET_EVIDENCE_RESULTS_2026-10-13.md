@@ -114,7 +114,42 @@ Do not combine the apparently favorable coin changes and add gains.
 7. PR #313 and #314 separately investigate hourly historical
    stop/target ordering; they are not alternate actual fills.
 
+## 12 additional ATR-normalized single-symbol exits (PR #317)
+
+**New independent successful historical evidence**, not a fresh untouched holdout:
+[exact-head Actions run 38450227591](https://github.com/PetrFedin/trade_bot/actions/runs/38450227591),
+commit `5dfa00e58edc13ce3927fe52801c08704e6ea847`,
+artifact `atr-frozen-research-38450227591` (id 11839977937).
+18 core/ATR tests passed; full 12-arm replay and non-promotion checks
+were GREEN. Model uses the **same six-major Strategy A control** and
+conservative funding-adjusted *lower bound* as exit PR #316:
+-1.861% for the original full portfolio.
+
+Every experiment replaces only one coin's exit conditions. For each new
+entry, the stop and target are derived from the prior 14 completed
+true ranges divided by the prior completed close, then kept immutable
+until exit. ATR_COMPACT = 0.50×ATR stop/1.00×ATR target;
+ATR_EXTENDED = 0.75×ATR stop/1.50×ATR target, with stop
+1–4%, target 2–8%, original trailing and max-holding rules.
+When fewer than 15 completed price bars exist, the original fixed
+policy is used and the fallback is logged. Full cash path, 8bps/fill
+fees, 5bps/side slippage, funding timing bounds, source hashes,
+ATR decision-price logs and negative cases are preserved.
+
+| Single modified symbol | ATR_COMPACT portfolio lower | ATR_EXTENDED portfolio lower |\n|---|---:|---:|\n| BNBUSDT | +1.057% | +3.119% |\n| BTCUSDT | -6.747% | -1.617% |\n| DOGEUSDT | -2.818% | -2.122% |\n| ETHUSDT | -1.110% | +2.627% |\n| SOLUSDT | -1.322% | -1.547% |\n| XRPUSDT | +2.834% | +6.209% |\n
+### Research interpretation — no parameter promotion
+On this **already inspected** six-symbol history XRP ATR_EXTENDED
+yielded +6.209% conservative portfolio lower-bound versus
+−1.861% control. BTC ATR_COMPACT yielded −6.747%.
+These are results of separate counterfactual **portfolio replays**
+under fixed assumptions, not isolated coin returns, independently
+executable order fills, expected future returns or additive strategy
+improvements. Twelve additional comparisons increase data-snooping
+risk; no winner may be selected or auto-deployed. The final
+chronological validation and new untouched period still have not
+occurred. DO NOT combine strong-looking profiles based on this table.
+
 ## Release status
-All results: RESEARCH_ONLY, NOT AN UNTOUCHED HOLDOUT, NO AUTO WINNER,
+All 48 historical arms: RESEARCH_ONLY, NOT AN UNTOUCHED HOLDOUT, NO AUTO WINNER,
 NO BROKER/TRADING/OMS AUTHORIZATION. The project remains
 `PROFITABILITY_NOT_PROVEN`.
