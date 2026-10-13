@@ -20,6 +20,7 @@ from tools.atr_entry_frozen_lab import (
     FrozenHistoricalSelections,
     atr_fraction_from_completed,
     fixed_entry_policy,
+    make_atr_entry_resolver,
 )
 
 D = Decimal
@@ -193,3 +194,27 @@ def test_invalid_resolver_never_enters_a_position() -> None:
         )
     with pytest.raises(ValueError, match="must return PositionManagementPolicy"):
         _portfolio(resolver=lambda *_: None).run(_universe())
+
+
+def test_each_atr_resolver_is_bound_to_only_one_coin_and_profile() -> None:
+    first_audit = []
+    second_audit = []
+    compact = make_atr_entry_resolver(
+        experiment_symbol="BTCUSDT",
+        profile=AtrEntryProfile(D("0.5"), D("1")),
+        audit=first_audit,
+    )
+    extended = make_atr_entry_resolver(
+        experiment_symbol="DOGEUSDT",
+        profile=AtrEntryProfile(D("0.75"), D("1.5")),
+        audit=second_audit,
+    )
+    btc_history = tuple(_series("BTCUSDT", drift=D("0"), n=15))
+    doge_history = tuple(_series("DOGEUSDT", drift=D("0"), n=15))
+    assert compact("BTCUSDT", btc_history).take_profit_fraction == D("0.02")
+    assert extended("BTCUSDT", btc_history) == PositionManagementPolicy()
+    assert extended("DOGEUSDT", doge_history).take_profit_fraction == D("0.03")
+    assert compact("DOGEUSDT", doge_history) == PositionManagementPolicy()
+    assert len(first_audit) == 1 and len(second_audit) == 1
+    assert first_audit[0]["symbol"] == "BTCUSDT"
+    assert second_audit[0]["symbol"] == "DOGEUSDT"
