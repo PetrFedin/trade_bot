@@ -2318,3 +2318,41 @@ conditional target-first trade PnL, implied guaranteed fills,
 live release or promotion from 5m bar ordering. Evidence class stays
 `REUSED_INSPECTED_HISTORY_FINE_EXECUTION_ORDER_DIAGNOSTIC_ONLY`.
 `PROFITABILITY_NOT_PROVEN` remains.
+
+## Complete six-major 17-case real hourly collision study — ADOPT (2026-10-13)
+
+After pre-registering the COMPLETE unchanged six-major daily OHLC
+ambiguous-exit census (17 cases, 11 original losers / 6 winners,
+original summed closed-trade PnL -$357.57 before funding), require
+100% case coverage instead of selecting target-first examples.
+
+Four source days were previously pinned in PR #306; the remaining
+13 days are now collected from the public Bybit read-only 1h connector
+and stored with source query, UTC timestamp, SHA256, one full day of
+24 contiguous hourly candles, declared provenance and independent
+comparison to frozen raw daily O/H/L/C/Decimal base volume.
+A missing/gapped/altered/mismatched file MUST reject the study,
+not silently disappear from its denominator.
+
+`tools/full_six_hourly_ambiguity.py` consumes the unchanged
+`historical_ambiguity_census`, verifies every source, and classifies
+first hourly threshold touch as TARGET_FIRST, PROTECTIVE_FIRST,
+or UNRESOLVED_SAME_HOUR. It uses the original position quantity,
+ledger average cost INCLUDING entry fees and frozen trailing/stop
+thresholds based on completed prior daily bars. Do not call the
+result a real order fill: within-hour path, stop mechanics, queue,
+limit-order fills, market impact, latency and funding timing remain
+unverified.
+
+Mandatory exact-head CI: 17/17 eligible source days, 408 valid 1h
+candles, exact raw daily volume reconciliation, unchanged original
+case PnL (negative cases retained), hashes and deterministic JSON.
+Historical conditional target-first PnL may be included ONLY as
+a per-trade hypothetical under unchanged static execution cost;
+never add these examples to overall portfolio return or claim alpha.
+
+Next ADAPT: analogous complete 24-case broad-21 data sourcing,
+then 5m/1m on same-hour cases, full path-dependent capital replay,
+funding settlement bounds and independently frozen new untouched
+future period. REJECT automatic exit-policy changes on this
+inspected sample. `PROFITABILITY_NOT_PROVEN` remains.
