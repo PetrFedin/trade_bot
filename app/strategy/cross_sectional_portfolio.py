@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -153,6 +153,7 @@ class _OpenPositionState:
     entry_execution_price: Decimal
     entry_fee: Decimal
     intrabar_state: IntrabarPositionState
+    entry_frozen_policy: PositionManagementPolicy
 
 
 class CrossSectionalPortfolioBacktester:
@@ -172,6 +173,10 @@ class CrossSectionalPortfolioBacktester:
         portfolio_policy: CrossSectionalPortfolioPolicy | None = None,
         position_policy: PositionManagementPolicy | None = None,
         reentry_policy: ReentryConfirmationPolicy | None = None,
+        position_policies_by_symbol: Mapping[str, PositionManagementPolicy] | None = None,
+        research_entry_policy_resolver: (
+            Callable[[str, tuple[OhlcvBar, ...]], PositionManagementPolicy] | None
+        ) = None,
     ) -> None:
         portfolio = (
             CrossSectionalPortfolioPolicy()
@@ -187,6 +192,39 @@ class CrossSectionalPortfolioBacktester:
         self.portfolio_policy = portfolio
         self.position_policy = position
         self.reentry_policy = reentry_policy
+        overrides = dict(position_policies_by_symbol or {})
+        for symbol, policy in overrides.items():
+            if not isinstance(symbol, str) or not symbol.strip():
+                raise ValueError("position policy override has invalid symbol")
+            if not isinstance(policy, PositionManagementPolicy):
+                raise ValueError("position policy override must be a validated policy")
+            policy.validate()
+        if research_entry_policy_resolver is not None:
+            if not callable(research_entry_policy_resolver):
+                raise ValueError("research entry policy resolver must be callable")
+            if overrides:
+                raise ValueError("research entry resolver conflicts with symbol overrides")
+        self.position_policies_by_symbol = overrides
+        self.research_entry_policy_resolver = research_entry_policy_resolver
+
+    def _entry_policy_for(
+        self, symbol: str, completed_bars: tuple[OhlcvBar, ...]
+    ) -> PositionManagementPolicy:
+        if self.research_entry_policy_resolver is None:
+            return self._position_policy_for(symbol)
+        if not completed_bars or any(
+            bar.symbol != symbol or bar.timestamp >= completed_bars[-1].timestamp
+            for bar in completed_bars[:-1]
+        ):
+            raise ValueError("research entry resolver requires prior completed symbol bars")
+        policy = self.research_entry_policy_resolver(symbol, completed_bars)
+        if not isinstance(policy, PositionManagementPolicy):
+            raise ValueError("research resolver must return PositionManagementPolicy")
+        policy.validate()
+        return policy
+
+    def _position_policy_for(self, symbol: str) -> PositionManagementPolicy:
+        return self.position_policies_by_symbol.get(symbol, self.position_policy)
 
     def run(
         self,
@@ -196,6 +234,8 @@ class CrossSectionalPortfolioBacktester:
     ) -> CrossSectionalPortfolioResult:
         by_symbol, timeline = _synchronized_universe(bars)
         symbols = tuple(sorted(by_symbol))
+        if set(self.position_policies_by_symbol) - set(symbols):
+            raise ValueError("position policy override references unknown symbol")
         if len(symbols) < 2:
             raise ValueError("portfolio backtest requires at least two symbols")
         required_history = self.selector.signal_config.minimum_history_bars
@@ -267,7 +307,7 @@ class CrossSectionalPortfolioBacktester:
                 reason: PortfolioExitReason | None = None
                 if symbol not in selected_set:
                     reason = PortfolioExitReason.SELECTION_EXIT
-                elif holding_bars >= self.position_policy.maximum_holding_bars:
+                elif holding_bars >= state.entry_frozen_policy.maximum_holding_bars:
                     reason = PortfolioExitReason.TIME_STOP
                 if reason is None:
                     continue
@@ -355,6 +395,9 @@ class CrossSectionalPortfolioBacktester:
                         PortfolioEntryBlockReason.GROSS_EXPOSURE_CAP.value
                     ] += 1
                     continue
+                entry_policy = self._entry_policy_for(
+                    symbol, tuple(by_symbol[symbol][:execution_index])
+                )
                 entry_price = current_bars[symbol].open * (Decimal("1") + slip)
                 quantity = target_notional / entry_price
                 entry_fee = _fill_fee(
@@ -384,6 +427,7 @@ class CrossSectionalPortfolioBacktester:
                     entry_reference_price=current_bars[symbol].open,
                     entry_execution_price=entry_price,
                     entry_fee=entry_fee,
+                    entry_frozen_policy=entry_policy,
                     intrabar_state=IntrabarPositionState(
                         peak_completed_price=current_bars[symbol].open
                     ),
@@ -400,7 +444,7 @@ class CrossSectionalPortfolioBacktester:
                     average_cost=position.average_cost,
                     bar=current_bars[symbol],
                     state=state.intrabar_state,
-                    policy=self.position_policy,
+                    policy=state.entry_frozen_policy,
                 )
                 if not intrabar.exit_now:
                     open_states[symbol] = _OpenPositionState(
@@ -409,6 +453,7 @@ class CrossSectionalPortfolioBacktester:
                         entry_reference_price=state.entry_reference_price,
                         entry_execution_price=state.entry_execution_price,
                         entry_fee=state.entry_fee,
+                        entry_frozen_policy=state.entry_frozen_policy,
                         intrabar_state=intrabar.state,
                     )
                     continue
