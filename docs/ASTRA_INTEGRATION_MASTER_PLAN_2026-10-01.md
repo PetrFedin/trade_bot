@@ -2274,3 +2274,40 @@ Further research sequence: genuine intraday stop/target reconstruction
 -> bull/bear/sideways/high/low-vol regime diagnostics -> turnover and
 cost-attribution -> exit-policy diagnosis -> Candidate Strategy B with a
 new, independently preregistered untouched future holdout.
+
+## Whole-population daily collision census before intraday sampling — ADOPT (2026-10-13)
+
+After PR #306 (real 1h, four selected cases) and PR #310 (real 5m,
+same four selected cases), prohibit reporting 3/4 target-first as
+generalizable until every historical ambiguous case has been named
+independently of its intraday price path.
+
+This research-only `tools/historical_ambiguity_census.py` must run the
+UNCHANGED six-major and broad-21 Strategy A once each on their exact
+synchronized Bybit historical daily sources. It lists all previously
+flagged daily stop/target ambiguous trades: expected 17 six-major and
+24 broad-21, without choosing winners after intraday inspection.
+
+Each immutable case record contains: universe ID, exact symbol,
+entry/exit UTC, entry execution price and capitalized fee-based ledger
+cost, protective hard/trailing levels using prior completed bars only,
+target, daily high/low, original conservative exit reason, closed-trade
+net PnL before funding, holding bars and whether the same exit day has
+previously pinned public 1h source data.
+
+**Acceptance:** full counts and source hashes, unique case identities,
+conservation of ALL original ambiguous closed-trade PnL within bounded
+Decimal precision, source-day evidence coverage, unchanged total
+portfolio outcome, separate negative/positive examples, exact-head CI
+and downloadable JSON census. No provider requests within the census.
+
+**Next ADAPT:** use the preselected census (not selected winners) as an
+input to bounded real provider 1h source retrieval, then 5m/1m where
+same-hour sequencing cannot be resolved; report unavailable instruments,
+listing history, ambiguous same-bar outcomes and data revisions as
+`NOT_EVIDENCED`. Full counterfactual portfolio PnL still requires
+replaying every downstream decision and funding/impact assumptions.
+
+Class `REUSED_INSPECTED_HISTORY_AMBIGUITY_CENSUS_ONLY`; no automatic
+stop-policy optimization, strategy changes, live routing or promotion.
+`PROFITABILITY_NOT_PROVEN` stays.
