@@ -500,3 +500,77 @@ or a reason to disable protective orders. The negative ETH 2024-03-04
 protective-first result is retained. Next: whole ambiguous-case census
 under a preregistered protocol, then conditional full portfolio replay
 under realistic costs/impact. `PROFITABILITY_NOT_PROVEN` persists.
+
+### 2026-10-13 — prior-completed BTC bull/bear/sideways × volatility (reused inspected history)
+
+Evidence: GitHub Actions `historical-portfolio-regime-attribution`
+run [38324856844](https://github.com/PetrFedin/trade_bot/actions/runs/38324856844)
+on exact research source `b9ab96bc074c5405da57a29337a689dc40fd972d`.
+It passed **7 tests**, including adversarial no-current-bar lookahead,
+one-to-one trade assignments and exact marked portfolio PnL
+conservation. The strategy and execution assumptions are unchanged:
+USD 10,000, 8 bps/fill and 5 bps/side slippage; PnL before funding
+allocation. Source is already inspected and is NOT untouched OOS.
+
+The regime at the decision execution day is determined solely from the
+PREVIOUS completed BTC bars:
+- 30 prior daily close-to-close returns: BULL >= +10% cumulative,
+  BEAR <= -10%, otherwise SIDEWAYS;
+- previous 20 daily absolute returns: HIGH_VOL if mean >= 1.5%,
+  otherwise LOW_VOL; 23 early modeled days retain explicit
+  INSUFFICIENT_PRIOR_CONTEXT. These fixed exploratory thresholds
+  are NOT selected by maximizing PnL.
+
+**Six-major, full synchronized period:** 256 closed trades, 1088
+marked portfolio days, total before-funding +$75.16 / +0.7516%
+on original $10k. All regime contributions are exact daily equity
+delta sums, not conditional independent sub-strategy returns.
+
+| Prior BTC regime | Days | Closed trades | Contribution to initial-capital return |
+|---|---:|---:|---:|
+| BULL | 295 | 103 | -2.2315 percentage points |
+| BEAR | 155 | 10 | +2.2720 percentage points |
+| SIDEWAYS | 615 | 126 | -0.5391 percentage points |
+| INSUFFICIENT | 23 | 17 | +1.2501 percentage points |
+
+Six-major volatility decomposition: HIGH_VOL 664 days, 139 closed
+trades, **-$731.75 / -7.3175 pp**; LOW_VOL 401 days, 100 trades,
+**+$681.89 / +6.8189 pp**; insufficient 23 days, 17 trades,
++$125.01 / +1.2501 pp. In high-vol historical days, 74
+hard-stop exits versus 38 in low-vol days.
+
+**Broad-21 common period:** 276 closed trades, 973 marked days,
+total before-funding -$1,797.09 / -17.9709%.
+
+| Prior BTC regime | Days | Closed trades | Contribution to initial-capital return |
+|---|---:|---:|---:|
+| BULL | 262 | 97 | -6.9160 pp |
+| BEAR | 138 | 19 | +0.2068 pp |
+| SIDEWAYS | 550 | 136 | -10.7712 pp |
+| INSUFFICIENT | 23 | 24 | -0.4905 pp |
+
+Broad-21 volatility: HIGH_VOL 625 days, 157 closed trades,
+**-$1,949.03 / -19.4903 pp**; LOW_VOL 325 days, 95 trades,
+**+$201.00 / +2.0100 pp**; insufficient 23 days, 24 trades,
+-$49.05 / -0.4905 pp. In high-vol historical days,
+94 hard-stop exits versus 33 in low-vol days.
+
+Interpretation and knowledge update:
+- **ADOPT:** retain daily mark-to-market PnL + trade counts conservation,
+  source SHA, regime exposure and negative-day counts. A regime
+  attribution without open-position marks is misleading.
+- **ADAPT:** high preceding BTC volatility is associated with the
+  largest modelled losses in BOTH universes. This is a research
+  hypothesis about entry/exit quality and churn, **not proof** that
+  disabling trades in HIGH_VOL would have increased actual portfolio
+  return after changed capital paths and opportunity costs.
+- **ADAPT:** test a separately versioned Candidate B only after
+  preregistering regime rules on training data and acquiring a new,
+  truly independent future holdout. Preserve six/broad identical-window
+  comparison, funding bounds, capacity, adverse scenarios and passive
+  matched benchmarks.
+- **REJECT:** applying learned regime filters to live/shipped Strategy A,
+  promoting based on these retrospective bins, or treating the 23
+  early days as wins selected after viewing PnL.
+
+The current Strategy A remains `PROFITABILITY_NOT_PROVEN`.
