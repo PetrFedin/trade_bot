@@ -1,0 +1,71 @@
+name: per-asset-exit-policy-research
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/strategy/cross_sectional_portfolio.py'
+      - 'tools/per_asset_exit_policy_matrix.py'
+      - 'tests/test_per_asset_exit_policy_matrix.py'
+      - '.github/workflows/per-asset-exit-policy-research.yml'
+      - 'docs/ASTRA_PER_ASSET_EXIT_MATRIX_2026-10-13.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: per-asset-exit-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frozen-six-major-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install locked dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Ruff and original portfolio regression
+        run: |
+          ruff check app/strategy/cross_sectional_portfolio.py tools/per_asset_exit_policy_matrix.py tests/test_per_asset_exit_policy_matrix.py
+          pytest -q tests/test_cross_sectional_portfolio.py tests/test_per_asset_exit_policy_matrix.py
+      - name: Execute all 24 frozen single-asset exit policy experiments
+        run: |
+          mkdir -p per-asset-exit-evidence
+          python -m tools.per_asset_exit_policy_matrix \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --funding-dir research/snapshots/bybit_funding_2023-10-09_2026-10-08 \
+            --output per-asset-exit-evidence/matrix.json
+      - name: No favorable arm can authorize trading or suppress adverse cases
+        run: |
+          python - <<'PY'
+          import json
+          from decimal import Decimal
+          from pathlib import Path
+          p = json.loads(Path("per-asset-exit-evidence/matrix.json").read_text())
+          assert p["strategy_promotion_allowed"] is False
+          assert p["live_trading_allowed"] is False
+          assert p["independent_untouched_holdout"] is False
+          assert p["parameter_winner_selected"] is False
+          assert p["baseline_strategy_a_unmodified"] is True
+          assert p["control"]["closed_trades"] == 256
+          assert len(p["experiments"]) == 24
+          assert len({(x["symbol"], x["arm"]) for x in p["experiments"]}) == 24
+          assert all(x["winner_selected"] is False for x in p["experiments"])
+          for row in [p["control"], *p["experiments"]]:
+              assert Decimal(row["funding_cost_lower_usd"]) <= Decimal(row["funding_cost_upper_usd"])
+              assert Decimal(row["return_with_funding_lower"]) <= Decimal(row["return_with_funding_upper"])
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: per-asset-exit-research-${{ github.run_id }}
+          path: per-asset-exit-evidence/matrix.json
+          if-no-files-found: error
+          retention-days: 30
