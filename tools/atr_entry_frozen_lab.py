@@ -14,8 +14,8 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from pathlib import Path
 
-from app.qualification.portable_artifact_codec import canonical_json_bytes
 from app.marketdata.ohlcv import OhlcvBar
+from app.qualification.portable_artifact_codec import canonical_json_bytes
 from app.strategy.cross_sectional_portfolio import (
     CrossSectionalPortfolioBacktester,
     CrossSectionalPortfolioPolicy,
