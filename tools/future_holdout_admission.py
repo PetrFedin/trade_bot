@@ -63,7 +63,10 @@ def _freeze(path: Path) -> tuple[dict, datetime, datetime]:
         raise FutureHoldoutAdmissionError("freeze cannot authorize trading")
     if not isinstance(data.get("candidate_id"), str) or not data["candidate_id"].strip():
         raise FutureHoldoutAdmissionError("candidate identity is absent")
-    if not isinstance(data.get("candidate_git_sha"), str) or not _SHA40.fullmatch(\n        data["candidate_git_sha"]\n    ):
+    if (
+        not isinstance(data.get("candidate_git_sha"), str)
+        or not _SHA40.fullmatch(data["candidate_git_sha"])
+    ):
         raise FutureHoldoutAdmissionError("candidate Git SHA is invalid")
     for name in ("strategy_config_sha256", "selection_rules_sha256"):
         if not isinstance(data.get(name), str) or not _SHA256.fullmatch(data[name]):
