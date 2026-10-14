@@ -1,0 +1,91 @@
+name: candidate-b-nested-impulse-development
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/strategy/cross_sectional_portfolio.py'
+      - 'tools/entry_impulse_exhaustion_lab.py'
+      - 'tools/entry_impulse_nested_walkforward.py'
+      - 'tests/test_entry_impulse_nested_walkforward.py'
+      - '.github/workflows/candidate-b-nested-impulse-development.yml'
+      - 'docs/ASTRA_CANDIDATE_B_NESTED_2026-10-15.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: candidate-b-nested-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  past-only-profile-selection-and-later-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install locked dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Regression tests, past-only nested first fold
+        run: |
+          ruff check tools/entry_impulse_nested_walkforward.py tests/test_entry_impulse_nested_walkforward.py
+          pytest -q tests/test_entry_impulse_exhaustion_lab.py tests/test_entry_impulse_nested_walkforward.py
+      - name: All seven later nonoverlapping windows with funding bounds
+        run: |
+          mkdir -p candidate-b-nested-evidence
+          python -m tools.entry_impulse_nested_walkforward \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --funding-dir research/snapshots/bybit_funding_2023-10-09_2026-10-08 \
+            --outer-train 420 \
+            --inner-validation 90 \
+            --outer-test 90 \
+            --output candidate-b-nested-evidence/seven-folds.json
+      - name: Fail closed on incomplete, selected or misdescribed evidence
+        run: |
+          python - <<'PY'
+          import json
+          from decimal import Decimal
+          from pathlib import Path
+          p = json.loads(Path('candidate-b-nested-evidence/seven-folds.json').read_text())
+          assert p['research_only'] is True
+          assert p['strategy_promotion_allowed'] is False
+          assert p['live_trading_allowed'] is False
+          assert p['untouched_holdout'] is False
+          assert p['outer_test_used_to_choose_profiles'] is False
+          assert p['original_exit_policy_unchanged'] is True
+          assert p['summary']['outer_test_folds'] == 7
+          assert p['summary']['inner_candidate_portfolios'] == 84
+          assert len(p['source_sha256']) == 12
+          assert len(p['evidence_sha256']) == 64
+          assert p['summary']['adaptive_better_folds'] + p['summary']['adaptive_equal_folds'] + p['summary']['adaptive_worse_folds'] == 7
+          previous_end = None
+          for fold in p['folds']:
+              inner = fold['inner_training']
+              outer = fold['outer_test']
+              assert inner['last_known_prior_bar'] < outer['first_execution_bar']
+              if previous_end:
+                  assert previous_end < outer['first_execution_bar']
+              previous_end = outer['last_execution_bar']
+              assert len(inner['all_12_single_symbol_arms']) == 12
+              assert len(inner['all_rejections_and_qualifications']) == 12
+              assert len(inner['selected_profile_map_before_outer_test']) == 6
+              assert all(a['closed_trades'] >= 0 for a in inner['all_12_single_symbol_arms'])
+              for key in ('original_strategy_a', 'prior_picked_joint_entry_policy'):
+                  item = outer[key]
+                  assert Decimal(item['return_funding_lower']) <= Decimal(item['return_funding_upper'])
+              assert outer['stress_10bps_fee_10bps_slippage_pre_funding']['funding_included'] is False
+          print('NESTED_CANDIDATE_B_DISCOVERY_ONLY', p['evidence_sha256'])
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: candidate-b-nested-${{ github.run_id }}
+          path: candidate-b-nested-evidence/seven-folds.json
+          retention-days: 30
+          if-no-files-found: error
