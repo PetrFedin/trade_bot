@@ -1,0 +1,31 @@
+{
+  "schema_version": "astra-declared-intraday-provenance-v1",
+  "data_origin": "BYBIT_CONNECTOR_PUBLIC_KLINE",
+  "source_endpoint": "plugin://Bybit/get_kline",
+  "collector": "Connected Bybit public 1h read-only data",
+  "collected_at_utc": "2026-10-14T22:26:39.655Z",
+  "interval_minutes": 60,
+  "category": "linear",
+  "symbol": "ATOMUSDT",
+  "days": [
+    "2026-05-13"
+  ],
+  "source_query": {
+    "symbol": "ATOMUSDT",
+    "interval": "1h",
+    "category": "linear",
+    "limit": 48,
+    "endTime": 1778716799999
+  },
+  "sha256": {
+    "ATOMUSDT_60m.csv": "6700000085000000720000003a000000acef83033d356ef3e67c1e089f6c5ec1"
+  },
+  "research_only": true,
+  "provider_authenticity_independently_verified": false,
+  "strategy_promotion_allowed": false,
+  "evaluation_class": "REUSED_INSPECTED_HISTORY_COLLISION_SOURCE_ONLY",
+  "limitations": [
+    "Daily 24-hour OHLCV equality verified",
+    "Exchange-signature and real fill priority not verified"
+  ]
+}
