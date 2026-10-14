@@ -1,0 +1,31 @@
+{
+  "schema_version": "astra-declared-intraday-provenance-v1",
+  "data_origin": "BYBIT_CONNECTOR_PUBLIC_KLINE",
+  "source_endpoint": "plugin://Bybit/get_kline",
+  "collector": "Connected Bybit public 1h read-only data",
+  "collected_at_utc": "2026-10-14T22:26:39.655Z",
+  "interval_minutes": 60,
+  "category": "linear",
+  "symbol": "AVAXUSDT",
+  "days": [
+    "2024-08-22"
+  ],
+  "source_query": {
+    "symbol": "AVAXUSDT",
+    "interval": "1h",
+    "category": "linear",
+    "limit": 48,
+    "endTime": 1724371199999
+  },
+  "sha256": {
+    "AVAXUSDT_60m.csv": "86aa277a941690626da00bfdd8b3cc2e2377f2f9c78125320a7a00c81766c19d"
+  },
+  "research_only": true,
+  "provider_authenticity_independently_verified": false,
+  "strategy_promotion_allowed": false,
+  "evaluation_class": "REUSED_INSPECTED_HISTORY_COLLISION_SOURCE_ONLY",
+  "limitations": [
+    "Daily 24-hour OHLCV equality verified",
+    "Exchange-signature and real fill priority not verified"
+  ]
+}

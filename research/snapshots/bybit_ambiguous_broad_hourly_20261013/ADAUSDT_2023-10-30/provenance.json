@@ -1,0 +1,31 @@
+{
+  "schema_version": "astra-declared-intraday-provenance-v1",
+  "data_origin": "BYBIT_CONNECTOR_PUBLIC_KLINE",
+  "source_endpoint": "plugin://Bybit/get_kline",
+  "collector": "Connected public Bybit market data connector (read-only)",
+  "collected_at_utc": "2026-10-14T22:24:26.004Z",
+  "interval_minutes": 60,
+  "category": "linear",
+  "symbol": "ADAUSDT",
+  "days": [
+    "2023-10-30"
+  ],
+  "source_query": {
+    "symbol": "ADAUSDT",
+    "interval": "1h",
+    "category": "linear",
+    "limit": 48,
+    "endTime": 1698710399999
+  },
+  "sha256": {
+    "ADAUSDT_60m.csv": "0e9770d7093a9f703bfa740622a64b5a1560e6ec7bdc7bbf39c48ffc7c8903cb"
+  },
+  "research_only": true,
+  "provider_authenticity_independently_verified": false,
+  "strategy_promotion_allowed": false,
+  "evaluation_class": "REUSED_INSPECTED_HISTORY_COLLISION_SOURCE_ONLY",
+  "limitations": [
+    "Connector provenance is self-declared, not exchange-signed",
+    "Daily bar OHLCV fully reconciled; queue fills unknown"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "schema_version": "astra-declared-intraday-provenance-v1",
+  "data_origin": "BYBIT_CONNECTOR_PUBLIC_KLINE",
+  "source_endpoint": "plugin://Bybit/get_kline",
+  "collector": "Read-only connected Bybit public market data",
+  "collected_at_utc": "2026-10-14T22:25:27.795Z",
+  "interval_minutes": 60,
+  "category": "linear",
+  "symbol": "INJUSDT",
+  "days": [
+    "2025-04-22"
+  ],
+  "source_query": {
+    "symbol": "INJUSDT",
+    "interval": "1h",
+    "category": "linear",
+    "limit": 48,
+    "endTime": 1745366399999
+  },
+  "sha256": {
+    "INJUSDT_60m.csv": "1b7aba220b0e3b609fdb6178f505398e49f8310b863d9c129f1a4981c4230122"
+  },
+  "research_only": true,
+  "provider_authenticity_independently_verified": false,
+  "strategy_promotion_allowed": false,
+  "evaluation_class": "REUSED_INSPECTED_HISTORY_COLLISION_SOURCE_ONLY",
+  "limitations": [
+    "Market data is public connector information without exchange digital signature",
+    "Intraday bars and daily OHLCV reconcile; venue execution not proven"
+  ]
+}

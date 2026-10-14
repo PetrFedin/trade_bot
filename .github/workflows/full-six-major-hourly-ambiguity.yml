@@ -1,0 +1,72 @@
+name: full-six-major-hourly-ambiguity
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/full_six_hourly_ambiguity.py'
+      - 'tools/historical_ambiguity_census.py'
+      - 'tests/test_full_six_hourly_ambiguity.py'
+      - 'docs/ASTRA_INTEGRATION_MASTER_PLAN_2026-10-01.md'
+      - '.github/workflows/full-six-major-hourly-ambiguity.yml'
+      - 'research/snapshots/bybit_ambiguous_six_hourly_20261013/**'
+      - 'research/snapshots/bybit_intraday_trade_cases_60m/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-hourly-ambiguity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-population-unbiased:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Setup Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install locked requirements
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Lint and source-completeness controls
+        run: |
+          ruff check tools/full_six_hourly_ambiguity.py tools/historical_ambiguity_census.py tests/test_full_six_hourly_ambiguity.py
+          pytest -q tests/test_full_six_hourly_ambiguity.py
+      - name: Replay full 17-case observed hourly threshold ordering
+        run: |
+          mkdir -p full-hourly-evidence
+          python -m tools.full_six_hourly_ambiguity \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --original-hourly-dir research/snapshots/bybit_intraday_trade_cases_60m \
+            --additional-hourly-dir research/snapshots/bybit_ambiguous_six_hourly_20261013 \
+            --output full-hourly-evidence/six-major-17-cases.json
+      - name: No unobserved outcomes can become release approval
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = json.loads(Path("full-hourly-evidence/six-major-17-cases.json").read_text())
+          assert p["summary"]["preselected_cases"] == 17
+          assert p["summary"]["total_hourly_candles"] == 408
+          assert p["summary"]["outcome_unavailable_cases"] == 0
+          assert sum(p["summary"]["hourly_order_counts"].values()) == 17
+          assert p["strategy_promotion_allowed"] is False
+          assert p["live_trading_allowed"] is False
+          assert p["intraday_full_portfolio_backtest_run"] is False
+          assert p["execution_venue_fills_verified"] is False
+          PY
+      - name: Upload all case evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: full-six-hourly-research-${{ github.run_id }}
+          path: full-hourly-evidence/six-major-17-cases.json
+          if-no-files-found: error
+          retention-days: 30
