@@ -1,0 +1,80 @@
+name: candidate-b-prior-impulse-entry-research
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/strategy/cross_sectional_portfolio.py'
+      - 'tools/entry_impulse_exhaustion_lab.py'
+      - 'tests/test_entry_impulse_exhaustion_lab.py'
+      - '.github/workflows/candidate-b-prior-impulse-entry-research.yml'
+      - 'docs/ASTRA_CANDIDATE_B_PRIOR_IMPULSE_2026-10-15.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: candidate-b-impulse-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fixed-entry-hypotheses-vs-shipped-control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Hash-locked dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Original portfolio regression and no-lookahead checks
+        run: |
+          ruff check app/strategy/cross_sectional_portfolio.py tools/entry_impulse_exhaustion_lab.py tests/test_entry_impulse_exhaustion_lab.py
+          pytest -q tests/test_cross_sectional_portfolio.py tests/test_entry_impulse_exhaustion_lab.py
+      - name: All six per-coin and two joint historical hypotheses
+        run: |
+          mkdir -p candidate-b-evidence
+          python -m tools.entry_impulse_exhaustion_lab \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --funding-dir research/snapshots/bybit_funding_2023-10-09_2026-10-08 \
+            --output candidate-b-evidence/all-14-arms.json
+      - name: Do not hide weak arms, zero trades or trading cost uncertainty
+        run: |
+          python - <<'PY'
+          import json
+          from decimal import Decimal
+          from pathlib import Path
+          data = json.loads(Path('candidate-b-evidence/all-14-arms.json').read_text())
+          assert data['evaluation_class'] == 'REUSED_INSPECTED_HISTORICAL_ENTRY_RESEARCH_ONLY'
+          assert data['strategy_promotion_allowed'] is False
+          assert data['live_trading_allowed'] is False
+          assert data['untouched_holdout'] is False
+          assert data['control']['closed_trades'] == 256
+          assert data['original_exit_rules_unchanged'] is True
+          assert data['only_prior_completed_candles_for_entries'] is True
+          assert data['full_portfolio_cash_replay_per_arm'] is True
+          assert len(data['experiments']) == 14
+          assert len(data['source_sha256']) == 12
+          assert len(data['evidence_sha256']) == 64
+          assert sum(x['scope'] == 'one_symbol_only' for x in data['experiments']) == 12
+          assert sum(x['scope'] == 'all_six_joint' for x in data['experiments']) == 2
+          assert len({(tuple(x['targeted_symbols']), x['hypothesis']) for x in data['experiments']}) == 14
+          for row in [data['control'], *data['experiments']]:
+              assert row['closed_trades'] >= 0
+              assert Decimal(row['return_funding_lower']) <= Decimal(row['return_funding_upper'])
+          for row in data['experiments']:
+              assert row['winner_selected'] is False
+              assert row['vetoed_entries'] == row['new_entry_veto_count']
+          print('CANDIDATE_B_DISCOVERY_ONLY', data['evidence_sha256'])
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: candidate-b-impulse-${{ github.run_id }}
+          path: candidate-b-evidence/all-14-arms.json
+          retention-days: 30
+          if-no-files-found: error
