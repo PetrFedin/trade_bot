@@ -55,6 +55,11 @@ jobs:
           assert sum(r["summary"]["first_touch_counts"].values()) == 24
           assert r["counterfactual_portfolio_replayed"] is False
           assert r["actual_exchange_fills_verified"] is False
+          print("BROAD21_HOURLY", json.dumps(r["summary"], sort_keys=True))
+          for case in r["cases"]:
+              print("BROAD21_CASE", case["symbol"], case["exit_day"],
+                    case["observed_hourly_threshold_order"]["ordering"])
+          print("BROAD21_EVIDENCE_SHA256", r["evidence_sha256"])
           PY
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
