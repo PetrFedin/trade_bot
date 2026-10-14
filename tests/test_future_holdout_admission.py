@@ -190,6 +190,10 @@ def test_no_applicable_market_period_until_future_collection(tmp_path: Path) -> 
     data["frozen_at_utc"] = "2026-10-14T17:00:00+00:00"
     data["previously_inspected_history_end_utc"] = "2026-10-08T00:00:00+00:00"
     freeze.write_text(json.dumps(data))
+    provenance_path = source / "provenance.json"
+    provenance = json.loads(provenance_path.read_text())
+    provenance["collected_at_utc"] = "2027-01-20T00:00:00+00:00"
+    provenance_path.write_text(json.dumps(provenance))
     with pytest.raises(FutureHoldoutAdmissionError, match="historical/inspected"):
         validate_future_holdout(
             freeze_path=freeze, source_directory=source,
