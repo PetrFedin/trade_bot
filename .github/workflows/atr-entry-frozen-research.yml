@@ -1,0 +1,87 @@
+name: atr-entry-frozen-research
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/strategy/cross_sectional_portfolio.py'
+      - 'tools/atr_entry_frozen_lab.py'
+      - 'tests/test_atr_entry_frozen_lab.py'
+      - '.github/workflows/atr-entry-frozen-research.yml'
+      - 'docs/ASTRA_ATR_FROZEN_ENTRY_RESEARCH_2026-10-13.md'
+      - 'tools/per_asset_exit_policy_matrix.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atr-entry-frozen-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frozen-entry-regression-and-historical-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Exact research SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Locked dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Lint, legacy regression and frozen-entry negative tests
+        run: |
+          ruff check app/strategy/cross_sectional_portfolio.py tools/atr_entry_frozen_lab.py tests/test_atr_entry_frozen_lab.py
+          pytest -q tests/test_cross_sectional_portfolio.py tests/test_per_asset_exit_policy_matrix.py tests/test_atr_entry_frozen_lab.py
+      - name: Full original 6-coin market-history ATR experiment
+        run: |
+          mkdir -p atr-frozen-evidence
+          python -m tools.atr_entry_frozen_lab \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --funding-dir research/snapshots/bybit_funding_2023-10-09_2026-10-08 \
+            --output atr-frozen-evidence/12-arms.json
+      - name: Evidence completeness, risk invariants, no promotion
+        run: |
+          python - <<'PY'
+          import json
+          from decimal import Decimal
+          from pathlib import Path
+
+          r = json.loads(Path("atr-frozen-evidence/12-arms.json").read_text())
+          assert r["research_only"] is True
+          assert r["live_trading_allowed"] is False
+          assert r["strategy_promotion_allowed"] is False
+          assert r["new_holdout_performed"] is False
+          assert r["strategy_a_control_exact_parity"] is True
+          assert r["current_execution_bar_excluded_from_atr"] is True
+          assert r["per_entry_policy_frozen"] is True
+          assert r["control"]["closed_trades"] == 256
+          assert len(r["experiments"]) == 12
+          assert len(r["source_sha256"]) == 12
+          assert len({(a["symbol"], a["arm"]) for a in r["experiments"]}) == 12
+          assert all(a["winner_selected"] is False for a in r["experiments"])
+          for a in [r["control"], *r["experiments"]]:
+              assert Decimal(a["funding_cost_lower_usd"]) <= Decimal(a["funding_cost_upper_usd"])
+              assert Decimal(a["return_with_funding_lower"]) <= Decimal(a["return_with_funding_upper"])
+          for arm in r["experiments"]:
+              assert all(item["policy_frozen_at_entry"] is True for item in arm["atr_entry_policy_audit"])
+              assert all(
+                  Decimal(item["stop_fraction"]) > 0
+                  and Decimal(item["target_fraction"]) > 0
+                  for item in arm["atr_entry_policy_audit"]
+              )
+          print("ATR_RESEARCH_ONLY_OK", r["evidence_sha256"])
+          PY
+      - name: Archive ALL positive and negative research results
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: atr-frozen-research-${{ github.run_id }}
+          path: atr-frozen-evidence/12-arms.json
+          retention-days: 30
+          if-no-files-found: error

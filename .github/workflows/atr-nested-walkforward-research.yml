@@ -1,0 +1,94 @@
+name: atr-nested-walkforward-research
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/atr_nested_walkforward.py'
+      - 'tests/test_atr_nested_walkforward.py'
+      - '.github/workflows/atr-nested-walkforward-research.yml'
+      - 'docs/ASTRA_NESTED_ATR_WALKFORWARD_2026-10-14.md'
+      - 'app/strategy/cross_sectional_portfolio.py'
+      - 'tools/atr_entry_frozen_lab.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nested-atr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  genuine-train-past-test-later:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Locked reproducible dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Lint, entry frozen regression and one genuine chronological fold
+        run: |
+          ruff check tools/atr_nested_walkforward.py tests/test_atr_nested_walkforward.py
+          pytest -q tests/test_atr_entry_frozen_lab.py tests/test_atr_nested_walkforward.py
+      - name: Run complete nested historical walk-forward — seven outer folds
+        run: |
+          mkdir -p nested-atr-evidence
+          python -m tools.atr_nested_walkforward \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --funding-dir research/snapshots/bybit_funding_2023-10-09_2026-10-08 \
+            --outer-train 420 \
+            --inner-validation 90 \
+            --outer-test 90 \
+            --output nested-atr-evidence/seven-fold-development.json
+      - name: Validate chronology, all losses, accounting, no promotion
+        run: |
+          python - <<'PY'
+          import json
+          from decimal import Decimal
+          from pathlib import Path
+          p = json.loads(Path("nested-atr-evidence/seven-fold-development.json").read_text())
+          assert p["summary"]["outer_folds"] == 7
+          assert p["summary"]["inner_predeclared_arms_evaluated"] == 84
+          assert p["research_only"] is True
+          assert p["untouched_holdout"] is False
+          assert p["outer_performance_used_for_training"] is False
+          assert p["live_trading_allowed"] is False
+          assert p["strategy_promotion_allowed"] is False
+          assert len(p["sources_sha256"]) == 12
+          assert len(p["evidence_sha256"]) == 64
+          prior_end = None
+          for fold in p["folds"]:
+              train = fold["inner_selection"]
+              outer = fold["outer_test"]
+              assert train["last_available_decision_bar"] < outer["first_execution"]
+              if prior_end:
+                  assert prior_end < outer["first_execution"]
+              prior_end = outer["last_execution"]
+              assert len(train["all_predeclared_12_arms"]) == 12
+              assert len(train["all_selection_reasons"]) == 12
+              assert len(train["chosen_profiles_frozen_before_outer_test"]) == 6
+              for arm in train["all_predeclared_12_arms"]:
+                  assert arm["symbol_closed_trades"] >= 0
+              for key in ("strategy_a", "selected_adaptive_portfolio"):
+                  v = outer[key]
+                  assert Decimal(v["return_with_funding_lower"]) <= Decimal(
+                      v["return_with_funding_upper"]
+                  )
+                  assert v["closed_trades"] >= 0
+              assert outer["stress_10_10"]["terms"]["funding_included"] is False
+              assert all(x["frozen_at_entry"] for x in outer["entry_policy_audit"])
+          print("NESTED_RESEARCH_ONLY_OK", p["evidence_sha256"])
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: atr-nested-development-${{ github.run_id }}
+          path: nested-atr-evidence/seven-fold-development.json
+          if-no-files-found: error
+          retention-days: 30
