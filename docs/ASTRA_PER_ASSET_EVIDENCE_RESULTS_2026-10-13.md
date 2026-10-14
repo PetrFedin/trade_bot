@@ -321,6 +321,17 @@ is GREEN in CI, but contains NO independently verified later
 on `dedf8d567e8c8bd6216e30e80925e06689293d16`.
 Machine-readable research artifact: `broad21-hourly-evidence-38648123033`
 ID **11934095365**; four specialized CI tests GREEN (236.38s).
+First-touch **observed hourly** threshold ordering for the
+**complete 24-case frozen census**:
+**13 TAKE_PROFIT_FIRST_HOURLY**, **11 PROTECTIVE_FIRST_HOURLY**,
+**0 UNRESOLVED_SAME_HOUR** and zero `NO_TRIGGER`. The exact
+case-day/order records are archived in the CI JSON evidence;
+artifact evidence SHA-256
+`8742854b638d1d6c63557ef3c16055ceef24c61b1fb272abc69f671cf377ad93`.
+These are *hourly market threshold touches*, not independently
+verified exchange fills or a replacement portfolio return.
+Original stop-first conservative daily PnL is unchanged.
+
 Source data: four existing original case-days plus **20 newly
 pinned** public Bybit linear 1h case-days, each with **24 complete
 UTC 1-hour OHLCV candles**. Total **24/24** original stop/target
