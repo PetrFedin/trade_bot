@@ -227,7 +227,23 @@ Before seeing economic results, the study fixed:
 - Existing holdings, stop 2%, target 4%, trailing, entry ranking,
   portfolio risk 60% and capital cash accounting unchanged.
 
-| Scope | Hypothesis | Lower-bound portfolio return after funding | Delta vs A (p.p.) | Blocked new entries | Entry-bar exits | Closed trades |\n|---|---|---:|---:|---:|---:|---:|\n| BNBUSDT | PRIOR_1D_ATR_150 | -3.889% | -2.027 | 4 | 157 | 254 |\n| BNBUSDT | PRIOR_2D_ATR_225 | -2.038% | -0.177 | 6 | 157 | 254 |\n| BTCUSDT | PRIOR_1D_ATR_150 | -2.711% | -0.850 | 8 | 157 | 253 |\n| BTCUSDT | PRIOR_2D_ATR_225 | -3.993% | -2.132 | 12 | 157 | 252 |\n| DOGEUSDT | PRIOR_1D_ATR_150 | -3.594% | -1.733 | 1 | 158 | 256 |\n| DOGEUSDT | PRIOR_2D_ATR_225 | -6.566% | -4.705 | 3 | 157 | 256 |\n| ETHUSDT | PRIOR_1D_ATR_150 | -1.175% | +0.687 | 3 | 160 | 256 |\n| ETHUSDT | PRIOR_2D_ATR_225 | -2.961% | -1.099 | 4 | 158 | 255 |\n| SOLUSDT | PRIOR_1D_ATR_150 | -1.647% | +0.214 | 1 | 157 | 256 |\n| SOLUSDT | PRIOR_2D_ATR_225 | -2.134% | -0.273 | 1 | 158 | 256 |\n| XRPUSDT | PRIOR_1D_ATR_150 | -2.964% | -1.103 | 2 | 157 | 255 |\n| XRPUSDT | PRIOR_2D_ATR_225 | -2.349% | -0.488 | 6 | 156 | 254 |\n| ALL 6 | PRIOR_1D_ATR_150 | -6.588% | -4.727 | 19 | 156 | 250 |\n| ALL 6 | PRIOR_2D_ATR_225 | -10.466% | -8.604 | 32 | 153 | 247 |\n
+| Scope | Hypothesis | Lower-bound portfolio return after funding | Delta vs A (p.p.) | Blocked new entries | Entry-bar exits | Closed trades |
+|---|---|---:|---:|---:|---:|---:|
+| BNBUSDT | PRIOR_1D_ATR_150 | -3.889% | -2.027 | 4 | 157 | 254 |
+| BNBUSDT | PRIOR_2D_ATR_225 | -2.038% | -0.177 | 6 | 157 | 254 |
+| BTCUSDT | PRIOR_1D_ATR_150 | -2.711% | -0.850 | 8 | 157 | 253 |
+| BTCUSDT | PRIOR_2D_ATR_225 | -3.993% | -2.132 | 12 | 157 | 252 |
+| DOGEUSDT | PRIOR_1D_ATR_150 | -3.594% | -1.733 | 1 | 158 | 256 |
+| DOGEUSDT | PRIOR_2D_ATR_225 | -6.566% | -4.705 | 3 | 157 | 256 |
+| ETHUSDT | PRIOR_1D_ATR_150 | -1.175% | +0.687 | 3 | 160 | 256 |
+| ETHUSDT | PRIOR_2D_ATR_225 | -2.961% | -1.099 | 4 | 158 | 255 |
+| SOLUSDT | PRIOR_1D_ATR_150 | -1.647% | +0.214 | 1 | 157 | 256 |
+| SOLUSDT | PRIOR_2D_ATR_225 | -2.134% | -0.273 | 1 | 158 | 256 |
+| XRPUSDT | PRIOR_1D_ATR_150 | -2.964% | -1.103 | 2 | 157 | 255 |
+| XRPUSDT | PRIOR_2D_ATR_225 | -2.349% | -0.488 | 6 | 156 | 254 |
+| ALL 6 | PRIOR_1D_ATR_150 | -6.588% | -4.727 | 19 | 156 | 250 |
+| ALL 6 | PRIOR_2D_ATR_225 | -10.466% | -8.604 | 32 | 153 | 247 |
+
 **Observed negative discovery**: Just **2/14** arms (single ETH
 one-day and single SOL one-day) had a funding-lower return higher
 than original A, but neither made a positive conservatively
@@ -248,7 +264,57 @@ falsification. Even a positive nested diagnostic will remain
 pseudo-OOS until genuinely new independently sourced dates
 pass the [post-freeze gate PR #320](https://github.com/PetrFedin/trade_bot/pull/320).
 
+## Candidate B past-only nested walk-forward — 2026-10-15, PR #322
+
+**Independently reproducible NEGATIVE / NO-OP evaluation:**
+[exact-head GREEN run 38646974925](https://github.com/PetrFedin/trade_bot/actions/runs/38646974925),
+commit `c5d48df9103d64d1f205247e8e25562981e9cf84`,
+archived artifact `candidate-b-nested-38646974925` (id **11932337978**),
+evidence SHA-256 `62fdab742d156347b5d4f1e31a7a498ba936c0fe903a8a643ccd79d7b932fc73`.
+All 13 tests passed; seven later chronological 90-day fold portfolios
+and all 84 past-only inner candidate replays (six coins × two entry
+vetoes × seven historical folds) completed. All histories pre-inspected
+in other ASTRA experiments: pseudo-OOS for development, NOT a truly
+untouched final forward holdout.
+
+**Results:** Strategy B produced **0/7 positive incremental fold wins
+against unchanged Strategy A, 7/7 exact portfolio ties, 0/7 regressions**.
+The *mean incremental portfolio funding-adjusted conservative return*
+was exactly **0 percentage points**. Four folds picked BASELINE on
+every symbol. In three folds one symbol's prior-impulse rule was
+conditionally admitted based on past-only validation (XRP 2D in fold
+0, BNB 1D in fold 3, BTC 2D in fold 5); those selections did NOT
+veto any subsequently entered position or modify cash/PnL in the
+later 90-day test window. This does **not** confirm predictive
+quality of the rule: its realized marginal effect was zero.
+
+| Later outer fold | Original A lower | Candidate B lower | Difference |
+|---|---:|---:|---:|
+| 1 | -3.3815% | -3.3815% | 0.0000 p.p. |
+| 2 | -3.9734% | -3.9734% | 0.0000 p.p. |
+| 3 | +3.5754% | +3.5754% | 0.0000 p.p. |
+| 4 | +0.7131% | +0.7131% | 0.0000 p.p. |
+| 5 | -2.9775% | -2.9775% | 0.0000 p.p. |
+| 6 | +0.5740% | +0.5740% | 0.0000 p.p. |
+| 7 | -3.2503% | -3.2503% | 0.0000 p.p. |
+
+Every 90-day fold restarts capital at USD 10,000; never
+sum/compound these seven reports into one live-account return.
+All quoted values use 8bps/fill fee, 5bps/side slippage and
+historical constant-notional funding timing **upper cost bound**.
+Additional 10/10 fee/slippage stress was collected **before**
+funding only. Neither the future period nor venue account fills
+have been independently established.
+
+**Decision:** No evidence that this Candidate B profile selection
+improves historical portfolio economics. Do not loosen entry gates
+retrospectively or enable paper/broker/live; retain this complete
+negative/falsifying example in the permanent research ledger.
+[Post-freeze source gate #320](https://github.com/PetrFedin/trade_bot/pull/320)
+is GREEN in CI, but contains NO independently verified later
+90-day research dataset.
+
 ## Release status
-All 48 previous historical arms and the new 84 nested inner evaluations: RESEARCH_ONLY, NOT AN UNTOUCHED HOLDOUT, NO AUTO WINNER,
+All 62 previous historical arms plus 84 ATR and 84 entry nested inner evaluations: RESEARCH_ONLY, NOT AN UNTOUCHED HOLDOUT, NO AUTO WINNER,
 NO BROKER/TRADING/OMS AUTHORIZATION. The project remains
 `PROFITABILITY_NOT_PROVEN`.
