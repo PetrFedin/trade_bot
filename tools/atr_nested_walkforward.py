@@ -498,7 +498,8 @@ def run_nested_atr(
         "limitations": [
             "All market dates were previously inspected and are NOT an untouched final holdout",
             "Outer folds restart USD capital; fold returns cannot be compounded as a live account",
-            "Selection uses prior inner validation, but profile thresholds were human-designed after earlier research",
+            "Selection uses prior inner validation, but thresholds were designed",
+            "after earlier inspected research, not frozen before all prior studies",
             "Existing same-bar stop/target ambiguity is handled conservatively on daily OHLC",
             "Trading fees/slippage are fixed assumed bps; order-book fills and latency unverified",
             "Funding bounds approximate settlement timing and constant entry notional",
