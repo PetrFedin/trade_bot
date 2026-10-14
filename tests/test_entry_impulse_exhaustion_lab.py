@@ -22,6 +22,7 @@ from tools.entry_impulse_exhaustion_lab import (
 )
 
 D = Decimal
+ZERO = D("0")
 START = datetime(2025, 1, 1, tzinfo=UTC)
 
 
