@@ -440,7 +440,8 @@ def run_nested_impulse(
         },
         "folds": outputs,
         "limitations": [
-            "Each market date was previously inspected; nested folds are not a new untouched holdout",
+            "Each market date was previously inspected; nested folds are",
+            "not a new untouched external future holdout",
             "All fold capital begins at $10k; returns must not be compounded as one account",
             "Human-proposed impulse thresholds came after prior Strategy A loss analysis",
             "Funding cost bounds reflect constant entry notional and uncertain timing",
