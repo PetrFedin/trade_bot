@@ -204,6 +204,50 @@ conservative intrabar-execution/venue funding uncertainties.
 Also retain the 10bps fee/10bps slippage *pre-funding-only* stress
 fields separately from the funding-adjusted primary table.
 
+## Candidate B completed-bar impulse veto discovery — 2026-10-15
+
+**Full-portfolio evidence**: [GREEN exact-head run 38646276271](https://github.com/PetrFedin/trade_bot/actions/runs/38646276271),
+head `5a1211e55919554b333ab05cd2dc934f5ff2611f`,
+artifact `candidate-b-impulse-38646276271` ID **11932607670**,
+evidence SHA-256 `43be7151e050fc623f184b9ac501d070cae34e678766edd84ec6803c277f4851`.
+13 fast regression tests and all 14 genuine historical six-major
+portfolio replays passed. Everything uses **previously inspected**
+2023-2026 daily OHLCV, estimated 8bps/fill fees, 5bps/side slippage
+and conservative timing-bounded funding, not real exchange fills.
+Control: 256 closed trades, 158 entry-bar exits, **−1.861%**
+conservative portfolio lower-bound after funding.
+
+Before seeing economic results, the study fixed:
+- PRIOR_1D_ATR_150: veto new coin entry when positive return on last
+  completed day > 1.50 × 14-day gap-aware ATR / last completed close.
+- PRIOR_2D_ATR_225: veto new coin entry when positive preceding
+  two-day return > 2.25 × the same relative ATR.
+- 12 single-coin changes, plus 2 independently preregistered joint
+  six-coin changes; no retrospectively assembled portfolio.
+- Existing holdings, stop 2%, target 4%, trailing, entry ranking,
+  portfolio risk 60% and capital cash accounting unchanged.
+
+| Scope | Hypothesis | Lower-bound portfolio return after funding | Delta vs A (p.p.) | Blocked new entries | Entry-bar exits | Closed trades |\n|---|---|---:|---:|---:|---:|---:|\n| BNBUSDT | PRIOR_1D_ATR_150 | -3.889% | -2.027 | 4 | 157 | 254 |\n| BNBUSDT | PRIOR_2D_ATR_225 | -2.038% | -0.177 | 6 | 157 | 254 |\n| BTCUSDT | PRIOR_1D_ATR_150 | -2.711% | -0.850 | 8 | 157 | 253 |\n| BTCUSDT | PRIOR_2D_ATR_225 | -3.993% | -2.132 | 12 | 157 | 252 |\n| DOGEUSDT | PRIOR_1D_ATR_150 | -3.594% | -1.733 | 1 | 158 | 256 |\n| DOGEUSDT | PRIOR_2D_ATR_225 | -6.566% | -4.705 | 3 | 157 | 256 |\n| ETHUSDT | PRIOR_1D_ATR_150 | -1.175% | +0.687 | 3 | 160 | 256 |\n| ETHUSDT | PRIOR_2D_ATR_225 | -2.961% | -1.099 | 4 | 158 | 255 |\n| SOLUSDT | PRIOR_1D_ATR_150 | -1.647% | +0.214 | 1 | 157 | 256 |\n| SOLUSDT | PRIOR_2D_ATR_225 | -2.134% | -0.273 | 1 | 158 | 256 |\n| XRPUSDT | PRIOR_1D_ATR_150 | -2.964% | -1.103 | 2 | 157 | 255 |\n| XRPUSDT | PRIOR_2D_ATR_225 | -2.349% | -0.488 | 6 | 156 | 254 |\n| ALL 6 | PRIOR_1D_ATR_150 | -6.588% | -4.727 | 19 | 156 | 250 |\n| ALL 6 | PRIOR_2D_ATR_225 | -10.466% | -8.604 | 32 | 153 | 247 |\n
+**Observed negative discovery**: Just **2/14** arms (single ETH
+one-day and single SOL one-day) had a funding-lower return higher
+than original A, but neither made a positive conservatively
+funding-adjusted portfolio return. The other **12/14** worsened
+relative to A. Joint one-day filter **−6.588%**, joint two-day
+filter **−10.466%**. Importantly the two-day joint filter blocked
+32 proposed entries and reduced entry-bar exits from 158 to 153,
+yet portfolio profitability deteriorated sharply. A naive
+`fewer same-day stops == improvement` metric is **REJECTED**.
+
+**Policy:** Do not grant Candidate B a production, paper, testnet or
+broker permission. Do not adjust the ATR thresholds to maximize
+these previously inspected losses. [Draft PR #322](https://github.com/PetrFedin/trade_bot/pull/322)
+was preregistered to test **past-only** profile selection across
+nonoverlapping later historical windows and must disclose negative
+results, baseline fallback, fee/slippage/funding and zero-trade
+falsification. Even a positive nested diagnostic will remain
+pseudo-OOS until genuinely new independently sourced dates
+pass the [post-freeze gate PR #320](https://github.com/PetrFedin/trade_bot/pull/320).
+
 ## Release status
 All 48 previous historical arms and the new 84 nested inner evaluations: RESEARCH_ONLY, NOT AN UNTOUCHED HOLDOUT, NO AUTO WINNER,
 NO BROKER/TRADING/OMS AUTHORIZATION. The project remains
