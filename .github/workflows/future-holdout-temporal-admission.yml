@@ -1,0 +1,70 @@
+name: future-holdout-temporal-admission
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/future_holdout_admission.py'
+      - 'tests/test_future_holdout_admission.py'
+      - '.github/workflows/future-holdout-temporal-admission.yml'
+      - 'docs/ASTRA_FUTURE_HOLDOUT_ADMISSION_2026-10-14.md'
+
+permissions:
+  contents: read
+
+jobs:
+  old-history-must-not-become-future:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Locked deps
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Strict time/data and anti-promotion negative tests
+        run: |
+          ruff check tools/future_holdout_admission.py tests/test_future_holdout_admission.py
+          pytest -q tests/test_future_holdout_admission.py
+      - name: Preserve explicit not-yet-valid future evidence status
+        run: |
+          python - <<'PY'
+          from datetime import UTC, datetime
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+          from tools.future_holdout_admission import FutureHoldoutAdmissionError, validate_future_holdout
+          historical = Path("research/snapshots/bybit_3y_2023-10-09_2026-10-08")
+          assert historical.is_dir()
+          # This is an intentionally negative gate. The prior historical
+          # source cannot pass the post-freeze admission contract.
+          with TemporaryDirectory() as raw:
+              freeze = Path(raw) / "candidate-freeze.json"
+              freeze.write_text('''{
+                "schema_version": "astra-research-candidate-freeze-v1",
+                "candidate_id": "UNAPPROVED_HOLDOUT_CANDIDATE",
+                "candidate_git_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "strategy_config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "selection_rules_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "frozen_at_utc": "2026-10-14T17:00:00+00:00",
+                "previously_inspected_history_end_utc": "2026-10-08T00:00:00+00:00",
+                "symbols": ["BNBUSDT", "BTCUSDT", "DOGEUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"],
+                "minimum_future_daily_bars": 90,
+                "research_only": true,
+                "strategy_promotion_allowed": false
+              }''')
+              try:
+                  validate_future_holdout(
+                      freeze_path=freeze,
+                      source_directory=historical,
+                      assessment_as_of=datetime(2026, 10, 14, 20, tzinfo=UTC),
+                  )
+              except FutureHoldoutAdmissionError:
+                  print("OLD_2023_2026_HISTORY_NOT_FUTURE_HOLDOUT: PASS")
+              else:
+                  raise AssertionError("historical data was incorrectly admitted")
+          PY
