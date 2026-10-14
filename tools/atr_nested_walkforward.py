@@ -364,12 +364,22 @@ def run_nested_atr(
             slippage_bps=STRESS_SLIPPAGE_BPS,
         )
         outer_start = timeline[fold.execution_start]
-        if any(
-            x["last_completed_time"] >= outer_start.isoformat()
-            for x in resolver_audit
-            if x["last_completed_time"] == outer_start.isoformat()
+        actual_entries = [
+            (symbol, trace.decision_time, trace.execution_time)
+            for trace in outer_candidate.decision_trace
+            for symbol in trace.entered_symbols
+        ]
+        if len(actual_entries) != len(resolver_audit):
+            raise ValueError("missing or duplicate frozen entry profile audit")
+        for (symbol, decision_time, execution_time), entry in zip(
+            actual_entries, resolver_audit, strict=True,
         ):
-            raise ValueError("entry profile resolver used execution bar")
+            if (
+                entry["symbol"] != symbol
+                or entry["last_completed_time"] != decision_time.isoformat()
+                or decision_time >= execution_time
+            ):
+                raise ValueError("entry ATR policy inspected a non-prior bar")
         outputs.append({
             "fold": fold.index,
             "inner_selection": {
