@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -37,6 +37,7 @@ class PortfolioExitReason(StrEnum):
 class PortfolioEntryBlockReason(StrEnum):
     REENTRY_CONFIRMATION_PENDING = "REENTRY_CONFIRMATION_PENDING"
     GROSS_EXPOSURE_CAP = "GROSS_EXPOSURE_CAP"
+    RESEARCH_PRIOR_ENTRY_VETO = "RESEARCH_PRIOR_ENTRY_VETO"
 
 
 @dataclass(frozen=True)
@@ -172,6 +173,9 @@ class CrossSectionalPortfolioBacktester:
         portfolio_policy: CrossSectionalPortfolioPolicy | None = None,
         position_policy: PositionManagementPolicy | None = None,
         reentry_policy: ReentryConfirmationPolicy | None = None,
+        research_prior_entry_veto: (
+            Callable[[str, tuple[OhlcvBar, ...]], bool] | None
+        ) = None,
     ) -> None:
         portfolio = (
             CrossSectionalPortfolioPolicy()
@@ -187,6 +191,11 @@ class CrossSectionalPortfolioBacktester:
         self.portfolio_policy = portfolio
         self.position_policy = position
         self.reentry_policy = reentry_policy
+        if research_prior_entry_veto is not None and not callable(
+            research_prior_entry_veto
+        ):
+            raise ValueError("research prior entry veto must be callable")
+        self.research_prior_entry_veto = research_prior_entry_veto
 
     def run(
         self,
@@ -333,6 +342,21 @@ class CrossSectionalPortfolioBacktester:
                 if self.reentry_policy is not None:
                     state = reentry_states[symbol]
                     if state.blocked_after_exit:
+                        continue
+                if self.research_prior_entry_veto is not None:
+                    completed = tuple(by_symbol[symbol][:execution_index])
+                    if not completed or completed[-1].timestamp >= execution_time:
+                        raise ValueError("research entry history includes execution candle")
+                    allow = self.research_prior_entry_veto(symbol, completed)
+                    if not isinstance(allow, bool):
+                        raise ValueError("research entry gate must return exact boolean")
+                    if not allow:
+                        blocked_entries.append(
+                            (symbol, PortfolioEntryBlockReason.RESEARCH_PRIOR_ENTRY_VETO)
+                        )
+                        entry_block_counts[
+                            PortfolioEntryBlockReason.RESEARCH_PRIOR_ENTRY_VETO.value
+                        ] += 1
                         continue
                 target_notional = (
                     equity_at_prior_close
