@@ -149,7 +149,62 @@ risk; no winner may be selected or auto-deployed. The final
 chronological validation and new untouched period still have not
 occurred. DO NOT combine strong-looking profiles based on this table.
 
+## Chronological nested selection diagnostic — 2026-10-14, PR #319
+
+**A deliberately adverse result, preserved without retuning.**
+[Exact-head GREEN GitHub Actions run 38599307148](https://github.com/PetrFedin/trade_bot/actions/runs/38599307148)
+on `c9e2960cd3bfee0386f96b904082e8148956720d`; evidence
+`019c7e468aee4687807c85643596548bbff4f8fdcfaa899a64c02ca34a7bee0d`.
+Artifact `atr-nested-development-38599307148` id **11911358668**.
+13 lint/unit/integration tests passed, all seven outer folds completed,
+all 84 inner candidate rows and their rejection reasons archived,
+and negative outcomes included. This is **development pseudo-OOS**:
+these same 2023–2026 market dates and ATR families were previously
+inspected by ASTRA; it is *not* an independent untouched holdout.
+
+**Fixed prior-only selection scheme**: 420 completed daily bars as
+outer history, last 90 of those bars for inner selection, then a distinct
+non-overlapping 90-day outer validation. Each fold selects independently
+for the six symbols only from BASELINE, ATR_COMPACT and ATR_EXTENDED
+using the 12 arm inner full-portfolio results, strict minimum 3 symbol
+trades, >0.5 percentage point inner funding-lower advantage versus
+Strategy A, and <=2 percentage points extra drawdown. Chosen profiles
+are frozen before outer test; true-range-based stops/targets are frozen
+per entry. Same starting $10k, fees 8bps/fill, slippage 5bps/side,
+funding timing bounds, unchanged gross exposure and original selectors.
+
+| Outer test | Strategy A conservative lower | Adaptive conservative lower | Adaptive difference (percentage points) |
+|---|---:|---:|---:|
+| 1 | -3.3815% | -3.2809% | +0.1007 |
+| 2 | -3.9734% | -3.9734% | 0.0000 |
+| 3 | +3.5754% | +3.1737% | -0.4017 |
+| 4 | +0.7131% | +0.2473% | -0.4659 |
+| 5 | -2.9775% | -2.9775% | 0.0000 |
+| 6 | +0.5740% | +0.5740% | 0.0000 |
+| 7 | -3.2503% | -4.2277% | -0.9774 |
+
+Report's mean outer fold **adaptive lower advantage -0.249193
+percentage points**; just **1/7** outer folds beat Strategy A,
+**3/7** tied because all six symbols fell back to BASELINE, and **3/7**
+underperformed. Three adaptive outer folds had a positive funding-lower
+return, yet this is insufficient relative to control and benchmarks.
+Worst adaptive outer funding-lower return was **-4.2277%**. Its
+reported average lower return per *restarted fold* was **-1.4949%**.
+DO NOT compound/sum these seven window returns into a continuous
+capital track: each 90-day evaluation restarts with $10k.
+
+**Consequence:** The ex-ante adaptive selection algorithm tested here
+**FAILED TO IMPROVE** the unchanged Strategy A reliably. Do not
+promote XRP ATR_EXTENDED or any apparent old full-period winner. Do
+not alter the 0.5/2.0 percentage-point gates retrospectively to
+make these same outer-fold outcomes look favorable. Document next
+candidate families as *new hypotheses*, hold their search budget
+fixed, test on genuinely new data after freeze, and retain the
+conservative intrabar-execution/venue funding uncertainties.
+Also retain the 10bps fee/10bps slippage *pre-funding-only* stress
+fields separately from the funding-adjusted primary table.
+
 ## Release status
-All 48 historical arms: RESEARCH_ONLY, NOT AN UNTOUCHED HOLDOUT, NO AUTO WINNER,
+All 48 previous historical arms and the new 84 nested inner evaluations: RESEARCH_ONLY, NOT AN UNTOUCHED HOLDOUT, NO AUTO WINNER,
 NO BROKER/TRADING/OMS AUTHORIZATION. The project remains
 `PROFITABILITY_NOT_PROVEN`.
