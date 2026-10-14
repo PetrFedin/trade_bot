@@ -317,10 +317,12 @@ is GREEN in CI, but contains NO independently verified later
 ## Full 24-case BROAD_21 hourly source admission — 2026-10-15, PR #323
 
 **All preselected cases now backed by public Bybit provider-reported hourly bars, not just daily high/low.**
-[Successful exact-head historical CI run 38648123033](https://github.com/PetrFedin/trade_bot/actions/runs/38648123033)
-on `dedf8d567e8c8bd6216e30e80925e06689293d16`.
-Machine-readable research artifact: `broad21-hourly-evidence-38648123033`
-ID **11934095365**; four specialized CI tests GREEN (236.38s).
+[Latest exact-head GREEN, case-by-case visible CI 38648767257](https://github.com/PetrFedin/trade_bot/actions/runs/38648767257)
+on `5523513ff90f6dfbad72b101d0b2dd9c3f68555c`.
+Machine-readable research artifact: `broad21-hourly-evidence-38648767257`
+ID **11933896308**; four specialized CI tests GREEN (144.14s).
+The preceding [CI 38648123033](https://github.com/PetrFedin/trade_bot/actions/runs/38648123033)
+was also GREEN on earlier source-identical SHA with the same evidence digest.
 First-touch **observed hourly** threshold ordering for the
 **complete 24-case frozen census**:
 **13 TAKE_PROFIT_FIRST_HOURLY**, **11 PROTECTIVE_FIRST_HOURLY**,
