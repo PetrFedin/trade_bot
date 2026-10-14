@@ -314,6 +314,42 @@ negative/falsifying example in the permanent research ledger.
 is GREEN in CI, but contains NO independently verified later
 90-day research dataset.
 
+## Full 24-case BROAD_21 hourly source admission — 2026-10-15, PR #323
+
+**All preselected cases now backed by public Bybit provider-reported hourly bars, not just daily high/low.**
+[Successful exact-head historical CI run 38648123033](https://github.com/PetrFedin/trade_bot/actions/runs/38648123033)
+on `dedf8d567e8c8bd6216e30e80925e06689293d16`.
+Machine-readable research artifact: `broad21-hourly-evidence-38648123033`
+ID **11934095365**; four specialized CI tests GREEN (236.38s).
+Source data: four existing original case-days plus **20 newly
+pinned** public Bybit linear 1h case-days, each with **24 complete
+UTC 1-hour OHLCV candles**. Total **24/24** original stop/target
+daily ambiguity cases, **576** real provider-reported hourly
+source candles, **zero missing cases**. Full UTC cadence, raw daily
+OHLCV (including decimal volume), original daily census, source
+SHA-256/provenance fields, reproducibility and no-promotion
+policy all tested.
+
+**Evidence hierarchy**: exact threshold-first *hour* is available
+when trigger hour differs. If stop and target first reach threshold
+inside the SAME hour, the intra-hour path remains unresolved; only
+a real finer-grained source and new verification could improve it.
+An hourly threshold touch is **not** a verified exchange fill,
+queue execution, partial order, latency, spread, actual venue
+funding, or full path-dependent alternate portfolio return.
+All 24 cases are on previously inspected history, not a newly
+arriving untouched holdout. Provider origin is a retained connector
+claim, not independently cryptographically signed provenance.
+
+Do NOT add any conditional single-trade profits from these case
+reconstructions to Strategy A historical portfolio return.
+The 21-asset universe's original negative full-portfolio model
+remains the reference until a complete synchronized, fee/funding
+inclusive portfolio counterfactual is separately recomputed.
+All BRANCHES/Drafts #313 -> #314 -> #323 require exact-head
+independent review and safe integration order; main, production
+and broker authorization remain unchanged.
+
 ## Release status
 All 62 previous historical arms plus 84 ATR and 84 entry nested inner evaluations: RESEARCH_ONLY, NOT AN UNTOUCHED HOLDOUT, NO AUTO WINNER,
 NO BROKER/TRADING/OMS AUTHORIZATION. The project remains
