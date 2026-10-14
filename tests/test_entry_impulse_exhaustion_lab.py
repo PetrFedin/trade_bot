@@ -26,7 +26,7 @@ ZERO = D("0")
 START = datetime(2025, 1, 1, tzinfo=UTC)
 
 
-def _bars(symbol, *, drift=D("0"), size=25):
+def _bars(symbol, *, drift=ZERO, size=25):
     result = []
     for index in range(size):
         close = D("100") + drift * index
