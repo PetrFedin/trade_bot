@@ -1,0 +1,139 @@
+name: append-only-truncate-contract
+
+# The frozen v107 and v108 migrations guard their audit logs against UPDATE and DELETE only.
+# A row-level trigger never sees a table-level TRUNCATE, so a principal that owns the
+# table could still erase an append-only audit log - and canonical-security-regression
+# could report PASS while that was true, because information_schema.triggers follows the
+# SQL standard and reports only INSERT, UPDATE and DELETE.
+#
+# This is a separate workflow rather than an edit to that one. The frozen security
+# regression is covered by the release identity digest, and #109 requires existing
+# migration and release identities to be preserved, so the contract is added forward the
+# way the protection itself is.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: truncate-contract-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16.4-alpine
+        env:
+          POSTGRES_USER: astra
+          POSTGRES_PASSWORD: astra
+          POSTGRES_DB: astra
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U astra -d astra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ASTRA_TEST_POSTGRES_DSN: postgresql://astra:astra@127.0.0.1:5432/astra
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0, Node 24
+        with:
+          python-version: '3.12'
+
+      - name: Install package
+        run: |
+          python -m pip install --disable-pip-version-check '.[test,postgresql]'
+          python -m pip check
+
+      - name: Install PostgreSQL client
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+
+      - name: Apply the frozen lineage and its forward hardening twice
+        run: |
+          set -euo pipefail
+          migrations=(
+            migrations/v107/001_production_rollout_actuator.sql
+            migrations/v107/002_rollout_truncate_hardening.sql
+            migrations/v108/001_asymmetric_signing_authority.sql
+            migrations/v108/002_signing_truncate_hardening.sql
+          )
+          for pass in 1 2; do
+            for migration in "${migrations[@]}"; do
+              psql -h 127.0.0.1 -p 5432 -U astra -d astra -v ON_ERROR_STOP=1 -f "$migration"
+            done
+          done
+        env:
+          PGPASSWORD: astra
+
+      - name: Assert TRUNCATE protection exists on every append-only audit log
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -p 5432 -U astra -d astra -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            audit_table text;
+            truncate_trigger text;
+            found integer;
+          BEGIN
+            FOR audit_table, truncate_trigger IN
+              SELECT * FROM (VALUES
+                ('astra_rollout_event_v107', 'astra_rollout_event_no_truncate_v107'),
+                ('astra_signing_event_v108', 'astra_signing_event_no_truncate_v108')
+              ) AS required(table_name, trigger_name)
+            LOOP
+              -- Bit 32 of tgtype is the TRUNCATE timing bit. information_schema.triggers
+              -- cannot express this check at all, which is why it is read from pg_trigger.
+              SELECT count(*) INTO found
+                FROM pg_trigger t
+                JOIN pg_class c ON c.oid = t.tgrelid
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE n.nspname = 'public'
+                 AND c.relname = audit_table
+                 AND t.tgname = truncate_trigger
+                 AND NOT t.tgisinternal
+                 AND t.tgenabled IN ('O', 'A')
+                 AND (t.tgtype & 32) = 32;
+              IF found <> 1 THEN
+                RAISE EXCEPTION 'append-only TRUNCATE protection missing on %', audit_table;
+              END IF;
+            END LOOP;
+          END
+          $$;
+          SQL
+        env:
+          PGPASSWORD: astra
+
+      - name: Prove TRUNCATE is actually refused, not merely declared
+        run: |
+          set -euo pipefail
+          for table in astra_rollout_event_v107 astra_signing_event_v108; do
+            if psql -h 127.0.0.1 -p 5432 -U astra -d astra -c "TRUNCATE ${table};" \
+                 >/dev/null 2>&1; then
+              echo "TRUNCATE succeeded on ${table}, which the append-only contract forbids"
+              exit 1
+            fi
+            echo "refused: ${table}"
+          done
+        env:
+          PGPASSWORD: astra
+
+      - name: Run the hardening contract tests
+        run: pytest -q tests/test_append_only_truncate_hardening.py
