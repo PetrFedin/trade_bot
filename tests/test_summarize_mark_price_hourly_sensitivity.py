@@ -40,7 +40,9 @@ def _write_symbol(root: Path, symbol: str, *, rows: int = 24, settlements: int =
                 f"2026-01-01T{i * 8:02d}:00:00+00:00",
                 symbol, "0.0001", "100", "101", "99", "100.5", "0.02",
             ])
-    sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+    def sha(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
     manifest = {
         "schema_version": "bybit-mark-price-hourly-sensitivity-v1",
         "evaluation_class": "COARSE_PUBLIC_MARK_PRICE_ENVELOPE_RESEARCH_ONLY",
