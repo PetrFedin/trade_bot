@@ -189,7 +189,10 @@ def admit_mark_price_source(
             if previous is not None and stamp <= previous:
                 raise MarkPriceAdmissionError("mark timestamps duplicated or reordered")
             previous = stamp
-            values = tuple(\n                _decimal(row[key], f"mark {key}")\n                for key in ("open", "high", "low", "close")\n            )
+            values = tuple(
+                _decimal(row[key], f"mark {key}")
+                for key in ("open", "high", "low", "close")
+            )
             open_, high, low, close = values
             if (
                 min(values) <= 0
