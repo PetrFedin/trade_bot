@@ -500,3 +500,72 @@ or a reason to disable protective orders. The negative ETH 2024-03-04
 protective-first result is retained. Next: whole ambiguous-case census
 under a preregistered protocol, then conditional full portfolio replay
 under realistic costs/impact. `PROFITABILITY_NOT_PROVEN` persists.
+
+
+### 2026-10-14 — nested per-coin ATR selection FAILS relative to unchanged Strategy A
+
+Research provenance: [PR #319](https://github.com/PetrFedin/trade_bot/pull/319),
+exact SHA `c9e2960cd3bfee0386f96b904082e8148956720d`,
+[CI run #38599307148](https://github.com/PetrFedin/trade_bot/actions/runs/38599307148),
+artifact `atr-nested-development-38599307148` (ID 11911358668),
+evidence SHA-256 `019c7e468aee4687807c85643596548bbff4f8fdcfaa899a64c02ca34a7bee0d`.
+
+Implemented genuine *chronological separation within the historical sample*:
+420 preceding completed daily bars; last 90 are inner model-selection
+validation; next distinct 90 bars are outer portfolio tests. Seven
+nonoverlapping outer test windows; 12 predeclared coin/ATR profiles
+evaluated on each prior inner validation (84 inner comparisons).
+Chosen six-symbol profiles frozen BEFORE outer test. Entry stop/target
+frozen separately at each new entry from 14 prior completed bars.
+Original six-major Strategy A, $10,000 fresh capital per test, 8bps/fill,
+5bps/side, funding timing lower/upper bounds, unchanged portfolio
+competition, 60%-capital-matched passive, BTC and cash benchmarks.
+Stress 10bps/10bps is expressly **pre-funding** only.
+
+**Real negative finding:** adaptive vs Strategy A conservatively
+funding-adjusted lower bound: 1 better outer fold, 3 ties from
+all-baseline fallback, 3 worse. Mean per-reset-fold relative advantage
+**-0.249193 percentage points**. Worst adaptive lower bound **-4.2277%**;
+mean adaptive lower per fold **-1.4949%**. Three outer folds have a
+positive lower-bound return, which is not enough to establish alpha
+relative to Strategy A. Do not add, compound or annualize per-reset-fold
+returns as a continuous investable track. All cases, positive or
+negative, retained in the machine-readable artifact.
+
+**Decision ADOPT:** preserve this failed adaptive rule as a negative
+benchmark. **REJECT:** tweaking stop/target/training thresholds after
+seeing these same seven outer outcomes, combining attractive historical
+coin profiles as if returns add, or claiming a new OOS alpha.
+These dates had already been inspected in earlier ASTRA research, so
+nested outer results are **development pseudo-OOS**, NOT a truly untouched
+future holdout. Existing historical daily OHLC ambiguity, venue
+execution constraints and account-exact funding remain unproven.
+
+### 2026-10-14 — post-freeze data gate rejects recycled historical market bars
+
+[PR #320](https://github.com/PetrFedin/trade_bot/pull/320),
+[CI #38600450030](https://github.com/PetrFedin/trade_bot/actions/runs/38600450030):
+9 negative/regression tests passed; original 2023–2026 archive explicitly
+rejected as a post-freeze candidate holdout.
+`tools/future_holdout_admission.py` requires a candidate Git/config/rule
+freeze declaration, six exactly aligned asset CSVs, >=90 fully closed
+continuous UTC daily candles **strictly later** than the freeze AND
+the inspected-history boundary, matched SHA-256, post-freeze
+collection claims and valid OHLCV. It rejects backdated, tampered,
+short, mixed, missing or unclosed evidence.
+
+**Critical provenance limit:** source and freeze manifests are
+self-declared; local time and checksum checks do not independently
+prove the Git freeze timestamp, real Bybit origin, noninspection of
+prices, exchange fills or profitability. Even a passing source
+coverage check is explicitly `TEMPORAL_SOURCE_COVERAGE_ONLY`,
+`strategy_promotion_allowed=false` and
+`profitability_proven=false`. No genuinely new 90-day sequence
+has been supplied. A profitable candidate has NOT been selected.
+
+Next: qualify immutable provider source and external freeze witness,
+pre-register a separate independent Candidate B hypothesis without
+retuning seven seen outer folds, run the next genuinely new future
+period as it arrives, and retain adverse venue/funding/slippage
+assumptions. main/production/live exchange authority unchanged.
+`PROFITABILITY_NOT_PROVEN` remains.

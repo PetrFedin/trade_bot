@@ -2318,3 +2318,57 @@ conditional target-first trade PnL, implied guaranteed fills,
 live release or promotion from 5m bar ordering. Evidence class stays
 `REUSED_INSPECTED_HISTORY_FINE_EXECUTION_ORDER_DIAGNOSTIC_ONLY`.
 `PROFITABILITY_NOT_PROVEN` remains.
+
+
+## Per-coin ATR nested validation + future-only qualification (2026-10-14)
+
+**Verified source of truth:** PR #315–#317 completed 48 separate
+exploratory single-coin settings in a six-major portfolio; historical
+positive observations cannot by themselves select deployed per-symbol
+settings. PR #319 exact-head research workflow
+https://github.com/PetrFedin/trade_bot/actions/runs/38599307148
+used 420 prior bars, final 90 prior bars for inner selection, then
+90 later nonoverlapping outer validation bars, 7 outer folds total.
+The algorithm examined all 12 registered ATR-arm single-coin
+counterfactuals on each prior inner window; 84 inner rows, all
+negative and positive outcomes preserved. Simultaneous chosen
+per-symbol ATR conditions were then frozen before each outer
+evaluation with complete portfolio capital and modelled funding.
+
+**RESULT: NO STABLE EDGE.** Adaptive strategy beat unchanged Strategy A
+funding-adjusted lower bound in only 1 of 7 reset external periods;
+three folds tied due to the all-BASELINE fallback and three lost.
+Mean per-fold relative lower advantage -0.249193 percentage points.
+Worst adaptive lower-bound result -4.2277%; positive folds do not
+constitute matched alpha. These are chronological development folds
+over history that ASTRA had already inspected, NOT an untouched final
+holdout. No retuning on these known outer outcomes allowed.
+
+**P0 accepted corrective direction:**
+1. Keep shipping Strategy A and all original portfolio protections
+   unchanged; Draft PRs #315–#320 are not live/admitted.
+2. Preserve these seven adverse outer folds as locked negative learning
+   and all 48 + 84 underlying candidate diagnostics in append-only
+   evidence; do not recycle winning full-history ATR variants.
+3. PREPARE distinct Candidate B hypothesis from market structure,
+   regime and liquid execution criteria; preregister bounded search
+   and forecast acceptance rules before seeing the next data.
+4. **Use PR #320 post-freeze gate**:
+   https://github.com/PetrFedin/trade_bot/actions/runs/38600450030
+   (nine tests GREEN). No historical 2023–2026 archive may be
+   relabeled a genuine after-freeze future test. Require immutable
+   candidate Git/config/selector SHA, external freeze witness,
+   >=90 fully closed new UTC daily bars in same exact coin universe,
+   raw source hashes, honest collection and provider verification.
+5. PR #320 currently checks only temporal/file coverage: provider
+   authenticity, truly untouched status, freeze-time witness and
+   future strategy replay remain UNVERIFIED. It NEVER enables
+   promotion, routing, paper/live exchange or production.
+6. Separately advance PR #313/#314 1h/5m ambiguity coverage, venue
+   order-book/impact, timing-bounded funding, 10/10 stress, BTC/cash
+   and capital-matched passive. No strategy can be accepted without
+   independent exact-head review and truly new out-of-period data.
+
+**Stop:** `PROFITABILITY_NOT_PROVEN`, production HOLD; no additional
+paid resources. The objective is reproducible after-cost alpha,
+not choosing the best retrospective parameter for each coin.
