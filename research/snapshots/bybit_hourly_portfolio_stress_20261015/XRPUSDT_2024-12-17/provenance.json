@@ -1,0 +1,33 @@
+{
+  "schema_version": "astra-declared-intraday-provenance-v1",
+  "data_origin": "BYBIT_CONNECTOR_PUBLIC_KLINE",
+  "source_endpoint": "plugin://Bybit/get_kline",
+  "collector": "Restored verbatim from prior successful read-only Bybit get_kline responses in this conversation; no new request claimed",
+  "collected_at_utc": "2026-10-15T13:33:35.376085+00:00",
+  "collection_time_semantics": "Local retention time, not independently witnessed upstream collection time",
+  "interval_minutes": 60,
+  "category": "linear",
+  "symbol": "XRPUSDT",
+  "days": [
+    "2024-12-17"
+  ],
+  "source_query": {
+    "symbol": "XRPUSDT",
+    "interval": "1h",
+    "category": "linear",
+    "limit": 24,
+    "endTime": 1734479999999
+  },
+  "sha256": {
+    "XRPUSDT_60m.csv": "37510639b4f14d481ce0a03433bf2293f8fa3f2b35c2ddec5032357408125525"
+  },
+  "research_only": true,
+  "strategy_promotion_allowed": false,
+  "provider_authenticity_independently_verified": false,
+  "evaluation_class": "STRESS_REPLAY_NEW_COLLISION_SOURCE_ONLY",
+  "limitations": [
+    "Public connector origin is self-declared, not exchange-signed.",
+    "Sources were selected from missing stress collisions before their outcomes.",
+    "Matched previously retained CSV SHA256 and full raw daily OHLCV; venue fills unverified."
+  ]
+}
