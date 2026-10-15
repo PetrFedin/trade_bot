@@ -363,6 +363,48 @@ All BRANCHES/Drafts #313 -> #314 -> #323 require exact-head
 independent review and safe integration order; main, production
 and broker authorization remain unchanged.
 
+## Exact-head hourly portfolio + funding cash-feedback replay — 2026-10-15, PR #324
+
+**Implementation is now source-materialized and exact-head qualified.**
+[GitHub Actions run 38754974902](https://github.com/PetrFedin/trade_bot/actions/runs/38754974902)
+ran on commit `6f6c3c42ef3b33a1fbeb2a45131b014ee15810f8`.
+Artifact `hourly-replay-and-funding-38754974902` id **11982104884**.
+Ruff and **76 targeted tests** passed under locked Python 3.12 dependencies.
+Independent arithmetic verification checked **23,988 funding events**, matched
+chronology and portfolio identities. Funding evidence SHA-256:
+`b6f5e1701bfd4068b82dce70c59150202c76f3238ee44d502e54d954807ac861`.
+Legacy/hourly portfolio evidence SHA-256:
+`6fc8f8ce82dfba3372dd302d42b9964cb83e5e19d54a2ec3dfa89ded4e7324f2`.
+
+For the common fully funding-covered period 2023-10-09 through 2026-06-14,
+the full path-dependent cash ledger is recomputed after source-backed hourly
+collision ordering and modeled daily funding cash feedback.
+
+| Model | Costs | Six-major | Broad21 |
+|---|---:|---:|---:|
+| Hourly collision refined + UPPER_COST funding cash | 8bps/fill + 5bps/side | **+12.82195%** | **-3.65547%** |
+| Hourly collision refined + UPPER_COST funding cash | 10bps/fill + 10bps/side | **+3.63095%** | **-13.59525%** |
+
+Each number is total return on its independently replayed USD 10,000 account,
+not annualized and not an isolated-trade adjustment. The expanded 21-asset
+universe remains negative even after hourly ordering clarification.
+
+The six-major full-history 2023-10-09 through 2026-10-08 replay at 8/5 under
+the same UPPER_COST daily-funding-cash convention is **+10.97803%**. This
+supersedes earlier local-only figures for this exact convention.
+
+**Remaining accounting limitation:** the funding feedback currently remains
+a modeled convention, not an exact historical Bybit account settlement. Bybit
+USDT perpetual funding position value depends on contract quantity × Mark
+Price at funding. Mark Price source admission is therefore separated into
+Draft PR #325. Never relabel entry/Last Price as exact historical Mark Price.
+Actual account funding inclusion around settlement, queue fills, spread,
+latency and partial fills remain unverified.
+
+**Decision:** six-major becomes a stronger research candidate, but profitability
+is still **NOT proven**. Broad21 does not qualify. No live/paper/broker
+promotion from this evidence alone.
+
 ## Release status
 All 62 previous historical arms plus 84 ATR and 84 entry nested inner evaluations: RESEARCH_ONLY, NOT AN UNTOUCHED HOLDOUT, NO AUTO WINNER,
 NO BROKER/TRADING/OMS AUTHORIZATION. The project remains
