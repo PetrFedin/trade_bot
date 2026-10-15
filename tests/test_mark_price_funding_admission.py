@@ -240,3 +240,19 @@ def test_one_minute_interval_is_mandatory(tmp_path: Path) -> None:
             mark_csv=paths[2],
             mark_manifest=paths[3],
         )
+
+
+def test_official_bytick_mainnet_host_is_accepted(tmp_path: Path) -> None:
+    paths = _fixture(tmp_path)
+    meta = json.loads(paths[3].read_text(encoding="utf-8"))
+    meta["endpoint"] = "https://api.bytick.com/v5/market/mark-price-kline"
+    paths[3].write_text(json.dumps(meta), encoding="utf-8")
+    report = admit_mark_price_source(
+        symbol="BTCUSDT",
+        funding_csv=paths[0],
+        funding_manifest=paths[1],
+        mark_csv=paths[2],
+        mark_manifest=paths[3],
+    )
+    assert report["mark_endpoint_claim"] == meta["endpoint"]
+    assert report["mark_price_exact_at_settlement_verified"] is False
