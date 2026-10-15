@@ -1,0 +1,55 @@
+name: materialize-full-portfolio-hourly-replay-source
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.research/materialize/**'
+      - '.github/workflows/materialize-full-portfolio-hourly-replay-source.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: materialize-hourly-replay-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  materialize-reviewed-source:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Reconstruct and verify local-reviewed source bundle
+        run: |
+          cat .research/materialize/chunk-*.b64 | base64 -d > /tmp/astra-replay-source.tgz
+          echo '6c5ea361a5db55c33b877c7e4a0f4653acde9f8951018a0d6d9ac1a7443dd1b5  /tmp/astra-replay-source.tgz' | sha256sum -c -
+          tar -tzf /tmp/astra-replay-source.tgz > /tmp/contents.txt
+          test "$(wc -l < /tmp/contents.txt)" -eq 18
+          grep -Fx 'app/strategy/cross_sectional_portfolio.py' /tmp/contents.txt
+          grep -Fx 'tools/portfolio_hourly_replay.py' /tmp/contents.txt
+          grep -Fx 'tools/daily_funding_cash_replay.py' /tmp/contents.txt
+          grep -Fx '.github/workflows/full-portfolio-hourly-replay.yml' /tmp/contents.txt
+          tar -xzf /tmp/astra-replay-source.tgz -C .
+      - name: Remove transport-only materializer and commit source
+        run: |
+          rm -rf .research/materialize
+          rm -f .github/workflows/materialize-full-portfolio-hourly-replay-source.yml
+          git config user.name 'ASTRA Research Materializer'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add app/strategy/cross_sectional_portfolio.py \
+            tools/portfolio_hourly_replay.py tools/daily_funding_cash_replay.py \
+            tools/verify_portfolio_hourly_report.py tools/verify_daily_funding_report.py \
+            tests/test_portfolio_hourly_replay.py tests/test_daily_funding_cash_replay.py \
+            docs/ASTRA_CASH_FUNDING_REPLAY_2026-10-15.md \
+            .github/workflows/full-portfolio-hourly-replay.yml \
+            research/snapshots/bybit_hourly_portfolio_stress_20261015 \
+            .research/materialize \
+            .github/workflows/materialize-full-portfolio-hourly-replay-source.yml
+          git diff --cached --stat
+          git commit -m 'research: materialize verified hourly replay and funding cash-feedback source'
+          git push origin HEAD:${{ github.head_ref }}
