@@ -9,7 +9,16 @@ from app.application.paper_cycle import PaperCycleService
 from app.domain.trading import Bar, Side
 from app.execution.alpaca_fill_backfill import AlpacaFillActivity, FillActivityPage
 from app.execution.trade_fills import ExplicitZeroPaperFeeModel
-from app.observability.readiness import OperationalSnapshot
+from app.marketdata.continuity import (
+    OperationalContinuityCheckpoint,
+    continuity_checkpoint_id,
+)
+from app.marketdata.operational import OperationalBar
+from app.observability.authority import (
+    OperationalMarketScope,
+    RuntimeTelemetry,
+    SessionRiskTruth,
+)
 from app.oms.reconciliation import BrokerPortfolioTruth, BrokerPositionTruth
 from app.oms.store import OrderState
 from app.risk.pretrade import OperationalRiskContext, RiskLimits
@@ -21,6 +30,12 @@ from app.runtime.paper_broker_contract_v99 import BrokerOrder, BrokerOrderStatus
 from tests.financial_activity_truth_support import ready_financial_activity_truth
 
 NOW = datetime(2026, 8, 7, 18, 45, tzinfo=UTC)
+MARKET_SCOPE = OperationalMarketScope(
+    provider="ALPACA",
+    venue="PAPER",
+    symbol="AAPL",
+    interval_seconds=60,
+)
 
 
 def config(*, opening_cash: str = "10000") -> ProductConfig:
@@ -66,24 +81,69 @@ def operational_context(runtime) -> OperationalRiskContext:
     )
 
 
-def ready_snapshot() -> OperationalSnapshot:
-    return OperationalSnapshot(
-        market_data_age_seconds=Decimal("0"),
-        stream_silence_seconds=Decimal("0"),
+def ready_runtime_telemetry() -> RuntimeTelemetry:
+    return RuntimeTelemetry(
+        stream_ready=True,
+        stream_last_message_at=NOW,
+        broker_connected=True,
         broker_latency_ms=Decimal("1"),
         broker_error_fraction=Decimal("0"),
-        uncertain_orders=0,
-        reconciliation_age_seconds=Decimal("0"),
-        cash_mismatch=Decimal("0"),
-        position_mismatches=0,
+    )
+
+
+def ready_session_risk() -> SessionRiskTruth:
+    return SessionRiskTruth(
         daily_pnl=Decimal("0"),
         drawdown=Decimal("0"),
         kill_switch_engaged=False,
-        market_data_ready=True,
-        stream_ready=True,
-        broker_connected=True,
-        portfolio_reconciled=True,
     )
+
+
+def seed_market_authority(runtime) -> None:
+    bar = OperationalBar(
+        provider=MARKET_SCOPE.provider,
+        venue=MARKET_SCOPE.venue,
+        symbol=MARKET_SCOPE.symbol,
+        interval_seconds=MARKET_SCOPE.interval_seconds,
+        open_time=NOW - timedelta(seconds=MARKET_SCOPE.interval_seconds),
+        close_time=NOW,
+        source_timestamp=NOW - timedelta(seconds=1),
+        received_at=NOW,
+        source_event_id="paper-cycle-authority-bar",
+        is_final=True,
+        open=Decimal("100"),
+        high=Decimal("103"),
+        low=Decimal("99"),
+        close=Decimal("102"),
+        volume=Decimal("10"),
+    )
+    runtime.operational_marketdata.record_finalized_for_strategy(
+        bar,
+        strategy_id="paper-cycle-authority",
+        recorded_at=NOW,
+    )
+    checkpoint = OperationalContinuityCheckpoint(
+        checkpoint_id=continuity_checkpoint_id(
+            previous_checkpoint_id=None,
+            provider=bar.provider,
+            venue=bar.venue,
+            symbol=bar.symbol,
+            interval_seconds=bar.interval_seconds,
+            through_bar_id=bar.bar_id,
+            through_close_time=bar.close_time,
+            evidence_source="paper-cycle-authority",
+        ),
+        previous_checkpoint_id=None,
+        provider=bar.provider,
+        venue=bar.venue,
+        symbol=bar.symbol,
+        interval_seconds=bar.interval_seconds,
+        through_bar_id=bar.bar_id,
+        through_close_time=bar.close_time,
+        established_at=NOW,
+        evidence_source="paper-cycle-authority",
+    )
+    runtime.marketdata_continuity.append(checkpoint)
 
 
 def listening_stream() -> AlpacaTradeUpdateStreamV100:
@@ -189,11 +249,7 @@ def build_cycle(tmp_path, broker: FakeCycleBroker, *, fill_activity_source=None)
         state_directory=tmp_path,
         fee_provider=ExplicitZeroPaperFeeModel(),
     )
-    runtime.dispatch_control.arm(
-        operator_id="test-operator",
-        reason="paper cycle qualification",
-        occurred_at=NOW,
-    )
+    seed_market_authority(runtime)
     cycle = PaperCycleService(
         runtime=runtime,
         broker=broker,
@@ -201,7 +257,27 @@ def build_cycle(tmp_path, broker: FakeCycleBroker, *, fill_activity_source=None)
         stream_generation=1,
         financial_activity_truth=ready_financial_activity_truth(tmp_path, now=NOW),
         fill_activity_source=fill_activity_source,
-        operational_snapshot_provider=ready_snapshot,
+        operational_market_scope=MARKET_SCOPE,
+        runtime_telemetry=ready_runtime_telemetry,
+        session_risk=ready_session_risk,
+    )
+    if runtime.portfolio_reconciliation.latest() is None:
+        broker_positions = tuple(
+            BrokerPositionTruth(position.symbol, position.quantity)
+            for position in runtime.portfolio.positions()
+        )
+        reconciliation = cycle.reconcile_portfolio(
+            BrokerPortfolioTruth(
+                cash=runtime.portfolio.cash,
+                positions=broker_positions,
+            ),
+            occurred_at=NOW,
+        )
+        assert reconciliation.matched
+    runtime.dispatch_control.arm(
+        operator_id="test-operator",
+        reason="paper cycle qualification",
+        occurred_at=NOW,
     )
     return runtime, cycle
 

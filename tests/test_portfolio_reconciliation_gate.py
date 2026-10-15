@@ -8,7 +8,16 @@ import pytest
 
 from app.application.composition import ProductConfig, build_local_product
 from app.domain.trading import Bar, Fill, Side
-from app.observability.readiness import OperationalSnapshot
+from app.marketdata.continuity import (
+    OperationalContinuityCheckpoint,
+    continuity_checkpoint_id,
+)
+from app.marketdata.operational import OperationalBar
+from app.observability.authority import (
+    OperationalMarketScope,
+    RuntimeTelemetry,
+    SessionRiskTruth,
+)
 from app.oms.portfolio_reconciliation import build_portfolio_reconciliation_evidence
 from app.oms.reconciliation import BrokerPortfolioTruth, BrokerPositionTruth, reconcile_portfolio
 from app.oms.store import OrderRecord, OrderState
@@ -18,6 +27,12 @@ from app.runtime.paper_final_dispatch import PaperFinalDispatchGuard
 from tests.financial_activity_truth_support import ready_financial_activity_truth
 
 NOW = datetime(2026, 9, 14, 18, 30, tzinfo=UTC)
+MARKET_SCOPE = OperationalMarketScope(
+    provider="ALPACA",
+    venue="PAPER",
+    symbol="AAPL",
+    interval_seconds=60,
+)
 
 
 def config() -> ProductConfig:
@@ -72,23 +87,73 @@ def risk_context(runtime, *, price: str) -> OperationalRiskContext:
     )
 
 
-def ready_snapshot() -> OperationalSnapshot:
-    return OperationalSnapshot(
-        market_data_age_seconds=Decimal("0"),
-        stream_silence_seconds=Decimal("0"),
+def ready_runtime_telemetry() -> RuntimeTelemetry:
+    return RuntimeTelemetry(
+        stream_ready=True,
+        stream_last_message_at=NOW,
+        broker_connected=True,
         broker_latency_ms=Decimal("1"),
         broker_error_fraction=Decimal("0"),
-        uncertain_orders=0,
-        reconciliation_age_seconds=Decimal("0"),
-        cash_mismatch=Decimal("0"),
-        position_mismatches=0,
+    )
+
+
+def ready_session_risk() -> SessionRiskTruth:
+    return SessionRiskTruth(
         daily_pnl=Decimal("0"),
         drawdown=Decimal("0"),
         kill_switch_engaged=False,
-        market_data_ready=True,
-        stream_ready=True,
-        broker_connected=True,
-        portfolio_reconciled=True,
+    )
+
+
+def snapshot_authority(runtime):
+    bar = OperationalBar(
+        provider=MARKET_SCOPE.provider,
+        venue=MARKET_SCOPE.venue,
+        symbol=MARKET_SCOPE.symbol,
+        interval_seconds=MARKET_SCOPE.interval_seconds,
+        open_time=NOW - timedelta(seconds=MARKET_SCOPE.interval_seconds),
+        close_time=NOW,
+        source_timestamp=NOW - timedelta(seconds=1),
+        received_at=NOW,
+        source_event_id="portfolio-reconciliation-authority-bar",
+        is_final=True,
+        open=Decimal("100"),
+        high=Decimal("103"),
+        low=Decimal("99"),
+        close=Decimal("102"),
+        volume=Decimal("10"),
+    )
+    runtime.operational_marketdata.record_finalized_for_strategy(
+        bar,
+        strategy_id="portfolio-reconciliation-authority",
+        recorded_at=NOW,
+    )
+    checkpoint = OperationalContinuityCheckpoint(
+        checkpoint_id=continuity_checkpoint_id(
+            previous_checkpoint_id=None,
+            provider=bar.provider,
+            venue=bar.venue,
+            symbol=bar.symbol,
+            interval_seconds=bar.interval_seconds,
+            through_bar_id=bar.bar_id,
+            through_close_time=bar.close_time,
+            evidence_source="portfolio-reconciliation-authority",
+        ),
+        previous_checkpoint_id=None,
+        provider=bar.provider,
+        venue=bar.venue,
+        symbol=bar.symbol,
+        interval_seconds=bar.interval_seconds,
+        through_bar_id=bar.bar_id,
+        through_close_time=bar.close_time,
+        established_at=NOW,
+        evidence_source="portfolio-reconciliation-authority",
+    )
+    runtime.marketdata_continuity.append(checkpoint)
+    return runtime.build_operational_snapshot_assembler(
+        market_scope=MARKET_SCOPE,
+        runtime_telemetry=ready_runtime_telemetry,
+        session_risk=ready_session_risk,
     )
 
 
@@ -201,7 +266,7 @@ def test_known_mismatch_blocks_buy_dispatch_but_preserves_sell_authority(tmp_pat
     guard = PaperFinalDispatchGuard(
         control=runtime.dispatch_control,
         readiness=runtime.operational_readiness,
-        snapshot_provider=ready_snapshot,
+        snapshot_authority=snapshot_authority(runtime),
         financial_activity_truth=financial_truth,
         portfolio_reconciliation=runtime.portfolio_reconciliation,
     )
@@ -218,7 +283,7 @@ def test_known_mismatch_blocks_buy_dispatch_but_preserves_sell_authority(tmp_pat
     restarted_guard = PaperFinalDispatchGuard(
         control=restarted.dispatch_control,
         readiness=restarted.operational_readiness,
-        snapshot_provider=ready_snapshot,
+        snapshot_authority=snapshot_authority(restarted),
         financial_activity_truth=ready_financial_activity_truth(tmp_path, now=NOW),
         portfolio_reconciliation=restarted.portfolio_reconciliation,
     )
