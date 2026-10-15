@@ -22,7 +22,7 @@ D = Decimal
 ZERO = D("0")
 SCHEMA = "bybit-mark-price-settlement-snapshot-v1"
 FUNDING_SCHEMA = "bybit-funding-snapshot-v2"
-OFFICIAL_ENDPOINTS = {\n    "https://api.bybit.com/v5/market/mark-price-kline",\n    "https://api.bytick.com/v5/market/mark-price-kline",\n}
+OFFICIAL_ENDPOINT = "https://api.bybit.com/v5/market/mark-price-kline"\nOFFICIAL_ENDPOINTS = {\n    OFFICIAL_ENDPOINT,\n    "https://api.bytick.com/v5/market/mark-price-kline",\n}
 
 
 class MarkPriceAdmissionError(ValueError):
