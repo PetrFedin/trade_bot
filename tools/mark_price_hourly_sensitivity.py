@@ -25,7 +25,7 @@ D = Decimal
 HOUR = timedelta(hours=1)
 HOUR_MS = 3_600_000
 LIMIT = 1000
-URL = "https://api.bybit.com/v5/market/mark-price-kline"
+URL = "https://api.bytick.com/v5/market/mark-price-kline"
 FUNDING_SCHEMA = "bybit-funding-snapshot-v2"
 
 
