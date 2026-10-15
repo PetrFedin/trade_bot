@@ -1,0 +1,40 @@
+name: full-portfolio-hourly-replay
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/portfolio_hourly_replay.py'
+      - 'tests/test_portfolio_hourly_replay.py'
+      - 'app/strategy/cross_sectional_portfolio.py'
+      - '.github/workflows/full-portfolio-hourly-replay.yml'
+      - 'docs/ASTRA_PORTFOLIO_HOURLY_REPLAY_2026-10-15.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hourly-portfolio-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-and-replay-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Export tracked research source only, no Git metadata or credentials
+        run: |
+          mkdir -p replay-evidence
+          git ls-files -z app tools tests research/snapshots pyproject.toml requirements.lock | tar --null -T - -czf replay-evidence/source.tgz
+          git rev-parse HEAD > replay-evidence/source-head.txt
+          sha256sum replay-evidence/source.tgz > replay-evidence/source.sha256
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hourly-replay-source-${{ github.run_id }}
+          path: replay-evidence/
+          if-no-files-found: error
+          retention-days: 7
