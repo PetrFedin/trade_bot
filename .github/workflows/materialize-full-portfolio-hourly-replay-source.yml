@@ -29,7 +29,7 @@ jobs:
           cat .research/materialize/chunk-*.b64 | base64 -d > /tmp/astra-replay-source.tgz
           echo '6c5ea361a5db55c33b877c7e4a0f4653acde9f8951018a0d6d9ac1a7443dd1b5  /tmp/astra-replay-source.tgz' | sha256sum -c -
           tar -tzf /tmp/astra-replay-source.tgz > /tmp/contents.txt
-          test "$(wc -l < /tmp/contents.txt)" -eq 18
+          test "$(wc -l < /tmp/contents.txt)" -eq 19
           grep -Fx 'app/strategy/cross_sectional_portfolio.py' /tmp/contents.txt
           grep -Fx 'tools/portfolio_hourly_replay.py' /tmp/contents.txt
           grep -Fx 'tools/daily_funding_cash_replay.py' /tmp/contents.txt
