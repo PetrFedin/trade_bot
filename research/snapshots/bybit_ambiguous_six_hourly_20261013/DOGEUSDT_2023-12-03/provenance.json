@@ -1,0 +1,32 @@
+{
+  "schema_version": "astra-declared-intraday-provenance-v1",
+  "data_origin": "BYBIT_CONNECTOR_PUBLIC_KLINE",
+  "source_endpoint": "plugin://Bybit/get_kline",
+  "collector": "OpenAI-connected Bybit public get_kline read-only",
+  "collected_at_utc": "2026-10-13T00:06:41.611Z",
+  "category": "linear",
+  "interval_minutes": 60,
+  "symbol": "DOGEUSDT",
+  "days": [
+    "2023-12-03"
+  ],
+  "source_query": {
+    "symbol": "DOGEUSDT",
+    "interval": "1h",
+    "category": "linear",
+    "limit": 48,
+    "endTime": 1701648000000
+  },
+  "sha256": {
+    "DOGEUSDT_60m.csv": "07ed3031832968866eb35bd16bf555618ce45e9e73fd192f213d4354a6e7b192"
+  },
+  "research_only": true,
+  "strategy_promotion_allowed": false,
+  "provider_authenticity_independently_verified": false,
+  "evaluation_class": "REUSED_INSPECTED_HISTORY_AMBIGUITY_CENSUS_RECONSTRUCTION_INPUT_ONLY",
+  "limitations": [
+    "Public provider data not exchange-signed",
+    "Orderbook queue and fill execution unknown",
+    "Daily OHLCV reconciliation pending CI"
+  ]
+}

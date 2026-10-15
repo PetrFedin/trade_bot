@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 
 from app.domain.trading import Fill, Side
 from app.marketdata.ohlcv import OhlcvBar
-from app.portfolio.ledger import PortfolioLedger
+from app.portfolio.ledger import CashAdjustmentKind, PortfolioLedger
 from app.strategy.cross_sectional_selection import CrossSectionalSelector
 from app.strategy.ohlcv_exit import (
+    IntrabarExitDecision,
     IntrabarExitReason,
     IntrabarPositionState,
     evaluate_long_intrabar_exit,
@@ -155,6 +156,81 @@ class _OpenPositionState:
     intrabar_state: IntrabarPositionState
 
 
+@dataclass(frozen=True)
+class ResearchFundingPosition:
+    symbol: str
+    entry_time: datetime
+    quantity: Decimal
+    entry_execution_price: Decimal
+
+
+@dataclass(frozen=True)
+class ResearchDailyFundingContext:
+    """End-of-day facts only; funding affects the NEXT daily entry decision.
+
+    No mutable ledger or later-market bars are exposed to the calculator.
+    This is a daily cash-feedback scenario, not venue-timestamp settlement.
+    """
+
+    day_utc: datetime
+    closed_today: tuple[PortfolioTrade, ...]
+    open_positions: tuple[ResearchFundingPosition, ...]
+
+
+@dataclass(frozen=True)
+class ResearchFundingCashflow:
+    activity_id: str
+    symbol: str
+    settlement_time: datetime
+    amount: Decimal
+
+
+@dataclass(frozen=True)
+class ResearchCollisionContext:
+    """Exit-only research context; no ledger, future days or order authority."""
+
+    average_cost: Decimal
+    bar: OhlcvBar
+    state: IntrabarPositionState
+    policy: PositionManagementPolicy
+    daily_decision: IntrabarExitDecision
+
+
+def _validated_collision_refinement(
+    context: ResearchCollisionContext, refined: IntrabarExitDecision,
+) -> IntrabarExitDecision:
+    original = context.daily_decision
+    if not original.ambiguous_bar or not original.exit_now:
+        raise ValueError("only a reached daily collision may be refined")
+    if not isinstance(refined, IntrabarExitDecision) or refined.exit_now is not True:
+        raise ValueError("collision refinement cannot cancel a protective exit")
+    if not isinstance(refined.reason, IntrabarExitReason):
+        raise ValueError("collision refinement requires a typed exit reason")
+    if not isinstance(refined.ambiguous_bar, bool) or not isinstance(
+        refined.gap_through_protective_stop, bool
+    ):
+        raise ValueError("collision uncertainty flags must be booleans")
+    for field in ("hard_stop_price", "take_profit_price", "trailing_stop_price", "state"):
+        if getattr(refined, field) != getattr(original, field):
+            raise ValueError("collision refinement cannot change protection or prior state")
+    price = refined.exit_price_before_costs
+    if not isinstance(price, Decimal) or not price.is_finite():
+        raise ValueError("collision refinement price must be finite Decimal")
+    if not context.bar.low <= price <= context.bar.high:
+        raise ValueError("collision refinement price outside source daily range")
+    protective = max(original.hard_stop_price, original.trailing_stop_price or Decimal("0"))
+    if refined.reason is IntrabarExitReason.TAKE_PROFIT:
+        if price != original.take_profit_price or refined.gap_through_protective_stop:
+            raise ValueError("target execution cannot invent favorable price improvement")
+        if refined.ambiguous_bar:
+            raise ValueError("unresolved collision must never be promoted to target first")
+    elif refined.reason != original.reason or price > protective:
+        raise ValueError("collision refinement cannot change protective reason or improve stop")
+    elif refined.gap_through_protective_stop != (price < protective):
+        raise ValueError("protective gap flag must agree with observed execution price")
+    return refined
+
+
 class CrossSectionalPortfolioBacktester:
     """Synchronized long-only portfolio shadow backtest.
 
@@ -193,8 +269,27 @@ class CrossSectionalPortfolioBacktester:
         bars: Iterable[OhlcvBar],
         *,
         first_execution_index: int | None = None,
+        research_collision_resolver: (
+            Callable[[ResearchCollisionContext], IntrabarExitDecision] | None
+        ) = None,
+        research_daily_funding: (
+            Callable[[ResearchDailyFundingContext], tuple[ResearchFundingCashflow, ...]] | None
+        ) = None,
     ) -> CrossSectionalPortfolioResult:
+        if research_daily_funding is not None and not callable(research_daily_funding):
+            raise ValueError("research daily funding must be callable")
+        if research_collision_resolver is not None and not callable(research_collision_resolver):
+            raise ValueError("research collision resolver must be callable")
         by_symbol, timeline = _synchronized_universe(bars)
+        if research_daily_funding is not None:
+            for i, timestamp in enumerate(timeline):
+                if (
+                    timestamp.tzinfo is None or timestamp.utcoffset() != timedelta(0)
+                    or (timestamp.hour, timestamp.minute, timestamp.second,
+                        timestamp.microsecond) != (0, 0, 0, 0)
+                    or (i and timestamp - timeline[i - 1] != timedelta(days=1))
+                ):
+                    raise ValueError("daily funding requires contiguous UTC daily bars")
         symbols = tuple(sorted(by_symbol))
         if len(symbols) < 2:
             raise ValueError("portfolio backtest requires at least two symbols")
@@ -225,9 +320,11 @@ class CrossSectionalPortfolioBacktester:
         max_gross_fraction = Decimal("0")
         max_positions = 0
         one_bar_reentries = 0
+        funding_activity_ids: set[str] = set()
 
         for execution_index in range(first_execution, len(timeline)):
             execution_time = timeline[execution_index]
+            closed_before_today = len(closed_trades)
             decision_time = timeline[execution_index - 1]
             history = [
                 bar
@@ -402,6 +499,17 @@ class CrossSectionalPortfolioBacktester:
                     state=state.intrabar_state,
                     policy=self.position_policy,
                 )
+                if intrabar.ambiguous_bar and research_collision_resolver is not None:
+                    context = ResearchCollisionContext(
+                        average_cost=position.average_cost,
+                        bar=current_bars[symbol],
+                        state=state.intrabar_state,
+                        policy=self.position_policy,
+                        daily_decision=intrabar,
+                    )
+                    intrabar = _validated_collision_refinement(
+                        context, research_collision_resolver(context),
+                    )
                 if not intrabar.exit_now:
                     open_states[symbol] = _OpenPositionState(
                         entry_time=state.entry_time,
@@ -454,6 +562,59 @@ class CrossSectionalPortfolioBacktester:
                 exited_today.add(symbol)
                 if self.reentry_policy is not None:
                     reentry_states[symbol] = arm_after_exit(policy=self.reentry_policy)
+
+            if research_daily_funding is not None:
+                funding_context = ResearchDailyFundingContext(
+                    day_utc=execution_time,
+                    closed_today=tuple(closed_trades[closed_before_today:]),
+                    open_positions=tuple(
+                        ResearchFundingPosition(
+                            symbol, state.entry_time, ledger.position(symbol).quantity,
+                            state.entry_execution_price,
+                        )
+                        for symbol, state in sorted(open_states.items())
+                    ),
+                )
+                flows = research_daily_funding(funding_context)
+                if not isinstance(flows, tuple):
+                    raise ValueError("research funding output must be an immutable tuple")
+                exposed = {t.symbol for t in funding_context.closed_today} | {
+                    p.symbol for p in funding_context.open_positions
+                }
+                pending_ids: set[str] = set()
+                for flow in flows:
+                    if not isinstance(flow, ResearchFundingCashflow):
+                        raise ValueError("research funding cashflow must be typed")
+                    if (
+                        not isinstance(flow.settlement_time, datetime)
+                        or flow.settlement_time.tzinfo is None
+                        or flow.settlement_time.utcoffset() != timedelta(0)
+                        or not execution_time <= flow.settlement_time
+                        < execution_time + timedelta(days=1)
+                        or flow.symbol not in exposed
+                    ):
+                        raise ValueError("funding flow is outside actual symbol/day exposure")
+                    expected_id = (
+                        f"research-funding:{flow.symbol}:{flow.settlement_time.isoformat()}"
+                    )
+                    if flow.activity_id != expected_id:
+                        raise ValueError("funding activity identity is not canonical")
+                    if flow.activity_id in funding_activity_ids | pending_ids:
+                        raise ValueError("duplicate funding activity")
+                    if (
+                        not isinstance(flow.amount, Decimal) or not flow.amount.is_finite()
+                        or flow.amount == 0
+                    ):
+                        raise ValueError("funding amount must be nonzero finite Decimal")
+                    pending_ids.add(flow.activity_id)
+                for flow in sorted(flows, key=lambda x: (x.settlement_time, x.symbol)):
+                    # Funding credits/debits are NOT external contributions, nor
+                    # execution fees. This preserves fees_paid and cost basis.
+                    ledger.apply_cash_adjustment(
+                        activity_id=flow.activity_id, amount=flow.amount,
+                        kind=CashAdjustmentKind.INCOME,
+                    )
+                funding_activity_ids.update(pending_ids)
 
             closing_prices = {
                 symbol: current_bars[symbol].close for symbol in symbols

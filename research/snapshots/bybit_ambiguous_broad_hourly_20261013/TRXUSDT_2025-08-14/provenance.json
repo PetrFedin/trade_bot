@@ -1,0 +1,31 @@
+{
+  "schema_version": "astra-declared-intraday-provenance-v1",
+  "data_origin": "BYBIT_CONNECTOR_PUBLIC_KLINE",
+  "source_endpoint": "plugin://Bybit/get_kline",
+  "collector": "Bybit read-only market data connector, linear 1h",
+  "collected_at_utc": "2026-10-14T22:29:34.938Z",
+  "interval_minutes": 60,
+  "category": "linear",
+  "symbol": "TRXUSDT",
+  "days": [
+    "2025-08-14"
+  ],
+  "source_query": {
+    "symbol": "TRXUSDT",
+    "interval": "1h",
+    "category": "linear",
+    "limit": 48,
+    "endTime": 1755215999999
+  },
+  "sha256": {
+    "TRXUSDT_60m.csv": "41eed52a49eaa83adba1ad64b15c1650ec7c1cd60cb8fa135255178b239fca8d"
+  },
+  "research_only": true,
+  "provider_authenticity_independently_verified": false,
+  "strategy_promotion_allowed": false,
+  "evaluation_class": "REUSED_INSPECTED_HISTORY_COLLISION_SOURCE_ONLY",
+  "limitations": [
+    "Pinned genuine provider-reported hourly OHLCV, day reconciliation proven",
+    "No exchange-signed fills or order-book reconstruction"
+  ]
+}

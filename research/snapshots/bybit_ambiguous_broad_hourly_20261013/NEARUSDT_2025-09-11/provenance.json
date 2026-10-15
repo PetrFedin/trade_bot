@@ -1,0 +1,31 @@
+{
+  "schema_version": "astra-declared-intraday-provenance-v1",
+  "data_origin": "BYBIT_CONNECTOR_PUBLIC_KLINE",
+  "source_endpoint": "plugin://Bybit/get_kline",
+  "collector": "Connected public Bybit read-only market data",
+  "collected_at_utc": "2026-10-14T22:26:05.454Z",
+  "interval_minutes": 60,
+  "category": "linear",
+  "symbol": "NEARUSDT",
+  "days": [
+    "2025-09-11"
+  ],
+  "source_query": {
+    "symbol": "NEARUSDT",
+    "interval": "1h",
+    "category": "linear",
+    "limit": 48,
+    "endTime": 1757635199999
+  },
+  "sha256": {
+    "NEARUSDT_60m.csv": "578a31faa402a6eeea5c17f88cd78451716573e85f0690a109cc1e230ef7b374"
+  },
+  "research_only": true,
+  "provider_authenticity_independently_verified": false,
+  "strategy_promotion_allowed": false,
+  "evaluation_class": "REUSED_INSPECTED_HISTORY_COLLISION_SOURCE_ONLY",
+  "limitations": [
+    "Hourly public feed reconciled against frozen raw daily OHLCV",
+    "Exchange-signed execution receipts not provided"
+  ]
+}

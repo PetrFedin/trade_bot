@@ -1,0 +1,31 @@
+{
+  "schema_version": "astra-declared-intraday-provenance-v1",
+  "data_origin": "BYBIT_CONNECTOR_PUBLIC_KLINE",
+  "source_endpoint": "plugin://Bybit/get_kline",
+  "collector": "Bybit public linear 1h connector, read-only",
+  "collected_at_utc": "2026-10-14T22:28:59.271Z",
+  "interval_minutes": 60,
+  "category": "linear",
+  "symbol": "OPUSDT",
+  "days": [
+    "2023-10-23"
+  ],
+  "source_query": {
+    "symbol": "OPUSDT",
+    "interval": "1h",
+    "category": "linear",
+    "limit": 48,
+    "endTime": 1698105599999
+  },
+  "sha256": {
+    "OPUSDT_60m.csv": "4746b0e976ba933b1126b09e34487dd8c65078cc50a6cbf1e4e69f2508570207"
+  },
+  "research_only": true,
+  "provider_authenticity_independently_verified": false,
+  "strategy_promotion_allowed": false,
+  "evaluation_class": "REUSED_INSPECTED_HISTORY_COLLISION_SOURCE_ONLY",
+  "limitations": [
+    "Raw 24-hour daily OHLCV exact reconciliation passed",
+    "Original exchange fills and queue priority unverified"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "schema_version": "astra-declared-intraday-provenance-v1",
+  "data_origin": "BYBIT_CONNECTOR_PUBLIC_KLINE",
+  "source_endpoint": "plugin://Bybit/get_kline",
+  "collector": "Bybit read-only market data connector, linear 1h",
+  "collected_at_utc": "2026-10-14T22:29:34.938Z",
+  "interval_minutes": 60,
+  "category": "linear",
+  "symbol": "SUIUSDT",
+  "days": [
+    "2024-10-01"
+  ],
+  "source_query": {
+    "symbol": "SUIUSDT",
+    "interval": "1h",
+    "category": "linear",
+    "limit": 48,
+    "endTime": 1727827199999
+  },
+  "sha256": {
+    "SUIUSDT_60m.csv": "d103b13f9659b72f9a370fc73f4079516dbd4f14d6eee91e14637cb43a0d5263"
+  },
+  "research_only": true,
+  "provider_authenticity_independently_verified": false,
+  "strategy_promotion_allowed": false,
+  "evaluation_class": "REUSED_INSPECTED_HISTORY_COLLISION_SOURCE_ONLY",
+  "limitations": [
+    "Pinned genuine provider-reported hourly OHLCV, day reconciliation proven",
+    "No exchange-signed fills or order-book reconstruction"
+  ]
+}

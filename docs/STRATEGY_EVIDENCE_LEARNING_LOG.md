@@ -500,3 +500,55 @@ or a reason to disable protective orders. The negative ETH 2024-03-04
 protective-first result is retained. Next: whole ambiguous-case census
 under a preregistered protocol, then conditional full portfolio replay
 under realistic costs/impact. `PROFITABILITY_NOT_PROVEN` persists.
+
+### 2026-10-13 — entire six-major ambiguity set: 17 genuine hourly histories
+
+Evidence: GitHub Actions `full-six-major-hourly-ambiguity` run
+[38325959013](https://github.com/PetrFedin/trade_bot/actions/runs/38325959013),
+source revision `ec03355d2070aca8af332c8363184a9b66c621ae`.
+**3 tests passed**, plus source SHA256, 17/17 unique preselected cases,
+408 complete continuous provider 1h bars and exact cross-resolution
+O/H/L/C/raw base-volume identity against frozen Bybit daily CSV. Four
+case-day sources already existed in PR #306; 13 more are declared and
+hash-pinned in `research/snapshots/bybit_ambiguous_six_hourly_20261013`.
+Provider source is **public and not independently venue signed**.
+
+This is a full rather than hand-selected study of every six-major
+Strategy A daily stop/target collision (17 / 256 completed trades).
+Original conservative six-major case PnL is **-$357.5666 before
+funding** across these 17, with 11 original losing and 6 originally
+winning trades. The original whole-portfolio result is unchanged:
++$75.1553 / +0.7516% before funding, with prior funding-adjusted
+bound -1.8611% .. +0.3193%.
+
+**Real 1h observed first-touch order**:
+- **9 / 17** cases: 4%-target reached in an earlier completed
+  hourly candle than the effective hard/trailing protection;
+- **8 / 17** cases: protection reached earlier;
+- **0** remain same-hour ambiguous at the 1h granularity in
+  this specific dataset; *within-hour actual fills remain unobserved*.
+- **6** of the 9 target-first cases had a NEGATIVE net result
+  in the original daily OHLC worst-case model, while the remaining
+  three were already original winners.
+
+The four originally selected cases showed 3/4 target-first. Using
+the complete denominator instead reveals 9/17, which is a stronger
+and more conservative descriptive measure of historical ambiguity.
+
+This **does not** demonstrate Strategy A can earn the sum of
+conditional target-first trade profits. The path-dependent capital,
+future selection/re-entry, fee, venue mark funding and realized
+execution prices change after a different exit. No such full
+alternative portfolio replay has been executed or qualified.
+No exchange order confirmations, book quotes, depth/queue,
+partial fills, latency, funding account statements or position
+reconciliations are present. The model is research only.
+
+Next ADOPT: repeat complete preselected source collection for
+**all 24 broad-21 historical collisions**, validate 1h and finer
+data against raw daily prices, preserve losses and missing evidence,
+then build an entire-portfolio shadow replay with worst/best
+feasible intrabar bounds and realistic costs. Neither four
+selected examples nor 9 target-first triggers authorize
+stop removal, live execution or Candidate B promotion.
+`PROFITABILITY_NOT_PROVEN` stays.
