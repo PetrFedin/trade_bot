@@ -22,7 +22,7 @@ D = Decimal
 ZERO = D("0")
 SCHEMA = "bybit-mark-price-settlement-snapshot-v1"
 FUNDING_SCHEMA = "bybit-funding-snapshot-v2"
-OFFICIAL_ENDPOINT = "https://api.bybit.com/v5/market/mark-price-kline"
+OFFICIAL_ENDPOINTS = {\n    "https://api.bybit.com/v5/market/mark-price-kline",\n    "https://api.bytick.com/v5/market/mark-price-kline",\n}
 
 
 class MarkPriceAdmissionError(ValueError):
@@ -161,7 +161,7 @@ def admit_mark_price_source(
         or meta.get("symbol") != symbol
         or meta.get("category") != "linear"
         or meta.get("interval_minutes") != 1
-        or meta.get("endpoint") != OFFICIAL_ENDPOINT
+        or meta.get("endpoint") not in OFFICIAL_ENDPOINTS
         or meta.get("dataset_sha256") != mark_sha
         or meta.get("research_only") is not True
         or meta.get("strategy_promotion_allowed") is not False
