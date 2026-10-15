@@ -5,10 +5,15 @@ on:
     branches: [main]
     paths:
       - 'tools/portfolio_hourly_replay.py'
+      - 'tools/verify_portfolio_hourly_report.py'
+      - 'tools/daily_funding_cash_replay.py'
+      - 'tools/verify_daily_funding_report.py'
       - 'tests/test_portfolio_hourly_replay.py'
+      - 'tests/test_daily_funding_cash_replay.py'
       - 'app/strategy/cross_sectional_portfolio.py'
+      - 'research/snapshots/bybit_hourly_portfolio_stress_20261015/**'
       - '.github/workflows/full-portfolio-hourly-replay.yml'
-      - 'docs/ASTRA_PORTFOLIO_HOURLY_REPLAY_2026-10-15.md'
+      - 'docs/ASTRA_CASH_FUNDING_REPLAY_2026-10-15.md'
 
 permissions:
   contents: read
@@ -20,21 +25,42 @@ concurrency:
 jobs:
   source-and-replay-evidence:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-      - name: Export tracked research source only, no Git metadata or credentials
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install locked dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Exact-head source and regression proof
         run: |
           mkdir -p replay-evidence
-          git ls-files -z app tools tests research/snapshots pyproject.toml requirements.lock | tar --null -T - -czf replay-evidence/source.tgz
           git rev-parse HEAD > replay-evidence/source-head.txt
+          ruff check app/strategy/cross_sectional_portfolio.py tools/portfolio_hourly_replay.py tools/verify_portfolio_hourly_report.py tools/daily_funding_cash_replay.py tools/verify_daily_funding_report.py tests/test_portfolio_hourly_replay.py tests/test_daily_funding_cash_replay.py
+          python -m pytest -q tests/test_cross_sectional_portfolio.py tests/test_portfolio_hourly_replay.py tests/test_daily_funding_cash_replay.py tests/test_funding.py tests/test_historical_portfolio_funding.py tests/test_ohlcv.py tests/test_ohlcv_exit.py tests/test_ohlcv_exit_contract.py tests/test_ohlcv_managed_backtest.py --junitxml=replay-evidence/tests.xml
+      - name: Original convention and independent arithmetic
+        run: |
+          python -m tools.portfolio_hourly_replay --output replay-evidence/hourly-legacy.json
+          python -m tools.verify_portfolio_hourly_report replay-evidence/hourly-legacy.json > replay-evidence/hourly-arithmetic.json
+      - name: Signed daily cash feedback and matched-window comparison
+        run: |
+          python -m tools.daily_funding_cash_replay --output replay-evidence/daily-funded.json
+          python -m tools.verify_daily_funding_report replay-evidence/daily-funded.json --output replay-evidence/funded-arithmetic.json
+      - name: Preserve complete reproducible source without credentials
+        run: |
+          git ls-files -z app tools tests research pyproject.toml requirements.lock | tar --null -T - -czf replay-evidence/source.tgz
           sha256sum replay-evidence/source.tgz > replay-evidence/source.sha256
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: hourly-replay-source-${{ github.run_id }}
+          name: hourly-replay-and-funding-${{ github.run_id }}
           path: replay-evidence/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
