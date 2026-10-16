@@ -128,3 +128,37 @@ not Bybit authorship: independent provider-origin attestation is still absent.
 Offline mode cannot create data that was never successfully acquired. HTTP 403
 remains a blocked collection state. The research summary cannot qualify until
 all six genuine sources pass the full admission gates.
+
+## 2026-10-16 — All-six atomic research-source admission
+
+A new research-only importer `tools/replay_six_major_mark_price_archive.py`
+accepts an independently approved, detached-SHA-pinned JSON source-set manifest
+(`astra-six-major-hourly-mark-source-set-v1`). The manifest must contain
+the fixed BNB/BTC/DOGE/ETH/SOL/XRP symbol list and an individual historical
+Mark Price manifest SHA-256 for every symbol, plus identical UTC start/end,
+a research-only classification and explicit false trading/profitability flags.
+
+The import first validates **all six** source files, funding archives and
+provider pages against their approved pins. It then reproduces all six sources
+inside one temporary directory, requires an independently audited six-symbol
+summary, writes one cohort receipt, and publishes the entire output directory
+using a same-filesystem rename. If any symbol fails, nothing is published;
+an existing output directory is never overwritten. The receipt is a source
+integrity record, not exchange provenance attestation or strategy PnL.
+
+Example invocation (only after real archived sources and detached pins exist):
+
+```sh
+python -m tools.replay_six_major_mark_price_archive \
+  --source-set /approved/six-major-source-set.json \
+  --source-set-sha256 <externally-approved-64-character-hash> \
+  --archived-root /archive/mark-price-hourly \
+  --funding-root research/snapshots/bybit_funding_2023-10-09_2026-10-08 \
+  --output-dir /research/qualified-six-major-mark
+```
+
+A signed or independently retained source-set approval is a separate
+operational obligation. Hashes copied from untrusted data do not create
+trusted provenance. Nothing here bypasses exchange regional/API restrictions,
+adds synthetic data or grants paper/live execution permission. Full historical
+collection remains blocked by the current public API HTTP 403.
