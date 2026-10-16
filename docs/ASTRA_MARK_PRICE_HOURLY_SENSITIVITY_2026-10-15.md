@@ -162,3 +162,24 @@ operational obligation. Hashes copied from untrusted data do not create
 trusted provenance. Nothing here bypasses exchange regional/API restrictions,
 adds synthetic data or grants paper/live execution permission. Full historical
 collection remains blocked by the current public API HTTP 403.
+
+## 2026-10-16 — Internal linkage and failure-containment QA
+
+The hourly workflow now separates an `offline-integrity-qa` job from the
+dependent `public-source-sensitivity` job. The former tests collector,
+original funding checks, page provenance, one-symbol and all-six offline
+replay, and negative source scenarios. The latter alone requires real Bybit
+API connectivity. This distinguishes deterministic code health from external
+historical-data unavailability, without changing either acceptance threshold.
+A RED network job is **not** an admitted historical source, regardless of
+offline tests passing.
+
+New failure-injection regression interrupts the fourth of six symbol replays
+after three successful staged imports. The importer must remove the staging
+directory and publish no target. A separate adversarial test changes the
+source-set manifest to claim live-trading authority and recalculates its
+detached SHA; the contract must still reject it.
+
+These are synthetic regression fixtures. They do not test live broker/order
+dispatch or independently attest Bybit provenance. `main`, Strategy A and
+runtime trading permissions remain unchanged; `PROFITABILITY_NOT_PROVEN`.
