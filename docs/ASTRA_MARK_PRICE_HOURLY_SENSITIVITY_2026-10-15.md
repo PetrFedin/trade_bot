@@ -183,3 +183,34 @@ detached SHA; the contract must still reject it.
 These are synthetic regression fixtures. They do not test live broker/order
 dispatch or independently attest Bybit provenance. `main`, Strategy A and
 runtime trading permissions remain unchanged; `PROFITABILITY_NOT_PROVEN`.
+
+## 2026-10-16 — Cross-PR funding-source linkage gate
+
+`tools/verify_mark_funding_replay_linkage.py` binds the six-symbol hourly
+Mark Price source-set receipt and raw funding archive to an independently
+verified historical funding/cash replay from PR #324. The gate rehashes the
+hourly source evidence, requires the correct six symbols, pinned source-set
+digest, matching UTC chronology, identical funding CSV/manifest SHA-256s,
+all six fee/slippage configurations and 36 labelled replay models. It rejects
+claims of live authority, exchange settlement certainty or an untouched
+holdout. A successful result is **source compatibility only**:
+`funding_pnl_recomputed_with_mark_price=false`.
+
+Example after data sources and funding replay artifacts are genuinely available:
+
+```sh
+python -m tools.verify_mark_funding_replay_linkage \
+  --source-root /evidence/qualified-six-major-mark \
+  --funding-root research/snapshots/bybit_funding_2023-10-09_2026-10-08 \
+  --daily-report /evidence/from-pr324/daily-funding-report.json \
+  --daily-verifier /evidence/from-pr324/independent-verification.json \
+  --source-set-sha256 <detached-approved-64-hex-digest> \
+  --output /evidence/linkage-receipt.json
+```
+
+The actual PR #324 independent arithmetic verifier must run first on its raw
+price/funding snapshots. This linkage tool consumes its receipt but does not
+replace independent accounting verification, nor does it alter Strategy A.
+Until the external Mark Price collection and the full integration execution
+are available, synthetic negative tests establish only code-path robustness.
+The status remains `PROFITABILITY_NOT_PROVEN`.
