@@ -48,6 +48,22 @@ def _fixture(tmp_path):
         "mark_low", "mark_close", "hour_range_fraction",
     ], [[timestamps[i], SYMBOL, "0.0001", "100", "101", "99", "100.5", "0.02"]
         for i in (0, 8, 16)])
+    provider_result = {
+        "category": "linear", "symbol": SYMBOL,
+        "list": [
+            [str(int((START + timedelta(hours=i)).timestamp() * 1000)),
+             "100", "101", "99", "100.5"]
+            for i in reversed(range(24))
+        ],
+    }
+    payload = {"retCode": 0, "retMsg": "OK", "result": provider_result}
+    canonical = lambda x: json.dumps(
+        x, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("ascii")
+    provider_folder = folder / "provider_pages"
+    provider_folder.mkdir()
+    provider_file = provider_folder / f"{SYMBOL}_mark_60m_page_000.json"
+    provider_file.write_bytes(canonical(payload))
     manifest = {
         "endpoint": "https://api.bytick.com/v5/market/mark-price-kline",
         "evaluation_class": "COARSE_PUBLIC_MARK_PRICE_ENVELOPE_RESEARCH_ONLY",
@@ -58,9 +74,12 @@ def _fixture(tmp_path):
         "funding_manifest_sha256": _sha(funding_manifest),
         "mean_settlement_hour_range_fraction": "0.02",
         "maximum_settlement_hour_range_fraction": "0.02",
+        "provider_response_representation": "CANONICAL_DECODED_JSON_NOT_HTTP_WIRE",
         "provider_query_pages": [{
             "page": 0, "rows": 24, "first_hour": timestamps[0],
-            "last_hour": timestamps[-1], "provider_result_sha256": "a" * 64,
+            "last_hour": timestamps[-1], "provider_result_sha256": hashlib.sha256(canonical(provider_result)).hexdigest(),
+            "provider_response_path": f"provider_pages/{provider_file.name}",
+            "provider_response_sha256": _sha(provider_file),
             "query": {
                 "category": "linear", "symbol": SYMBOL, "interval": "60",
                 "start": int(START.timestamp() * 1000),
@@ -127,4 +146,30 @@ def test_false_venue_account_claim_is_not_admitted(tmp_path):
     root, funding_root, manifest = _fixture(tmp_path)
     manifest["account_funding_ledger_verified"] = True
     with pytest.raises(MarkArchiveError, match="unsupported proof flag"):
+        _verify(root, funding_root, manifest)
+
+
+def test_rehashed_provider_response_tamper_rejected(tmp_path):
+    root, funding_root, manifest = _fixture(tmp_path)
+    source = root / SYMBOL / "provider_pages" / f"{SYMBOL}_mark_60m_page_000.json"
+    payload = json.loads(source.read_bytes())
+    payload["result"]["list"][0][2] = "120"
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("ascii")
+    source.write_bytes(canonical)
+    page = manifest["provider_query_pages"][0]
+    page["provider_response_sha256"] = _sha(source)
+    page["provider_result_sha256"] = hashlib.sha256(
+        json.dumps(payload["result"], sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("ascii")
+    ).hexdigest()
+    with pytest.raises(MarkArchiveError, match="archived provider candle differs"):
+        _verify(root, funding_root, manifest)
+
+
+def test_missing_provider_response_fails_closed(tmp_path):
+    root, funding_root, manifest = _fixture(tmp_path)
+    (root / SYMBOL / "provider_pages" / f"{SYMBOL}_mark_60m_page_000.json").unlink()
+    with pytest.raises(MarkArchiveError, match="provider response archive hash mismatch"):
         _verify(root, funding_root, manifest)
