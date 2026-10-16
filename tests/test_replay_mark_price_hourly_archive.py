@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from tests.test_verify_mark_price_hourly_archive import _fixture, SYMBOL
+from tests.test_verify_mark_price_hourly_archive import SYMBOL, _fixture
 from tools.mark_price_hourly_sensitivity import collect_symbol
 from tools.replay_mark_price_hourly_archive import (
     ArchiveReplayError,
