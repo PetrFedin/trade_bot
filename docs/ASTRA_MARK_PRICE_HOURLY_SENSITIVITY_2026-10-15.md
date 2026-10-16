@@ -107,3 +107,24 @@ promotion, no access-control circumvention, no modification of Strategy A.
 
 Old hourly source archives without page bodies cannot satisfy this new evidence
 contract; re-collect legitimate source data or mark the study incomplete.
+
+## 2026-10-16 — Deterministic offline source replay
+
+`python -m tools.replay_mark_price_hourly_archive` can now reconstruct a
+historical Mark Price archive **from previously captured provider responses**,
+with zero HTTP calls. The operator must pass: `--archived-root`,
+`--funding-root`, `--output-root`, `--symbol`, `--start-utc`,
+`--end-utc`, and `--expected-manifest-sha256` (a detached, externally
+recorded SHA-256 of the original per-symbol Mark Price manifest).
+The existing archive undergoes cross-source verification first. Every saved
+response page is then replayed through the normal collector's validation
+and page-continuity logic. New CSV and manifest bytes must reproduce the
+detached manifest hash exactly; the destination is published only after
+verification, without overwrite. Tampered/missing pages and changed windows
+fail closed. No live/broker authority is added.
+
+A detached hash establishes consistency with the **approved archive pin**,
+not Bybit authorship: independent provider-origin attestation is still absent.
+Offline mode cannot create data that was never successfully acquired. HTTP 403
+remains a blocked collection state. The research summary cannot qualify until
+all six genuine sources pass the full admission gates.
