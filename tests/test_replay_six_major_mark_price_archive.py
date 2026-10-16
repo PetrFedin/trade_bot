@@ -5,6 +5,8 @@ from datetime import timedelta
 
 import pytest
 
+import tools.replay_six_major_mark_price_archive as cohort
+
 from tests.test_replay_mark_price_hourly_archive import START, _case
 from tools.replay_six_major_mark_price_archive import (
     SourceSetError,
@@ -147,3 +149,37 @@ def test_existing_target_not_overwritten(tmp_path):
     with pytest.raises(SourceSetError, match="already exists"):
         _run(case, destination)
     assert (destination / "keep.txt").read_text() == "safe"
+
+def test_failure_after_three_imports_keeps_destination_absent(tmp_path, monkeypatch):
+    case = _six(tmp_path)
+    target = tmp_path / "qualified"
+    original = cohort.replay_archived_symbol
+    calls = []
+
+    def interrupted_replay(**kwargs):
+        calls.append(kwargs["symbol"])
+        if len(calls) == 4:
+            raise cohort.ArchiveReplayError("simulated fourth-symbol failure")
+        return original(**kwargs)
+
+    monkeypatch.setattr(cohort, "replay_archived_symbol", interrupted_replay)
+    with pytest.raises(SourceSetError, match="no source set published"):
+        _run(case, target)
+    assert len(calls) == 4
+    assert not target.exists()
+    assert not list(tmp_path.glob(".astra-six-major-staging-*"))
+
+
+def test_source_set_claiming_live_authority_fails_closed(tmp_path):
+    spec, pin, root, funding = _six(tmp_path)
+    claim = json.loads(spec.read_text())
+    claim["live_trading_allowed"] = True
+    spec.write_text(json.dumps(claim, indent=2, sort_keys=True) + "\n")
+    revised_pin = hashlib.sha256(spec.read_bytes()).hexdigest()
+    target = tmp_path / "qualified"
+    with pytest.raises(SourceSetError, match="unsafe source-set claim"):
+        replay_six_major_source_set(
+            source_set_path=spec, expected_source_set_sha256=revised_pin,
+            archived_root=root, funding_root=funding, output_dir=target,
+        )
+    assert not target.exists()
