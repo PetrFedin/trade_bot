@@ -33,6 +33,11 @@ class HourlyMarkSourceError(ValueError):
     pass
 
 
+class MarkSourceAccessDenied(HourlyMarkSourceError):
+    """HTTP 403 from the official market-data API is not retryable evidence."""
+
+
+
 @dataclass(frozen=True)
 class MarkHour:
     timestamp: datetime
@@ -158,9 +163,15 @@ def fetch_hourly_marks(
         for attempt in range(5):
             try:
                 response = get(URL, params=params, timeout=30)
+                if getattr(response, "status_code", None) == 403:
+                    raise MarkSourceAccessDenied(
+                        "Bybit Mark Price API returned HTTP 403; no source admitted"
+                    )
                 response.raise_for_status()
                 payload = response.json()
                 break
+            except MarkSourceAccessDenied:
+                raise
             except (requests.RequestException, ValueError) as exc:
                 last_error = exc
                 if attempt == 4:
@@ -245,13 +256,7 @@ def collect_symbol(
     get: Callable[..., Any] = requests.get,
     pause_seconds: float = 0.08,
 ) -> dict:
-    marks, pages = fetch_hourly_marks(
-        symbol=symbol,
-        start=start,
-        end=end,
-        get=get,
-        pause_seconds=pause_seconds,
-    )
+    # Reject tampered/missing retained funding BEFORE making a network request.
     funding = tuple(
         (stamp, rate)
         for stamp, rate in load_funding(
@@ -261,9 +266,16 @@ def collect_symbol(
         )
         if start <= stamp <= end
     )
-    mark_by_time = {row.timestamp: row for row in marks}
     if not funding:
         raise HourlyMarkSourceError("no funding settlements inside collection window")
+    marks, pages = fetch_hourly_marks(
+        symbol=symbol,
+        start=start,
+        end=end,
+        get=get,
+        pause_seconds=pause_seconds,
+    )
+    mark_by_time = {row.timestamp: row for row in marks}
     missing = [stamp for stamp, _ in funding if stamp not in mark_by_time]
     if missing:
         raise HourlyMarkSourceError(
@@ -353,15 +365,37 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--pause-seconds", type=float, default=0.08)
     args = parser.parse_args()
-    report = collect_symbol(
-        symbol=args.symbol,
-        start=_utc(args.start_utc, "start"),
-        end=_utc(args.end_utc, "end"),
-        funding_csv=args.funding_csv,
-        funding_manifest=args.funding_manifest,
-        output_dir=args.output_dir,
-        pause_seconds=args.pause_seconds,
-    )
+    try:
+        report = collect_symbol(
+            symbol=args.symbol,
+            start=_utc(args.start_utc, "start"),
+            end=_utc(args.end_utc, "end"),
+            funding_csv=args.funding_csv,
+            funding_manifest=args.funding_manifest,
+            output_dir=args.output_dir,
+            pause_seconds=args.pause_seconds,
+        )
+    except MarkSourceAccessDenied:
+        # Machine-readable negative evidence; NEVER synthesize missing candles.
+        status = {
+            "schema_version": "astra-mark-price-source-status-v1",
+            "status": "BLOCKED_HTTP_403",
+            "symbol": args.symbol,
+            "endpoint": URL,
+            "requested_start": args.start_utc,
+            "requested_end": args.end_utc,
+            "mark_price_source_complete": False,
+            "exact_settlement_mark_verified": False,
+            "strategy_replay_completed": False,
+            "strategy_promotion_allowed": False,
+            "profitability_proven": False,
+        }
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        (args.output_dir / "collection-status.json").write_text(
+            json.dumps(status, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        print("MARK_PRICE_SOURCE_BLOCKED", json.dumps(status, sort_keys=True))
+        return 3
     print("MARK_PRICE_HOURLY_SENSITIVITY", json.dumps({
         "symbol": report["symbol"],
         "hours": report["hourly_rows"],
