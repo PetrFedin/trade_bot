@@ -57,9 +57,10 @@ def _fixture(tmp_path):
         ],
     }
     payload = {"retCode": 0, "retMsg": "OK", "result": provider_result}
-    canonical = lambda x: json.dumps(
-        x, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    ).encode("ascii")
+    def canonical(value):
+        return json.dumps(
+            value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("ascii")
     provider_folder = folder / "provider_pages"
     provider_folder.mkdir()
     provider_file = provider_folder / f"{SYMBOL}_mark_60m_page_000.json"
@@ -77,7 +78,8 @@ def _fixture(tmp_path):
         "provider_response_representation": "CANONICAL_DECODED_JSON_NOT_HTTP_WIRE",
         "provider_query_pages": [{
             "page": 0, "rows": 24, "first_hour": timestamps[0],
-            "last_hour": timestamps[-1], "provider_result_sha256": hashlib.sha256(canonical(provider_result)).hexdigest(),
+            "last_hour": timestamps[-1],
+            "provider_result_sha256": hashlib.sha256(canonical(provider_result)).hexdigest(),
             "provider_response_path": f"provider_pages/{provider_file.name}",
             "provider_response_sha256": _sha(provider_file),
             "query": {
