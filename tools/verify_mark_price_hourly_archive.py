@@ -197,6 +197,8 @@ def verify_symbol_archive(
     pages = mark_manifest.get("provider_query_pages")
     if not isinstance(pages, list) or len(pages) != (expected_hours + LIMIT - 1) // LIMIT:
         raise MarkArchiveError("provider pagination coverage mismatch")
+    if mark_manifest.get("provider_response_representation") != "CANONICAL_DECODED_JSON_NOT_HTTP_WIRE":
+        raise MarkArchiveError("canonical provider response archive missing")
     for index, page in enumerate(pages):
         if not isinstance(page, dict):
             raise MarkArchiveError("malformed provider page")
@@ -217,6 +219,53 @@ def verify_symbol_archive(
             or re.fullmatch(r"[0-9a-f]{64}", page["provider_result_sha256"]) is None
         ):
             raise MarkArchiveError("provider page chronology/query evidence mismatch")
+        relative = page.get("provider_response_path")
+        filename = f"{symbol}_mark_60m_page_{index:03d}.json"
+        if relative != f"provider_pages/{filename}":
+            raise MarkArchiveError("provider response archive path mismatch")
+        source = directory / "provider_pages" / filename
+        raw = source.read_bytes() if source.is_file() and not source.is_symlink() else None
+        if raw is None or hashlib.sha256(raw).hexdigest() != page.get("provider_response_sha256"):
+            raise MarkArchiveError("provider response archive hash mismatch")
+        try:
+            payload = json.loads(raw)
+        except (UnicodeError, ValueError) as exc:
+            raise MarkArchiveError("invalid archived provider response") from exc
+        if json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii") != raw:
+            raise MarkArchiveError("provider response not canonical JSON")
+        result = payload.get("result") if isinstance(payload, dict) else None
+        if (
+            payload.get("retCode") != 0
+            or not isinstance(result, dict)
+            or result.get("category") != "linear"
+            or result.get("symbol") != symbol
+            or not isinstance(result.get("list"), list)
+            or len(result["list"]) != size
+        ):
+            raise MarkArchiveError("provider response contract mismatch")
+        digest = hashlib.sha256(
+            json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+        ).hexdigest()
+        if digest != page.get("provider_result_sha256"):
+            raise MarkArchiveError("provider result digest mismatch")
+        seen = set()
+        for provider_row in result["list"]:
+            if not isinstance(provider_row, list) or len(provider_row) < 5:
+                raise MarkArchiveError("malformed provider candle")
+            try:
+                milliseconds = int(provider_row[0])
+                stamp = datetime.fromtimestamp(milliseconds / 1000, tz=UTC)
+            except (ValueError, TypeError, OverflowError, OSError) as exc:
+                raise MarkArchiveError("invalid provider candle timestamp") from exc
+            if milliseconds != int(stamp.timestamp() * 1000) or stamp in seen:
+                raise MarkArchiveError("provider timestamp precision or duplication")
+            seen.add(stamp)
+            if not first <= stamp <= last or stamp not in marks:
+                raise MarkArchiveError("provider candle outside archived chronology")
+            if tuple(_decimal(value) for value in provider_row[1:5]) != marks[stamp]:
+                raise MarkArchiveError("archived provider candle differs from Mark Price CSV")
+        if seen != {first + HOUR * offset for offset in range(size)}:
+            raise MarkArchiveError("provider page coverage mismatch")
     return {
         "hourly_rows": expected_hours,
         "funding_settlements": len(widths),
