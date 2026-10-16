@@ -36,7 +36,8 @@ def _record():
         }],
         "final_open_positions": [],
         "funding_events": [{
-            "symbol": "BTCUSDT", "settlement_time": "2026-01-01T08:00:00+00:00",
+            "symbol": "BTCUSDT", "entry_time": "2026-01-01T00:00:00+00:00",
+            "settlement_time": "2026-01-01T08:00:00+00:00",
             "booked_after_day_utc": "2026-01-02T00:00:00+00:00",
             "activity_id": "research-funding:BTCUSDT:2026-01-01T08:00:00+00:00",
             "quantity": "1", "entry_execution_price": "100",
@@ -109,3 +110,25 @@ def test_nonfinite_cost_rejected():
 def test_no_funding_must_have_empty_cashflow():
     with pytest.raises(PortfolioMoneyInvariantError, match="NO_FUNDING"):
         _audit(_record(), scenario="NO_FUNDING")
+
+def test_terminal_daily_equity_mismatch_rejected():
+    r = _record()
+    r["daily_equity"][-1]["closing_equity"] = "10018"
+    with pytest.raises(PortfolioMoneyInvariantError, match="terminal daily equity"):
+        _audit(r)
+
+
+def test_funding_before_entry_rejected():
+    r = _record()
+    r["funding_events"][0]["entry_time"] = "2026-01-02T00:00:00+00:00"
+    with pytest.raises(PortfolioMoneyInvariantError, match="settled before entry"):
+        _audit(r)
+
+
+def test_entry_fee_schedule_detects_coordinated_trade_misstatement():
+    r = _record()
+    with pytest.raises(PortfolioMoneyInvariantError, match="entry slippage bps"):
+        audit_portfolio_model(
+            r, scenario="UPPER_COST", allowed_symbols=("BTCUSDT",),
+            fee_bps_per_fill="8", slippage_bps_per_side="5",
+        )
