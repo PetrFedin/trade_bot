@@ -167,6 +167,8 @@ def audit_real_historical_money(
                 summaries[identity] = audit_portfolio_model(
                     model, scenario=name.split(":")[1],
                     allowed_symbols=tuple(symbols),
+                    fee_bps_per_fill=costs[0],
+                    slippage_bps_per_side=costs[1],
                 )
             except PortfolioMoneyInvariantError as exc:
                 raise HistoricalMoneyIntegrationError(
