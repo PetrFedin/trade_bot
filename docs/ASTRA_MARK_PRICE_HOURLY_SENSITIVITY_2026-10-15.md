@@ -87,3 +87,23 @@ the final 1-minute source/admission before a stronger profitability claim.
    outcomes.
 
 No paper/live/broker permission. PROFITABILITY_NOT_PROVEN.
+
+## 2026-10-16 — Page-level reproducibility hardening
+
+The hourly source collector now retains canonical decoded JSON provider responses
+for each requested page under `provider_pages/`, with hashes for both the
+complete response representation and the nested provider result. These files
+are **not** the original HTTP wire bytes and contain no exchange signature.
+The independent archive verifier requires every retained response page to match
+the exact fixed symbol, linear category, 60-minute query range, timestamp set,
+and raw hourly Mark Price values. It also verifies original funding rates and
+settlement intersections; only then can the six-major summary be produced.
+
+New negative fixtures intentionally modify provider candles and re-hash both
+response and result: these must still fail against independent CSV evidence.
+Missing response pages fail closed. The CI collector still fails on Bybit HTTP
+403 with a blocked-source artifact: no substitute candles, no profitability
+promotion, no access-control circumvention, no modification of Strategy A.
+
+Old hourly source archives without page bodies cannot satisfy this new evidence
+contract; re-collect legitimate source data or mark the study incomplete.
