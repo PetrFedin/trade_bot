@@ -6,6 +6,7 @@ on:
     paths:
       - 'tools/mark_price_hourly_sensitivity.py'
       - 'tools/summarize_mark_price_hourly_sensitivity.py'
+      - 'tools/verify_mark_price_hourly_archive.py'
       - 'tests/test_mark_price_hourly_sensitivity.py'
       - 'tests/test_summarize_mark_price_hourly_sensitivity.py'
       - 'docs/ASTRA_MARK_PRICE_HOURLY_SENSITIVITY_2026-10-15.md'
@@ -35,7 +36,7 @@ jobs:
           python -m pip check
       - name: Unit, pagination and evidence-integrity tests
         run: |
-          ruff check tools/mark_price_hourly_sensitivity.py tools/summarize_mark_price_hourly_sensitivity.py tests/test_mark_price_hourly_sensitivity.py tests/test_summarize_mark_price_hourly_sensitivity.py
+          ruff check tools/mark_price_hourly_sensitivity.py tools/summarize_mark_price_hourly_sensitivity.py tools/verify_mark_price_hourly_archive.py tests/test_mark_price_hourly_sensitivity.py tests/test_summarize_mark_price_hourly_sensitivity.py
           pytest -q tests/test_mark_price_hourly_sensitivity.py tests/test_summarize_mark_price_hourly_sensitivity.py
       - name: Collect fixed six-major Bybit Mark Price hourly source
         run: |
@@ -58,6 +59,7 @@ jobs:
         run: |
           python -m tools.summarize_mark_price_hourly_sensitivity \
             --root mark-price-hourly \
+            --funding-root research/snapshots/bybit_funding_2023-10-09_2026-10-08 \
             --output mark-price-hourly/summary.json
           python - <<'PY'
           import json
