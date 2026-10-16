@@ -16,6 +16,10 @@ from pathlib import Path
 
 from app.qualification.portable_artifact_codec import canonical_json_bytes
 from tools.mark_price_hourly_sensitivity import _utc
+from tools.verify_funded_portfolio_money import (
+    audit_portfolio_model,
+    canonical_audit_digest,
+)
 from tools.summarize_mark_price_hourly_sensitivity import SIX, summarize
 
 MODEL_KEYS = {
@@ -201,6 +205,7 @@ def _validate_funded_replay(
     if not isinstance(rows, list) or len(rows) != 6:
         raise MarkFundingLinkageError("funded replay must preserve all six configurations")
     matched = []
+    money_audits = {}
     observed = {period: set() for period in PERIODS}
     for row in rows:
         if not isinstance(row, dict):
@@ -212,6 +217,13 @@ def _validate_funded_replay(
         observed[period].add(pair)
         if not isinstance(row.get("models"), dict) or set(row["models"]) != MODEL_KEYS:
             raise MarkFundingLinkageError("missing signed funding or exit scenarios")
+        for model_key, model in row["models"].items():
+            money_audits[f"{period}:{pair[0]}:{pair[1]}:{model_key}"] = (
+                audit_portfolio_model(
+                    model, scenario=model_key.split(":")[1],
+                    allowed_symbols=tuple(row["symbols"]),
+                )
+            )
         if period == "six_matched_window":
             if row.get("symbols") != list(SIX):
                 raise MarkFundingLinkageError("six-major universe changed")
@@ -234,7 +246,7 @@ def _validate_funded_replay(
             ) != end
         ):
             raise MarkFundingLinkageError("funding replay / Mark Price windows differ")
-    return reported_digest
+    return reported_digest, canonical_audit_digest(money_audits)
 
 
 def verify_linkage(
@@ -253,7 +265,7 @@ def verify_linkage(
     daily_verifier, raw_verifier = _read(
         daily_verifier_path, max_bytes=5_000_000
     )
-    report_sha = _validate_funded_replay(
+    report_sha, money_sha = _validate_funded_replay(
         daily_report, daily_verifier, mark_summary, manifests
     )
     return {
@@ -262,6 +274,8 @@ def verify_linkage(
         "source_set_sha256": expected_source_set_sha256,
         "mark_summary_evidence_sha256": mark_summary["evidence_sha256"],
         "daily_report_evidence_sha256": report_sha,
+        "independent_money_audit_sha256": money_sha,
+        "money_models_reconciled": 36,
         "daily_report_file_sha256": _sha(raw_report),
         "independent_verifier_file_sha256": _sha(raw_verifier),
         "symbols": list(SIX),
