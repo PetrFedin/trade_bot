@@ -222,6 +222,8 @@ def _validate_funded_replay(
                 audit_portfolio_model(
                     model, scenario=model_key.split(":")[1],
                     allowed_symbols=tuple(row["symbols"]),
+                    fee_bps_per_fill=pair[0],
+                    slippage_bps_per_side=pair[1],
                 )
             )
         if period == "six_matched_window":
