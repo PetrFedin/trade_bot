@@ -6,6 +6,7 @@ import pytest
 
 from app.qualification.portable_artifact_codec import canonical_json_bytes
 from tools.summarize_mark_price_hourly_sensitivity import SIX
+import tools.verify_mark_funding_replay_linkage as linkage
 from tools.verify_mark_funding_replay_linkage import (
     MarkFundingLinkageError,
     _validate_funded_replay,
@@ -77,13 +78,19 @@ def _case():
     return report, verifier, mark_summary, manifests
 
 
+@pytest.fixture(autouse=True)
+def isolated_identity_tests(monkeypatch):
+    """Other tests independently exercise real money audit; isolate identity checks."""
+    monkeypatch.setattr(linkage, "audit_portfolio_model", lambda *a, **kw: {})
+
+
 def _check(case):
     return _validate_funded_replay(*case)
 
 
 def test_coherent_cross_pr_research_identity():
     report, verifier, summary, manifests = _case()
-    assert _check((report, verifier, summary, manifests)) == report["evidence_sha256"]
+    assert _check((report, verifier, summary, manifests))[0] == report["evidence_sha256"]
 
 
 def test_mixed_funding_source_hash_fails_even_with_rehashed_report():
