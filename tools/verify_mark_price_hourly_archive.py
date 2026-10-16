@@ -197,7 +197,10 @@ def verify_symbol_archive(
     pages = mark_manifest.get("provider_query_pages")
     if not isinstance(pages, list) or len(pages) != (expected_hours + LIMIT - 1) // LIMIT:
         raise MarkArchiveError("provider pagination coverage mismatch")
-    if mark_manifest.get("provider_response_representation") != "CANONICAL_DECODED_JSON_NOT_HTTP_WIRE":
+    if (
+        mark_manifest.get("provider_response_representation")
+        != "CANONICAL_DECODED_JSON_NOT_HTTP_WIRE"
+    ):
         raise MarkArchiveError("canonical provider response archive missing")
     for index, page in enumerate(pages):
         if not isinstance(page, dict):
@@ -231,7 +234,10 @@ def verify_symbol_archive(
             payload = json.loads(raw)
         except (UnicodeError, ValueError) as exc:
             raise MarkArchiveError("invalid archived provider response") from exc
-        if json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii") != raw:
+        canonical = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("ascii")
+        if canonical != raw:
             raise MarkArchiveError("provider response not canonical JSON")
         result = payload.get("result") if isinstance(payload, dict) else None
         if (
@@ -244,7 +250,9 @@ def verify_symbol_archive(
         ):
             raise MarkArchiveError("provider response contract mismatch")
         digest = hashlib.sha256(
-            json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+            json.dumps(
+                result, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+            ).encode("ascii")
         ).hexdigest()
         if digest != page.get("provider_result_sha256"):
             raise MarkArchiveError("provider result digest mismatch")
