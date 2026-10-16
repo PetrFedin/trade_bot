@@ -14,7 +14,6 @@ from tools.summarize_mark_price_hourly_sensitivity import SIX
 
 
 def _six(tmp_path):
-    from pathlib import Path
     import shutil
 
     captured = tmp_path / "captured"
