@@ -6,7 +6,6 @@ from datetime import timedelta
 import pytest
 
 import tools.replay_six_major_mark_price_archive as cohort
-
 from tests.test_replay_mark_price_hourly_archive import START, _case
 from tools.replay_six_major_mark_price_archive import (
     SourceSetError,
