@@ -4,9 +4,9 @@ import hashlib
 
 import pytest
 
+import tools.verify_mark_funding_replay_linkage as linkage
 from app.qualification.portable_artifact_codec import canonical_json_bytes
 from tools.summarize_mark_price_hourly_sensitivity import SIX
-import tools.verify_mark_funding_replay_linkage as linkage
 from tools.verify_mark_funding_replay_linkage import (
     MarkFundingLinkageError,
     _validate_funded_replay,
