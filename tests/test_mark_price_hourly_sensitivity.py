@@ -17,6 +17,7 @@ from tools.mark_price_hourly_sensitivity import (
     LIMIT,
     URL,
     HourlyMarkSourceError,
+    MarkSourceAccessDenied,
     collect_symbol,
     fetch_hourly_marks,
 )
@@ -240,3 +241,39 @@ def test_invalid_time_and_symbol_fail_closed() -> None:
             get=get,
             pause_seconds=0,
         )
+
+
+def test_http_403_is_not_retried_or_relabelled_as_market_data() -> None:
+    calls = []
+
+    def forbidden(url, *, params, timeout):
+        calls.append(dict(params))
+        response = FakeResponse({})
+        response.status_code = 403
+        return response
+
+    with pytest.raises(MarkSourceAccessDenied, match="HTTP 403"):
+        fetch_hourly_marks(
+            symbol="BTCUSDT", start=START, end=START,
+            get=forbidden, pause_seconds=0,
+        )
+    assert len(calls) == 1
+
+
+def test_invalid_funding_never_triggers_public_market_request(tmp_path: Path) -> None:
+    funding_csv, funding_manifest = _funding_fixture(tmp_path)
+    funding_csv.write_text("tampered", encoding="utf-8")
+    calls = []
+
+    def never_get(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("network must not be called for invalid funding")
+
+    with pytest.raises(HourlyMarkSourceError, match="manifest mismatch"):
+        collect_symbol(
+            symbol="BTCUSDT", start=START,
+            end=START + timedelta(hours=23),
+            funding_csv=funding_csv, funding_manifest=funding_manifest,
+            output_dir=tmp_path / "out", get=never_get, pause_seconds=0,
+        )
+    assert calls == []
