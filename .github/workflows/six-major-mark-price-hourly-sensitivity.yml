@@ -83,7 +83,10 @@ jobs:
               'evidence_sha256': r['evidence_sha256'],
           }, sort_keys=True))
           PY
+      # Preserve blocked-source status even when the collector exits nonzero.
+      # CI stays RED: unavailable Mark Price is not research qualification.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
         with:
           name: six-major-mark-price-hourly-${{ github.run_id }}
           path: mark-price-hourly/
