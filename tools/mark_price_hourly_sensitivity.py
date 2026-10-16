@@ -193,6 +193,7 @@ def fetch_hourly_marks(
         for row in parsed:
             rows[row.timestamp] = row
         pages.append({
+            "_canonical_provider_payload": _canonical(payload),
             "page": page_number,
             "query": params,
             "provider_result_sha256": _sha_bytes(
@@ -282,6 +283,22 @@ def collect_symbol(
             f"funding settlements missing Mark Price hour: {len(missing)}"
         )
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Keep the complete normalized provider response for every queried page,
+    # not merely a hash of a response that reviewers cannot reconstruct.
+    # These bytes encode the decoded JSON body canonically; they are NOT
+    # the original HTTP wire bytes, nor a provider-signed provenance record.
+    page_dir = output_dir / "provider_pages"
+    page_dir.mkdir(parents=True, exist_ok=True)
+    archived_pages = []
+    for page in pages:
+        entry = dict(page)
+        canonical_payload = entry.pop("_canonical_provider_payload")
+        filename = f"{symbol}_mark_60m_page_{entry['page']:03d}.json"
+        page_file = page_dir / filename
+        page_file.write_bytes(canonical_payload)
+        entry["provider_response_path"] = f"provider_pages/{filename}"
+        entry["provider_response_sha256"] = _sha_bytes(canonical_payload)
+        archived_pages.append(entry)
     raw_path = output_dir / f"{symbol}_mark_60m.csv"
     with raw_path.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.writer(stream)
@@ -332,7 +349,8 @@ def collect_symbol(
             sum(widths, D("0")) / D(len(widths))
         ),
         "maximum_settlement_hour_range_fraction": str(max(widths)),
-        "provider_query_pages": list(pages),
+        "provider_query_pages": archived_pages,
+        "provider_response_representation": "CANONICAL_DECODED_JSON_NOT_HTTP_WIRE",
         "provider_payload_signature_verified": False,
         "exact_settlement_mark_verified": False,
         "account_funding_ledger_verified": False,
@@ -344,6 +362,7 @@ def collect_symbol(
             "60m OHLC only bounds the possible Mark Price at settlement hour",
             "Final PR #325 admission still requires 1m source at each settlement",
             "Public endpoint response is not an account funding transaction record",
+            "Canonical JSON payload records are unsigned; provider origin is not proven",
             "No Last Price or entry-price substitution is permitted",
         ],
     }
