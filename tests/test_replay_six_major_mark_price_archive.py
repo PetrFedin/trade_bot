@@ -14,69 +14,59 @@ from tools.summarize_mark_price_hourly_sensitivity import SIX
 
 
 def _six(tmp_path):
-    import shutil
+    from tools.mark_price_hourly_sensitivity import collect_symbol
 
     captured = tmp_path / "captured"
     funding = tmp_path / "funding"
     captured.mkdir()
     funding.mkdir()
-    source_case = tmp_path / "single"
-    source_case.mkdir()
-    original, rates, _ = _case(source_case)
-    template = original / "BTCUSDT"
-    funding_template = rates / "BTCUSDT_funding.csv"
-    funding_meta = rates / "BTCUSDT_funding.manifest.json"
+    original, rates, _ = _case(tmp_path / "single")
+    source_response = json.loads(
+        (original / "BTCUSDT" / "provider_pages" /
+         "BTCUSDT_mark_60m_page_000.json").read_text()
+    )
+    original_funding = rates / "BTCUSDT_funding.csv"
+    original_meta = rates / "BTCUSDT_funding.manifest.json"
     pins = {}
     for symbol in SIX:
-        folder = captured / symbol
-        shutil.copytree(template, folder)
-        for filename in list(folder.rglob("*")):
-            if filename.is_file():
-                raw = filename.read_text()
-                raw = raw.replace("BTCUSDT", symbol)
-                filename.write_text(raw)
-        # Source hashes must match symbol-rewritten files and page payloads.
-        mark_csv = folder / f"{symbol}_mark_60m.csv"
-        join_csv = folder / f"{symbol}_funding_mark_60m.csv"
-        for old, new in [
-            (folder / "BTCUSDT_mark_60m.csv", mark_csv),
-            (folder / "BTCUSDT_funding_mark_60m.csv", join_csv),
-        ]:
-            old.rename(new)
-        page = folder / "provider_pages" / "BTCUSDT_mark_60m_page_000.json"
-        page.rename(page.parent / f"{symbol}_mark_60m_page_000.json")
-        rate_path = funding / f"{symbol}_funding.csv"
-        rate_path.write_text(funding_template.read_text().replace("BTCUSDT", symbol))
-        meta_path = funding / f"{symbol}_funding.manifest.json"
-        rate_meta = json.loads(funding_meta.read_text())
-        rate_meta["symbol"] = symbol
-        rate_meta["dataset_sha256"] = hashlib.sha256(rate_path.read_bytes()).hexdigest()
-        meta_path.write_text(json.dumps(rate_meta))
-        old_manifest = folder / "BTCUSDT_mark_60m.manifest.json"
-        mark = json.loads(old_manifest.read_text())
-        mark["symbol"] = symbol
-        mark["raw_mark_sha256"] = hashlib.sha256(mark_csv.read_bytes()).hexdigest()
-        mark["settlement_mark_sha256"] = hashlib.sha256(join_csv.read_bytes()).hexdigest()
-        mark["funding_source_sha256"] = hashlib.sha256(rate_path.read_bytes()).hexdigest()
-        mark["funding_manifest_sha256"] = hashlib.sha256(meta_path.read_bytes()).hexdigest()
-        query = mark["provider_query_pages"][0]
-        payload_file = page.parent / f"{symbol}_mark_60m_page_000.json"
-        payload = json.loads(payload_file.read_text())
-        response = json.dumps(
-            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-        ).encode("ascii")
-        payload_file.write_bytes(response)
-        query["provider_response_path"] = f"provider_pages/{payload_file.name}"
-        query["provider_response_sha256"] = hashlib.sha256(response).hexdigest()
-        result = json.dumps(
-            payload["result"], sort_keys=True, separators=(",", ":"), ensure_ascii=True
-        ).encode("ascii")
-        query["provider_result_sha256"] = hashlib.sha256(result).hexdigest()
-        query["query"]["symbol"] = symbol
-        manifest_path = folder / f"{symbol}_mark_60m.manifest.json"
-        old_manifest.rename(manifest_path)
-        manifest_path.write_text(json.dumps(mark, indent=2, sort_keys=True) + "\n")
-        pins[symbol] = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+        funding_csv = funding / f"{symbol}_funding.csv"
+        funding_csv.write_text(
+            original_funding.read_text().replace("BTCUSDT", symbol)
+        )
+        meta = json.loads(original_meta.read_text())
+        meta["symbol"] = symbol
+        meta["dataset_sha256"] = hashlib.sha256(
+            funding_csv.read_bytes()
+        ).hexdigest()
+        funding_manifest = funding / f"{symbol}_funding.manifest.json"
+        funding_manifest.write_text(json.dumps(meta))
+        payload = json.loads(json.dumps(source_response))
+        payload["result"]["symbol"] = symbol
+
+        class CapturedResponse:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return payload
+
+        def recorded_only(url, *, params, timeout):
+            assert params["symbol"] == symbol
+            return CapturedResponse()
+
+        collect_symbol(
+            symbol=symbol, start=START,
+            end=START + timedelta(hours=23),
+            funding_csv=funding_csv, funding_manifest=funding_manifest,
+            output_dir=captured / symbol, get=recorded_only,
+            pause_seconds=0,
+        )
+        manifest_path = captured / symbol / f"{symbol}_mark_60m.manifest.json"
+        pins[symbol] = hashlib.sha256(
+            manifest_path.read_bytes()
+        ).hexdigest()
     spec = {
         "schema_version": "astra-six-major-hourly-mark-source-set-v1",
         "symbols": list(SIX),
