@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from tests.test_verify_mark_price_hourly_archive import _fixture, SYMBOL
+from tools.mark_price_hourly_sensitivity import collect_symbol
 from tools.replay_mark_price_hourly_archive import (
     ArchiveReplayError,
     replay_archived_symbol,
@@ -15,17 +16,35 @@ START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _case(tmp_path):
-    root, funding, manifest = _fixture(tmp_path)
-    # Fixture provides matching source pages, funding, and Mark Price CSVs.
-    path = root / SYMBOL / f"{SYMBOL}_mark_60m.manifest.json"
-    manifest.update({
-        "schema_version": "bybit-mark-price-hourly-sensitivity-v1",
-        "symbol": SYMBOL,
-        "category": "linear",
-        "interval_minutes": 60,
-    })
-    path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    return root, funding, hashlib.sha256(path.read_bytes()).hexdigest()
+    fixture_root, funding, _ = _fixture(tmp_path)
+    page_file = fixture_root / SYMBOL / "provider_pages" / (
+        f"{SYMBOL}_mark_60m_page_000.json"
+    )
+    response = json.loads(page_file.read_text())
+
+    class CapturedResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return response
+
+    def no_network(url, *, params, timeout):
+        return CapturedResponse()
+
+    root = tmp_path / "captured"
+    collect_symbol(
+        symbol=SYMBOL,
+        start=START, end=START + timedelta(hours=23),
+        funding_csv=funding / f"{SYMBOL}_funding.csv",
+        funding_manifest=funding / f"{SYMBOL}_funding.manifest.json",
+        output_dir=root / SYMBOL,
+        get=no_network, pause_seconds=0,
+    )
+    manifest = root / SYMBOL / f"{SYMBOL}_mark_60m.manifest.json"
+    return root, funding, hashlib.sha256(manifest.read_bytes()).hexdigest()
 
 
 def _run(root, funding, target, sha):
