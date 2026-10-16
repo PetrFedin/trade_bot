@@ -214,3 +214,30 @@ replace independent accounting verification, nor does it alter Strategy A.
 Until the external Mark Price collection and the full integration execution
 are available, synthetic negative tests establish only code-path robustness.
 The status remains `PROFITABILITY_NOT_PROVEN`.
+
+## 2026-10-16 — Independent monetary reconciliation for linked replay
+
+The cross-PR linkage now requires a second, separate arithmetic pass for
+every 36 model/scenario records using
+`tools/verify_funded_portfolio_money.py`. It checks:
+
+- trade-level gross PnL, signed slippage, both execution fees and net PnL;
+- funding settlement identity, rate, participation uncertainty, cash sign,
+  booked day, per-day counters, credits/debits and net funding cash;
+- open position quantity, execution cost, entry fee and terminal mark;
+- closing cash = opening cash + closed net PnL + funding cash - open cost;
+- closing equity = cash + marked open holdings;
+- portfolio return, reported fill counts and daily-close drawdown;
+- duplicate/missing events, non-finite values and false verified-Mark claims.
+
+The linkage receipt records `money_models_reconciled=36` and a stable
+`independent_money_audit_sha256`. These checks detect internal accounting
+drift independently from source hashes. They cannot prove venue account
+cashflows, actual fills, margin/liquidation or exact settlement Mark Price.
+
+The monetary fixtures are deliberately synthetic; the PR #324
+`verify_daily_funding_report.py` remains a separate independent historical
+source+arithmetic gate. Final live-data qualification requires authentic
+provider archives, an unchanged approved source set, a real PR #324 replay,
+both independent arithmetic checks, and external source review. A passing
+unit-test suite alone never establishes `PROFITABILITY_PROVEN`.
