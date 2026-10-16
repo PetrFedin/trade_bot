@@ -15,6 +15,7 @@ from decimal import Decimal, InvalidOperation
 OPENING_CASH = Decimal("10000")
 USD_TOLERANCE = Decimal("0.000001")
 RETURN_TOLERANCE = Decimal("0.0000000001")
+RELATIVE_PRICE_TOLERANCE = Decimal("0.00000000001")
 ZERO = Decimal("0")
 SCENARIOS = ("NO_FUNDING", "UPPER_COST", "LOWER_COST")
 
@@ -74,7 +75,9 @@ def _rows(record: dict, key: str) -> list[dict]:
 
 
 def audit_portfolio_model(
-    record: dict, *, scenario: str, allowed_symbols: tuple[str, ...]
+    record: dict, *, scenario: str, allowed_symbols: tuple[str, ...],
+    fee_bps_per_fill: str | None = None,
+    slippage_bps_per_side: str | None = None,
 ) -> dict:
     """Reconcile reported trade PnL, funding, costs, holdings and cash.
 
@@ -84,6 +87,14 @@ def audit_portfolio_model(
     """
     if scenario not in SCENARIOS or not isinstance(record, dict):
         raise PortfolioMoneyInvariantError("unknown funding scenario or model")
+    if (fee_bps_per_fill is None) != (slippage_bps_per_side is None):
+        raise PortfolioMoneyInvariantError("fee and slippage schedule must be paired")
+    cost_schedule = fee_bps_per_fill is not None
+    if cost_schedule:
+        fee_rate = _amount(fee_bps_per_fill, "fee bps") / Decimal("10000")
+        slip_rate = _amount(slippage_bps_per_side, "slippage bps") / Decimal("10000")
+        if fee_rate < ZERO or slip_rate < ZERO or slip_rate >= Decimal("1"):
+            raise PortfolioMoneyInvariantError("invalid execution-cost schedule")
     universe = set(allowed_symbols)
     if not universe or len(universe) != len(allowed_symbols):
         raise PortfolioMoneyInvariantError("invalid research universe")
@@ -109,6 +120,21 @@ def audit_portfolio_model(
             exit_execution = _positive(trade, "exit_execution_price")
             entry_fee = _nonnegative(trade, "entry_fee")
             exit_fee = _nonnegative(trade, "exit_fee")
+            if cost_schedule:
+                _close(
+                    entry_execution, entry_reference * (Decimal("1") + slip_rate),
+                    "entry slippage bps",
+                    tol=entry_reference * RELATIVE_PRICE_TOLERANCE,
+                )
+                _close(
+                    exit_execution, exit_reference * (Decimal("1") - slip_rate),
+                    "exit slippage bps",
+                    tol=exit_reference * RELATIVE_PRICE_TOLERANCE,
+                )
+                _close(entry_fee, quantity * entry_execution * fee_rate,
+                       "entry execution fee bps")
+                _close(exit_fee, quantity * exit_execution * fee_rate,
+                       "exit execution fee bps")
             gross = (exit_reference - entry_reference) * quantity
             slippage = (
                 entry_execution - entry_reference + exit_reference - exit_execution
@@ -133,6 +159,8 @@ def audit_portfolio_model(
             quantity = _positive(position, "quantity")
             entry_price = _positive(position, "entry_execution_price")
             fee = _nonnegative(position, "entry_fee")
+            if cost_schedule:
+                _close(fee, quantity * entry_price * fee_rate, "open entry fee bps")
             mark = _positive(position, "final_mark")
             open_cost += quantity * entry_price + fee
             open_value += quantity * mark
@@ -151,6 +179,9 @@ def audit_portfolio_model(
             if symbol not in universe:
                 raise PortfolioMoneyInvariantError("funding outside frozen universe")
             stamp = _utc(event["settlement_time"], "funding settlement")
+            entered = _utc(event["entry_time"], "funding entry")
+            if entered > stamp:
+                raise PortfolioMoneyInvariantError("funding settled before entry")
             booked = _utc(event["booked_after_day_utc"], "funding booking")
             if booked != stamp.replace(
                 hour=0, minute=0, second=0, microsecond=0
@@ -252,12 +283,18 @@ def audit_portfolio_model(
         last_day = None
         for row in daily_equity:
             day = _utc(row["day_utc"], "daily equity")
-            if last_day is not None and day <= last_day:
+            if last_day is not None and day != last_day + timedelta(days=1):
                 raise PortfolioMoneyInvariantError("daily equity chronology invalid")
             last_day = day
             close = _amount(row["closing_equity"], "daily closing equity")
             peak = max(peak, close)
             drawdown = max(drawdown, (peak - close) / peak)
+        if not daily_equity or last_day is None:
+            raise PortfolioMoneyInvariantError("missing daily equity history")
+        _close(
+            _amount(daily_equity[-1]["closing_equity"], "last daily equity"),
+            ending_equity, "terminal daily equity",
+        )
         _close(
             _amount(metrics["daily_close_max_drawdown_over_peak"], "drawdown"),
             drawdown, "daily drawdown", tol=RETURN_TOLERANCE,
@@ -275,6 +312,8 @@ def audit_portfolio_model(
         "fees_usd": str(fee_sum),
         "cash_equity_reconciled": True,
         "funding_cash_reconciled": True,
+        "fee_slippage_schedule_verified": cost_schedule,
+        "terminal_daily_equity_verified": True,
         "trading_authority_granted": False,
     }
 
