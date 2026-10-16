@@ -241,3 +241,24 @@ source+arithmetic gate. Final live-data qualification requires authentic
 provider archives, an unchanged approved source set, a real PR #324 replay,
 both independent arithmetic checks, and external source review. A passing
 unit-test suite alone never establishes `PROFITABILITY_PROVEN`.
+
+## 2026-10-16 — Exact-head historical money integration job
+
+A separate `historical-money-integration` job now checks out the frozen
+PR #324 research commit `6f6c3c42ef3b33a1fbeb2a45131b014ee15810f8`
+without write credentials. It recomputes the full historical funded replay
+using the retained snapshots, independently verifies funding cash and
+portfolio PnL using PR #324's second implementation, and then runs
+`tools/verify_funded_replay_integration.py` from the PR #326 branch.
+
+The gate requires all six original configurations, the complete 36-model
+stress grid, source report digest, exact historical-head pin, no fake
+provider/venue-account proof, consistent matched-window dates, and a
+second pass of independent net trade PnL, entry/exit fees, funding cash,
+open holdings, ending cash/equity and daily-close drawdown. Any discrepancy
+fails the dedicated job. The evidence receipt retains hashes and explicit
+`profitability_proven=false`, `live_trading_allowed=false`.
+
+The Mark Price collector remains a separate, currently source-blocked
+job. A passing historical integration job must never turn the external
+Mark Price failure GREEN or imply actual exchange execution.
