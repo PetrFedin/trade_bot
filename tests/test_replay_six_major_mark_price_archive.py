@@ -46,15 +46,18 @@ def _six(tmp_path):
         class CapturedResponse:
             status_code = 200
 
+            def __init__(self, value):
+                self.value = value
+
             def raise_for_status(self):
                 pass
 
             def json(self):
-                return payload
+                return self.value
 
-        def recorded_only(url, *, params, timeout):
-            assert params["symbol"] == symbol
-            return CapturedResponse()
+        def recorded_only(url, *, params, timeout, fixed_symbol=symbol, data=payload):
+            assert params["symbol"] == fixed_symbol
+            return CapturedResponse(data)
 
         collect_symbol(
             symbol=symbol, start=START,
