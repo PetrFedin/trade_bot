@@ -7,6 +7,8 @@ import json
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from tools.verify_mark_price_hourly_archive import verify_symbol_archive
+
 D = Decimal
 SIX = ("BNBUSDT", "BTCUSDT", "DOGEUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT")
 SCHEMA = "bybit-mark-price-hourly-sensitivity-v1"
@@ -32,7 +34,7 @@ def _decimal(value, label: str) -> Decimal:
     return parsed
 
 
-def summarize(root: Path) -> dict:
+def summarize(root: Path, funding_root: Path | None = None) -> dict:
     manifests = []
     for symbol in SIX:
         directory = root / symbol
@@ -68,6 +70,16 @@ def summarize(root: Path) -> dict:
             for page in pages
         ):
             raise HourlyMarkSummaryError(f"provider page digest malformed: {symbol}")
+        if funding_root is not None:
+            try:
+                verify_symbol_archive(
+                    root=root, funding_root=funding_root,
+                    symbol=symbol, mark_manifest=data,
+                )
+            except ValueError as exc:
+                raise HourlyMarkSummaryError(
+                    f"independent funding/mark audit failed: {symbol}: {exc}"
+                ) from exc
         manifests.append(data)
 
     start = {item["start"] for item in manifests}
@@ -146,9 +158,10 @@ def summarize(root: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--funding-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    report = summarize(args.root)
+    report = summarize(args.root, funding_root=args.funding_root)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n",
