@@ -11,6 +11,7 @@ on:
       - 'tools/replay_six_major_mark_price_archive.py'
       - 'tools/verify_mark_funding_replay_linkage.py'
       - 'tools/verify_funded_portfolio_money.py'
+      - 'tools/verify_funded_replay_integration.py'
       - 'tests/test_mark_price_hourly_sensitivity.py'
       - 'tests/test_summarize_mark_price_hourly_sensitivity.py'
       - 'tests/test_verify_mark_price_hourly_archive.py'
@@ -45,7 +46,7 @@ jobs:
           python -m pip check
       - name: Unit, pagination and evidence-integrity tests
         run: |
-          ruff check tools/mark_price_hourly_sensitivity.py tools/summarize_mark_price_hourly_sensitivity.py tools/verify_mark_price_hourly_archive.py tools/replay_mark_price_hourly_archive.py tools/replay_six_major_mark_price_archive.py tools/verify_mark_funding_replay_linkage.py tools/verify_funded_portfolio_money.py tests/test_verify_mark_funding_replay_linkage.py tests/test_verify_funded_portfolio_money.py tests/test_replay_mark_price_hourly_archive.py tests/test_replay_six_major_mark_price_archive.py tests/test_mark_price_hourly_sensitivity.py tests/test_summarize_mark_price_hourly_sensitivity.py tests/test_verify_mark_price_hourly_archive.py
+          ruff check tools/mark_price_hourly_sensitivity.py tools/summarize_mark_price_hourly_sensitivity.py tools/verify_mark_price_hourly_archive.py tools/replay_mark_price_hourly_archive.py tools/replay_six_major_mark_price_archive.py tools/verify_mark_funding_replay_linkage.py tools/verify_funded_portfolio_money.py tools/verify_funded_replay_integration.py tests/test_verify_mark_funding_replay_linkage.py tests/test_verify_funded_portfolio_money.py tests/test_replay_mark_price_hourly_archive.py tests/test_replay_six_major_mark_price_archive.py tests/test_mark_price_hourly_sensitivity.py tests/test_summarize_mark_price_hourly_sensitivity.py tests/test_verify_mark_price_hourly_archive.py
           pytest -q tests/test_mark_price_hourly_sensitivity.py tests/test_summarize_mark_price_hourly_sensitivity.py tests/test_verify_mark_price_hourly_archive.py tests/test_replay_mark_price_hourly_archive.py tests/test_replay_six_major_mark_price_archive.py tests/test_verify_mark_funding_replay_linkage.py tests/test_verify_funded_portfolio_money.py
   public-source-sensitivity:
     needs: offline-integrity-qa
