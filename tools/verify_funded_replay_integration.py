@@ -167,6 +167,8 @@ def audit_real_historical_money(
                 summaries[identity] = audit_portfolio_model(
                     model, scenario=name.split(":")[1],
                     allowed_symbols=tuple(symbols),
+                    expected_first_execution_day_utc=config["first_execution_day_utc"],
+                    expected_last_source_day_utc=config["last_source_day_utc"],
                     fee_bps_per_fill=costs[0],
                     slippage_bps_per_side=costs[1],
                 )
