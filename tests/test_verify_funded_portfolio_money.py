@@ -26,7 +26,7 @@ def _record():
             "daily_close_max_drawdown_over_peak": "0",
         },
         "trades": [{
-            "symbol": "BTCUSDT", "entry_time": "2026-01-01T00:00:00+00:00",
+            "symbol": "BTCUSDT", "entry_time": "2026-01-02T00:00:00+00:00",
             "exit_time": "2026-01-02T00:00:00+00:00",
             "quantity": "1", "entry_reference_price": "100",
             "exit_reference_price": "120", "entry_execution_price": "100",
@@ -37,21 +37,23 @@ def _record():
         "final_open_positions": [],
         "funding_events": [{
             "symbol": "BTCUSDT", "entry_time": "2026-01-01T00:00:00+00:00",
-            "settlement_time": "2026-01-01T08:00:00+00:00",
-            "booked_after_day_utc": "2026-01-02T00:00:00+00:00",
-            "activity_id": "research-funding:BTCUSDT:2026-01-01T08:00:00+00:00",
+            "settlement_time": "2026-01-02T08:00:00+00:00",
+            "booked_after_day_utc": "2026-01-03T00:00:00+00:00",
+            "activity_id": "research-funding:BTCUSDT:2026-01-02T08:00:00+00:00",
             "quantity": "1", "entry_execution_price": "100",
             "provider_rate": "0.01", "cost_if_held_usd": "1",
             "cash_amount_usd": "-1", "participation_uncertain": False,
             "mark_price_verified": False,
         }],
         "funding_days": [{
-            "day_utc": "2026-01-01T00:00:00+00:00",
+            "day_utc": "2026-01-02T00:00:00+00:00",
             "net_funding_cash_usd": "-1", "nonzero_flow_count": 1,
             "uncertain_event_count": 0,
         }],
         "daily_equity": [{
-            "day_utc": "2026-01-02T00:00:00+00:00", "closing_equity": "10017",
+            "day_utc": "2026-01-02T00:00:00+00:00", "prior_equity": "10000",
+            "selected_symbols": ["BTCUSDT"], "entered_symbols": ["BTCUSDT"],
+            "closing_equity": "10017",
         }],
     }
 
@@ -120,7 +122,7 @@ def test_terminal_daily_equity_mismatch_rejected():
 
 def test_funding_before_entry_rejected():
     r = _record()
-    r["funding_events"][0]["entry_time"] = "2026-01-02T00:00:00+00:00"
+    r["funding_events"][0]["entry_time"] = "2026-01-03T00:00:00+00:00"
     with pytest.raises(PortfolioMoneyInvariantError, match="settled before entry"):
         _audit(r)
 
@@ -132,3 +134,23 @@ def test_entry_fee_schedule_detects_coordinated_trade_misstatement():
             r, scenario="UPPER_COST", allowed_symbols=("BTCUSDT",),
             fee_bps_per_fill="8", slippage_bps_per_side="5",
         )
+
+def test_daily_equity_prior_balance_tamper_rejected():
+    r = _record()
+    r["daily_equity"][0]["prior_equity"] = "10001"
+    with pytest.raises(PortfolioMoneyInvariantError, match="carry-forward"):
+        _audit(r)
+
+
+def test_daily_decision_must_contain_entered_symbol():
+    r = _record()
+    r["daily_equity"][0]["selected_symbols"] = []
+    with pytest.raises(PortfolioMoneyInvariantError, match="decision/entry"):
+        _audit(r)
+
+
+def test_missing_funding_day_fails_closed():
+    r = _record()
+    r["funding_days"] = []
+    with pytest.raises(PortfolioMoneyInvariantError, match="unbooked funding"):
+        _audit(r)
