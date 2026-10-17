@@ -222,6 +222,8 @@ def _validate_funded_replay(
                 audit_portfolio_model(
                     model, scenario=model_key.split(":")[1],
                     allowed_symbols=tuple(row["symbols"]),
+                    expected_first_execution_day_utc=row["first_execution_day_utc"],
+                    expected_last_source_day_utc=row["last_source_day_utc"],
                     fee_bps_per_fill=pair[0],
                     slippage_bps_per_side=pair[1],
                 )
