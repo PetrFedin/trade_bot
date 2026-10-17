@@ -1,0 +1,179 @@
+name: six-major-mark-price-hourly-sensitivity
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/mark_price_hourly_sensitivity.py'
+      - 'tools/summarize_mark_price_hourly_sensitivity.py'
+      - 'tools/verify_mark_price_hourly_archive.py'
+      - 'tools/replay_mark_price_hourly_archive.py'
+      - 'tools/replay_six_major_mark_price_archive.py'
+      - 'tools/verify_mark_funding_replay_linkage.py'
+      - 'tools/verify_funded_portfolio_money.py'
+      - 'tools/verify_funded_replay_integration.py'
+      - 'tests/test_verify_funded_replay_integration.py'
+      - 'tests/test_mark_price_hourly_sensitivity.py'
+      - 'tests/test_summarize_mark_price_hourly_sensitivity.py'
+      - 'tests/test_verify_mark_price_hourly_archive.py'
+      - 'tests/test_replay_mark_price_hourly_archive.py'
+      - 'tests/test_replay_six_major_mark_price_archive.py'
+      - 'tests/test_verify_mark_funding_replay_linkage.py'
+      - 'tests/test_verify_funded_portfolio_money.py'
+      - 'docs/ASTRA_MARK_PRICE_HOURLY_SENSITIVITY_2026-10-15.md'
+      - '.github/workflows/six-major-mark-price-hourly-sensitivity.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mark-price-hourly-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-integrity-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install locked dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Unit, pagination and evidence-integrity tests
+        run: |
+          ruff check tools/mark_price_hourly_sensitivity.py tools/summarize_mark_price_hourly_sensitivity.py tools/verify_mark_price_hourly_archive.py tools/replay_mark_price_hourly_archive.py tools/replay_six_major_mark_price_archive.py tools/verify_mark_funding_replay_linkage.py tools/verify_funded_portfolio_money.py tools/verify_funded_replay_integration.py tests/test_verify_funded_replay_integration.py tests/test_verify_mark_funding_replay_linkage.py tests/test_verify_funded_portfolio_money.py tests/test_replay_mark_price_hourly_archive.py tests/test_replay_six_major_mark_price_archive.py tests/test_mark_price_hourly_sensitivity.py tests/test_summarize_mark_price_hourly_sensitivity.py tests/test_verify_mark_price_hourly_archive.py
+          pytest -q tests/test_mark_price_hourly_sensitivity.py tests/test_summarize_mark_price_hourly_sensitivity.py tests/test_verify_mark_price_hourly_archive.py tests/test_replay_mark_price_hourly_archive.py tests/test_replay_six_major_mark_price_archive.py tests/test_verify_mark_funding_replay_linkage.py tests/test_verify_funded_portfolio_money.py tests/test_verify_funded_replay_integration.py
+  historical-money-integration:
+    needs: offline-integrity-qa
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check out pinned PR 324 source independently
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: PetrFedin/trade_bot
+          ref: 6f6c3c42ef3b33a1fbeb2a45131b014ee15810f8
+          path: historical-pr324
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install audited locked dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Replay original historical evidence and independently verify money
+        run: |
+          set -euo pipefail
+          mkdir -p integration-evidence
+          test "$(git -C historical-pr324 rev-parse HEAD)" = "6f6c3c42ef3b33a1fbeb2a45131b014ee15810f8"
+          (
+            cd historical-pr324
+            python -m tools.daily_funding_cash_replay --output ../integration-evidence/daily-funded.json
+            python -m tools.verify_daily_funding_report ../integration-evidence/daily-funded.json --output ../integration-evidence/independent-verifier.json
+          )
+          python -m tools.verify_funded_replay_integration \
+            --report integration-evidence/daily-funded.json \
+            --independent-verifier integration-evidence/independent-verifier.json \
+            --historical-head-sha 6f6c3c42ef3b33a1fbeb2a45131b014ee15810f8 \
+            --output integration-evidence/money-integration-receipt.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          row = json.loads(Path('integration-evidence/money-integration-receipt.json').read_text())
+          assert row['model_count'] == 36
+          assert row['independent_arithmetic_reconciled'] is True
+          assert row['profitability_proven'] is False
+          assert row['live_trading_allowed'] is False
+          print('HISTORICAL_MONEY_AUDIT_36', row['money_audit_sha256'])
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: historical-money-integration-${{ github.run_id }}
+          path: integration-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  public-source-sensitivity:
+    needs: offline-integrity-qa
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install locked dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Collect fixed six-major Bybit Mark Price hourly source
+        run: |
+          set -euo pipefail
+          ROOT=mark-price-hourly
+          FUNDING=research/snapshots/bybit_funding_2023-10-09_2026-10-08
+          mkdir -p "$ROOT"
+          for symbol in BNBUSDT BTCUSDT DOGEUSDT ETHUSDT SOLUSDT XRPUSDT; do
+            echo "MARK_SOURCE_START $symbol"
+            python -m tools.mark_price_hourly_sensitivity \
+              --symbol "$symbol" \
+              --start-utc 2023-10-09T00:00:00Z \
+              --end-utc 2026-06-14T23:00:00Z \
+              --funding-csv "$FUNDING/${symbol}_funding.csv" \
+              --funding-manifest "$FUNDING/${symbol}_funding.manifest.json" \
+              --output-dir "$ROOT/$symbol" \
+              --pause-seconds 0.12
+          done
+      - name: Independently re-hash and summarize all six sources
+        run: |
+          python -m tools.summarize_mark_price_hourly_sensitivity \
+            --root mark-price-hourly \
+            --funding-root research/snapshots/bybit_funding_2023-10-09_2026-10-08 \
+            --output mark-price-hourly/summary.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path('mark-price-hourly/summary.json').read_text())
+          assert r['symbols'] == [
+              'BNBUSDT','BTCUSDT','DOGEUSDT','ETHUSDT','SOLUSDT','XRPUSDT'
+          ]
+          assert r['start'] == '2023-10-09T00:00:00+00:00'
+          assert r['end'] == '2026-06-14T23:00:00+00:00'
+          assert r['hourly_rows_total'] == 6 * 23520
+          assert r['funding_settlements_total'] > 10000
+          assert r['provider_pages_total'] >= 6 * 24
+          assert r['exact_settlement_mark_verified'] is False
+          assert r['compatible_with_final_1m_admission'] is False
+          assert r['strategy_replay_completed'] is False
+          assert r['profitability_proven'] is False
+          print('MARK_PRICE_60M_RESEARCH_ONLY', json.dumps({
+              'hours': r['hourly_rows_total'],
+              'settlements': r['funding_settlements_total'],
+              'mean_range': r['weighted_mean_settlement_hour_range_fraction'],
+              'max_range': r['maximum_settlement_hour_range_fraction'],
+              'evidence_sha256': r['evidence_sha256'],
+          }, sort_keys=True))
+          PY
+      # Preserve blocked-source status even when the collector exits nonzero.
+      # CI stays RED: unavailable Mark Price is not research qualification.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: six-major-mark-price-hourly-${{ github.run_id }}
+          path: mark-price-hourly/
+          if-no-files-found: error
+          retention-days: 14
