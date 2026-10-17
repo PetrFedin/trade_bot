@@ -40,6 +40,7 @@ def _fixture():
                     "XRPUSDT",
                 ] + [f"T{i}" for i in range(15)],
                 "first_source_day_utc": "2023-10-09T00:00:00+00:00",
+                "first_execution_day_utc": "2023-10-09T00:00:00+00:00",
                 "last_source_day_utc": "2026-06-14T00:00:00+00:00",
                 "models": {
                     f"{model}:{scenario}": {}
