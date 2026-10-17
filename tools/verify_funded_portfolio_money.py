@@ -78,6 +78,8 @@ def audit_portfolio_model(
     record: dict, *, scenario: str, allowed_symbols: tuple[str, ...],
     fee_bps_per_fill: str | None = None,
     slippage_bps_per_side: str | None = None,
+    expected_first_execution_day_utc: str | None = None,
+    expected_last_source_day_utc: str | None = None,
 ) -> dict:
     """Reconcile reported trade PnL, funding, costs, holdings and cash.
 
@@ -278,19 +280,65 @@ def audit_portfolio_model(
             raise PortfolioMoneyInvariantError("trade/fill count mismatch")
 
         daily_equity = _rows(record, "daily_equity")
+        if not daily_equity:
+            raise PortfolioMoneyInvariantError("missing daily equity history")
         peak = OPENING_CASH
         drawdown = ZERO
         last_day = None
+        previous_close = OPENING_CASH
+        day_dates = []
         for row in daily_equity:
             day = _utc(row["day_utc"], "daily equity")
+            if (day.hour, day.minute, day.second, day.microsecond) != (0, 0, 0, 0):
+                raise PortfolioMoneyInvariantError("daily equity timestamp not UTC midnight")
             if last_day is not None and day != last_day + timedelta(days=1):
                 raise PortfolioMoneyInvariantError("daily equity chronology invalid")
             last_day = day
+            day_dates.append(day.date())
+            prior_equity = _amount(row["prior_equity"], "prior daily equity")
+            _close(prior_equity, previous_close, "daily equity carry-forward")
             close = _amount(row["closing_equity"], "daily closing equity")
+            if prior_equity <= ZERO or close <= ZERO:
+                raise PortfolioMoneyInvariantError("nonpositive research daily equity")
+            selected = row["selected_symbols"]
+            entered = row["entered_symbols"]
+            if (
+                not isinstance(selected, list) or not isinstance(entered, list)
+                or any(not isinstance(symbol, str) for symbol in selected + entered)
+                or len(selected) > 2 or len(set(selected)) != len(selected)
+                or len(set(entered)) != len(entered)
+                or len(entered) > 2 or not set(selected).issubset(universe)
+                or not set(entered).issubset(set(selected))
+            ):
+                raise PortfolioMoneyInvariantError("invalid daily decision/entry relationship")
             peak = max(peak, close)
             drawdown = max(drawdown, (peak - close) / peak)
-        if not daily_equity or last_day is None:
-            raise PortfolioMoneyInvariantError("missing daily equity history")
+            previous_close = close
+        if expected_first_execution_day_utc is not None and _utc(
+            expected_first_execution_day_utc, "first execution day"
+        ) != _utc(daily_equity[0]["day_utc"], "first daily equity"):
+            raise PortfolioMoneyInvariantError("replay first execution day differs")
+        if expected_last_source_day_utc is not None and _utc(
+            expected_last_source_day_utc, "last source day"
+        ) != last_day:
+            raise PortfolioMoneyInvariantError("replay terminal daily equity day differs")
+        if scenario != "NO_FUNDING" and (
+            [stamp.date() for stamp in (
+                _utc(day["day_utc"], "funding day") for day in funding_days
+            )] != day_dates
+        ):
+            raise PortfolioMoneyInvariantError("funding day / daily equity coverage mismatch")
+        if set(daily_values) - set(day_dates):
+            raise PortfolioMoneyInvariantError("funding settlement outside daily history")
+        for trade in trades:
+            if (
+                _utc(trade["entry_time"], "trade entry").date() not in day_dates
+                or _utc(trade["exit_time"], "trade exit").date() not in day_dates
+            ):
+                raise PortfolioMoneyInvariantError("trade outside recorded daily history")
+        for position in open_positions:
+            if _utc(position["entry_time"], "open entry").date() not in day_dates:
+                raise PortfolioMoneyInvariantError("open entry outside recorded daily history")
         _close(
             _amount(daily_equity[-1]["closing_equity"], "last daily equity"),
             ending_equity, "terminal daily equity",
@@ -314,6 +362,9 @@ def audit_portfolio_model(
         "funding_cash_reconciled": True,
         "fee_slippage_schedule_verified": cost_schedule,
         "terminal_daily_equity_verified": True,
+        "daily_equity_carry_forward_verified": True,
+        "funding_day_coverage_verified": True,
+        "decision_universe_verified": True,
         "trading_authority_granted": False,
     }
 
