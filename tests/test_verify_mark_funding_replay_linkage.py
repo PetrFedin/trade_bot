@@ -46,6 +46,7 @@ def _case():
                 "symbols": list(SIX) if period != "broad21_matched_window"
                 else list(SIX) + [f"TEST{i}" for i in range(15)],
                 "first_source_day_utc": START,
+                "first_execution_day_utc": START,
                 "last_source_day_utc": END_DAY,
                 "models": copy.deepcopy(MODELS),
             })
