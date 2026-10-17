@@ -262,3 +262,19 @@ fails the dedicated job. The evidence receipt retains hashes and explicit
 The Mark Price collector remains a separate, currently source-blocked
 job. A passing historical integration job must never turn the external
 Mark Price failure GREEN or imply actual exchange execution.
+
+## 2026-10-17 — Daily ledger continuity and strategy-decision linkage
+
+The independent historical-money auditor now requires:
+- contiguous UTC daily equity snapshots and opening/previous close carry-forward;
+- explicit first execution day and final source day matching the frozen replay;
+- selected instruments within the frozen universe (maximum two positions);
+- every entered instrument a member of that day's modelled selection;
+- the funding-book day sequence matching daily valuation dates for funding scenarios;
+- no funding booked before the modelled entry, and all trade/position dates covered;
+- final daily equity matching independently reconstructed cash plus open holdings.
+
+Negative fixtures reject balance carry drift, missing funding dates, and
+selection/entry mismatch. These checks evaluate model-state consistency,
+not truth of exchange fills, live venue mark prices or real account margin.
+External Mark Price remains BLOCKED_HTTP_403 and profitability unproven.
