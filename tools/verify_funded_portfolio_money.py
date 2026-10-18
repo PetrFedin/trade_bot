@@ -12,6 +12,11 @@ from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
+from tools.verify_funded_position_lifecycle import (
+    PortfolioLifecycleError,
+    audit_position_lifecycle,
+)
+
 OPENING_CASH = Decimal("10000")
 USD_TOLERANCE = Decimal("0.000001")
 RETURN_TOLERANCE = Decimal("0.0000000001")
@@ -347,6 +352,18 @@ def audit_portfolio_model(
             _amount(metrics["daily_close_max_drawdown_over_peak"], "drawdown"),
             drawdown, "daily drawdown", tol=RETURN_TOLERANCE,
         )
+        try:
+            lifecycle = audit_position_lifecycle(
+                trades=trades,
+                final_open_positions=open_positions,
+                daily_equity=daily_equity,
+                funding_events=funding_events,
+                allowed_symbols=allowed_symbols,
+            )
+        except PortfolioLifecycleError as exc:
+            raise PortfolioMoneyInvariantError(
+                f"position lifecycle mismatch: {exc}"
+            ) from exc
     except (KeyError, IndexError, TypeError, ZeroDivisionError) as exc:
         raise PortfolioMoneyInvariantError("missing/malformed portfolio ledger field") from exc
 
@@ -365,6 +382,9 @@ def audit_portfolio_model(
         "daily_equity_carry_forward_verified": True,
         "funding_day_coverage_verified": True,
         "decision_universe_verified": True,
+        "position_lifecycle_verified": True,
+        "funding_position_attributions": lifecycle["funding_events_bound_to_positions"],
+        "max_positions_held_at_daily_close": lifecycle["max_positions_held_at_daily_close"],
         "trading_authority_granted": False,
     }
 
