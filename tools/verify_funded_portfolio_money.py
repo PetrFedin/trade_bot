@@ -112,6 +112,8 @@ def audit_portfolio_model(
 
         closed_net = ZERO
         fee_sum = ZERO
+        traded_notional = ZERO
+        ambiguous_exits = 0
         trades = _rows(record, "trades")
         for trade in trades:
             if trade["symbol"] not in universe:
@@ -151,6 +153,10 @@ def audit_portfolio_model(
             _close(_amount(trade["slippage_cost"], "slippage"), slippage, "trade slippage")
             _close(_amount(trade["net_pnl"], "trade net PnL"), net, "trade net PnL")
             fee_sum += entry_fee + exit_fee
+            traded_notional += quantity * (entry_execution + exit_execution)
+            if type(trade.get("ambiguous_intrabar_exit")) is not bool:
+                raise PortfolioMoneyInvariantError("invalid exit ambiguity evidence")
+            ambiguous_exits += int(trade["ambiguous_intrabar_exit"])
             closed_net += net
 
         open_cost = ZERO
@@ -170,6 +176,7 @@ def audit_portfolio_model(
                 _close(fee, quantity * entry_price * fee_rate, "open entry fee bps")
             mark = _positive(position, "final_mark")
             open_cost += quantity * entry_price + fee
+            traded_notional += quantity * entry_price
             open_value += quantity * mark
             fee_sum += fee
 
@@ -276,6 +283,16 @@ def audit_portfolio_model(
             (ending_equity - OPENING_CASH) / OPENING_CASH,
             "funded portfolio return", tol=RETURN_TOLERANCE,
         )
+        _close(
+            _amount(metrics["turnover_over_starting_cash"], "turnover"),
+            traded_notional / OPENING_CASH, "traded turnover",
+            tol=RETURN_TOLERANCE,
+        )
+        if (
+            type(metrics["remaining_ambiguous_daily_exits"]) is not int
+            or metrics["remaining_ambiguous_daily_exits"] != ambiguous_exits
+        ):
+            raise PortfolioMoneyInvariantError("ambiguous exit count mismatch")
         if (
             type(metrics["closed_trades"]) is not int
             or type(metrics["fills"]) is not int
@@ -375,6 +392,8 @@ def audit_portfolio_model(
         "ending_equity_usd": str(ending_equity),
         "net_funding_usd": str(net_funding),
         "fees_usd": str(fee_sum),
+        "turnover_verified": True,
+        "ambiguous_exit_count_verified": True,
         "cash_equity_reconciled": True,
         "funding_cash_reconciled": True,
         "fee_slippage_schedule_verified": cost_schedule,
