@@ -33,22 +33,25 @@ def _record():
             "exit_execution_price": "120", "entry_fee": "1",
             "exit_fee": "1", "gross_pnl_before_costs": "20",
             "slippage_cost": "0", "net_pnl": "18",
+            "holding_bars": 0, "exit_reason": "INTRABAR_HARD_STOP",
+            "ambiguous_intrabar_exit": False,
         }],
         "final_open_positions": [],
         "funding_events": [{
-            "symbol": "BTCUSDT", "entry_time": "2026-01-01T00:00:00+00:00",
+            "symbol": "BTCUSDT", "entry_time": "2026-01-02T00:00:00+00:00",
             "settlement_time": "2026-01-02T08:00:00+00:00",
             "booked_after_day_utc": "2026-01-03T00:00:00+00:00",
             "activity_id": "research-funding:BTCUSDT:2026-01-02T08:00:00+00:00",
             "quantity": "1", "entry_execution_price": "100",
             "provider_rate": "0.01", "cost_if_held_usd": "1",
-            "cash_amount_usd": "-1", "participation_uncertain": False,
+            "cash_amount_usd": "-1", "participation_uncertain": True,
+            "holding_state": "INTRABAR_EXIT",
             "mark_price_verified": False,
         }],
         "funding_days": [{
             "day_utc": "2026-01-02T00:00:00+00:00",
             "net_funding_cash_usd": "-1", "nonzero_flow_count": 1,
-            "uncertain_event_count": 0,
+            "uncertain_event_count": 1,
         }],
         "daily_equity": [{
             "day_utc": "2026-01-02T00:00:00+00:00", "prior_equity": "10000",
@@ -153,4 +156,25 @@ def test_missing_funding_day_fails_closed():
     r = _record()
     r["funding_days"] = []
     with pytest.raises(PortfolioMoneyInvariantError, match="unbooked funding"):
+        _audit(r)
+
+
+def test_monetary_coherence_does_not_hide_forged_position_exit():
+    r = _record()
+    r["trades"][0]["exit_reason"] = "SELECTION_EXIT"
+    with pytest.raises(PortfolioMoneyInvariantError, match="position lifecycle"):
+        _audit(r)
+
+
+def test_monetary_coherence_does_not_hide_forged_funding_position():
+    r = _record()
+    r["funding_events"][0]["entry_execution_price"] = "102"
+    with pytest.raises(PortfolioMoneyInvariantError, match="position lifecycle"):
+        # Coordinate funding cost/rate so monetary sums still reconcile.
+        r["funding_events"][0]["provider_rate"] = str(
+            1 / 102
+        )
+        # Instead validate a mismatched claimed holding state without changing cash.
+        r["funding_events"][0]["entry_execution_price"] = "100"
+        r["funding_events"][0]["holding_state"] = "OPEN_AT_CLOSE"
         _audit(r)
