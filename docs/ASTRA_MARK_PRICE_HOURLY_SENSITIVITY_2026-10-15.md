@@ -278,3 +278,32 @@ Negative fixtures reject balance carry drift, missing funding dates, and
 selection/entry mismatch. These checks evaluate model-state consistency,
 not truth of exchange fills, live venue mark prices or real account margin.
 External Mark Price remains BLOCKED_HTTP_403 and profitability unproven.
+
+## 2026-10-18 — Event-sourced position lifecycle and trading-turnover audit
+
+Independent `tools/verify_funded_position_lifecycle.py` reconstructs modelled
+open/closed instrument intervals from retained trades and terminal holdings.
+It must match every execution-day `entered_symbols`, reject overlaps,
+same-day open exits, impossible holding duration, mixed closed/open schemas,
+and more than two simultaneous end-of-day positions. For each retained
+funding event, it independently binds symbol, recorded entry timestamp,
+quantity, entry execution price, state (`OPEN_EXIT`, `INTRABAR_EXIT`,
+`OPEN_AT_CLOSE`), and boundary uncertainty to its source position. A missing
+exchange settlement cannot be reconstructed from the retained event list:
+provider completeness is explicitly **not** attested.
+
+The independent monetary verifier invokes this event audit for all 36
+portfolio replay models. It additionally recalculates execution turnover
+as the sum of the buy and sell notionals for all closed trades plus entry
+notionals for final open holdings, divided by the original 10,000 USDT
+research capital. It separately counts ambiguously classified intrabar
+exits. Both are cross-checked against the reported metrics, with new
+negative mutation tests.
+
+The historical integration run preceding these final turnover additions,
+`39159177487`, successfully passed 36/36 model reconciliations under
+the event-sourced lifecycle gate with evidence SHA-256
+`323c667c7a0110f89d8453b7746b186106e3f51cad3da8eacbb680713f4e107f`.
+This is **not** the result of the later turnover changes, which require
+their own exact-head CI. The live Mark Price collector separately remains
+`BLOCKED_HTTP_403`. No live execution or strategy qualification permitted.
