@@ -88,41 +88,55 @@ def audit_position_lifecycle(
         first_day, last_day = days[0], days[-1]
         day_set = set(days)
 
-        for row in trades + final_open_positions:
-            if not isinstance(row, dict):
-                raise PortfolioLifecycleError("malformed position/trade")
-            symbol = row["symbol"]
-            if symbol not in universe:
-                raise PortfolioLifecycleError("position outside frozen universe")
-            entered = _utc(row["entry_time"])
-            end = _utc(row["exit_time"]) if "exit_time" in row else None
-            if (
-                entered not in day_set
-                or end is not None and (end not in day_set or end < entered)
-                or end is None and row in trades
-            ):
-                raise PortfolioLifecycleError("trade interval outside execution timeline")
-            if end is not None:
-                reason = row["exit_reason"]
-                if reason not in INTRABAR_REASONS | OPEN_REASONS:
-                    raise PortfolioLifecycleError("unknown trade exit classification")
-                if reason in OPEN_REASONS and end == entered:
-                    raise PortfolioLifecycleError("same-day open exit is impossible")
-                if type(row["holding_bars"]) is not int or row["holding_bars"] != (
-                    (end - entered).days
+        for closed, group in ((True, trades), (False, final_open_positions)):
+            for row in group:
+                if not isinstance(row, dict):
+                    raise PortfolioLifecycleError("malformed position/trade")
+                symbol = row["symbol"]
+                if symbol not in universe:
+                    raise PortfolioLifecycleError("position outside frozen universe")
+                entered = _utc(row["entry_time"])
+                if ("exit_time" in row) is not closed:
+                    raise PortfolioLifecycleError("closed/open position schema conflated")
+                end = _utc(row["exit_time"]) if closed else None
+                if entered not in day_set or (
+                    end is not None and (end not in day_set or end < entered)
                 ):
-                    raise PortfolioLifecycleError("holding duration contradicts dates")
-                if row.get("ambiguous_intrabar_exit") is True and (
-                    reason not in INTRABAR_REASONS
-                ):
-                    raise PortfolioLifecycleError("ambiguity unrelated to intrabar exit")
-            elif row in final_open_positions and entered > last_day:
-                raise PortfolioLifecycleError("future terminal open position")
-            entry_qty = _amount(row["quantity"])
-            entry_price = _amount(row["entry_execution_price"])
-            item = (entered, end, entry_qty, entry_price, row)
-            intervals_by_symbol[symbol].append(item)
-            entries_by_day[entered].append(symbol)
+                    raise PortfolioLifecycleError(
+                        "trade interval outside execution timeline"
+                    )
+                if closed:
+                    reason = row["exit_reason"]
+                    if reason not in INTRABAR_REASONS | OPEN_REASONS:
+                        raise PortfolioLifecycleError(
+                            "unknown trade exit classification"
+                        )
+                    if reason in OPEN_REASONS and end == entered:
+                        raise PortfolioLifecycleError(
+                            "same-day open exit is impossible"
+                        )
+                    if (
+                        type(row["holding_bars"]) is not int
+                        or row["holding_bars"] != (end - entered).days
+                    ):
+                        raise PortfolioLifecycleError(
+                            "holding duration contradicts dates"
+                        )
+                    if row.get("ambiguous_intrabar_exit") is True and (
+                        reason not in INTRABAR_REASONS
+                    ):
+                        raise PortfolioLifecycleError(
+                            "ambiguity unrelated to intrabar exit"
+                        )
+                elif "exit_reason" in row:
+                    raise PortfolioLifecycleError(
+                        "open position has closed-trade exit fields"
+                    )
+                entry_qty = _amount(row["quantity"])
+                entry_price = _amount(row["entry_execution_price"])
+                item = (entered, end, entry_qty, entry_price, row)
+                intervals_by_symbol[symbol].append(item)
+                entries_by_day[entered].append(symbol)
 
         # Every symbol has a single active position at any given instant. Daily
         # open-exit then same-day re-entry is disallowed by the frozen policy.
@@ -136,7 +150,6 @@ def audit_position_lifecycle(
 
         open_count_max = 0
         exposures_by_day = {}
-        closed_count = 0
         for day, row in zip(days, daily_equity, strict=True):
             actual_entries = row["entered_symbols"]
             expected_entries = entries_by_day[day]
@@ -164,7 +177,6 @@ def audit_position_lifecycle(
                                 "INTRABAR_EXIT" if reason in INTRABAR_REASONS
                                 else "OPEN_EXIT"
                             )
-                            closed_count += 1
                         else:
                             state = "OPEN_AT_CLOSE"
                             at_close += 1
