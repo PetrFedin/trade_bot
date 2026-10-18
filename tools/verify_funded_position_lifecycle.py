@@ -85,7 +85,6 @@ def audit_position_lifecycle(
             if days and stamp != days[-1] + timedelta(days=1):
                 raise PortfolioLifecycleError("daily decision timeline discontinuity")
             days.append(stamp)
-        first_day, last_day = days[0], days[-1]
         day_set = set(days)
 
         for closed, group in ((True, trades), (False, final_open_positions)):
