@@ -23,6 +23,8 @@ def _record():
             "ending_equity_usd": "10017",
             "return_including_daily_funding": "0.0017",
             "closed_trades": 1, "fills": 2,
+            "turnover_over_starting_cash": "0.022",
+            "remaining_ambiguous_daily_exits": 0,
             "daily_close_max_drawdown_over_peak": "0",
         },
         "trades": [{
@@ -171,4 +173,18 @@ def test_monetary_coherence_does_not_hide_forged_funding_position():
     # Monetary sums remain unchanged, but the funding lifecycle is impossible.
     r["funding_events"][0]["holding_state"] = "OPEN_AT_CLOSE"
     with pytest.raises(PortfolioMoneyInvariantError, match="position lifecycle"):
+        _audit(r)
+
+
+def test_fake_traded_turnover_is_rejected():
+    r = _record()
+    r["metrics"]["turnover_over_starting_cash"] = "0.023"
+    with pytest.raises(PortfolioMoneyInvariantError, match="traded turnover"):
+        _audit(r)
+
+
+def test_false_ambiguous_exit_count_is_rejected():
+    r = _record()
+    r["metrics"]["remaining_ambiguous_daily_exits"] = 1
+    with pytest.raises(PortfolioMoneyInvariantError, match="ambiguous exit count"):
         _audit(r)
