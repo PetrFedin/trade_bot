@@ -168,13 +168,7 @@ def test_monetary_coherence_does_not_hide_forged_position_exit():
 
 def test_monetary_coherence_does_not_hide_forged_funding_position():
     r = _record()
-    r["funding_events"][0]["entry_execution_price"] = "102"
+    # Monetary sums remain unchanged, but the funding lifecycle is impossible.
+    r["funding_events"][0]["holding_state"] = "OPEN_AT_CLOSE"
     with pytest.raises(PortfolioMoneyInvariantError, match="position lifecycle"):
-        # Coordinate funding cost/rate so monetary sums still reconcile.
-        r["funding_events"][0]["provider_rate"] = str(
-            1 / 102
-        )
-        # Instead validate a mismatched claimed holding state without changing cash.
-        r["funding_events"][0]["entry_execution_price"] = "100"
-        r["funding_events"][0]["holding_state"] = "OPEN_AT_CLOSE"
         _audit(r)
