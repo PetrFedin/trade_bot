@@ -1,0 +1,48 @@
+name: mark-price-funding-admission
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/mark_price_funding_admission.py'
+      - 'tests/test_mark_price_funding_admission.py'
+      - 'docs/ASTRA_MARK_PRICE_FUNDING_ADMISSION_2026-10-15.md'
+      - '.github/workflows/mark-price-funding-admission.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mark-price-funding-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-contract-and-envelope-math:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install locked dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Lint and fail-closed source tests
+        run: |
+          ruff check tools/mark_price_funding_admission.py tests/test_mark_price_funding_admission.py
+          pytest -q tests/test_mark_price_funding_admission.py
+      - name: Assert no fabricated production mark-price archive is committed
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          real = Path('research/snapshots/bybit_mark_price_settlements_2023_2026')
+          assert not real.exists(), (
+              'Real mark-price archive must arrive in its own source-qualified '
+              'research PR, never as an unreviewed fixture in admission code.'
+          )
+          print('MARK_PRICE_ADMISSION_ONLY: no historical venue archive claimed')
+          PY
