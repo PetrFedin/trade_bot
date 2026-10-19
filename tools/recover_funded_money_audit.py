@@ -8,6 +8,9 @@ The final receipt is admitted only after full independent recomputation.
 from __future__ import annotations
 
 import argparse
+import fcntl
+import stat
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -57,7 +60,38 @@ def _atomic_json(path: Path, value: dict) -> None:
             os.unlink(temporary)
 
 
-def audit_with_recovery(
+@contextmanager
+def _exclusive_checkpoint_lock(checkpoint_path: Path):
+    """Serialize verification writers; never trust a symlink or stale owner lock.
+
+    A kernel flock is automatically released if the process terminates. File
+    modes and inode identity are checked before operating on checkpoint data.
+    """
+    if any(part.is_symlink() for part in (checkpoint_path.parent, *checkpoint_path.parent.parents)):
+        raise HistoricalMoneyIntegrationError("symlinked checkpoint parent forbidden")
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = checkpoint_path.with_name(checkpoint_path.name + ".lock")
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    except OSError as exc:
+        raise HistoricalMoneyIntegrationError("checkpoint lock unavailable") from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise HistoricalMoneyIntegrationError("unsafe checkpoint lock inode")
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise HistoricalMoneyIntegrationError("checkpoint already being audited") from exc
+        target_info = os.stat(lock_path, follow_symlinks=False)
+        if (target_info.st_ino, target_info.st_dev) != (info.st_ino, info.st_dev):
+            raise HistoricalMoneyIntegrationError("checkpoint lock changed while acquiring")
+        yield
+    finally:
+        os.close(fd)
+
+
+def _audit_with_recovery_unlocked(
     *, report: dict, verifier: dict, report_bytes: bytes,
     verifier_bytes: bytes, historical_head_sha: str,
     checkpoint_path: Path, code_root: Path,
@@ -151,6 +185,24 @@ def audit_with_recovery(
         "live_trading_allowed": False,
         "profitability_proven": False,
     }
+
+
+
+def audit_with_recovery(
+    *,
+    report: dict, verifier: dict, report_bytes: bytes,
+    verifier_bytes: bytes, historical_head_sha: str,
+    checkpoint_path: Path, code_root: Path,
+    interrupt_after: int | None = None,
+) -> dict:
+    """Exclusively hold the checkpoint until full independent revalidation."""
+    with _exclusive_checkpoint_lock(Path(checkpoint_path)):
+        return _audit_with_recovery_unlocked(
+            report=report, verifier=verifier, report_bytes=report_bytes,
+            verifier_bytes=verifier_bytes, historical_head_sha=historical_head_sha,
+            checkpoint_path=checkpoint_path, code_root=code_root,
+            interrupt_after=interrupt_after,
+        )
 
 
 def main() -> int:
