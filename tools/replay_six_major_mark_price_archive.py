@@ -9,12 +9,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from tools.atomic_directory_publish import publish_new_directory
 from tools.mark_price_hourly_sensitivity import _utc
 from tools.replay_mark_price_hourly_archive import (
     ArchiveReplayError,
@@ -212,7 +212,7 @@ def replay_six_major_source_set(
         # Recheck to refuse a target created during the expensive preflight.
         if output_dir.exists() or output_dir.is_symlink():
             raise SourceSetError("output directory appeared during qualification")
-        os.rename(stage, output_dir)
+        publish_new_directory(stage, output_dir)
     return result
 
 
