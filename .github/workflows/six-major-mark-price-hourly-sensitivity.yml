@@ -13,6 +13,8 @@ on:
       - 'tools/verify_funded_portfolio_money.py'
       - 'tools/verify_funded_position_lifecycle.py'
       - 'tools/verify_funded_replay_integration.py'
+      - 'tools/recover_funded_money_audit.py'
+      - 'tests/test_recover_funded_money_audit.py'
       - 'tests/test_verify_funded_replay_integration.py'
       - 'tests/test_mark_price_hourly_sensitivity.py'
       - 'tests/test_summarize_mark_price_hourly_sensitivity.py'
@@ -49,8 +51,8 @@ jobs:
           python -m pip check
       - name: Unit, pagination and evidence-integrity tests
         run: |
-          ruff check tools/mark_price_hourly_sensitivity.py tools/summarize_mark_price_hourly_sensitivity.py tools/verify_mark_price_hourly_archive.py tools/replay_mark_price_hourly_archive.py tools/replay_six_major_mark_price_archive.py tools/verify_mark_funding_replay_linkage.py tools/verify_funded_portfolio_money.py tools/verify_funded_position_lifecycle.py tools/verify_funded_replay_integration.py tests/test_verify_funded_replay_integration.py tests/test_verify_mark_funding_replay_linkage.py tests/test_verify_funded_portfolio_money.py tests/test_verify_funded_position_lifecycle.py tests/test_replay_mark_price_hourly_archive.py tests/test_replay_six_major_mark_price_archive.py tests/test_mark_price_hourly_sensitivity.py tests/test_summarize_mark_price_hourly_sensitivity.py tests/test_verify_mark_price_hourly_archive.py
-          pytest -q tests/test_mark_price_hourly_sensitivity.py tests/test_summarize_mark_price_hourly_sensitivity.py tests/test_verify_mark_price_hourly_archive.py tests/test_replay_mark_price_hourly_archive.py tests/test_replay_six_major_mark_price_archive.py tests/test_verify_mark_funding_replay_linkage.py tests/test_verify_funded_portfolio_money.py tests/test_verify_funded_position_lifecycle.py tests/test_verify_funded_replay_integration.py
+          ruff check tools/mark_price_hourly_sensitivity.py tools/summarize_mark_price_hourly_sensitivity.py tools/verify_mark_price_hourly_archive.py tools/replay_mark_price_hourly_archive.py tools/replay_six_major_mark_price_archive.py tools/verify_mark_funding_replay_linkage.py tools/verify_funded_portfolio_money.py tools/verify_funded_position_lifecycle.py tools/verify_funded_replay_integration.py tools/recover_funded_money_audit.py tests/test_recover_funded_money_audit.py tests/test_verify_funded_replay_integration.py tests/test_verify_mark_funding_replay_linkage.py tests/test_verify_funded_portfolio_money.py tests/test_verify_funded_position_lifecycle.py tests/test_replay_mark_price_hourly_archive.py tests/test_replay_six_major_mark_price_archive.py tests/test_mark_price_hourly_sensitivity.py tests/test_summarize_mark_price_hourly_sensitivity.py tests/test_verify_mark_price_hourly_archive.py
+          pytest -q tests/test_mark_price_hourly_sensitivity.py tests/test_summarize_mark_price_hourly_sensitivity.py tests/test_verify_mark_price_hourly_archive.py tests/test_replay_mark_price_hourly_archive.py tests/test_replay_six_major_mark_price_archive.py tests/test_verify_mark_funding_replay_linkage.py tests/test_verify_funded_portfolio_money.py tests/test_verify_funded_position_lifecycle.py tests/test_verify_funded_replay_integration.py tests/test_recover_funded_money_audit.py
   historical-money-integration:
     needs: offline-integrity-qa
     runs-on: ubuntu-latest
@@ -90,11 +92,21 @@ jobs:
             --independent-verifier integration-evidence/independent-verifier.json \
             --historical-head-sha 6f6c3c42ef3b33a1fbeb2a45131b014ee15810f8 \
             --output integration-evidence/money-integration-receipt.json
+          python -m tools.recover_funded_money_audit \
+            --report integration-evidence/daily-funded.json \
+            --independent-verifier integration-evidence/independent-verifier.json \
+            --historical-head-sha 6f6c3c42ef3b33a1fbeb2a45131b014ee15810f8 \
+            --checkpoint integration-evidence/money-audit-checkpoint.json \
+            --output integration-evidence/recovered-money-receipt.json
           python - <<'PY'
           import json
           from pathlib import Path
           row = json.loads(Path('integration-evidence/money-integration-receipt.json').read_text())
           assert row['model_count'] == 36
+          recovered = json.loads(Path('integration-evidence/recovered-money-receipt.json').read_text())
+          assert recovered['completed_models'] == 36
+          assert recovered['clean_replay_identical'] is True
+          assert recovered['money_audit_sha256'] == row['money_audit_sha256']
           assert row['independent_arithmetic_reconciled'] is True
           assert row['profitability_proven'] is False
           assert row['live_trading_allowed'] is False
