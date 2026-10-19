@@ -31,7 +31,8 @@ def publish_new_json_receipt(destination: Path, receipt: dict) -> None:
     if destination.exists() or destination.is_symlink():
         raise ReceiptPublicationError("receipt destination already exists; no overwrite")
     try:
-        raw = (json.dumps(receipt, indent=2, sort_keys=True, allow_nan=False) + "\n").encode("utf-8")
+        serialized = json.dumps(receipt, indent=2, sort_keys=True, allow_nan=False)
+        raw = (serialized + "\n").encode("utf-8")
     except (TypeError, ValueError) as exc:
         raise ReceiptPublicationError("invalid JSON receipt") from exc
     descriptor, temporary = tempfile.mkstemp(prefix=".astra-receipt-", suffix=".json", dir=parent)
