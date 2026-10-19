@@ -12,12 +12,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import tempfile
 from datetime import datetime
 from pathlib import Path
 
+from tools.atomic_directory_publish import publish_new_directory
 from tools.mark_price_hourly_sensitivity import (
     URL,
     _canonical,
@@ -211,7 +211,7 @@ def replay_archived_symbol(
         )
         # Atomic publication: incomplete/corrupted replay leaves no admitted
         # symbol directory. Never overwrite a prior reviewed import.
-        os.replace(staged_dir, target)
+        publish_new_directory(staged_dir, target)
     return receipt
 
 
