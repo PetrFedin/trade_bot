@@ -2,7 +2,7 @@ name: six-major-mark-price-hourly-sensitivity
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, research/mark-price-hourly-sensitivity-20261015]
     paths:
       - 'tools/mark_price_hourly_sensitivity.py'
       - 'tools/summarize_mark_price_hourly_sensitivity.py'
