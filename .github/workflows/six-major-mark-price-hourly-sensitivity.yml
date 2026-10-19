@@ -1,6 +1,8 @@
 name: six-major-mark-price-hourly-sensitivity
 
 on:
+  push:
+    branches: [fix/atomic-mark-evidence-publication-20261019]
   pull_request:
     branches: [main, research/mark-price-hourly-sensitivity-20261015]
     paths:
