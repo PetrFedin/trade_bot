@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 from tools.verify_funded_portfolio_money import (
@@ -81,6 +82,7 @@ def _read(path: Path, limit: int) -> tuple[dict, bytes]:
 def audit_real_historical_money(
     report: dict, verifier: dict, *, report_bytes: bytes,
     verifier_bytes: bytes, historical_head_sha: str,
+    model_auditor: Callable[[str, dict, dict], dict] | None = None,
 ) -> dict:
     """Enforce full matched 36-model grid and independent monetary equations."""
     if (
@@ -161,16 +163,22 @@ def audit_real_historical_money(
             if period in chronology and chronology[period] != period_dates:
                 raise HistoricalMoneyIntegrationError("matched-window cost chronology drift")
             chronology[period] = period_dates
-        for name, model in models.items():
+        for name in sorted(models):
+            model = models[name]
             identity = f"{period}:{costs[0]}:{costs[1]}:{name}"
+            parameters = {
+                "scenario": name.split(":")[1],
+                "allowed_symbols": tuple(symbols),
+                "expected_first_execution_day_utc": config["first_execution_day_utc"],
+                "expected_last_source_day_utc": config["last_source_day_utc"],
+                "fee_bps_per_fill": costs[0],
+                "slippage_bps_per_side": costs[1],
+            }
             try:
-                summaries[identity] = audit_portfolio_model(
-                    model, scenario=name.split(":")[1],
-                    allowed_symbols=tuple(symbols),
-                    expected_first_execution_day_utc=config["first_execution_day_utc"],
-                    expected_last_source_day_utc=config["last_source_day_utc"],
-                    fee_bps_per_fill=costs[0],
-                    slippage_bps_per_side=costs[1],
+                summaries[identity] = (
+                    audit_portfolio_model(model, **parameters)
+                    if model_auditor is None
+                    else model_auditor(identity, model, parameters)
                 )
             except PortfolioMoneyInvariantError as exc:
                 raise HistoricalMoneyIntegrationError(
