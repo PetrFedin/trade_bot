@@ -307,3 +307,20 @@ the event-sourced lifecycle gate with evidence SHA-256
 This is **not** the result of the later turnover changes, which require
 their own exact-head CI. The live Mark Price collector separately remains
 `BLOCKED_HTTP_403`. No live execution or strategy qualification permitted.
+
+## 2026-10-19 — Restart-safe independent 36-model audit
+
+`tools/recover_funded_money_audit.py` checkpoints each completed research
+money-audit model using atomic same-directory replacement. Every checkpoint
+binds the historical report and independent verifier bytes, the fixed PR #324
+head, and SHA-256s of all four auditing implementation files. The checkpoint
+content and individual model audit results carry SHA-256 fingerprints. Model
+keys are deterministic and unique; a partial or mutated checkpoint is rejected
+rather than admitted. An interrupted model is recomputed from scratch.
+
+When the resumed 36-model pass finishes, an **uncached** complete 36-model
+audit runs again and its final receipt must match exactly before publication.
+The workflow now executes both passes against real retained PR #324 evidence.
+These features do not restore running strategies, exchange connections, orders
+or brokerage positions. Exact Mark Price source admission remains blocked
+and `PROFITABILITY_NOT_PROVEN` is unchanged.
