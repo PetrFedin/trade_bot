@@ -14,6 +14,7 @@ import os
 import tempfile
 from pathlib import Path
 
+from tools.publish_research_receipt import ReceiptPublicationError, publish_new_json_receipt
 from tools.verify_funded_portfolio_money import audit_portfolio_model
 from tools.verify_funded_replay_integration import (
     MAX_RECEIPT_BYTES,
@@ -167,9 +168,12 @@ def main() -> int:
         verifier_bytes=verifier_bytes, historical_head_sha=args.historical_head_sha,
         checkpoint_path=args.checkpoint, code_root=Path(__file__).resolve().parent.parent,
     )
-    if args.output.exists() or args.output.is_symlink():
-        raise HistoricalMoneyIntegrationError("refusing to overwrite recovery receipt")
-    _atomic_json(args.output, result)
+    try:
+        publish_new_json_receipt(args.output, result)
+    except ReceiptPublicationError as exc:
+        raise HistoricalMoneyIntegrationError(
+            f"immutable recovery receipt refused: {exc}"
+        ) from exc
     print("ASTRA_RECOVERED_MONEY_AUDIT", result["money_audit_sha256"])
     return 0
 
