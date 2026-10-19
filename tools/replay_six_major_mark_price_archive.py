@@ -14,7 +14,7 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from tools.atomic_directory_publish import publish_new_directory
+from tools.atomic_directory_publish import AtomicPublicationError, publish_new_directory
 from tools.mark_price_hourly_sensitivity import _utc
 from tools.replay_mark_price_hourly_archive import (
     ArchiveReplayError,
@@ -212,7 +212,10 @@ def replay_six_major_source_set(
         # Recheck to refuse a target created during the expensive preflight.
         if output_dir.exists() or output_dir.is_symlink():
             raise SourceSetError("output directory appeared during qualification")
-        publish_new_directory(stage, output_dir)
+        try:
+            publish_new_directory(stage, output_dir)
+        except AtomicPublicationError as exc:
+            raise SourceSetError(f"atomic source-set publication refused: {exc}") from exc
     return result
 
 
