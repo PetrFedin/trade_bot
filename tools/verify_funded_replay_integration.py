@@ -13,6 +13,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+from tools.publish_research_receipt import ReceiptPublicationError, publish_new_json_receipt
 from tools.verify_funded_portfolio_money import (
     PortfolioMoneyInvariantError,
     audit_portfolio_model,
@@ -228,10 +229,12 @@ def main() -> int:
         report, verifier, report_bytes=raw_report, verifier_bytes=raw_verifier,
         historical_head_sha=args.historical_head_sha,
     )
-    if args.output.exists() or args.output.is_symlink():
-        raise HistoricalMoneyIntegrationError("existing evidence receipt may not be overwritten")
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    try:
+        publish_new_json_receipt(args.output, receipt)
+    except ReceiptPublicationError as exc:
+        raise HistoricalMoneyIntegrationError(
+            f"immutable money receipt refused: {exc}"
+        ) from exc
     print("REPLAY_MONEY_36_MODEL_AUDIT", json.dumps({
         "models": receipt["model_count"],
         "sha256": receipt["money_audit_sha256"],

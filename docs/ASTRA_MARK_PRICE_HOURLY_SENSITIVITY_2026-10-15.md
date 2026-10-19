@@ -324,3 +324,20 @@ The workflow now executes both passes against real retained PR #324 evidence.
 These features do not restore running strategies, exchange connections, orders
 or brokerage positions. Exact Mark Price source admission remains blocked
 and `PROFITABILITY_NOT_PROVEN` is unchanged.
+
+## 2026-10-19 — Immutable final money receipts
+
+Final `verify_funded_replay_integration` and `recover_funded_money_audit`
+JSON receipts now use a shared write-then-atomic-hard-link publication gate.
+This removes the check-then-write/replace race for finished evidence files:
+existing files (including empty files and symlinks) cannot be overwritten,
+unsupported hard-link operations fail closed, and staged JSON is fsynced before
+publication. The parent directory is fsynced after publication and staging
+cleanup. Checkpoints remain intentionally replaceable for crash recovery, but
+never count as independently accepted final money receipts. Negative tests
+include a competing writer between the initial check and atomic commit.
+
+The independent 36-model audit, source admission, exchange provenance and
+funding-account limitations do not change. The new implementation needs
+exact-head CI verification before qualification, and no strategy promotion,
+broker integration or production rights are granted.
