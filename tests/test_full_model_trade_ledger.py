@@ -20,6 +20,7 @@ from tools.full_model_trade_ledger import (
     build_export,
     publish_bundle,
     safe_symbol,
+    verify_completed_bundle,
 )
 from tools.historical_execution_journal import build_journal
 
@@ -50,7 +51,7 @@ def test_full_36_model_csv_population_and_provenance():
     assert manifest["totals"]["daily_model_decisions"] == 36 * 95
     assert manifest["totals"]["entered_positions"] == 36
     assert manifest["totals"]["selected_without_entry_observations"] == 36 * 94
-    assert manifest["by_exit_reason"] if "by_exit_reason" in manifest else True
+    assert manifest["totals"]["by_exit_reason"] == {"TIME_STOP": 36}
     assert len(rows(files["closed-trades.csv"])) == 36
     assert len(rows(files["final-open-positions.csv"])) == 0
     assert len(rows(files["daily-decisions.csv"])) == 36 * 95
@@ -143,6 +144,7 @@ def test_immutable_publication_full_csv_and_manifest(tmp_path):
     assert actual["manifest_sha256"] == manifest["manifest_sha256"]
     assert actual["csv_files"] == manifest["csv_files"]
     assert actual["totals"] == manifest["totals"]
+    assert verify_completed_bundle(dest, manifest["manifest_sha256"]) == manifest
     with pytest.raises(TapeError, match="already exists"):
         publish_bundle(dest, manifest, payloads)
     assert actual == json.loads((dest / "complete-manifest.json").read_text())
@@ -199,3 +201,46 @@ def test_manifest_last_after_csv_population(tmp_path, monkeypatch):
     manifest, payloads = fixture_export()
     publish_bundle(tmp_path / "out", manifest, payloads)
     assert len(files_seen) == 3
+
+
+def test_rejects_tampered_published_csv(tmp_path):
+    manifest, payloads = fixture_export()
+    root = tmp_path / "out"
+    publish_bundle(root, manifest, payloads)
+    with (root / "closed-trades.csv").open("ab") as handle:
+        handle.write(b"\nFAKE,ENTRY")
+    with pytest.raises(TapeError, match="digest or size"):
+        verify_completed_bundle(root, manifest["manifest_sha256"])
+
+
+def test_missing_manifest_is_never_complete(tmp_path):
+    manifest, payloads = fixture_export()
+    root = tmp_path / "out"
+    publish_bundle(root, manifest, payloads)
+    (root / "complete-manifest.json").unlink()
+    with pytest.raises(TapeError, match="manifest missing"):
+        verify_completed_bundle(root, manifest["manifest_sha256"])
+
+
+def test_rehashed_unapproved_manifest_rejected_by_detached_pin(tmp_path):
+    manifest, payloads = fixture_export()
+    root = tmp_path / "out"
+    publish_bundle(root, manifest, payloads)
+    approved = manifest["manifest_sha256"]
+    forged = json.loads((root / "complete-manifest.json").read_text())
+    forged["profitability_proven"] = True
+    forged["manifest_sha256"] = hashlib.sha256(canonical_json_bytes({
+        k: v for k, v in forged.items() if k != "manifest_sha256"
+    })).hexdigest()
+    (root / "complete-manifest.json").write_text(json.dumps(forged))
+    with pytest.raises(TapeError, match="detached digest"):
+        verify_completed_bundle(root, approved)
+
+
+def test_extra_file_in_bundle_refused(tmp_path):
+    manifest, payloads = fixture_export()
+    root = tmp_path / "out"
+    publish_bundle(root, manifest, payloads)
+    (root / "fake.csv").write_text("claimed,true")
+    with pytest.raises(TapeError, match="unknown"):
+        verify_completed_bundle(root, manifest["manifest_sha256"])

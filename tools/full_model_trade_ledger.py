@@ -426,6 +426,109 @@ def publish_bundle(path: Path, manifest: dict, data: dict[str, bytes]) -> None:
         raise TapeError(f"complete research publication refused: {exc}") from exc
 
 
+def verify_completed_bundle(
+    directory: Path, expected_manifest_sha256: str
+) -> dict:
+    """Verify entire export from disk; an absent marker means incomplete.
+
+    The expected digest must be independently provided by the caller. This
+    verifies output integrity, not authenticity of exchange observations.
+    """
+    if not re.fullmatch(r"[0-9a-f]{64}", str(expected_manifest_sha256)):
+        raise TapeError("missing detached manifest SHA-256")
+    root = Path(directory)
+    if root.is_symlink() or any(x.is_symlink() for x in root.parents):
+        raise TapeError("symlinked completed bundle path")
+    marker = root / "complete-manifest.json"
+    if not marker.is_file() or marker.is_symlink():
+        raise TapeError("incomplete trade evidence: manifest missing")
+    manifest = _read_json(marker, max_bytes=1024 * 1024)
+    if (
+        manifest.get("schema_version") != "astra-complete-modelled-trade-ledger-v1"
+        or manifest.get("evaluation_class")
+        != "REUSED_INSPECTED_HISTORY_DIAGNOSTIC_ONLY"
+    ):
+        raise TapeError("unrecognized complete trade ledger")
+    names = {name for name, _ in FILENAME_FIELDS}
+    if set(manifest.get("csv_files", {})) != names:
+        raise TapeError("missing CSV manifest inventory")
+    if {p.name for p in root.iterdir()} != names | {"complete-manifest.json"}:
+        raise TapeError("unknown, incomplete or uncommitted bundle files")
+    digest = hashlib.sha256(canonical_json_bytes({
+        k: v for k, v in manifest.items() if k != "manifest_sha256"
+    })).hexdigest()
+    if (
+        manifest.get("manifest_sha256") != expected_manifest_sha256
+        or digest != expected_manifest_sha256
+    ):
+        raise TapeError("published manifest has incorrect detached digest")
+    for flag in (
+        "actual_exchange_fills_verified", "funding_exact_exchange_timing_verified",
+        "untouched_holdout", "profitability_proven", "strategy_promotion_allowed",
+        "live_trading_allowed",
+    ):
+        if manifest.get(flag) is not False:
+            raise TapeError(f"unsafe trade ledger authority: {flag}")
+    if (
+        manifest.get("daily_bar_timestamps_are_not_execution_timestamps") is not True
+        or manifest.get("trade_pnl_excludes_funding") is not True
+        or manifest.get("selected_without_entry_does_not_claim_block_reason")
+        is not True
+    ):
+        raise TapeError("research boundary labels are incomplete")
+    actual_counts = {}
+    for filename, fields in FILENAME_FIELDS:
+        path = root / filename
+        if (
+            not path.is_file() or path.is_symlink()
+            or path.stat().st_size > 32 * 1024 * 1024
+        ):
+            raise TapeError("missing, symlinked or oversized CSV")
+        payload = path.read_bytes()
+        info = manifest["csv_files"][filename]
+        if (
+            type(info.get("size_bytes")) is not int
+            or info["size_bytes"] != len(payload)
+            or hashlib.sha256(payload).hexdigest() != info["sha256"]
+        ):
+            raise TapeError("CSV content digest or size mismatch")
+        try:
+            reader = csv.DictReader(io.StringIO(payload.decode("utf-8")))
+            if reader.fieldnames != list(fields):
+                raise TapeError("CSV header or column order changed")
+            size = 0
+            for row in reader:
+                if None in row or any(v is None for v in row.values()):
+                    raise TapeError("malformed CSV field count")
+                size += 1
+        except UnicodeError as exc:
+            raise TapeError("invalid published UTF-8") from exc
+        if (
+            type(info.get("rows_excluding_header")) is not int
+            or size != info["rows_excluding_header"]
+        ):
+            raise TapeError("published CSV population mismatch")
+        actual_counts[filename] = size
+    totals = manifest.get("totals", {})
+    count_keys = {
+        "closed-trades.csv": "closed_trades",
+        "final-open-positions.csv": "terminal_open_positions",
+        "daily-decisions.csv": "daily_model_decisions",
+    }
+    if any(
+        type(totals.get(key)) is not int or actual_counts[name] != totals[key]
+        for name, key in count_keys.items()
+    ):
+        raise TapeError("complete manifest and CSV populations disagree")
+    if (
+        totals["entered_positions"]
+        != totals["closed_trades"] + totals["terminal_open_positions"]
+        or sum(totals["by_exit_reason"].values()) != totals["closed_trades"]
+    ):
+        raise TapeError("manifest position or exit population mismatch")
+    return manifest
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", type=Path, required=True)
@@ -441,6 +544,7 @@ def main() -> int:
         source, receipt, journal, args.expected_journal_sha256
     )
     publish_bundle(args.output_dir, manifest, data)
+    verify_completed_bundle(args.output_dir, manifest["manifest_sha256"])
     print("ASTRA_FULL_MODEL_TAPE_MANIFEST_SHA256", manifest["manifest_sha256"])
     print("ASTRA_FULL_MODEL_TAPE_CLOSED_TRADES", manifest["totals"]["closed_trades"])
     print("ASTRA_FULL_MODEL_TAPE_DECISION_DAYS", manifest["totals"]["daily_model_decisions"])
