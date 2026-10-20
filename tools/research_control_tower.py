@@ -327,6 +327,20 @@ main{padding:17px 12px}td,th{padding:6px}.card,details,.panel{padding:11px}}
 """
 
 
+def require_detached_journal_pin(source: dict, approved_sha256: str) -> None:
+    """Refuse a self-hashed replacement unless prior reviewed digest matches.
+
+    CI pins the separately reviewed PR328 journal digest. This is an
+    independent *reference value*, not a signature of exchange authenticity.
+    """
+    if not isinstance(approved_sha256, str) or not SHA_PATTERN.fullmatch(
+        approved_sha256
+    ):
+        raise TowerError("missing or malformed detached journal pin")
+    if not isinstance(source, dict) or source.get("journal_sha256") != approved_sha256:
+        raise TowerError("detached approved research journal digest mismatch")
+
+
 def render(source: dict) -> str:
     groups = validate(source)
     a = groups[("six_matched_window", "8", "5")]["models"][PRIMARY]
@@ -453,6 +467,7 @@ def publish(destination: Path, page: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--journal", required=True, type=Path)
+    parser.add_argument("--expected-journal-sha256", required=True)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     if not args.journal.is_file() or args.journal.is_symlink():
@@ -460,6 +475,7 @@ def main() -> int:
     if args.journal.stat().st_size > 24 * 1024 * 1024:
         raise TowerError("unqualified oversized research source")
     source = json.loads(args.journal.read_text(encoding="utf-8"))
+    require_detached_journal_pin(source, args.expected_journal_sha256)
     page = render(source)
     publish(args.output, page)
     print("ASTRA_TOWER_HTML_SHA256", hashlib.sha256(page.encode()).hexdigest())

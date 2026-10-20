@@ -10,7 +10,12 @@ import pytest
 from app.qualification.portable_artifact_codec import canonical_json_bytes
 from tests.test_historical_execution_journal import report, synthetic_auditor_receipt
 from tools.historical_execution_journal import build_journal
-from tools.research_control_tower import TowerError, publish, render
+from tools.research_control_tower import (
+    TowerError,
+    publish,
+    render,
+    require_detached_journal_pin,
+)
 
 
 def mock_journal() -> dict:
@@ -168,3 +173,22 @@ def test_unsupported_hardlink_fails_closed(tmp_path, monkeypatch):
         publish(target, "new")
     assert not target.exists()
     assert not list(tmp_path.glob(".astra-tower-*"))
+
+
+def test_detached_sha_rejects_rehashed_but_unapproved_replacement():
+    original = mock_journal()
+    approved = original["journal_sha256"]
+    require_detached_journal_pin(original, approved)
+    revised = copy.deepcopy(original)
+    revised["comparisons"][0]["models"]["DAILY_STOP_FIRST:NO_FUNDING"][
+        "model_key"
+    ] = "HOURLY_COLLISION_REFINED:NO_FUNDING"
+    resign(revised)
+    with pytest.raises(TowerError, match="digest mismatch"):
+        require_detached_journal_pin(revised, approved)
+
+
+@pytest.mark.parametrize("pin", ["", "incorrect", "e" * 63, None])
+def test_detached_pin_missing_or_malformed_fails_closed(pin):
+    with pytest.raises(TowerError, match="detached journal pin"):
+        require_detached_journal_pin(mock_journal(), pin)

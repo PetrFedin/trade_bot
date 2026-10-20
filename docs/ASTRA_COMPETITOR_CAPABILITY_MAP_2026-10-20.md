@@ -119,3 +119,14 @@ User interface: dark neutral professional design, compact KPI, same-date
 six-vs-21, six scenario groups each with six model variants, full 90-day
 capital audit and symbol/trade drilldown, prominent live HOLD, offline CSP.
 No interactive button may claim to submit an order or grant permission.
+
+
+## Detached source pin for this exact research batch
+The offline Control Tower also requires an explicitly supplied detached expected
+journal SHA-256. The stacked exact-head PR328 replay's independently verified
+journal digest is:
+e2c18b0eb0805a7f9b737f6290d601227ba7c6fb20688a6e7f9a299fb431bfc9
+CI must pass this previously reviewed digest in --expected-journal-sha256.
+A newly self-hashed replacement is refused even if its internal totals balance.
+Changing this frozen source requires a new reviewed source-admission decision.
+This is NOT cryptographic exchange authorship or a future holdout.

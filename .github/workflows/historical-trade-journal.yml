@@ -69,6 +69,7 @@ jobs:
         run: |
           python -m tools.research_control_tower \
             --journal historical-journal-evidence/90-day-journal.json \
+            --expected-journal-sha256 e2c18b0eb0805a7f9b737f6290d601227ba7c6fb20688a6e7f9a299fb431bfc9 \
             --output historical-journal-evidence/research-control-tower.html
           python - <<'PY'
           from pathlib import Path
