@@ -25,9 +25,14 @@ BLOCKED / REVIEW. Не делать вывод «функции нет» лиш�
 | --- | --- | --- | --- |
 | TSLab | Визуальный редактор торговых сценариев, backtesting, optimize/agents | P1 визуальный pipeline стратегий, общий портфельный риск-контроль | https://www.tslab.ru/ |
 | OsEngine | OsTrader/OsTester/OsOptimizer/OsData, несколько подключений | P1 библиотека стратегий и отдельные дата-адаптеры; код нельзя копировать без прав | https://github.com/AlexWan/OsEngine |
+| StockSharp S# Designer | Визуальный конструктор кубиков, C#/Python, historical backtest по candles/ticks/order book, panels Trades/Orders/Positions/PnL/Statistics, визуальный debugger | P1 типизированные исследовательские схемы, визуальная трассировка каждого решения, drilldown по комиссии и открытым позициям. Модельный стакан обязан иметь ярлык SYNTHETIC | https://doc.stocksharp.com/ru/topics/designer ; https://doc.stocksharp.com/ru/topics/designer/user_interface/components |
 | T-Invest API | gRPC/REST/WS, sandbox, streaming, market data, account/order APIs | P2 broker conformance, sandbox contract, separate read-only tokens | https://developer.tbank.ru/invest/intro/intro ; https://developer.tbank.ru/invest/intro/developer/sandbox |
 | ALOR OpenAPI | Документированные REST/WS брокерские API | P2 адаптер с контрактной схемой, legal/data review | https://alor.dev/ |
 | Finam Trade API | Документированные data и trading сервисы | P2 отдельный адаптер и статус прав API | https://tradeapi.finam.ru/docs/guides/grpc/marketdata_service/ |
+
+
+### Особая проверка StockSharp по данным исполнения
+Официальное руководство допускает backtest со сгенерированным стаканом и глубиной. Такой стакан моделирует исполнение и частичные fills, но НЕ является архивом фактических биржевых заявок. ASTRA должна хранить отдельные классы evidence: REAL_L2_CAPTURE, LAST_PRICE_RECONSTRUCTED, SYNTHETIC_DEPTH_SIMULATION. Последний никогда не может получить статус реального стакана или venue-proven fill. Источники: https://doc.stocksharp.com/en/topics/designer/backtesting/getting_started ; https://doc.stocksharp.com/en/topics/designer/user_interface/components/backtesting_settings .
 
 ## Полная карта развития
 | Код | Возможность | Наблюдаемый статус | Приоритет | Зависимость / критерий приёмки |
@@ -87,7 +92,7 @@ BLOCKED / REVIEW. Не делать вывод «функции нет» лиш�
 | UI-04 | Multi-universe same-period scenario panel | NEW DRAFT | P0 | 36-model provenance checks |
 | UI-05 | Fees / funding / slippage breakdown | NEW DRAFT | P0 | Trace independent auditor |
 | UI-06 | RU/EN i18n and mobile | PARTIAL/PLANNED | P1 | WCAG and localization QA |
-| UI-07 | Explainable why-entry/why-block | PARTIAL/PLANNED | P1 | State graph + causal inputs |
+| UI-07 | Explainable why-entry/why-block | PARTIAL/PLANNED | P1 | State graph + causal inputs + visual debugger of graph blocks |
 | UI-08 | AI analyst without trade privileges | PLANNED | P1 | Read-only outputs tagged research |
 | UI-09 | Local export HTML/JSON/CSV | PARTIAL | P1 | No unreviewed data disclosure |
 | UI-10 | Screenshot/video true UI evidence | PLANNED | P2 | Only from real UI, no fake visuals |
