@@ -136,6 +136,10 @@ def validate_ledger(ledger: dict, root: Path) -> dict:
         bool(re.fullmatch(r"20\d{2}-\d{2}-\d{2}", str(ledger.get("snapshot_date")))),
         "missing snapshot date",
     )
+    try:
+        date.fromisoformat(ledger["snapshot_date"])
+    except (TypeError, ValueError) as exc:
+        raise CompetitiveEvidenceError("invalid snapshot date") from exc
     authority = ledger.get("authority")
     _require(isinstance(authority, dict) and set(authority) == AUTHORITY_FIELDS,
              "trading authority schema drift")
