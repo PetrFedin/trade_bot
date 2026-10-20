@@ -406,17 +406,20 @@
       "name_ru": "Анализ look-ahead bias",
       "area": "research",
       "priority": "P1",
-      "astra_status": "NOT_IMPLEMENTED",
+      "astra_status": "RESEARCH_ONLY",
       "competitor_ids": [
         "freqtrade"
       ],
       "source_urls": [
         "https://docs.freqtrade.io/en/2026.5/lookahead-analysis/"
       ],
-      "evidence_paths": [],
-      "build_decision": "BUILD",
-      "acceptance": "Сравнение инкрементального replay и полного расчёта сигналов обнаруживает утечки будущего.",
-      "evidence_limitations": "Наличие общих тестов не равно специализированной проверке look-ahead."
+      "evidence_paths": [
+        "tests/test_inspect_signal_lookahead.py",
+        "tools/inspect_signal_lookahead.py"
+      ],
+      "build_decision": "DEEPEN",
+      "acceptance": "Офлайн-инспектор сравнивает сигналы на полной истории с каждым доступным префиксом; отрицательные фикстуры ловят будущие свечи и недетерминизм. Следующий шаг — адаптер к Strategy A.",
+      "evidence_limitations": "Исследовательский детектор выполнен для доверенного signal callback, но ещё не интегрирован со Strategy A. Отсутствие различий не доказывает полной свободы от look-ahead."
     },
     {
       "id": "mobile_operations",
