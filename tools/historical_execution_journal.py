@@ -109,11 +109,17 @@ def analyze_model(comparison: dict, key: str, *, window_days: int = 90) -> dict:
         closing = number(row["closing_equity"])
         if closing <= ZERO or prior <= ZERO:
             raise JournalError("nonpositive modelled equity")
-        if not isinstance(row["entered_symbols"], list) or not isinstance(row["selected_symbols"], list):
+        if (
+            not isinstance(row["entered_symbols"], list)
+            or not isinstance(row["selected_symbols"], list)
+        ):
             raise JournalError("unrecorded decision trace schema")
         if len(set(row["entered_symbols"])) != len(row["entered_symbols"]):
             raise JournalError("duplicate daily entry")
-        if len(row["entered_symbols"]) > 2 or not set(row["entered_symbols"]).issubset(set(row["selected_symbols"])):
+        if (
+            len(row["entered_symbols"]) > 2
+            or not set(row["entered_symbols"]).issubset(row["selected_symbols"])
+        ):
             raise JournalError("selected-to-entered decision linkage failed")
         prior = closing
     if date(daily[-1]["day_utc"]) != final:
@@ -156,11 +162,17 @@ def analyze_model(comparison: dict, key: str, *, window_days: int = 90) -> dict:
             number(trade["gross_pnl_before_costs"]),
             number(trade["slippage_cost"]), number(trade["net_pnl"]),
         )
-        if quantity <= ZERO or ep <= ZERO or xp <= ZERO or entry_fee < ZERO or exit_fee < ZERO or slip < ZERO:
+        if (
+            quantity <= ZERO or ep <= ZERO or xp <= ZERO
+            or entry_fee < ZERO or exit_fee < ZERO or slip < ZERO
+        ):
             raise JournalError("invalid trade price, size or cost")
         near(gross - slip - entry_fee - exit_fee, net, label="trade cost decomposition")
         near(quantity * (xp - ep) - entry_fee - exit_fee, net, label="executed-price trade PnL")
-        if type(trade["ambiguous_intrabar_exit"]) is not bool or type(trade["gap_through_stop"]) is not bool:
+        if (
+            type(trade["ambiguous_intrabar_exit"]) is not bool
+            or type(trade["gap_through_stop"]) is not bool
+        ):
             raise JournalError("invalid intrabar/gap trace")
         parsed_trades.append((exited, net, trade))
         total_trade_net += net
@@ -258,7 +270,8 @@ def build_journal(report: dict) -> dict:
     """All 36 predeclared ledgers, with matched chronology and zero authority."""
     if (
         report.get("schema_version") != "astra-daily-funding-cash-feedback-v1"
-        or report.get("evaluation_class") != "REUSED_HISTORY_DAILY_CASH_FEEDBACK_NOT_VENUE_SETTLEMENT"
+        or report.get("evaluation_class")
+        != "REUSED_HISTORY_DAILY_CASH_FEEDBACK_NOT_VENUE_SETTLEMENT"
         or report.get("research_only") is not True
     ):
         raise JournalError("unsupported historical source")
@@ -373,8 +386,12 @@ def main() -> int:
             "total_return_pct": model["portfolio_return_pct"],
             "complete_90d_windows": len(complete),
             "positive_90d_windows": sum(number(w["equity_return_pct"]) > ZERO for w in complete),
-            "worst_90d_return_pct": min((number(w["equity_return_pct"]) for w in complete), default=ZERO),
-            "best_90d_return_pct": max((number(w["equity_return_pct"]) for w in complete), default=ZERO),
+            "worst_90d_return_pct": str(min(
+                (number(w["equity_return_pct"]) for w in complete), default=ZERO
+            )),
+            "best_90d_return_pct": str(max(
+                (number(w["equity_return_pct"]) for w in complete), default=ZERO
+            )),
             "three_worst_trades": model["worst_closed_trades"][:3],
             "source_report_sha256": result["source_report_sha256"],
         }, default=str, sort_keys=True), flush=True)
