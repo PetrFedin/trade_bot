@@ -9,7 +9,9 @@ import pytest
 
 from app.qualification.portable_artifact_codec import canonical_json_bytes
 from tools.historical_execution_journal import (
-    JournalError, analyze_model, build_journal,
+    JournalError,
+    analyze_model,
+    build_journal,
 )
 
 START = datetime(2024, 1, 1, tzinfo=UTC)
