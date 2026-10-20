@@ -12,7 +12,7 @@ import hashlib
 import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import timedelta, datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 MAX_BARS = 512
