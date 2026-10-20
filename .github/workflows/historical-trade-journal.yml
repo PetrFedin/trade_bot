@@ -1,0 +1,72 @@
+name: historical-trade-journal
+
+on:
+  push:
+    branches: [research/historical-trade-journal-20261020]
+  pull_request:
+    branches: [research/full-portfolio-hourly-replay-20261015]
+    paths:
+      - 'tools/historical_execution_journal.py'
+      - 'tests/test_historical_execution_journal.py'
+      - 'tests/test_publish_research_receipt.py'
+      - 'tools/publish_research_receipt.py'
+      - 'docs/ASTRA_HISTORICAL_TRADE_JOURNAL_2026-10-20.md'
+      - '.github/workflows/historical-trade-journal.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  exact-head-historical-trade-journal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install locked research dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Inspect code and synthetic adversarial tests
+        run: |
+          ruff check tools/historical_execution_journal.py tests/test_historical_execution_journal.py tools/publish_research_receipt.py tests/test_publish_research_receipt.py
+          pytest -q tests/test_historical_execution_journal.py tests/test_publish_research_receipt.py
+      - name: Recompute genuine retained historic strategy/funding/exit report
+        run: |
+          mkdir -p historical-journal-evidence
+          git rev-parse HEAD > historical-journal-evidence/head-sha.txt
+          python -m tools.daily_funding_cash_replay --output historical-journal-evidence/raw-36-model-report.json
+      - name: Independently verify source hashes, trades, cash and funding
+        run: |
+          python -m tools.verify_daily_funding_report historical-journal-evidence/raw-36-model-report.json --output historical-journal-evidence/independent-check.json
+      - name: Publish descriptive 90-day trade/decision journal
+        run: |
+          python -m tools.historical_execution_journal --report historical-journal-evidence/raw-36-model-report.json --independent-verifier historical-journal-evidence/independent-check.json --output historical-journal-evidence/90-day-journal.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = json.loads(Path("historical-journal-evidence/90-day-journal.json").read_text())
+          assert p["model_count"] == 36
+          assert p["independently_reconciled_models"] == 36
+          assert len(p["independent_auditor_sha256"]) == 64
+          assert p["scenario_count"] == 6
+          assert len(p["matched_universe_differences"]) == 12
+          assert p["live_trading_allowed"] is False
+          assert p["profitability_proven"] is False
+          assert p["actual_exchange_fills_verified"] is False
+          print("RESEARCH_ONLY_36_MODELS_JOURNAL", p["journal_sha256"])
+          PY
+      - name: Upload full non-promoting report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: historical-trade-journal
+          path: historical-journal-evidence/
+          if-no-files-found: warn
+          retention-days: 30
