@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import argparse
 import fcntl
-import stat
-from contextlib import contextmanager
 import hashlib
 import json
 import os
+import stat
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 from tools.publish_research_receipt import ReceiptPublicationError, publish_new_json_receipt
