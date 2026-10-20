@@ -31,8 +31,8 @@ def test_actual_inventory_passes_without_trading_claims():
     assert receipt["status_counts"] == {
         "BLOCKED_SOURCE": 1,
         "ENGINEERING_ONLY": 8,
-        "NOT_IMPLEMENTED": 16,
-        "RESEARCH_ONLY": 6,
+        "NOT_IMPLEMENTED": 15,
+        "RESEARCH_ONLY": 7,
     }
     assert receipt["result"] == "PASS_SOURCE_ATTRIBUTION_AND_PATH_INVENTORY_ONLY"
     assert receipt["hands_on_competitor_qa_verified"] is False
