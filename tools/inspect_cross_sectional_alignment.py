@@ -12,7 +12,6 @@ import json
 from collections import defaultdict
 from collections.abc import Iterable
 from datetime import timedelta
-from decimal import Decimal
 
 from app.marketdata.ohlcv import OhlcvBar
 from app.strategy.cross_sectional_selection import CrossSectionalSelector
