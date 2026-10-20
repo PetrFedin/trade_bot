@@ -46,3 +46,7 @@ seven existing adversarial receipt tests from the research-source branch are
 included unchanged (destination symlinks, pre-existing empty files, racing writer,
 missing hard-link support, symlink parent and NaN). Unsupported filesystems
 fail closed rather than falling back to `exists()+write_text()`.
+
+## Independent verifier linkage (fail closed)
+
+The journal now requires the --independent-verifier receipt from the separate historical cash auditor. It validates PASS, 6 configurations/36 models, exact report SHA-256, the verifier identity, no venue or live-trading claims and matching trade/funding-event/daily-row populations before immutable publication. The journal records the verifier canonical digest. This is file-integrity linkage, not third-party account authentication.

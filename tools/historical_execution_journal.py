@@ -267,7 +267,37 @@ def analyze_model(comparison: dict, key: str, *, window_days: int = 90) -> dict:
     }
 
 
-def build_journal(report: dict) -> dict:
+def verify_independent_receipt(report: dict, verifier: dict) -> str:
+    """Bind journal to the independent source/financial auditor's exact report.
+
+    This is a research-file consistency check, not an exchange signature.
+    """
+    if not isinstance(verifier, dict):
+        raise JournalError("missing independent auditor receipt")
+    expected = {
+        "arithmetic_verification": "PASS",
+        "configurations": 6,
+        "model_replays": 36,
+        "matched_dates_verified": True,
+        "verification_method": (
+            "second implementation from raw rate CSV, trades and daily prices"
+        ),
+        "independent_human_or_agent_review": False,
+        "execution_or_venue_account_truth_verified": False,
+        "live_trading_allowed": False,
+        "evidence_sha256": report.get("evidence_sha256"),
+    }
+    for name, value in expected.items():
+        if type(verifier.get(name)) is not type(value) or verifier.get(name) != value:
+            raise JournalError(f"independent auditor mismatch or unsafe claim: {name}")
+    for key in ("closed_trades_checked", "funding_events_checked",
+                "daily_equity_rows_checked"):
+        if type(verifier.get(key)) is not int or verifier[key] < 0:
+            raise JournalError(f"invalid independent auditor count: {key}")
+    return hashlib.sha256(canonical_json_bytes(verifier)).hexdigest()
+
+
+def build_journal(report: dict, independent_verifier: dict) -> dict:
     """All 36 predeclared ledgers, with matched chronology and zero authority."""
     if (
         report.get("schema_version") != "astra-daily-funding-cash-feedback-v1"
@@ -290,6 +320,7 @@ def build_journal(report: dict) -> dict:
     )).hexdigest()
     if recorded != observed:
         raise JournalError("source report hash mismatch")
+    verified_receipt_sha256 = verify_independent_receipt(report, independent_verifier)
     comparisons = report.get("comparisons")
     expected = {(period, *cost) for period in PERIODS for cost in COSTS}
     if not isinstance(comparisons, list) or len(comparisons) != len(expected):
@@ -312,6 +343,28 @@ def build_journal(report: dict) -> dict:
             "symbols": comparison["symbols"],
             "models": models,
         }
+    count_trades = sum(
+        len(item["trades"])
+        for comparison in comparisons
+        for item in comparison["models"].values()
+    )
+    count_funding_events = sum(
+        len(item["funding_events"])
+        for comparison in comparisons
+        for item in comparison["models"].values()
+    )
+    count_days = sum(
+        len(item["daily_equity"])
+        for comparison in comparisons
+        for item in comparison["models"].values()
+    )
+    for key, calculated in (
+        ("closed_trades_checked", count_trades),
+        ("funding_events_checked", count_funding_events),
+        ("daily_equity_rows_checked", count_days),
+    ):
+        if independent_verifier[key] != calculated:
+            raise JournalError(f"independent auditor population mismatch: {key}")
     matched_pairs = []
     for fee, slip in COSTS:
         six = collected[("six_matched_window", fee, slip)]
@@ -337,6 +390,8 @@ def build_journal(report: dict) -> dict:
         "schema_version": "astra-trade-journal-reused-history-v1",
         "evaluation_class": "REUSED_INSPECTED_HISTORY_DIAGNOSTIC_ONLY",
         "source_report_sha256": recorded,
+        "independent_auditor_sha256": verified_receipt_sha256,
+        "independently_reconciled_models": 36,
         "window_size_days": 90,
         "scenario_count": len(collected),
         "model_count": len(collected) * len(MODELS),
@@ -364,12 +419,16 @@ def build_journal(report: dict) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--independent-verifier", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if not args.report.is_file() or args.report.is_symlink():
         raise JournalError("missing or symlinked input report")
+    if not args.independent_verifier.is_file() or args.independent_verifier.is_symlink():
+        raise JournalError("missing or symlinked independent verification")
     report = json.loads(args.report.read_text(encoding="utf-8"))
-    result = build_journal(report)
+    verifier = json.loads(args.independent_verifier.read_text(encoding="utf-8"))
+    result = build_journal(report, verifier)
     try:
         publish_new_json_receipt(args.output, result)
     except ReceiptPublicationError as exc:
@@ -396,6 +455,7 @@ def main() -> int:
             )),
             "three_worst_trades": model["worst_closed_trades"][:3],
             "source_report_sha256": result["source_report_sha256"],
+            "independent_auditor_sha256": result["independent_auditor_sha256"],
         }, default=str, sort_keys=True), flush=True)
     print("HISTORICAL_JOURNAL_DIGEST", result["journal_sha256"], flush=True)
     return 0

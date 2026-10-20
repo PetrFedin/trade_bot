@@ -92,6 +92,24 @@ def report() -> dict:
     return payload
 
 
+def synthetic_auditor_receipt(payload: dict) -> dict:
+    """Only unit fixtures; production CLI requires the actual separate auditor."""
+    return {
+        "arithmetic_verification": "PASS",
+        "configurations": 6,
+        "model_replays": 36,
+        "closed_trades_checked": 36,
+        "funding_events_checked": 0,
+        "daily_equity_rows_checked": 36 * 95,
+        "matched_dates_verified": True,
+        "verification_method": "second implementation from raw rate CSV, trades and daily prices",
+        "independent_human_or_agent_review": False,
+        "execution_or_venue_account_truth_verified": False,
+        "live_trading_allowed": False,
+        "evidence_sha256": payload["evidence_sha256"],
+    }
+
+
 def resign(payload: dict) -> None:
     payload["evidence_sha256"] = hashlib.sha256(
         canonical_json_bytes({k: v for k, v in payload.items() if k != "evidence_sha256"})
@@ -112,7 +130,8 @@ def test_model_journal_90_day_equity_is_not_closed_trade_pnl():
 
 
 def test_all_36_models_and_matched_pairs_no_permission():
-    result = build_journal(report())
+    source = report()
+    result = build_journal(source, synthetic_auditor_receipt(source))
     assert result["model_count"] == 36
     assert result["scenario_count"] == 6
     assert len(result["matched_universe_differences"]) == 12
@@ -150,7 +169,7 @@ def test_rehashed_unqualified_live_claim_is_rejected():
     p["live_trading_allowed"] = True
     resign(p)
     with pytest.raises(JournalError, match="scope"):
-        build_journal(p)
+        build_journal(p, synthetic_auditor_receipt(p))
 
 
 def test_rehashed_duplicate_scenario_is_rejected():
@@ -158,7 +177,7 @@ def test_rehashed_duplicate_scenario_is_rejected():
     p["comparisons"][0] = copy.deepcopy(p["comparisons"][1])
     resign(p)
     with pytest.raises(JournalError, match="matrix"):
-        build_journal(p)
+        build_journal(p, synthetic_auditor_receipt(p))
 
 
 def test_source_report_byte_mutation_without_rehash_rejected():
@@ -167,4 +186,37 @@ def test_source_report_byte_mutation_without_rehash_rejected():
         "ending_equity_usd"
     ] = "0"
     with pytest.raises(JournalError, match="hash"):
-        build_journal(p)
+        build_journal(p, synthetic_auditor_receipt(p))
+
+
+def test_rehashed_report_cannot_replace_independently_audited_source():
+    source = report()
+    frozen_receipt = synthetic_auditor_receipt(source)
+    source["comparisons"][0]["models"]["DAILY_STOP_FIRST:UPPER_COST"][
+        "metrics"
+    ]["ending_equity_usd"] = "10011"
+    resign(source)
+    with pytest.raises(JournalError, match="evidence_sha256"):
+        build_journal(source, frozen_receipt)
+
+
+def test_mismatched_independent_auditor_population_rejected():
+    source = report()
+    receipt = synthetic_auditor_receipt(source)
+    receipt["daily_equity_rows_checked"] -= 1
+    with pytest.raises(JournalError, match="population mismatch"):
+        build_journal(source, receipt)
+
+
+def test_false_independent_venue_account_claim_rejected():
+    source = report()
+    receipt = synthetic_auditor_receipt(source)
+    receipt["execution_or_venue_account_truth_verified"] = True
+    with pytest.raises(JournalError, match="unsafe claim"):
+        build_journal(source, receipt)
+
+
+def test_missing_independent_verifier_rejected():
+    source = report()
+    with pytest.raises(JournalError, match="missing independent auditor"):
+        build_journal(source, None)

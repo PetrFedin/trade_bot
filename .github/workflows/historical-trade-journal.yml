@@ -47,12 +47,14 @@ jobs:
           python -m tools.verify_daily_funding_report historical-journal-evidence/raw-36-model-report.json --output historical-journal-evidence/independent-check.json
       - name: Publish descriptive 90-day trade/decision journal
         run: |
-          python -m tools.historical_execution_journal --report historical-journal-evidence/raw-36-model-report.json --output historical-journal-evidence/90-day-journal.json
+          python -m tools.historical_execution_journal --report historical-journal-evidence/raw-36-model-report.json --independent-verifier historical-journal-evidence/independent-check.json --output historical-journal-evidence/90-day-journal.json
           python - <<'PY'
           import json
           from pathlib import Path
           p = json.loads(Path("historical-journal-evidence/90-day-journal.json").read_text())
           assert p["model_count"] == 36
+          assert p["independently_reconciled_models"] == 36
+          assert len(p["independent_auditor_sha256"]) == 64
           assert p["scenario_count"] == 6
           assert len(p["matched_universe_differences"]) == 12
           assert p["live_trading_allowed"] is False
