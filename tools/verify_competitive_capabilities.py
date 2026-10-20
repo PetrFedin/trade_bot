@@ -45,7 +45,7 @@ STATUS = {"NOT_IMPLEMENTED", "ENGINEERING_ONLY", "RESEARCH_ONLY", "BLOCKED_SOURC
 DECISION = {"BUILD", "DEEPEN", "HOLD", "RESEARCH"}
 PRIORITY = {"P0", "P1", "P2", "P3"}
 ROOTS = {"app", "tools", "research", "docs", "tests", "qualification"}
-ID = re.compile(r"[a-z][a-z0-9_]{2,80}\Z")
+ID = re.compile(r"[a-z0-9][a-z0-9_]{2,80}\Z")
 
 
 class CompetitiveEvidenceError(ValueError):
