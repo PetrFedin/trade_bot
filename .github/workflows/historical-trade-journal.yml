@@ -8,6 +8,8 @@ on:
     paths:
       - 'tools/historical_execution_journal.py'
       - 'tests/test_historical_execution_journal.py'
+      - 'tests/test_publish_research_receipt.py'
+      - 'tools/publish_research_receipt.py'
       - 'docs/ASTRA_HISTORICAL_TRADE_JOURNAL_2026-10-20.md'
       - '.github/workflows/historical-trade-journal.yml'
 
@@ -33,8 +35,8 @@ jobs:
           python -m pip check
       - name: Inspect code and synthetic adversarial tests
         run: |
-          ruff check tools/historical_execution_journal.py tests/test_historical_execution_journal.py
-          pytest -q tests/test_historical_execution_journal.py
+          ruff check tools/historical_execution_journal.py tests/test_historical_execution_journal.py tools/publish_research_receipt.py tests/test_publish_research_receipt.py
+          pytest -q tests/test_historical_execution_journal.py tests/test_publish_research_receipt.py
       - name: Recompute genuine retained historic strategy/funding/exit report
         run: |
           mkdir -p historical-journal-evidence

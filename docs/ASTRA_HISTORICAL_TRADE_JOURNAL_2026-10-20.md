@@ -35,3 +35,14 @@ Funding is constant entry-execution notional and daily-booked, not actual
 Bybit account ledger. 60-minute source first-touch is not a queue, latency,
 spread, partial-fill or within-hour venue-execution replay. The 2026-10-20
 journal cannot establish profitability; PROFITABILITY_NOT_PROVEN remains.
+
+## Immutable journal output / parallel writer safety
+
+The final 90-day journal reuses exactly the SHA-pinned `tools/publish_research_receipt.py`
+immutable JSON publisher from draft PR #326 (Git blob `5cfa3cc54c20dc983b32634221585d161c2df174`).
+It writes and fsyncs a same-directory temporary file, atomically creates the final
+name via hard link with no replacement, then fsyncs the parent directory. The
+seven existing adversarial receipt tests from the research-source branch are
+included unchanged (destination symlinks, pre-existing empty files, racing writer,
+missing hard-link support, symlink parent and NaN). Unsupported filesystems
+fail closed rather than falling back to `exists()+write_text()`.

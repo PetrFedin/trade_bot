@@ -15,6 +15,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from app.qualification.portable_artifact_codec import canonical_json_bytes
+from tools.publish_research_receipt import ReceiptPublicationError, publish_new_json_receipt
 
 D = Decimal
 ZERO = D("0")
@@ -365,13 +366,14 @@ def main() -> int:
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    if args.output.exists() or args.output.is_symlink():
-        raise JournalError("refusing to overwrite existing journal")
+    if not args.report.is_file() or args.report.is_symlink():
+        raise JournalError("missing or symlinked input report")
     report = json.loads(args.report.read_text(encoding="utf-8"))
     result = build_journal(report)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n",
-                           encoding="utf-8")
+    try:
+        publish_new_json_receipt(args.output, result)
+    except ReceiptPublicationError as exc:
+        raise JournalError(f"immutable journal publication refused: {exc}") from exc
     for item in result["comparisons"]:
         if item["period_id"] not in ("six_matched_window", "broad21_matched_window"):
             continue
