@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 from collections import Counter
+from datetime import date
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
@@ -108,6 +109,7 @@ def _evidence_path(root: Path, name: str) -> None:
         not rel.is_absolute()
         and ".." not in rel.parts
         and "." not in rel.parts
+        and bool(rel.parts)
         and rel.parts[0] in ROOTS
         and len(rel.parts) > 1,
         f"unsafe evidence path: {name}",
@@ -149,6 +151,7 @@ def validate_ledger(ledger: dict, root: Path) -> dict:
     for row in competitors:
         _require(isinstance(row, dict), "competitor must be a JSON object")
         cid = _id(row.get("id"), "competitor ID")
+        _require(cid not in by_id, f"duplicate competitor: {cid}")
         _string(row.get("name"), f"{cid}.name")
         _string(row.get("market_group"), f"{cid}.market_group")
         urls = _unique_sorted(row.get("official_urls"), f"{cid}.official_urls")
