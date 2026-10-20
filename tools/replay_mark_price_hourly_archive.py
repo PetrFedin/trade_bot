@@ -12,12 +12,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import tempfile
 from datetime import datetime
 from pathlib import Path
 
+from tools.atomic_directory_publish import AtomicPublicationError, publish_new_directory
 from tools.mark_price_hourly_sensitivity import (
     URL,
     _canonical,
@@ -211,7 +211,10 @@ def replay_archived_symbol(
         )
         # Atomic publication: incomplete/corrupted replay leaves no admitted
         # symbol directory. Never overwrite a prior reviewed import.
-        os.replace(staged_dir, target)
+        try:
+            publish_new_directory(staged_dir, target)
+        except AtomicPublicationError as exc:
+            raise ArchiveReplayError(f"atomic source publication refused: {exc}") from exc
     return receipt
 
 
