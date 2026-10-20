@@ -252,6 +252,8 @@ def read_and_validate(path: Path, root: Path) -> dict:
     raw = path.read_bytes()
     try:
         ledger = json.loads(raw, object_pairs_hook=unique, parse_constant=reject_constant)
+    except CompetitiveEvidenceError:
+        raise
     except (TypeError, UnicodeError, ValueError) as exc:
         raise CompetitiveEvidenceError("invalid capability JSON evidence") from exc
     report = validate_ledger(ledger, root)
