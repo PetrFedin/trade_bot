@@ -19,8 +19,8 @@
       "market_group": "global",
       "name": "3Commas",
       "official_urls": [
-        "https://help.3commas.io/en/collections/19714499-trading-bots",
-        "https://help.3commas.io/en/articles/3108938-dca-bot-using-tradingview-custom-signals-to-control-your-trades"
+        "https://help.3commas.io/en/articles/3108938-dca-bot-using-tradingview-custom-signals-to-control-your-trades",
+        "https://help.3commas.io/en/collections/19714499-trading-bots"
       ]
     },
     {
@@ -48,8 +48,8 @@
       "market_group": "open-source",
       "name": "Freqtrade",
       "official_urls": [
-        "https://docs.freqtrade.io/en/2026.5/lookahead-analysis/",
         "https://docs.freqtrade.io/en/2026.5.1/plugins/",
+        "https://docs.freqtrade.io/en/2026.5/lookahead-analysis/",
         "https://docs.freqtrade.io/en/stable/recursive-analysis/"
       ]
     },
@@ -109,8 +109,8 @@
       "market_group": "global-ru-localized",
       "name": "WunderTrading",
       "official_urls": [
-        "https://wundertrading.com/ru/signal-bot",
-        "https://wundertrading.com/en/about"
+        "https://wundertrading.com/en/about",
+        "https://wundertrading.com/ru/signal-bot"
       ]
     }
   ],
@@ -164,8 +164,8 @@
         "https://docs.freqtrade.io/en/2026.5.1/plugins/"
       ],
       "evidence_paths": [
-        "app/runtime/paper_final_dispatch.py",
-        "app/risk/evidence.py"
+        "app/risk/evidence.py",
+        "app/runtime/paper_final_dispatch.py"
       ],
       "build_decision": "DEEPEN",
       "acceptance": "Глобальные/попарные блокировки не обходятся перезапуском и применяются к replay и sandbox.",
@@ -198,8 +198,8 @@
       "competitor_ids": [],
       "source_urls": [],
       "evidence_paths": [
-        "tools/recover_funded_money_audit.py",
-        "tools/atomic_directory_publish.py"
+        "tools/atomic_directory_publish.py",
+        "tools/recover_funded_money_audit.py"
       ],
       "build_decision": "DEEPEN",
       "acceptance": "Межпроцессный lock, atomic rename, fsync и негативные тесты воспроизводимы на том же SHA.",
@@ -238,8 +238,8 @@
         "https://hummingbot.org/strategies/v2-strategies/controllers/"
       ],
       "evidence_paths": [
-        "app/strategy/cross_sectional_portfolio.py",
-        "app/application/decision_worker.py"
+        "app/application/decision_worker.py",
+        "app/strategy/cross_sectional_portfolio.py"
       ],
       "build_decision": "DEEPEN",
       "acceptance": "Стратегии не обходят центральный риск-допуск и не имеют прямого доступа к брокерскому submit.",
@@ -271,8 +271,8 @@
       "competitor_ids": [],
       "source_urls": [],
       "evidence_paths": [
-        "tools/verify_funded_replay_integration.py",
-        "tools/verify_funded_portfolio_money.py"
+        "tools/verify_funded_portfolio_money.py",
+        "tools/verify_funded_replay_integration.py"
       ],
       "build_decision": "DEEPEN",
       "acceptance": "Все 36 моделей пересчитываются независимо и совпадают по PnL, fees, funding и cash ledger.",
@@ -287,8 +287,8 @@
       "competitor_ids": [],
       "source_urls": [],
       "evidence_paths": [
-        "tools/mark_price_hourly_sensitivity.py",
-        "tools/mark_price_funding_admission.py"
+        "tools/mark_price_funding_admission.py",
+        "tools/mark_price_hourly_sensitivity.py"
       ],
       "build_decision": "HOLD",
       "acceptance": "Точная 1m история Mark Price принята по фиксированной хронологии и сверена с funding-источником.",
@@ -472,8 +472,8 @@
         "https://www.quantconnect.com/docs/v2/cloud-platform/optimization"
       ],
       "evidence_paths": [
-        "docs/STRATEGY_EVIDENCE_LEARNING_LOG.md",
-        "app/strategy/research_eligibility_v2.py"
+        "app/strategy/research_eligibility_v2.py",
+        "docs/STRATEGY_EVIDENCE_LEARNING_LOG.md"
       ],
       "build_decision": "DEEPEN",
       "acceptance": "Хранятся число попыток, заморозка параметров, отбраковки, контроль множественного тестирования.",
@@ -516,8 +516,8 @@
         "https://help.3commas.io/en/articles/3108938-dca-bot-using-tradingview-custom-signals-to-control-your-trades"
       ],
       "evidence_paths": [
-        "app/risk/pretrade.py",
-        "app/oms/risk_reservations.py"
+        "app/oms/risk_reservations.py",
+        "app/risk/pretrade.py"
       ],
       "build_decision": "DEEPEN",
       "acceptance": "Риск растущих операций проходит независимую проверку, замораживает бюджет, не пропускает stale данные.",
