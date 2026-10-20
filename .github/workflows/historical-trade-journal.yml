@@ -2,12 +2,15 @@ name: historical-trade-journal
 
 on:
   push:
-    branches: [research/historical-trade-journal-20261020, research/competitor-control-tower-20261020]
+    branches: [research/historical-trade-journal-20261020, research/competitor-control-tower-20261020, research/full-model-trade-ledger-20261020]
   pull_request:
-    branches: [research/full-portfolio-hourly-replay-20261015, research/historical-trade-journal-20261020]
+    branches: [research/full-portfolio-hourly-replay-20261015, research/historical-trade-journal-20261020, research/competitor-control-tower-20261020]
     paths:
       - 'tools/historical_execution_journal.py'
       - 'tools/research_control_tower.py'
+      - 'tools/full_model_trade_ledger.py'
+      - 'tests/test_full_model_trade_ledger.py'
+      - 'docs/ASTRA_FULL_MODEL_TRADE_LEDGER_2026-10-20.md'
       - 'tests/test_research_control_tower.py'
       - 'docs/ASTRA_COMPETITOR_CAPABILITY_MAP_2026-10-20.md'
       - 'tests/test_historical_execution_journal.py'
@@ -38,8 +41,8 @@ jobs:
           python -m pip check
       - name: Inspect code and synthetic adversarial tests
         run: |
-          ruff check tools/historical_execution_journal.py tests/test_historical_execution_journal.py tools/publish_research_receipt.py tests/test_publish_research_receipt.py tools/research_control_tower.py tests/test_research_control_tower.py
-          pytest -q tests/test_historical_execution_journal.py tests/test_publish_research_receipt.py tests/test_research_control_tower.py
+          ruff check tools/historical_execution_journal.py tests/test_historical_execution_journal.py tools/publish_research_receipt.py tests/test_publish_research_receipt.py tools/research_control_tower.py tests/test_research_control_tower.py tools/full_model_trade_ledger.py tests/test_full_model_trade_ledger.py
+          pytest -q tests/test_historical_execution_journal.py tests/test_publish_research_receipt.py tests/test_research_control_tower.py tests/test_full_model_trade_ledger.py
       - name: Recompute genuine retained historic strategy/funding/exit report
         run: |
           mkdir -p historical-journal-evidence
@@ -80,6 +83,34 @@ jobs:
           assert "<script" not in rendered
           assert "https://" not in rendered
           print("RESEARCH_ONLY_STATIC_CONTROL_TOWER", len(rendered))
+          PY
+      - name: Publish all modelled trades, positions and decisions
+        run: |
+          python -m tools.full_model_trade_ledger \
+            --report historical-journal-evidence/raw-36-model-report.json \
+            --independent-verifier historical-journal-evidence/independent-check.json \
+            --journal historical-journal-evidence/90-day-journal.json \
+            --expected-journal-sha256 e2c18b0eb0805a7f9b737f6290d601227ba7c6fb20688a6e7f9a299fb431bfc9 \
+            --output-dir historical-journal-evidence/full-model-trade-ledger
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from tools.full_model_trade_ledger import verify_completed_bundle
+          root = Path("historical-journal-evidence/full-model-trade-ledger")
+          marker = json.loads((root / "complete-manifest.json").read_text())
+          checked = verify_completed_bundle(root, marker["manifest_sha256"])
+          assert checked["model_count"] == 36
+          assert checked["scenario_count"] == 6
+          assert checked["journal_sha256"] == (
+              "e2c18b0eb0805a7f9b737f6290d601227ba7c6fb20688a6e7f9a299fb431bfc9"
+          )
+          assert checked["totals"]["closed_trades"] > 0
+          assert checked["totals"]["daily_model_decisions"] > 0
+          assert checked["actual_exchange_fills_verified"] is False
+          assert checked["profitability_proven"] is False
+          assert checked["live_trading_allowed"] is False
+          print("COMPLETE_MODELLED_TRADE_TAPE_SHA256", checked["manifest_sha256"])
+          print("COMPLETE_MODELLED_TRADES", checked["totals"]["closed_trades"])
           PY
       - name: Upload full non-promoting report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
