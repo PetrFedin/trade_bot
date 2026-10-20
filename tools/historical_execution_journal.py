@@ -102,6 +102,7 @@ def analyze_model(comparison: dict, key: str, *, window_days: int = 90) -> dict:
     first = date(comparison["first_execution_day_utc"])
     final = date(comparison["last_source_day_utc"])
     prior = CASH
+    declared_entries = set()
     for i, row in enumerate(daily):
         stamp = date(row["day_utc"])
         if stamp != first + timedelta(days=i):
@@ -117,6 +118,13 @@ def analyze_model(comparison: dict, key: str, *, window_days: int = 90) -> dict:
             raise JournalError("unrecorded decision trace schema")
         if len(set(row["entered_symbols"])) != len(row["entered_symbols"]):
             raise JournalError("duplicate daily entry")
+        for symbol in row["entered_symbols"]:
+            if symbol not in comparison["symbols"]:
+                raise JournalError("entry symbol outside portfolio universe")
+            identity = (symbol, stamp)
+            if identity in declared_entries:
+                raise JournalError("repeated decision trace entry")
+            declared_entries.add(identity)
         if (
             len(row["entered_symbols"]) > 2
             or not set(row["entered_symbols"]).issubset(row["selected_symbols"])
@@ -148,6 +156,8 @@ def analyze_model(comparison: dict, key: str, *, window_days: int = 90) -> dict:
             or identity in seen or not first <= entered <= exited <= final
         ):
             raise JournalError("invalid trade identity, instrument or chronology")
+        if identity not in declared_entries:
+            raise JournalError("closed trade has no recorded selection-to-entry decision")
         seen.add(identity)
         if trade["exit_reason"] not in EXIT_REASONS:
             raise JournalError("unsupported exit reason")
@@ -184,6 +194,22 @@ def analyze_model(comparison: dict, key: str, *, window_days: int = 90) -> dict:
         by_symbol[symbol]["count"] += 1
         by_symbol[symbol]["net"] += net
         by_symbol[symbol]["wins"] += int(net > ZERO)
+    final_open = set()
+    for position in model["final_open_positions"]:
+        symbol = position["symbol"]
+        entered = date(position["entry_time"])
+        identity = (symbol, entered)
+        if (
+            symbol not in comparison["symbols"] or identity not in declared_entries
+            or identity in seen or identity in final_open
+            or not first <= entered <= final
+        ):
+            raise JournalError("final holding lacks unique recorded entry")
+        if number(position["quantity"]) <= ZERO:
+            raise JournalError("final holding requires positive quantity")
+        final_open.add(identity)
+    if seen | final_open != declared_entries:
+        raise JournalError("decision entries do not conserve across trades and holdings")
     if len(parsed_trades) != metrics["closed_trades"]:
         raise JournalError("closed-trade count does not match tape")
     near(total_trade_net, metrics["closed_trade_net_excluding_funding_usd"],

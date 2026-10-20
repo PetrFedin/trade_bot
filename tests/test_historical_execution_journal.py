@@ -61,6 +61,7 @@ def fixture() -> dict:
                 },
                 "daily_equity": copy.deepcopy(daily),
                 "trades": [copy.deepcopy(trade)],
+                "final_open_positions": [],
                 "funding_events": [],
                 "funding_days": [] if funding == "NO_FUNDING" else [
                     {"day_utc": stamp(i), "net_funding_cash_usd": "0"}
@@ -220,3 +221,29 @@ def test_missing_independent_verifier_rejected():
     source = report()
     with pytest.raises(JournalError, match="missing independent auditor"):
         build_journal(source, None)
+
+
+def test_closed_trade_without_matching_decision_entry_rejected():
+    c = fixture()
+    m = c["models"]["HOURLY_COLLISION_REFINED:UPPER_COST"]
+    m["daily_equity"][0]["entered_symbols"] = []
+    with pytest.raises(JournalError, match="no recorded"):
+        analyze_model(c, "HOURLY_COLLISION_REFINED:UPPER_COST")
+
+
+def test_phantom_selection_entry_without_trade_or_terminal_holding_rejected():
+    c = fixture()
+    m = c["models"]["HOURLY_COLLISION_REFINED:UPPER_COST"]
+    m["daily_equity"][1]["entered_symbols"] = ["BTCUSDT"]
+    with pytest.raises(JournalError, match="do not conserve"):
+        analyze_model(c, "HOURLY_COLLISION_REFINED:UPPER_COST")
+
+
+def test_terminal_holding_cannot_reuse_closed_trade_entry_identity():
+    c = fixture()
+    m = c["models"]["HOURLY_COLLISION_REFINED:UPPER_COST"]
+    m["final_open_positions"] = [{
+        "symbol": "BTCUSDT", "entry_time": stamp(0), "quantity": "1",
+    }]
+    with pytest.raises(JournalError, match="final holding lacks unique"):
+        analyze_model(c, "HOURLY_COLLISION_REFINED:UPPER_COST")

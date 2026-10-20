@@ -50,3 +50,11 @@ fail closed rather than falling back to `exists()+write_text()`.
 ## Independent verifier linkage (fail closed)
 
 The journal now requires the --independent-verifier receipt from the separate historical cash auditor. It validates PASS, 6 configurations/36 models, exact report SHA-256, the verifier identity, no venue or live-trading claims and matching trade/funding-event/daily-row populations before immutable publication. The journal records the verifier canonical digest. This is file-integrity linkage, not third-party account authentication.
+
+## Decision-to-position population integrity
+
+Every declared entered_symbol must have exactly one matching closed trade
+or one final open position at that UTC entry day. A reported trade without an
+entry decision, an invented extra entry, or the same identity reused by a
+closed trade and an open holding fails. This closes the descriptive-journal
+entry/position gap without changing the underlying trading engine.
