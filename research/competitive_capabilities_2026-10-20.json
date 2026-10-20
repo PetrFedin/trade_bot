@@ -36,8 +36,11 @@
       "market_group": "global",
       "name": "Cryptohopper",
       "official_urls": [
-        "https://www.cryptohopper.com/features/strategy-designer",
-        "https://www.cryptohopper.com/features/all-features"
+        "https://www.cryptohopper.com/features",
+        "https://www.cryptohopper.com/features/marketplace",
+        "https://www.cryptohopper.com/features/paper-trading",
+        "https://www.cryptohopper.com/features/social-trading",
+        "https://www.cryptohopper.com/features/strategy-designer"
       ]
     },
     {
@@ -63,7 +66,7 @@
       "market_group": "ru-language",
       "name": "MoonBot",
       "official_urls": [
-        "https://moon-bot.com/en/"
+        "https://moon-bot.com/ru/home/"
       ]
     },
     {
@@ -122,7 +125,7 @@
       ],
       "source_urls": [
         "https://hummingbot.org/strategies/v2-strategies/controllers/",
-        "https://www.cryptohopper.com/features/all-features"
+        "https://www.cryptohopper.com/features"
       ],
       "evidence_paths": [],
       "build_decision": "RESEARCH",
@@ -180,7 +183,8 @@
       ],
       "source_urls": [
         "https://faq.tradesanta.com/ru/article/how-to-create-a-futures-dca-bot",
-        "https://www.cryptohopper.com/features/all-features"
+        "https://www.cryptohopper.com/features",
+        "https://www.cryptohopper.com/features/social-trading"
       ],
       "evidence_paths": [],
       "build_decision": "HOLD",
@@ -505,7 +509,8 @@
       ],
       "source_urls": [
         "https://wundertrading.com/en/about",
-        "https://www.cryptohopper.com/features/all-features"
+        "https://www.cryptohopper.com/features",
+        "https://www.cryptohopper.com/features/paper-trading"
       ],
       "evidence_paths": [
         "app/runtime/paper_execution_guard.py"
@@ -546,7 +551,7 @@
         "moonbot"
       ],
       "source_urls": [
-        "https://moon-bot.com/en/"
+        "https://moon-bot.com/ru/home/"
       ],
       "evidence_paths": [],
       "build_decision": "BUILD",
@@ -640,7 +645,8 @@
       "source_urls": [
         "https://faq.tradesanta.com/ru/article/how-to-create-a-futures-dca-bot",
         "https://revenuebot.io/ru/functions.html",
-        "https://www.cryptohopper.com/features/all-features"
+        "https://www.cryptohopper.com/features",
+        "https://www.cryptohopper.com/features/marketplace"
       ],
       "evidence_paths": [],
       "build_decision": "BUILD",
