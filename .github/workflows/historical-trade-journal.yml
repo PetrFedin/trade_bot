@@ -2,11 +2,14 @@ name: historical-trade-journal
 
 on:
   push:
-    branches: [research/historical-trade-journal-20261020]
+    branches: [research/historical-trade-journal-20261020, research/competitor-control-tower-20261020]
   pull_request:
-    branches: [research/full-portfolio-hourly-replay-20261015]
+    branches: [research/full-portfolio-hourly-replay-20261015, research/historical-trade-journal-20261020]
     paths:
       - 'tools/historical_execution_journal.py'
+      - 'tools/research_control_tower.py'
+      - 'tests/test_research_control_tower.py'
+      - 'docs/ASTRA_COMPETITOR_CAPABILITY_MAP_2026-10-20.md'
       - 'tests/test_historical_execution_journal.py'
       - 'tests/test_publish_research_receipt.py'
       - 'tools/publish_research_receipt.py'
@@ -35,8 +38,8 @@ jobs:
           python -m pip check
       - name: Inspect code and synthetic adversarial tests
         run: |
-          ruff check tools/historical_execution_journal.py tests/test_historical_execution_journal.py tools/publish_research_receipt.py tests/test_publish_research_receipt.py
-          pytest -q tests/test_historical_execution_journal.py tests/test_publish_research_receipt.py
+          ruff check tools/historical_execution_journal.py tests/test_historical_execution_journal.py tools/publish_research_receipt.py tests/test_publish_research_receipt.py tools/research_control_tower.py tests/test_research_control_tower.py
+          pytest -q tests/test_historical_execution_journal.py tests/test_publish_research_receipt.py tests/test_research_control_tower.py
       - name: Recompute genuine retained historic strategy/funding/exit report
         run: |
           mkdir -p historical-journal-evidence
@@ -61,6 +64,21 @@ jobs:
           assert p["profitability_proven"] is False
           assert p["actual_exchange_fills_verified"] is False
           print("RESEARCH_ONLY_36_MODELS_JOURNAL", p["journal_sha256"])
+          PY
+      - name: Publish static research Control Tower
+        run: |
+          python -m tools.research_control_tower \
+            --journal historical-journal-evidence/90-day-journal.json \
+            --output historical-journal-evidence/research-control-tower.html
+          python - <<'PY'
+          from pathlib import Path
+          rendered = Path("historical-journal-evidence/research-control-tower.html").read_text()
+          assert "<!doctype html>" in rendered
+          assert "36/36" in rendered
+          assert "PROFITABILITY_NOT_PROVEN" in rendered
+          assert "<script" not in rendered
+          assert "https://" not in rendered
+          print("RESEARCH_ONLY_STATIC_CONTROL_TOWER", len(rendered))
           PY
       - name: Upload full non-promoting report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
