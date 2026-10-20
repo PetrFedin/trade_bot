@@ -33,6 +33,7 @@ CODE_PATHS = (
     "tools/verify_funded_position_lifecycle.py",
     "tools/verify_funded_replay_integration.py",
     "tools/recover_funded_money_audit.py",
+    "tools/publish_research_receipt.py",
 )
 
 
@@ -55,6 +56,13 @@ def _atomic_json(path: Path, value: dict) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
+        # The renamed checkpoint must survive a crash, not just a process exit.
+        # Sync the parent directory as well as the temporary file contents.
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
