@@ -414,12 +414,15 @@
         "https://docs.freqtrade.io/en/2026.5/lookahead-analysis/"
       ],
       "evidence_paths": [
+        "tests/test_astra_strategy_signal_causality.py",
+        "tests/test_cross_sectional_alignment_preflight.py",
         "tests/test_inspect_signal_lookahead.py",
+        "tools/inspect_cross_sectional_alignment.py",
         "tools/inspect_signal_lookahead.py"
       ],
       "build_decision": "DEEPEN",
-      "acceptance": "Офлайн-инспектор сравнивает сигналы на полной истории с каждым доступным префиксом; отрицательные фикстуры ловят будущие свечи и недетерминизм. Следующий шаг — адаптер к Strategy A.",
-      "evidence_limitations": "Исследовательский детектор выполнен для доверенного signal callback, но ещё не интегрирован со Strategy A. Отсутствие различий не доказывает полной свободы от look-ahead."
+      "acceptance": "Негативные тесты ловят утечку будущей свечи и недетерминизм. Smoke-интеграция вызывает реальный RegimeAwareMomentumStrategy и CrossSectionalSelector на синхронизированных фикстурах; отдельный fail-closed preflight блокирует пропуск свечи в lookback между символами.",
+      "evidence_limitations": "Проверены только синтетические наблюдения и реальный сигнальный/селекторный модуль в research. Сам торговый replay Strategy A и полная история Bybit не прошли специализированный lookahead scan. Нет утверждения об отсутствии смещения, живой торговле или edge."
     },
     {
       "id": "mobile_operations",
