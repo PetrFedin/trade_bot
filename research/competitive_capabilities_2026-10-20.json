@@ -74,7 +74,9 @@
       "market_group": "quant-platform",
       "name": "QuantConnect",
       "official_urls": [
-        "https://www.quantconnect.com/docs/v2/cloud-platform/backtesting/research-guide"
+        "https://www.quantconnect.com/docs/v2/cloud-platform/backtesting/research-guide",
+        "https://www.quantconnect.com/docs/v2/cloud-platform/optimization",
+        "https://www.quantconnect.com/docs/v2/writing-algorithms/optimization/walk-forward-optimization"
       ]
     },
     {
@@ -120,11 +122,9 @@
       "priority": "P2",
       "astra_status": "NOT_IMPLEMENTED",
       "competitor_ids": [
-        "cryptohopper",
-        "hummingbot"
+        "cryptohopper"
       ],
       "source_urls": [
-        "https://hummingbot.org/strategies/v2-strategies/controllers/",
         "https://www.cryptohopper.com/features"
       ],
       "evidence_paths": [],
@@ -178,11 +178,9 @@
       "priority": "P3",
       "astra_status": "NOT_IMPLEMENTED",
       "competitor_ids": [
-        "cryptohopper",
-        "tradesanta"
+        "cryptohopper"
       ],
       "source_urls": [
-        "https://faq.tradesanta.com/ru/article/how-to-create-a-futures-dca-bot",
         "https://www.cryptohopper.com/features",
         "https://www.cryptohopper.com/features/social-trading"
       ],
@@ -197,19 +195,15 @@
       "area": "trust",
       "priority": "P0",
       "astra_status": "RESEARCH_ONLY",
-      "competitor_ids": [
-        "quantconnect"
-      ],
-      "source_urls": [
-        "https://www.quantconnect.com/docs/v2/cloud-platform/backtesting/research-guide"
-      ],
+      "competitor_ids": [],
+      "source_urls": [],
       "evidence_paths": [
         "tools/recover_funded_money_audit.py",
         "tools/atomic_directory_publish.py"
       ],
       "build_decision": "DEEPEN",
       "acceptance": "Межпроцессный lock, atomic rename, fsync и негативные тесты воспроизводимы на том же SHA.",
-      "evidence_limitations": "Долговечность файлов не доказывает подлинность провайдера или прибыльность."
+      "evidence_limitations": "Долговечность файлов не доказывает подлинность провайдера или прибыльность. Конкурентные страницы не служат доказательством именно этой инженерной возможности."
     },
     {
       "id": "durable_order_lifecycle",
@@ -258,10 +252,10 @@
       "priority": "P3",
       "astra_status": "NOT_IMPLEMENTED",
       "competitor_ids": [
-        "wundertrading"
+        "cryptohopper"
       ],
       "source_urls": [
-        "https://wundertrading.com/en/about"
+        "https://www.cryptohopper.com/features"
       ],
       "evidence_paths": [],
       "build_decision": "HOLD",
@@ -274,19 +268,15 @@
       "area": "research",
       "priority": "P0",
       "astra_status": "RESEARCH_ONLY",
-      "competitor_ids": [
-        "quantconnect"
-      ],
-      "source_urls": [
-        "https://www.quantconnect.com/docs/v2/cloud-platform/backtesting/research-guide"
-      ],
+      "competitor_ids": [],
+      "source_urls": [],
       "evidence_paths": [
         "tools/verify_funded_replay_integration.py",
         "tools/verify_funded_portfolio_money.py"
       ],
       "build_decision": "DEEPEN",
       "acceptance": "Все 36 моделей пересчитываются независимо и совпадают по PnL, fees, funding и cash ledger.",
-      "evidence_limitations": "Арифметическая сверка не является выпиской реального биржевого аккаунта."
+      "evidence_limitations": "Арифметическая сверка не является выпиской реального биржевого аккаунта. Конкурентные страницы не служат доказательством именно этой инженерной возможности."
     },
     {
       "id": "funding_mark_source",
@@ -294,19 +284,15 @@
       "area": "research",
       "priority": "P0",
       "astra_status": "BLOCKED_SOURCE",
-      "competitor_ids": [
-        "bitsgap"
-      ],
-      "source_urls": [
-        "https://bitsgap.com/crypto-trading-bot/futures-trading-bots"
-      ],
+      "competitor_ids": [],
+      "source_urls": [],
       "evidence_paths": [
         "tools/mark_price_hourly_sensitivity.py",
         "tools/mark_price_funding_admission.py"
       ],
       "build_decision": "HOLD",
       "acceptance": "Точная 1m история Mark Price принята по фиксированной хронологии и сверена с funding-источником.",
-      "evidence_limitations": "Bybit HTTP 403; 60m high/low — только оценка диапазона, не settlement-truth."
+      "evidence_limitations": "Bybit HTTP 403; 60m high/low — только оценка диапазона, не settlement-truth. Конкурентные страницы не служат доказательством именно этой инженерной возможности."
     },
     {
       "id": "futures_dca_grid",
@@ -375,19 +361,15 @@
       "area": "trust",
       "priority": "P0",
       "astra_status": "ENGINEERING_ONLY",
-      "competitor_ids": [
-        "quantconnect"
-      ],
-      "source_urls": [
-        "https://www.quantconnect.com/docs/v2/cloud-platform/backtesting/research-guide"
-      ],
+      "competitor_ids": [],
+      "source_urls": [],
       "evidence_paths": [
         "app/qualification/evidence_registry.py",
         "tools/publish_research_receipt.py"
       ],
       "build_decision": "DEEPEN",
       "acceptance": "Экран показывает происхождение, SHA, ограничения, approvals и статусы независимо от CI.",
-      "evidence_limitations": "Комплексный пользовательский Evidence Passport и внешний origin attest ещё не подтверждены."
+      "evidence_limitations": "Комплексный пользовательский Evidence Passport и внешний origin attest ещё не подтверждены. Конкурентные страницы не служат доказательством именно этой инженерной возможности."
     },
     {
       "id": "indicator_warmup_scan",
@@ -438,22 +420,22 @@
     },
     {
       "id": "mobile_operations",
-      "name_ru": "Мобильное управление и уведомления",
+      "name_ru": "Уведомления, мобильное управление и реакция на инциденты",
       "area": "interface",
       "priority": "P2",
       "astra_status": "NOT_IMPLEMENTED",
       "competitor_ids": [
         "revenuebot",
-        "tradesanta"
+        "veles"
       ],
       "source_urls": [
-        "https://faq.tradesanta.com/ru/article/how-to-create-a-futures-dca-bot",
+        "https://help.veles.finance/ru/getting-started/overview/bot/",
         "https://revenuebot.io/ru/functions.html"
       ],
       "evidence_paths": [],
       "build_decision": "BUILD",
       "acceptance": "Уведомления об инцидентах доставляются с дедупликацией; мобильный UX не может отключать риск-контроль.",
-      "evidence_limitations": "В репозитории нет проверенного мобильного приложения и полного канала уведомлений."
+      "evidence_limitations": "Документация подтверждает уведомления, но не подтверждает полноценное собственное мобильное приложение ASTRA."
     },
     {
       "id": "multi_exchange_connectors",
@@ -487,7 +469,7 @@
         "quantconnect"
       ],
       "source_urls": [
-        "https://www.quantconnect.com/docs/v2/cloud-platform/backtesting/research-guide"
+        "https://www.quantconnect.com/docs/v2/cloud-platform/optimization"
       ],
       "evidence_paths": [
         "docs/STRATEGY_EVIDENCE_LEARNING_LOG.md",
@@ -639,11 +621,9 @@
       "astra_status": "NOT_IMPLEMENTED",
       "competitor_ids": [
         "cryptohopper",
-        "revenuebot",
-        "tradesanta"
+        "revenuebot"
       ],
       "source_urls": [
-        "https://faq.tradesanta.com/ru/article/how-to-create-a-futures-dca-bot",
         "https://revenuebot.io/ru/functions.html",
         "https://www.cryptohopper.com/features",
         "https://www.cryptohopper.com/features/marketplace"
@@ -701,7 +681,7 @@
         "quantconnect"
       ],
       "source_urls": [
-        "https://www.quantconnect.com/docs/v2/cloud-platform/backtesting/research-guide"
+        "https://www.quantconnect.com/docs/v2/writing-algorithms/optimization/walk-forward-optimization"
       ],
       "evidence_paths": [
         "tools/historical_portfolio_walk_forward.py"
