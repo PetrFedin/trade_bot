@@ -11,6 +11,8 @@ on:
       - 'tools/inspect_signal_lookahead.py'
       - 'tests/test_verify_competitive_capabilities.py'
       - 'tests/test_inspect_signal_lookahead.py'
+      - 'tests/test_competitive_capability_dashboard.py'
+      - 'docs/astra_capability_matrix_2026-10-20.html'
       - 'docs/ASTRA_COMPETITIVE_PRODUCT_ROADMAP_2026-10-20.md'
       - '.github/workflows/astra-competitive-capability-evidence.yml'
 
@@ -40,6 +42,6 @@ jobs:
           python -m pip check
       - name: Validate feature source attribution, inventory and trading authority
         run: |
-          ruff check tools/verify_competitive_capabilities.py tests/test_verify_competitive_capabilities.py tools/inspect_signal_lookahead.py tests/test_inspect_signal_lookahead.py
-          pytest -q tests/test_verify_competitive_capabilities.py tests/test_inspect_signal_lookahead.py
+          ruff check tools/verify_competitive_capabilities.py tests/test_verify_competitive_capabilities.py tools/inspect_signal_lookahead.py tests/test_inspect_signal_lookahead.py tests/test_competitive_capability_dashboard.py
+          pytest -q tests/test_verify_competitive_capabilities.py tests/test_inspect_signal_lookahead.py tests/test_competitive_capability_dashboard.py
           python -m tools.verify_competitive_capabilities --root .
