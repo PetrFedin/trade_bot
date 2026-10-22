@@ -9,6 +9,7 @@ on:
       - 'tools/research_ops_console.template.html'
       - 'tests/test_research_analytics.py'
       - 'tests/test_research_ops_console.py'
+      - 'tests/research_ops_console_browser.test.cjs'
       - 'docs/research-ops-console.html'
       - 'research/competitive_capability_register_v1.json'
       - '.github/workflows/research-operations-console.yml'
@@ -20,6 +21,7 @@ on:
       - 'tools/research_ops_console.template.html'
       - 'tests/test_research_analytics.py'
       - 'tests/test_research_ops_console.py'
+      - 'tests/research_ops_console_browser.test.cjs'
       - 'docs/research-ops-console.html'
       - 'research/competitive_capability_register_v1.json'
       - '.github/workflows/research-operations-console.yml'
@@ -53,6 +55,8 @@ jobs:
           set -euo pipefail
           ruff check tools/research_analytics.py tools/research_ops_console.py tests/test_research_analytics.py tests/test_research_ops_console.py
           pytest -q tests/test_research_analytics.py tests/test_research_ops_console.py tests/test_research_signal_gate.py tests/test_research_capability_register.py tests/test_status_dashboard.py
+          node --version
+          node --test tests/research_ops_console_browser.test.cjs
       - name: Immutable source-to-screen qualification
         run: |
           set -euo pipefail
