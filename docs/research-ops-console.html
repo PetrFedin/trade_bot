@@ -99,6 +99,14 @@ tbody tr[hidden]{display:none}
 .source-grid p{color:var(--muted)}
 .file{display:block;font:12px/1.8 var(--mono);color:var(--accent);word-break:break-all;margin-top:14px}
 .foot{display:flex;justify-content:space-between;gap:20px;color:var(--subtle);font:11px var(--mono);padding-top:35px}
+.calculator-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:17px;margin-top:23px}
+.calculator-grid label{display:flex;flex-direction:column;gap:8px;color:var(--muted);font:12px/1.45 var(--mono)}
+.calculator-grid input{width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--line);padding:13px;font:14px var(--mono);border-radius:0}
+.calculator-grid input:focus{border-color:var(--accent)}
+.calculator-actions{display:flex;align-items:center;gap:17px;flex-wrap:wrap;margin-top:22px}
+.scenario-error{color:var(--red);border-left:2px solid var(--red);padding:10px 14px}
+#scenario-results{border-top:1px solid var(--line);margin-top:25px;padding-top:23px}
+.result-number{font:550 33px/1.4 var(--mono);margin:13px 0 19px;font-variant-numeric:tabular-nums}
 @media(max-width:1100px){.app{grid-template-columns:195px minmax(0,1fr)}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.two{grid-template-columns:1fr}}
 @media(max-width:720px){.app{display:block}.rail{border-right:0;border-bottom:1px solid var(--line);gap:16px;padding:15px 18px}.railgroup,.railbottom{display:none}nav{display:flex;overflow-x:auto;gap:7px}nav a{padding:8px 10px;white-space:nowrap;border-left:0;border-bottom:2px solid transparent}nav a span{display:none}main{padding:20px 18px 60px}.top{padding-bottom:15px}.hero{padding:38px 0}.source-grid{grid-template-columns:1fr}.foot{flex-direction:column}}
 @media(max-width:430px){.kpis{grid-template-columns:1fr}.filters input,.filters select,.action{width:100%}.sec-head{align-items:flex-start;flex-direction:column}}
@@ -114,8 +122,9 @@ tbody tr[hidden]{display:none}
   <nav aria-label="Разделы">
     <a href="#overview">Обзор <span>01</span></a>
     <a href="#strategy">Стратегия <span>02</span></a>
-    <a href="#capabilities">Функции <span>03</span></a>
-    <a href="#provenance">Доказательства <span>04</span></a>
+    <a href="#scenario">Расчёт <span>03</span></a>
+    <a href="#capabilities">Функции <span>04</span></a>
+    <a href="#provenance">Доказательства <span>05</span></a>
   </nav></div>
   <div class="railbottom"><strong>AUTHORITY · HOLD</strong><p>Только чтение. Ни одна функция этой страницы не отправляет торговые заявки.</p></div>
 </aside>
@@ -161,6 +170,32 @@ tbody tr[hidden]{display:none}
           <div><dt>Max Drawdown / Sharpe</dt><dd>Не подтверждены</dd></div>
           <div><dt>Реальный funding / Mark Price</dt><dd class="negative">Источник заблокирован</dd></div>
         </dl>
+      </div>
+    </div>
+  </section>
+  <section class="block" id="scenario">
+    <div class="sec-head"><div><div class="eyebrow">03 / Расчётный контур</div><h2>Чувствительность к издержкам</h2></div><div class="count">Только вручную введённые исходные данные</div></div>
+    <div class="panel">
+      <p class="lede">Расчёт не подменяет реальный журнал сделок. Введите независимые данные или явно условные значения. Здесь нельзя открыть позицию, получить рыночную цену или изменить статус стратегии.</p>
+      <form id="scenario-form" autocomplete="off">
+        <div class="calculator-grid">
+          <label for="scenario-gross">Gross P&amp;L, USDT<input required id="scenario-gross" name="gross" type="text" inputmode="decimal" placeholder="Введите число"></label>
+          <label for="scenario-turnover">Суммарный оборот исполнений, USDT<input required id="scenario-turnover" name="turnover" type="text" inputmode="decimal" placeholder="Введите число"></label>
+          <label for="scenario-fees">Уплаченные комиссии, USDT<input required id="scenario-fees" name="fees" type="text" inputmode="decimal" placeholder="Введите число"></label>
+          <label for="scenario-slippage">Издержки проскальзывания, USDT<input required id="scenario-slippage" name="slippage" type="text" inputmode="decimal" placeholder="Введите число"></label>
+          <label for="scenario-funding">Funding debit, USDT (− = кредит)<input required id="scenario-funding" name="funding" type="text" inputmode="decimal" placeholder="Введите число"></label>
+        </div>
+        <div class="calculator-actions"><button class="action" type="submit">Рассчитать сценарии</button><span class="micro">0 / 5 / 10 / 25 bps дополнительно к указанным расходам</span></div>
+      </form>
+      <p role="alert" id="scenario-error" class="scenario-error" hidden></p>
+      <div id="scenario-results" hidden>
+        <p class="eyebrow">Результат ручного сценария · не торговое доказательство</p>
+        <div class="result-number" id="scenario-base"></div>
+        <div class="tablewrap"><table aria-label="Сценарная чувствительность к дополнительным издержкам">
+          <thead><tr><th>Дополнительное ухудшение</th><th>Дополнительные расходы</th><th>Модельный Net P&amp;L</th></tr></thead>
+          <tbody id="scenario-rows"></tbody>
+        </table></div>
+        <p class="micro" style="margin-top:15px">Формула: Gross − Fees − Slippage − Signed Funding − Turnover × bps / 10 000. Округление денежных результатов до цента по bankers rounding. Данные не сохраняются.</p>
       </div>
     </div>
   </section>
@@ -258,6 +293,72 @@ tbody tr[hidden]{display:none}
     const anchor=document.createElement("a");
     anchor.href=url;anchor.download="astra_research_capabilities.csv";
     document.body.append(anchor);anchor.click();anchor.remove();URL.revokeObjectURL(url);
+  });
+
+  const scenarioForm=document.getElementById("scenario-form");
+  const scenarioError=document.getElementById("scenario-error");
+  const scenarioResults=document.getElementById("scenario-results");
+  const scenarioRows=document.getElementById("scenario-rows");
+  const SCALE=100000000n;
+  const CENT_SCALE=1000000n;
+  function moneyInput(value,name){
+    const clean=value.trim();
+    if(!/^-?(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,8})?$/.test(clean)){
+      throw new Error(name+": требуется десятичное число без экспоненты, не более 8 знаков после запятой");
+    }
+    const negative=clean.startsWith("-");
+    const unsigned=negative?clean.slice(1):clean;
+    const pieces=unsigned.split(".");
+    const units=BigInt(pieces[0])*SCALE+BigInt((pieces[1]||"").padEnd(8,"0"));
+    return negative?-units:units;
+  }
+  function moneyString(value){
+    const negative=value<0n;
+    const magnitude=negative?-value:value;
+    let cents=magnitude/CENT_SCALE;
+    const remainder=magnitude%CENT_SCALE;
+    if(remainder*2n>CENT_SCALE || (remainder*2n===CENT_SCALE && cents%2n===1n)){
+      cents+=1n;
+    }
+    return (negative&&cents!==0n?"-":"")+(cents/100n).toString()+"."+
+      (cents%100n).toString().padStart(2,"0");
+  }
+  scenarioForm.addEventListener("submit",function(event){
+    event.preventDefault();
+    scenarioResults.hidden=true;
+    scenarioError.hidden=true;
+    scenarioError.textContent="";
+    const values={};
+    const fields=[
+      ["gross","Gross P&L"],["turnover","Оборот"],
+      ["fees","Комиссии"],["slippage","Проскальзывание"],["funding","Funding"]
+    ];
+    try{
+      fields.forEach(function(field){
+        values[field[0]]=moneyInput(scenarioForm.elements.namedItem(field[0]).value,field[1]);
+      });
+      if(values.turnover<=0n || values.fees<0n || values.slippage<0n){
+        throw new Error("Оборот должен быть положительным; комиссии и проскальзывание — неотрицательными");
+      }
+      const base=values.gross-values.fees-values.slippage-values.funding;
+      document.getElementById("scenario-base").textContent=
+        moneyString(base)+" USDT / модельный Net P&L";
+      scenarioRows.replaceChildren();
+      [0,5,10,25].forEach(function(bps){
+        const extra=values.turnover*BigInt(bps)/10000n;
+        const row=document.createElement("tr");
+        [bps+" bps",moneyString(extra)+" USDT",moneyString(base-extra)+" USDT"].forEach(function(text){
+          const cell=document.createElement("td");
+          cell.textContent=text;
+          row.appendChild(cell);
+        });
+        scenarioRows.appendChild(row);
+      });
+      scenarioResults.hidden=false;
+    }catch(error){
+      scenarioError.textContent=error.message;
+      scenarioError.hidden=false;
+    }
   });
 })();
 </script>
