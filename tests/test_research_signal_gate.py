@@ -8,8 +8,10 @@ import hmac
 import json
 import sqlite3
 import stat
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 
@@ -263,3 +265,60 @@ def test_group_writable_storage_directory_is_rejected(tmp_path):
     with pytest.raises(ResearchSignalRejected, match="not private"):
         _admit(tmp_path, journal=path)
     assert not path.exists()
+
+
+def test_parallel_same_signal_can_never_be_accepted_twice(tmp_path):
+    start = Barrier(2)
+
+    def worker():
+        start.wait()
+        try:
+            return _admit(tmp_path)["decision"]
+        except ResearchSignalRejected as exc:
+            return str(exc)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _i: worker(), (0, 1)))
+    accepted = sum(result == "RECORDED_RESEARCH_ONLY" for result in results)
+    assert accepted <= 1
+    if accepted == 0:
+        assert _admit(tmp_path)["decision"] == "RECORDED_RESEARCH_ONLY"
+    with pytest.raises(ResearchSignalRejected, match="duplicate"):
+        _admit(tmp_path)
+    with sqlite3.connect(tmp_path / "observations.sqlite3") as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM research_observations",
+        ).fetchone()[0] == 1
+
+
+def test_key_rotation_cannot_replay_an_existing_signal(tmp_path):
+    _admit(tmp_path)
+    rotated_id = "research-source-rotated"
+    rotated_secret = b"distinct-test-only-key-for-research-signals"
+    trusted = _trusted()
+    trusted[rotated_id] = ResearchSigner(
+        secret=rotated_secret,
+        source="research_tradingview",
+        symbols=frozenset({"BTCUSDT"}),
+        strategies=frozenset({"research_strategy_01"}),
+    )
+    raw, signature = _signed(key=rotated_secret, key_id=rotated_id)
+    with pytest.raises(ResearchSignalRejected, match="duplicate"):
+        _admit(
+            tmp_path, raw=raw, sig=signature, trusted=trusted, key_id=rotated_id,
+        )
+
+
+def test_revoked_signer_rejected_without_writing(tmp_path):
+    raw, signature = _signed()
+    with pytest.raises(ResearchSignalRejected, match="signing key unavailable"):
+        _admit(tmp_path, raw=raw, sig=signature, trusted={})
+    assert not (tmp_path / "observations.sqlite3").exists()
+
+
+def test_signed_order_command_is_not_part_of_research_signal_schema(tmp_path):
+    message = _body()
+    message["order"] = "BUY"
+    with pytest.raises(ResearchSignalRejected, match="field set rejected"):
+        _admit(tmp_path, body=message)
+    assert not (tmp_path / "observations.sqlite3").exists()
