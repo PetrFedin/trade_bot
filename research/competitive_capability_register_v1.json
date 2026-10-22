@@ -76,7 +76,8 @@
       ],
       "acceptance_gate": "Разработать исследовательский GRID/DCA движок с защитой от мартингейла, экспозиции и ложного backtest PnL.",
       "depends_on": [
-        "ANTI_LOOKAHEAD_RESEARCH"
+        "ANTI_LOOKAHEAD_RESEARCH",
+        "MARK_PRICE_FUNDING_PROVENANCE"
       ],
       "trading_authority_allowed": false
     },
@@ -113,7 +114,8 @@
       "official_references": [],
       "acceptance_gate": "Показать влияние комиссий, ликвидности, funding, плеча и корреляции без создания ордеров.",
       "depends_on": [
-        "ACCOUNT_TRUTH_RECONCILIATION"
+        "ACCOUNT_TRUTH_RECONCILIATION",
+        "MARK_PRICE_FUNDING_PROVENANCE"
       ],
       "trading_authority_allowed": false
     },
