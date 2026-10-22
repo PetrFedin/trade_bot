@@ -90,6 +90,7 @@ async def _capture(
                             "featureRows:document.querySelectorAll("
                             "'#capability-table tbody tr').length,"
                             "viewportWidth:window.innerWidth,"
+                            "documentWidth:document.documentElement.scrollWidth,"
                             "scenarioExists:!!document.querySelector('#scenario-form')})"
                         ),
                         "returnByValue": True,
@@ -108,6 +109,7 @@ async def _capture(
                 state is None
                 or state.get("featureRows") != 12
                 or state.get("viewportWidth") != width
+                or state.get("documentWidth", width + 1) > width
                 or state.get("scenarioExists") is not True
             ):
                 raise VisualQualificationError(
