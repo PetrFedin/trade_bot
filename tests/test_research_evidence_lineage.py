@@ -211,3 +211,51 @@ def test_cli_output_can_be_checked_for_drift(tmp_path, capsys):
     output.write_text("tampered content")
     assert lineage.main(["--emit", str(output), "--check"]) == 1
     assert "ASTRA_EVIDENCE_DOSSIER_DRIFT" in capsys.readouterr().err
+
+
+
+def test_check_of_missing_artifact_has_no_filesystem_side_effect(tmp_path):
+    destination = tmp_path / "absent" / "dossier.json"
+    assert lineage.main(["--emit", str(destination), "--check"]) == 1
+    assert not destination.parent.exists()
+
+
+def test_dossier_publisher_rejects_symlink_and_preserves_target(tmp_path):
+    real = tmp_path / "unrelated.json"
+    real.write_text("ORIGINAL")
+    alias = tmp_path / "dossier.json"
+    alias.symlink_to(real)
+    with pytest.raises(EvidenceLineageError, match="symlinked dossier"):
+        lineage._publish_dossier(alias, "{}")
+    assert real.read_text() == "ORIGINAL"
+
+
+def test_dossier_rename_failure_keeps_old_complete_document(tmp_path, monkeypatch):
+    path = tmp_path / "dossier.json"
+    path.write_text('{"original":true}')
+
+    def fail_replace(_source, _destination):
+        raise OSError("simulated rename failure")
+
+    monkeypatch.setattr(lineage.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="simulated rename failure"):
+        lineage._publish_dossier(path, '{"new":true}')
+    assert path.read_text() == '{"original":true}'
+    assert not list(tmp_path.glob(".astra-lineage-*"))
+
+
+def test_dossier_fsyncs_file_and_directory_before_ack(tmp_path, monkeypatch):
+    import stat
+
+    observed = []
+    original = lineage.os.fsync
+
+    def record_fsync(fd):
+        observed.append(stat.S_ISDIR(lineage.os.fstat(fd).st_mode))
+        original(fd)
+
+    monkeypatch.setattr(lineage.os, "fsync", record_fsync)
+    path = tmp_path / "dossier.json"
+    lineage._publish_dossier(path, '{"research":"HOLD"}')
+    assert observed == [False, True]
+    assert json.loads(path.read_text()) == {"research": "HOLD"}
