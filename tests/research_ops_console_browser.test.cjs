@@ -27,10 +27,12 @@ function harness() {
         })
       );
       return {
+        id: "cap-" + match[1],
         dataset: { state: match[2] },
         cells,
         textContent: match[1] + " " + match[2] + " " + cells.map((c) => c.innerText).join(" "),
         hidden: false,
+        scrollIntoView(){},
       };
     }
   );
@@ -104,8 +106,14 @@ function harness() {
     },
     revokeObjectURL() {},
   };
+  const window={
+    location:{hash:""},
+    addEventListener(name,handler){
+      (handlers.window ||= {})[name]=handler;
+    },
+  };
   vm.runInNewContext(SCRIPT, {
-    document, URL: url, Blob, BigInt, String, Error,
+    document, window, URL: url, Blob, BigInt, String, Error,
   }, { timeout: 2000 });
 
   function submit(payload) {
@@ -125,7 +133,7 @@ function harness() {
     };
   }
   return {
-    rows, elements, handlers, submit,
+    rows, elements, handlers, submit, window,
     getExport() { return { blob: exportedBlob, download }; },
   };
 }
@@ -227,4 +235,20 @@ test("CSV export includes only currently visible capability rows", async () => {
   assert.match(csv, /MARK PRICE FUNDING PROVENANCE/);
   assert.equal(csv.includes("GRID DCA SCENARIO LAB"), false);
   assert.equal(csv.split("\r\n").length, 2);
+});
+
+
+test("source-lineage links reveal a feature hidden by an unrelated filter", () => {
+  const h = harness();
+  h.elements["feature-state"].value = "PLANNED";
+  h.handlers["feature-state"].change();
+  const blocked = h.rows.find(
+    (row) => row.id === "cap-MARK_PRICE_FUNDING_PROVENANCE"
+  );
+  assert.equal(blocked.hidden, true);
+  h.window.location.hash = "#cap-MARK_PRICE_FUNDING_PROVENANCE";
+  h.handlers.window.hashchange();
+  assert.equal(h.elements["feature-state"].value, "ALL");
+  assert.equal(blocked.hidden, false);
+  assert.equal(h.elements["feature-count"].textContent, "Показано функций: 12 из 12");
 });

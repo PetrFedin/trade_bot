@@ -92,6 +92,7 @@ td:nth-child(2){min-width:165px}
 td:nth-child(4){min-width:260px}
 td code{color:var(--muted);font:11px var(--mono)}
 tbody tr:hover{background:#162329}
+tbody tr:target{background:#223840;outline:1px solid var(--accent)}
 tbody tr[hidden]{display:none}
 .empty{color:var(--muted);padding:18px;border:1px solid var(--line);margin-top:10px}
 .source-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
@@ -414,6 +415,20 @@ tbody tr[hidden]{display:none}
       scenarioError.hidden=false;
     }
   });
+
+  function openLinkedCapability(){
+    const hash=window.location.hash;
+    if(!hash || !hash.startsWith("#cap-"))return;
+    const row=rows.find(function(candidate){return "#"+candidate.id===hash});
+    if(!row)return;
+    if(row.hidden){
+      input.value="";
+      selector.value="ALL";
+      filter();
+    }
+    row.scrollIntoView({block:"nearest"});
+  }
+  window.addEventListener("hashchange",openLinkedCapability);
 })();
 </script>
 </body>
