@@ -1,0 +1,65 @@
+name: historical-causality-replay
+
+on:
+  push:
+    branches: [research/causal-replay-audit-20261020]
+  pull_request:
+    branches: [research/historical-trade-journal-20261020]
+    paths:
+      - 'tools/historical_causality_audit.py'
+      - 'tests/test_historical_causality_audit.py'
+      - 'docs/ASTRA_CAUSALITY_COMPETITOR_AUDIT_2026-10-20.md'
+      - '.github/workflows/historical-causality-replay.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  causal-history-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install pinned dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Causal replay unit tests
+        run: |
+          ruff check tools/historical_causality_audit.py tests/test_historical_causality_audit.py
+          pytest -q tests/test_historical_causality_audit.py
+      - name: Recreate historical model and verify original money evidence
+        run: |
+          mkdir -p causal-evidence
+          git rev-parse HEAD > causal-evidence/sha.txt
+          python -m tools.daily_funding_cash_replay --output causal-evidence/baseline.json
+          python -m tools.verify_daily_funding_report causal-evidence/baseline.json --output causal-evidence/money-audit.json
+      - name: Compare uncached Strategy A against truncated historical prefixes
+        run: |
+          python -m tools.historical_causality_audit --baseline-report causal-evidence/baseline.json --independent-verifier causal-evidence/money-audit.json --output causal-evidence/causal-prefix.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path("causal-evidence/causal-prefix.json").read_text())
+          assert data["model_count"] == 12
+          assert data["prefix_count"] == 36
+          assert data["all_tested_prefixes_invariant"] is True
+          assert data["lookahead_absence_proven"] is False
+          assert data["profitability_proven"] is False
+          assert data["live_trading_allowed"] is False
+          print("RESEARCH_CAUSALITY",data["audit_sha256"])
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: historical-causality-evidence
+          path: causal-evidence/
+          if-no-files-found: warn
+          retention-days: 30
