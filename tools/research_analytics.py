@@ -7,6 +7,7 @@ research assumptions, not prices manufactured from signal counts.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from typing import Any
@@ -36,6 +37,8 @@ class ResearchAnalyticsError(ValueError):
 def exact_decimal(value: object, *, label: str) -> Decimal:
     if not isinstance(value, str) or len(value) > 48:
         raise ResearchAnalyticsError(f"{label}: exact numeric string required")
+    if re.fullmatch(r"-?(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,8})?", value) is None:
+        raise ResearchAnalyticsError(f"{label}: bounded fixed-point decimal required")
     try:
         result = Decimal(value)
     except InvalidOperation as exc:
