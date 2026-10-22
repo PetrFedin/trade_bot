@@ -17,6 +17,8 @@ from pathlib import Path
 from tools.research_analytics import calculate_research_overview
 from tools.research_evidence_lineage import (
     _read_strict as read_evidence_source,
+)
+from tools.research_evidence_lineage import (
     create_dossier,
     dependency_impact,
 )
