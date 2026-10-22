@@ -182,6 +182,11 @@ jobs:
           assert page.count('"hypothetical_fee_bps":') == 144
           print("EXECUTION_RESEARCH_HTML_VERIFIED",len(page))
           PY
+      - name: Include verified operator authority surface beside the research view
+        run: |
+          python tools/status_dashboard.py --check
+          cp docs/status-console.html candidate-evidence/operator-status.html
+          test -s candidate-evidence/operator-status.html
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
