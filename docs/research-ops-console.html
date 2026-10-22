@@ -107,6 +107,11 @@ tbody tr[hidden]{display:none}
 .scenario-error{color:var(--red);border-left:2px solid var(--red);padding:10px 14px}
 #scenario-results{border-top:1px solid var(--line);margin-top:25px;padding-top:23px}
 .result-number{font:550 33px/1.4 var(--mono);margin:13px 0 19px;font-variant-numeric:tabular-nums}
+.audit-state{font:600 11px var(--mono);letter-spacing:.06em;color:var(--amber)}
+#lineage .kpi .unit{line-height:1.5}
+#lineage .tablewrap a{color:var(--accent);word-break:break-word}
+#lineage .tablewrap td{min-width:0}
+#lineage .tablewrap td:first-child{min-width:180px}
 @media(max-width:1100px){.app{grid-template-columns:195px minmax(0,1fr)}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.two{grid-template-columns:1fr}}
 @media(max-width:720px){.app{display:block}.rail{border-right:0;border-bottom:1px solid var(--line);gap:16px;padding:15px 18px}.railgroup,.railbottom{display:none}nav{display:flex;overflow-x:auto;gap:7px}nav a{padding:8px 10px;white-space:nowrap;border-left:0;border-bottom:2px solid transparent}nav a span{display:none}main{padding:20px 18px 60px}.top{padding-bottom:15px}.hero{padding:38px 0}.source-grid{grid-template-columns:1fr}.foot{flex-direction:column}}
 @media(max-width:430px){.kpis{grid-template-columns:1fr}.filters input,.filters select,.action{width:100%}.sec-head{align-items:flex-start;flex-direction:column}}
@@ -124,7 +129,8 @@ tbody tr[hidden]{display:none}
     <a href="#strategy">Стратегия <span>02</span></a>
     <a href="#scenario">Расчёт <span>03</span></a>
     <a href="#capabilities">Функции <span>04</span></a>
-    <a href="#provenance">Доказательства <span>05</span></a>
+    <a href="#lineage">Цепочка данных <span>05</span></a>
+    <a href="#provenance">Доказательства <span>06</span></a>
   </nav></div>
   <div class="railbottom"><strong>AUTHORITY · HOLD</strong><p>Только чтение. Ни одна функция этой страницы не отправляет торговые заявки.</p></div>
 </aside>
@@ -228,10 +234,10 @@ tbody tr[hidden]{display:none}
       <tr id="cap-ANTI_LOOKAHEAD_RESEARCH" data-state="EXISTING_RESEARCH_CODE"><td><strong>ANTI LOOKAHEAD RESEARCH</strong><small>ANTI_LOOKAHEAD_RESEARCH</small></td><td><span class="tag existing">Исследовательский код</span></td><td><code>P0</code></td><td>Выполнить независимые тесты утечки будущих данных и честную out-of-sample приёмку.<small>Зависимости: нет</small><small>Исходники: tools/historical_portfolio_walk_forward.py, tools/strategy_diagnostics.py</small></td></tr>
       <tr id="cap-BOT_LIFECYCLE_CONSOLE" data-state="PLANNED"><td><strong>BOT LIFECYCLE CONSOLE</strong><small>BOT_LIFECYCLE_CONSOLE</small></td><td><span class="tag planned">Запланировано</span></td><td><code>P1</code></td><td>Сделать безопасный просмотр полного жизненного цикла исследовательских ботов, не включая управление живыми ордерами.<small>Зависимости: <a href="#cap-SIGNED_SIGNAL_RESEARCH"><u>SIGNED_SIGNAL_RESEARCH</u></a></small><small>Исходники: нет</small></td></tr>
       <tr id="cap-CAPABILITY_EVIDENCE_REGISTER" data-state="IMPLEMENTED_PENDING_QUALIFICATION"><td><strong>CAPABILITY EVIDENCE REGISTER</strong><small>CAPABILITY_EVIDENCE_REGISTER</small></td><td><span class="tag pending">Ожидает проверки</span></td><td><code>P0</code></td><td>Пройти точный CI проверки связей, путей, состояний и отсутствия полномочий торговли.<small>Зависимости: нет</small><small>Исходники: tools/research_capability_register.py, tests/test_research_capability_register.py</small></td></tr>
-      <tr id="cap-GRID_DCA_SCENARIO_LAB" data-state="PLANNED"><td><strong>GRID DCA SCENARIO LAB</strong><small>GRID_DCA_SCENARIO_LAB</small></td><td><span class="tag planned">Запланировано</span></td><td><code>P2</code></td><td>Разработать исследовательский GRID/DCA движок с защитой от мартингейла, экспозиции и ложного backtest PnL.<small>Зависимости: <a href="#cap-ANTI_LOOKAHEAD_RESEARCH"><u>ANTI_LOOKAHEAD_RESEARCH</u></a></small><small>Исходники: нет</small></td></tr>
+            <tr id="cap-GRID_DCA_SCENARIO_LAB" data-state="PLANNED"><td><strong>GRID DCA SCENARIO LAB</strong><small>GRID_DCA_SCENARIO_LAB</small></td><td><span class="tag planned">Запланировано</span></td><td><code>P2</code></td><td>Разработать исследовательский GRID/DCA движок с защитой от мартингейла, экспозиции и ложного backtest PnL.<small>Зависимости: <a href="#cap-ANTI_LOOKAHEAD_RESEARCH"><u>ANTI_LOOKAHEAD_RESEARCH</u></a>, <a href="#cap-MARK_PRICE_FUNDING_PROVENANCE"><u>MARK_PRICE_FUNDING_PROVENANCE</u></a></small><small>Исходники: нет</small></td></tr>
       <tr id="cap-MARK_PRICE_FUNDING_PROVENANCE" data-state="BLOCKED_SOURCE"><td><strong>MARK PRICE FUNDING PROVENANCE</strong><small>MARK_PRICE_FUNDING_PROVENANCE</small></td><td><span class="tag blocked">Внешний блокер</span></td><td><code>P0</code></td><td>Получить подлинные Mark Price и независимую сверку settlement; HTTP 403 нельзя объявлять PASS.<small>Зависимости: нет</small><small>Исходники: tools/mark_price_hourly_sensitivity.py, tools/replay_mark_price_hourly_archive.py</small></td></tr>
       <tr id="cap-MULTI_VENUE_ADAPTER_CONFORMANCE" data-state="PLANNED"><td><strong>MULTI VENUE ADAPTER CONFORMANCE</strong><small>MULTI_VENUE_ADAPTER_CONFORMANCE</small></td><td><span class="tag planned">Запланировано</span></td><td><code>P1</code></td><td>Проверить конформность CEX/DEX адаптеров по отдельному read-only контракту.<small>Зависимости: нет</small><small>Исходники: нет</small></td></tr>
-      <tr id="cap-PORTFOLIO_RISK_SCENARIOS" data-state="PLANNED"><td><strong>PORTFOLIO RISK SCENARIOS</strong><small>PORTFOLIO_RISK_SCENARIOS</small></td><td><span class="tag planned">Запланировано</span></td><td><code>P1</code></td><td>Показать влияние комиссий, ликвидности, funding, плеча и корреляции без создания ордеров.<small>Зависимости: <a href="#cap-ACCOUNT_TRUTH_RECONCILIATION"><u>ACCOUNT_TRUTH_RECONCILIATION</u></a></small><small>Исходники: нет</small></td></tr>
+            <tr id="cap-PORTFOLIO_RISK_SCENARIOS" data-state="PLANNED"><td><strong>PORTFOLIO RISK SCENARIOS</strong><small>PORTFOLIO_RISK_SCENARIOS</small></td><td><span class="tag planned">Запланировано</span></td><td><code>P1</code></td><td>Показать влияние комиссий, ликвидности, funding, плеча и корреляции без создания ордеров.<small>Зависимости: <a href="#cap-ACCOUNT_TRUTH_RECONCILIATION"><u>ACCOUNT_TRUTH_RECONCILIATION</u></a>, <a href="#cap-MARK_PRICE_FUNDING_PROVENANCE"><u>MARK_PRICE_FUNDING_PROVENANCE</u></a></small><small>Исходники: нет</small></td></tr>
       <tr id="cap-SIGNED_SIGNAL_RESEARCH" data-state="IMPLEMENTED_PENDING_QUALIFICATION"><td><strong>SIGNED SIGNAL RESEARCH</strong><small>SIGNED_SIGNAL_RESEARCH</small></td><td><span class="tag pending">Ожидает проверки</span></td><td><code>P0</code></td><td>Проверить HMAC, scope, время, дубль, конкурентность, неизменность журналирования и изоляцию от OMS.<small>Зависимости: нет</small><small>Исходники: tools/research_signal_gate.py, tests/test_research_signal_gate.py</small></td></tr>
       <tr id="cap-STATIC_OPERATOR_OVERVIEW" data-state="EXISTING_RESEARCH_CODE"><td><strong>STATIC OPERATOR OVERVIEW</strong><small>STATIC_OPERATOR_OVERVIEW</small></td><td><span class="tag existing">Исследовательский код</span></td><td><code>P1</code></td><td>Подтвердить представление точного статуса текущей сборки и отсутствие ложных индикаторов готовности.<small>Зависимости: нет</small><small>Исходники: tools/status_dashboard.py, docs/status-console.html</small></td></tr>
       <tr id="cap-STRATEGY_VISUAL_BUILDER" data-state="PLANNED"><td><strong>STRATEGY VISUAL BUILDER</strong><small>STRATEGY_VISUAL_BUILDER</small></td><td><span class="tag planned">Запланировано</span></td><td><code>P2</code></td><td>Спроектировать versioned no-code конструктор только для исследовательских экспериментов.<small>Зависимости: <a href="#cap-ANTI_LOOKAHEAD_RESEARCH"><u>ANTI_LOOKAHEAD_RESEARCH</u></a></small><small>Исходники: нет</small></td></tr>
@@ -239,8 +245,62 @@ tbody tr[hidden]{display:none}
     </tbody></table></div>
     <p id="feature-count" role="status" aria-live="polite" class="micro" style="margin-top:12px">Всего функций: 12</p>
   </section>
+
+  <section class="block" id="lineage">
+    <div class="sec-head">
+      <div><div class="eyebrow">05 / Доказательная цепочка</div>
+        <h2>Источник данных → расчёт → готовность функции</h2></div>
+      <div class="count">Перекрёстная сверка сохранённых записей</div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="key">Сопоставленных полей</div>
+        <div class="val positive">13</div>
+        <div class="unit">Статус ↔ архивный указатель, без независимой биржевой проверки</div>
+      </div>
+      <div class="kpi"><div class="key">Исходных документов</div>
+        <div class="val">3</div>
+        <div class="unit">Точные SHA-256 фиксируются в CI-досье</div>
+      </div>
+      <div class="kpi"><div class="key">Недоступных первичных источников</div>
+        <div class="val negative">1</div>
+        <div class="unit">Отсутствие Mark Price не маскируется другим типом котировок</div>
+      </div>
+      <div class="kpi"><div class="key">Зависимых исследовательских функций</div>
+        <div class="val amber">2</div>
+        <div class="unit">Требуют доказательств первичного источника</div>
+      </div>
+    </div>
+    <div class="two">
+      <div class="panel">
+        <header><h3>Подтверждение происхождения</h3><span class="tag existing">SHARED SOURCE</span></header>
+        <dl class="summary-list">
+          <div><dt>Поля исторического указателя</dt><dd>13 / 13</dd></div>
+          <div><dt>Исходный commit архивного результата</dt><dd>e27825c32261</dd></div>
+          <div><dt>Готовность к торговле</dt><dd class="negative">RESEARCH HOLD</dd></div>
+          <div><dt>Подлинный Mark Price</dt><dd class="negative">Не подтверждён</dd></div>
+        </dl>
+        <div class="callout">
+          <strong>СОГЛАСОВАННОСТЬ ≠ НЕЗАВИСИМОЕ ДОКАЗАТЕЛЬСТВО</strong>
+          <p>Исторический статус и evidence-pointer восходят к одному сохранённому результату.
+            Совпадение полей не подтверждает отдельную биржевую выгрузку,
+            точность исполнения или положительный out-of-sample P&amp;L.</p>
+        </div>
+      </div>
+      <div class="panel">
+        <header><h3>Где внешний блокер влияет на функции</h3><span class="micro">Source dependency / P0</span></header>
+        <div class="tablewrap"><table aria-label="Функции, зависящие от подлинных Mark Price">
+          <thead><tr><th>Функция</th><th>Блокирующий источник</th><th>Шагов</th></tr></thead>
+          <tbody>
+<tr><td><a href="#cap-GRID_DCA_SCENARIO_LAB">GRID_DCA_SCENARIO_LAB</a></td><td><a href="#cap-MARK_PRICE_FUNDING_PROVENANCE"><u>MARK_PRICE_FUNDING_PROVENANCE</u></a></td><td class="num">1</td></tr>
+<tr><td><a href="#cap-PORTFOLIO_RISK_SCENARIOS">PORTFOLIO_RISK_SCENARIOS</a></td><td><a href="#cap-MARK_PRICE_FUNDING_PROVENANCE"><u>MARK_PRICE_FUNDING_PROVENANCE</u></a></td><td class="num">1</td></tr>
+          </tbody>
+        </table></div>
+        <p class="micro" style="margin-top:16px">Выберите функцию, чтобы перейти к её критериям приёмки в реестре.</p>
+      </div>
+    </div>
+  </section>
   <section class="block" id="provenance">
-    <div class="sec-head"><div><div class="eyebrow">04 / Контроль происхождения</div><h2>Границы достоверности</h2></div><div class="count">Source of truth</div></div>
+    <div class="sec-head"><div><div class="eyebrow">06 / Контроль происхождения</div><h2>Границы достоверности</h2></div><div class="count">Source of truth</div></div>
     <div class="source-grid">
       <div class="panel"><header><h3>Системные полномочия</h3><span class="tag blocked">DENIED</span></header>
         <p>Внешняя маршрутизация, Demo, mainnet, live и выпуск в production закрыты. Результаты CI не могут изменить полномочия автоматически.</p><code class="file">CURRENT_SYSTEM_STATUS.json</code>

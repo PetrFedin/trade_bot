@@ -107,6 +107,11 @@ tbody tr[hidden]{display:none}
 .scenario-error{color:var(--red);border-left:2px solid var(--red);padding:10px 14px}
 #scenario-results{border-top:1px solid var(--line);margin-top:25px;padding-top:23px}
 .result-number{font:550 33px/1.4 var(--mono);margin:13px 0 19px;font-variant-numeric:tabular-nums}
+.audit-state{font:600 11px var(--mono);letter-spacing:.06em;color:var(--amber)}
+#lineage .kpi .unit{line-height:1.5}
+#lineage .tablewrap a{color:var(--accent);word-break:break-word}
+#lineage .tablewrap td{min-width:0}
+#lineage .tablewrap td:first-child{min-width:180px}
 @media(max-width:1100px){.app{grid-template-columns:195px minmax(0,1fr)}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.two{grid-template-columns:1fr}}
 @media(max-width:720px){.app{display:block}.rail{border-right:0;border-bottom:1px solid var(--line);gap:16px;padding:15px 18px}.railgroup,.railbottom{display:none}nav{display:flex;overflow-x:auto;gap:7px}nav a{padding:8px 10px;white-space:nowrap;border-left:0;border-bottom:2px solid transparent}nav a span{display:none}main{padding:20px 18px 60px}.top{padding-bottom:15px}.hero{padding:38px 0}.source-grid{grid-template-columns:1fr}.foot{flex-direction:column}}
 @media(max-width:430px){.kpis{grid-template-columns:1fr}.filters input,.filters select,.action{width:100%}.sec-head{align-items:flex-start;flex-direction:column}}
@@ -124,7 +129,8 @@ tbody tr[hidden]{display:none}
     <a href="#strategy">Стратегия <span>02</span></a>
     <a href="#scenario">Расчёт <span>03</span></a>
     <a href="#capabilities">Функции <span>04</span></a>
-    <a href="#provenance">Доказательства <span>05</span></a>
+    <a href="#lineage">Цепочка данных <span>05</span></a>
+    <a href="#provenance">Доказательства <span>06</span></a>
   </nav></div>
   <div class="railbottom"><strong>AUTHORITY · HOLD</strong><p>Только чтение. Ни одна функция этой страницы не отправляет торговые заявки.</p></div>
 </aside>
@@ -228,8 +234,61 @@ tbody tr[hidden]{display:none}
     </tbody></table></div>
     <p id="feature-count" role="status" aria-live="polite" class="micro" style="margin-top:12px">Всего функций: @@FEATURE_COUNT@@</p>
   </section>
+
+  <section class="block" id="lineage">
+    <div class="sec-head">
+      <div><div class="eyebrow">05 / Доказательная цепочка</div>
+        <h2>Источник данных → расчёт → готовность функции</h2></div>
+      <div class="count">Перекрёстная сверка сохранённых записей</div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="key">Сопоставленных полей</div>
+        <div class="val positive">@@LINEAGE_FIELDS@@</div>
+        <div class="unit">Статус ↔ архивный указатель, без независимой биржевой проверки</div>
+      </div>
+      <div class="kpi"><div class="key">Исходных документов</div>
+        <div class="val">3</div>
+        <div class="unit">Точные SHA-256 фиксируются в CI-досье</div>
+      </div>
+      <div class="kpi"><div class="key">Недоступных первичных источников</div>
+        <div class="val negative">@@BLOCKED_SOURCES@@</div>
+        <div class="unit">Отсутствие Mark Price не маскируется другим типом котировок</div>
+      </div>
+      <div class="kpi"><div class="key">Зависимых исследовательских функций</div>
+        <div class="val amber">@@DOWNSTREAM_IMPACT@@</div>
+        <div class="unit">Требуют доказательств первичного источника</div>
+      </div>
+    </div>
+    <div class="two">
+      <div class="panel">
+        <header><h3>Подтверждение происхождения</h3><span class="tag existing">SHARED SOURCE</span></header>
+        <dl class="summary-list">
+          <div><dt>Поля исторического указателя</dt><dd>@@LINEAGE_FIELDS@@ / @@LINEAGE_FIELDS@@</dd></div>
+          <div><dt>Исходный commit архивного результата</dt><dd>@@LINEAGE_ORIGIN@@</dd></div>
+          <div><dt>Готовность к торговле</dt><dd class="negative">RESEARCH HOLD</dd></div>
+          <div><dt>Подлинный Mark Price</dt><dd class="negative">Не подтверждён</dd></div>
+        </dl>
+        <div class="callout">
+          <strong>СОГЛАСОВАННОСТЬ ≠ НЕЗАВИСИМОЕ ДОКАЗАТЕЛЬСТВО</strong>
+          <p>Исторический статус и evidence-pointer восходят к одному сохранённому результату.
+            Совпадение полей не подтверждает отдельную биржевую выгрузку,
+            точность исполнения или положительный out-of-sample P&amp;L.</p>
+        </div>
+      </div>
+      <div class="panel">
+        <header><h3>Где внешний блокер влияет на функции</h3><span class="micro">Source dependency / P0</span></header>
+        <div class="tablewrap"><table aria-label="Функции, зависящие от подлинных Mark Price">
+          <thead><tr><th>Функция</th><th>Блокирующий источник</th><th>Шагов</th></tr></thead>
+          <tbody>
+@@LINEAGE_IMPACT_ROWS@@
+          </tbody>
+        </table></div>
+        <p class="micro" style="margin-top:16px">Выберите функцию, чтобы перейти к её критериям приёмки в реестре.</p>
+      </div>
+    </div>
+  </section>
   <section class="block" id="provenance">
-    <div class="sec-head"><div><div class="eyebrow">04 / Контроль происхождения</div><h2>Границы достоверности</h2></div><div class="count">Source of truth</div></div>
+    <div class="sec-head"><div><div class="eyebrow">06 / Контроль происхождения</div><h2>Границы достоверности</h2></div><div class="count">Source of truth</div></div>
     <div class="source-grid">
       <div class="panel"><header><h3>Системные полномочия</h3><span class="tag blocked">DENIED</span></header>
         <p>Внешняя маршрутизация, Demo, mainnet, live и выпуск в production закрыты. Результаты CI не могут изменить полномочия автоматически.</p><code class="file">CURRENT_SYSTEM_STATUS.json</code>
