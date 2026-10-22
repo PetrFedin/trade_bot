@@ -9,8 +9,17 @@ from pathlib import Path
 import pytest
 
 from tools.independent_coin_strategy_lab import (
-    ARMS, BROAD21, COSTS, Candle, StrategyStudyError, _exit_reference,
-    digest, read_candles, run_strategy, signal, study,
+    ARMS,
+    BROAD21,
+    COSTS,
+    Candle,
+    StrategyStudyError,
+    _exit_reference,
+    digest,
+    read_candles,
+    run_strategy,
+    signal,
+    study,
 )
 
 BASE = datetime(2024, 1, 1, tzinfo=UTC)
