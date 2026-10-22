@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import hashlib
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -12,6 +13,7 @@ from tools.historical_execution_journal import (
     JournalError,
     analyze_model,
     build_journal,
+    closed_trade_statistics,
 )
 
 START = datetime(2024, 1, 1, tzinfo=UTC)
@@ -247,3 +249,38 @@ def test_terminal_holding_cannot_reuse_closed_trade_entry_identity():
     }]
     with pytest.raises(JournalError, match="final holding lacks unique"):
         analyze_model(c, "HOURLY_COLLISION_REFINED:UPPER_COST")
+
+
+def test_closed_trade_profile_is_net_of_costs_and_excludes_funding():
+    pnl = [
+        (stamp(0), Decimal("-3"), {"symbol": "BTCUSDT", "entry_time": stamp(0)}),
+        (stamp(1), Decimal("-2"), {"symbol": "ETHUSDT", "entry_time": stamp(1)}),
+        (stamp(2), Decimal("9"), {"symbol": "BTCUSDT", "entry_time": stamp(2)}),
+        (stamp(3), Decimal("0"), {"symbol": "BTCUSDT", "entry_time": stamp(3)}),
+    ]
+    a = closed_trade_statistics(pnl)
+    assert a["closed_trades"] == 4
+    assert a["wins"] == 1 and a["losses"] == 2 and a["breakeven"] == 1
+    assert a["win_rate_pct"] == "25"
+    assert a["gross_positive_closed_trade_net_usd"] == "9"
+    assert a["gross_negative_closed_trade_net_usd"] == "-5"
+    assert a["profit_factor_ex_funding"] == "1.8"
+    assert a["average_closed_trade_net_usd"] == "1"
+    assert a["max_consecutive_losing_closures"] == 2
+    assert a["funding_included"] is False
+
+
+def test_closed_trade_profile_no_transactions_has_undefined_ratios():
+    result = closed_trade_statistics([])
+    assert result["win_rate_pct"] is None
+    assert result["profit_factor_ex_funding"] is None
+    assert result["max_consecutive_losing_closures"] == 0
+
+
+def test_closed_trade_profile_no_losers_is_not_reported_as_infinite_edge():
+    rows = [(stamp(0), Decimal("1"), {
+        "symbol": "BTCUSDT", "entry_time": stamp(0),
+    })]
+    result = closed_trade_statistics(rows)
+    assert result["profit_factor_ex_funding"] is None
+    assert result["average_loss_usd"] is None
