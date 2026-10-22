@@ -9,6 +9,7 @@ on:
       - 'tests/test_research_signal_gate.py'
       - 'tests/test_research_capability_register.py'
       - 'research/competitive_capability_register_v1.json'
+      - 'docs/ASTRA_COMPETITIVE_SIGNAL_TRUST_2026-10-22.md'
       - '.github/workflows/research-signed-signal-contract.yml'
   pull_request:
     branches: [fix/atomic-mark-evidence-publication-20261019]
@@ -18,6 +19,7 @@ on:
       - 'tests/test_research_signal_gate.py'
       - 'tests/test_research_capability_register.py'
       - 'research/competitive_capability_register_v1.json'
+      - 'docs/ASTRA_COMPETITIVE_SIGNAL_TRUST_2026-10-22.md'
       - '.github/workflows/research-signed-signal-contract.yml'
 
 permissions:
