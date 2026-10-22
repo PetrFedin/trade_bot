@@ -9,6 +9,9 @@ on:
       - 'app/execution/market_depth_quote.py'
       - 'tools/depth_execution_research.py'
       - 'tools/independent_coin_strategy_lab.py'
+      - 'tools/execution_quality_console.py'
+      - 'app/platform_assets/execution_quality_terminal.html'
+      - 'tests/test_execution_quality_console.py'
       - 'tests/test_depth_execution_research.py'
       - 'tests/test_independent_coin_strategy_lab.py'
       - 'research/snapshots/bybit_public_depth_observation_20261023.json'
@@ -96,7 +99,8 @@ jobs:
       - name: Check frozen signal causality and source contracts
         run: |
           ruff check tools/independent_coin_strategy_lab.py tests/test_independent_coin_strategy_lab.py
-          pytest -q tests/test_independent_coin_strategy_lab.py
+          ruff check tools/execution_quality_console.py tests/test_execution_quality_console.py
+          pytest -q tests/test_independent_coin_strategy_lab.py tests/test_execution_quality_console.py
       - name: Replay 21 symbols x five fixed variants x two cost policies
         run: |
           mkdir -p candidate-evidence
@@ -154,6 +158,29 @@ jobs:
               assert r["historical_orderbook_depth_observed"] is False
               assert r["actual_execution_capacity_proven"] is False
               assert r["live_trading_allowed"] is False
+          PY
+      - name: Render only when original independent studies can be reproduced
+        run: |
+          python -m tools.depth_execution_research \
+            --source research/snapshots/bybit_public_depth_observation_20261023.json \
+            --output candidate-evidence/current-book-depth-144.json
+          python -m tools.execution_quality_console \
+            --candidate candidate-evidence/coin-210.json \
+            --depth candidate-evidence/current-book-depth-144.json \
+            --book-source research/snapshots/bybit_public_depth_observation_20261023.json \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --output candidate-evidence/execution-quality.html
+          python - <<'PY'
+          from pathlib import Path
+          page = Path("candidate-evidence/execution-quality.html").read_text()
+          assert "NO ORDER AUTHORITY" in page
+          assert "PROFITABILITY_NOT_PROVEN" in page
+          assert '"promotion_allowed":false' in page
+          assert '"visible_depth_is_historical":false' in page
+          assert '"account_mark_settlement_verified":false' in page
+          assert page.count('"return_pct":') == 210
+          assert page.count('"hypothetical_fee_bps":') == 144
+          print("EXECUTION_RESEARCH_HTML_VERIFIED",len(page))
           PY
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
