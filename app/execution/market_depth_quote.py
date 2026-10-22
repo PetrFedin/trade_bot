@@ -6,7 +6,7 @@ A quote estimates an immediate cross of one public snapshot, NOT a fill.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation, ROUND_DOWN
+from decimal import ROUND_DOWN, Decimal, InvalidOperation
 from typing import Any
 
 D = Decimal
