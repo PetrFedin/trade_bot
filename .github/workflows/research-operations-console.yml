@@ -6,7 +6,7 @@ on:
     paths:
       - 'tools/research_analytics.py'
       - 'tools/research_ops_console.py'
-      - 'tools/capture_research_console.py'
+      - 'qa/capture_research_console.py'
       - 'tools/research_ops_console.template.html'
       - 'tests/test_research_analytics.py'
       - 'tests/test_research_ops_console.py'
@@ -19,7 +19,7 @@ on:
     paths:
       - 'tools/research_analytics.py'
       - 'tools/research_ops_console.py'
-      - 'tools/capture_research_console.py'
+      - 'qa/capture_research_console.py'
       - 'tools/research_ops_console.template.html'
       - 'tests/test_research_analytics.py'
       - 'tests/test_research_ops_console.py'
@@ -108,10 +108,10 @@ jobs:
       - name: Render evidence-connected viewports
         run: |
           set -euo pipefail
-          ruff check tools/capture_research_console.py
+          ruff check qa/capture_research_console.py
           mkdir -p research-console-visual
           python -m tools.research_ops_console --write --output research-console-visual/index.html
-          python -m tools.capture_research_console \
+          python qa/capture_research_console.py \
             --html research-console-visual/index.html \
             --output-dir research-console-visual/screenshots
           python - <<'PY'
