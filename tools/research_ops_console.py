@@ -7,6 +7,7 @@ no broker controls, external resources, demo values or unverified live data.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import sys
@@ -14,6 +15,11 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from tools.research_analytics import calculate_research_overview
+from tools.research_evidence_lineage import (
+    _read_strict as read_evidence_source,
+    create_dossier,
+    dependency_impact,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 STATUS_PATH = ROOT / "CURRENT_SYSTEM_STATUS.json"
@@ -93,10 +99,44 @@ def _row(entry: Mapping[str, object]) -> str:
     )
 
 
-def render(status: dict, register: dict, template: str, *, evidence_root: Path) -> str:
+def _lineage_row(item: Mapping[str, object]) -> str:
+    identifier = str(item["capability"])
+    blockers = tuple(item["source_blockers"])
+    references = ", ".join(
+        f'<a href="#cap-{esc(blocker)}"><u>{esc(blocker)}</u></a>'
+        for blocker in blockers
+    )
+    return (
+        f'<tr><td><a href="#cap-{esc(identifier)}">{esc(identifier)}</a></td>'
+        f'<td>{references}</td><td class="num">{esc(item["distance"])}</td></tr>'
+    )
+
+
+def render(
+    status: dict, register: dict, template: str, *,
+    evidence_root: Path, dossier: dict | None = None,
+) -> str:
     overview = calculate_research_overview(status, register, evidence_root=evidence_root)
     counts = overview["counts"]
     state_counts = overview["capability_summary"]["counts_by_state"]
+    impact = dependency_impact(register, root=evidence_root)
+    if dossier is not None:
+        if (
+            dossier.get("decision") != "RESEARCH_HOLD"
+            or dossier.get("trading_authority_allowed") is not False
+            or dossier.get("profitability_proven") is not False
+            or dossier.get("capability_impact") != impact
+            or dossier.get("frozen_pointer", {}).get("value_agreement") is not True
+            or dossier.get("frozen_pointer", {}).get("independent_market_evidence") is not False
+        ):
+            raise ResearchConsoleError("invalid research evidence dossier")
+    pointer_count = (
+        dossier["frozen_pointer"]["compared_fields"] if dossier is not None else "—"
+    )
+    origin_sha = (
+        dossier["frozen_pointer"]["source_repository_sha"][:12]
+        if dossier is not None else "не проверен"
+    )
     data = {
         "QUALIFIED_SHA": overview["main_qualified_sha"][:12],
         "NET_PNL": overview["net_pnl_usdt"],
@@ -123,6 +163,10 @@ def render(status: dict, register: dict, template: str, *, evidence_root: Path) 
         "BLOCKED": state_counts.get("BLOCKED_SOURCE", 0),
         "EVIDENCE_SOURCE": overview["evidence_source"],
         "SCHEMA": overview["schema_version"],
+        "LINEAGE_FIELDS": pointer_count,
+        "LINEAGE_ORIGIN": origin_sha,
+        "BLOCKED_SOURCES": len(impact["blocked_source_roots"]),
+        "DOWNSTREAM_IMPACT": impact["downstream_impact_count"],
     }
     result = template
     for key, value in data.items():
@@ -135,6 +179,14 @@ def render(status: dict, register: dict, template: str, *, evidence_root: Path) 
         raise ResearchConsoleError("missing capability table binding")
     result = result.replace(
         rows_token, "\n".join(_row(entry) for entry in overview["capability_rows"]),
+    )
+    impact_token = "@@LINEAGE_IMPACT_ROWS@@"
+    if impact_token not in result:
+        raise ResearchConsoleError("missing blocked-dependency table binding")
+    result = result.replace(
+        impact_token, "\n".join(
+            _lineage_row(entry) for entry in impact["downstream_blocked_capabilities"]
+        ),
     )
     if "@@" in result:
         raise ResearchConsoleError("unresolved console placeholders")
@@ -153,9 +205,23 @@ def build(
         raise ResearchConsoleError("symlinked template forbidden")
     if not template_path.is_file() or template_path.stat().st_size > 100_000:
         raise ResearchConsoleError("missing or oversized interface template")
+    root = Path(root)
+    status, status_bytes = read_evidence_source(status_path, root)
+    register, register_bytes = read_evidence_source(register_path, root)
+    pointer, pointer_bytes = read_evidence_source(
+        root / "qualification/strategy/bybit_price_only_frozen_negative.json", root,
+    )
+    dossier = create_dossier(
+        status, register, pointer, root=root,
+        source_digests={
+            "status": hashlib.sha256(status_bytes).hexdigest(),
+            "capabilities": hashlib.sha256(register_bytes).hexdigest(),
+            "strategy_pointer": hashlib.sha256(pointer_bytes).hexdigest(),
+        },
+    )
     return render(
-        _read_strict(status_path), _read_strict(register_path),
-        template_path.read_text(encoding="utf-8"), evidence_root=root,
+        status, register, template_path.read_text(encoding="utf-8"),
+        evidence_root=root, dossier=dossier,
     )
 
 
