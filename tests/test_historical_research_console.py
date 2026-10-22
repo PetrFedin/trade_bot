@@ -32,6 +32,7 @@ def test_offline_terminal_is_a_complete_responsive_document(valid_research):
     assert "@media(max-width:620px)" in html
     assert "REUSED_INSPECTED_HISTORY" in html
     assert "NOT FOR ORDER EXECUTION" in html
+    assert 'href="operator-status.html"' in html
     assert "READ ONLY / PROFITABILITY_NOT_PROVEN" in html
     assert "—" in html
     assert "Profit Factor" in html

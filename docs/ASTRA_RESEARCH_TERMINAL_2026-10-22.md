@@ -53,3 +53,12 @@ rather than an invented zero or Infinity. Same-day trade ties sort by symbol
 and must NOT be interpreted as a real venue execution ordering. The model
 has no netting of historical open exposure into trade averages. These are
 retrospective descriptive metrics, not forward expected returns.
+
+## Cross-surface navigation
+
+The offline Action artifact bundles the actual verified generated
+`docs/status-console.html` as `operator-status.html` beside
+`research-terminal.html`. The new terminal navigates to this local
+operator authorization state, explicitly labelled as qualified main
+rather than confusing historical-model evidence with deployment authority.
+The workflow requires `tools/status_dashboard.py --check` before copying it.

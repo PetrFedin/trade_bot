@@ -58,6 +58,11 @@ jobs:
           assert "https://" not in generated
           print("VERIFIED_RESEARCH_ONLY_TERMINAL", obj("journal.json")["journal_sha256"])
           PY
+      - name: Link source-of-truth operator gate in the same offline bundle
+        run: |
+          python tools/status_dashboard.py --check
+          cp docs/status-console.html terminal-evidence/operator-status.html
+          test -s terminal-evidence/operator-status.html
       - name: Upload static terminal and full original audit
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()

@@ -206,6 +206,9 @@ body{margin:0;background:var(--bg);color:var(--text);
 .brand{font-weight:800;letter-spacing:.16em;font-size:15px}
 .scope{color:var(--muted);font:11px var(--mono);letter-spacing:.04em}
 .scope strong{color:var(--loss);font-weight:600}
+.toplinks{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.toplinks a{font:11px var(--mono);color:var(--accent);text-decoration:underline;text-underline-offset:4px}
+.toplinks a:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
 header{padding:33px 0 29px}
 h1{font-size:clamp(27px,3.4vw,42px);line-height:1.13;letter-spacing:-.035em;
   margin:0 0 10px;font-weight:620}
@@ -282,7 +285,9 @@ footer{font:10px var(--mono);color:var(--muted);border-top:1px solid var(--line)
 <div class="shell">
 <div class="topline">
   <div class="brand">ASTRA <span class="scope">/ RESEARCH</span></div>
-  <div class="scope"><strong>NOT FOR ORDER EXECUTION</strong> · Архивная модель · Только чтение</div>
+  <div class="toplinks"><a href="operator-status.html">Контур допуска / main</a>
+    <div class="scope"><strong>NOT FOR ORDER EXECUTION</strong> · Архивная модель · Только чтение</div>
+  </div>
 </div>
 <header>
   <h1>Аналитика торговых решений</h1>
