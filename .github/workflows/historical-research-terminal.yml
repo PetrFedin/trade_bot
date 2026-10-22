@@ -23,6 +23,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
@@ -40,6 +41,7 @@ jobs:
         run: |
           mkdir -p terminal-evidence
           git rev-parse HEAD > terminal-evidence/branch-head.txt
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           python -m tools.daily_funding_cash_replay --output terminal-evidence/baseline.json
           python -m tools.verify_daily_funding_report terminal-evidence/baseline.json --output terminal-evidence/auditor.json
           python -m tools.historical_execution_journal --report terminal-evidence/baseline.json --independent-verifier terminal-evidence/auditor.json --output terminal-evidence/journal.json

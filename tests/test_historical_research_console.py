@@ -30,6 +30,8 @@ def test_offline_terminal_is_a_complete_responsive_document(valid_research):
     assert '<html lang="ru">' in html
     assert "width=device-width" in html
     assert "@media(max-width:620px)" in html
+    assert ".ledger td:nth-child(5)" in html
+    assert ".board,.ledger{grid-template-columns:1fr}" in html
     assert "REUSED_INSPECTED_HISTORY" in html
     assert "NOT FOR ORDER EXECUTION" in html
     assert 'href="operator-status.html"' in html

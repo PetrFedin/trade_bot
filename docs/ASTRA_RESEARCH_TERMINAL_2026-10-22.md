@@ -70,3 +70,14 @@ The Python module performs only verified transformation, security validation
 and immutable publication; Ruff checks all executable Python without disabling
 long-line diagnostics. Client-side JavaScript only switches existing verified
 scenarios, without API calls or order actions.
+
+## Independent visual acceptance and exact source revision
+
+QA on GitHub-generated HTML using Chromium with in-memory markup at 1440,
+768 and 375 px established working 6→21 and 8/5→10/10 scenario switches,
+matched expected historical returns (+12.82%→−13.60%), no script errors,
+no external fetches and no whole-document horizontal overflow. Following
+this review, tablet trade panels stack and mobile trades use accessible
+compact cards with immediately visible P&L rather than horizontal scrolling.
+The GitHub checkout explicitly uses the PR head SHA instead of the default
+synthetic merge SHA; the same SHA must be written to branch-head.txt.
