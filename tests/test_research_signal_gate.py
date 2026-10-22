@@ -15,8 +15,8 @@ import pytest
 from tools.research_signal_gate import (
     SCHEMA,
     SIGN_DOMAIN,
-    ResearchSigner,
     ResearchSignalRejected,
+    ResearchSigner,
     verify_and_record_research_signal,
 )
 
