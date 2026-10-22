@@ -1,0 +1,196 @@
+name: execution-quality-and-independent-coin-lab
+
+on:
+  push:
+    branches: [research/execution-quality-candidates-20261023]
+  pull_request:
+    branches: [research/research-terminal-20261022]
+    paths:
+      - 'app/execution/market_depth_quote.py'
+      - 'tools/depth_execution_research.py'
+      - 'tools/independent_coin_strategy_lab.py'
+      - 'tools/execution_quality_console.py'
+      - 'app/platform_assets/execution_quality_terminal.html'
+      - 'tests/test_execution_quality_console.py'
+      - 'tests/test_depth_execution_research.py'
+      - 'tests/test_independent_coin_strategy_lab.py'
+      - 'research/snapshots/bybit_public_depth_observation_20261023.json'
+      - '.github/workflows/execution-quality-and-independent-coin-lab.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  current-public-depth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Review source, financial arithmetic and negative tests
+        run: |
+          ruff check app/execution/market_depth_quote.py tools/depth_execution_research.py tests/test_depth_execution_research.py
+          pytest -q tests/test_depth_execution_research.py
+      - name: Freeze and evaluate public six-symbol depth
+        run: |
+          mkdir -p depth-evidence
+          git rev-parse HEAD > depth-evidence/exact-head.txt
+          python -m tools.depth_execution_research \
+            --source research/snapshots/bybit_public_depth_observation_20261023.json \
+            --output depth-evidence/visible-depth-144.json
+          python - <<'PY'
+          import json
+          from decimal import Decimal
+          from pathlib import Path
+          r=json.loads(Path("depth-evidence/visible-depth-144.json").read_text())
+          assert r["quotes"]==144 and r["symbol_count"]==6
+          assert r["venue_fills_verified"] is False
+          assert r["fee_tier_verified"] is False
+          assert r["mark_price_settlement_verified"] is False
+          assert r["live_trading_allowed"] is False
+          assert r["profitability_proven"] is False
+          assert (r["displayed_depth_sufficient"]+
+                  r["insufficient_displayed_depth"]+
+                  r["instrument_filter_rejections"])==144
+          for item in r["rows"]:
+              x=item["execution"]
+              assert x["hypothetical_fill_confirmed"] is False
+              if x["status"]=="VISIBLE_DEPTH_SUFFICIENT":
+                  assert Decimal(x["uncovered_qty"])==0
+                  assert Decimal(x["hypothetical_fee_usdt"])>=0
+              else:
+                  assert x.get("full_visible_vwap") is None
+          print("DEPTH_SHA",r["report_sha256"])
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: current-six-public-depth
+          path: depth-evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+  independent-historical-candidates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Check frozen signal causality and source contracts
+        run: |
+          ruff check tools/independent_coin_strategy_lab.py tests/test_independent_coin_strategy_lab.py
+          ruff check tools/execution_quality_console.py tests/test_execution_quality_console.py
+          pytest -q tests/test_independent_coin_strategy_lab.py tests/test_execution_quality_console.py
+      - name: Replay 21 symbols x five fixed variants x two cost policies
+        run: |
+          mkdir -p candidate-evidence
+          git rev-parse HEAD > candidate-evidence/exact-head.txt
+          python -m tools.independent_coin_strategy_lab \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --symbols ADAUSDT APTUSDT ARBUSDT ATOMUSDT AVAXUSDT BNBUSDT BTCUSDT DOGEUSDT DOTUSDT ETHUSDT FILUSDT INJUSDT LINKUSDT LTCUSDT NEARUSDT OPUSDT SOLUSDT SUIUSDT TONUSDT TRXUSDT XRPUSDT \
+            --output candidate-evidence/coin-210.json
+      - name: Independently verify every closed trade and ending cash
+        run: |
+          python - <<'PY'
+          import json
+          from decimal import Decimal as D
+          from pathlib import Path
+          p=json.loads(Path("candidate-evidence/coin-210.json").read_text())
+          assert p["scenario_count"]==210 and p["synchronized_days"]==981
+          assert p["historical_funding_settlement_verified"] is False
+          assert p["historical_orderbook_verified"] is False
+          assert p["multi_coin_portfolio_result"] is False
+          assert p["profitability_proven"] is False
+          assert p["live_trading_allowed"] is False
+          seen=set()
+          for row in p["scenarios"]:
+              key=row["symbol"],row["arm"],row["fee_bps"],row["slip_bps"]
+              assert key not in seen
+              seen.add(key)
+              net=D(0)
+              for deal in row["trade_tape"]:
+                  x=D(deal["net_usdt"])
+                  assert abs(D(deal["gross_usdt"])-
+                             D(deal["slippage_usdt"])-
+                             D(deal["fees_usdt"])-x)<D("0.000001")
+                  net+=x
+              assert abs(net-D(row["closed_trade_net_usdt"]))<D("0.000001")
+              assert abs(D("10000")+net-D(row["ending_equity_usdt"]))<D("0.000001")
+          assert len(seen)==210
+          print("COIN_STUDY_SHA",p["report_sha256"])
+          PY
+      - name: Independently reconstruct six/21 raw daily-volume limitations
+        run: |
+          python -m tools.historical_capacity_raw_volume \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --symbols BNBUSDT BTCUSDT DOGEUSDT ETHUSDT SOLUSDT XRPUSDT \
+            --output candidate-evidence/capacity-six.json
+          python -m tools.historical_capacity_raw_volume \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --symbols ADAUSDT APTUSDT ARBUSDT ATOMUSDT AVAXUSDT BNBUSDT BTCUSDT DOGEUSDT DOTUSDT ETHUSDT FILUSDT INJUSDT LINKUSDT LTCUSDT NEARUSDT OPUSDT SOLUSDT SUIUSDT TONUSDT TRXUSDT XRPUSDT \
+            --output candidate-evidence/capacity-21.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for name,n in [("six",6),("21",21)]:
+              r=json.loads(Path(f"candidate-evidence/capacity-{name}.json").read_text())
+              assert len(r["symbols"])==n
+              assert r["historical_orderbook_depth_observed"] is False
+              assert r["actual_execution_capacity_proven"] is False
+              assert r["live_trading_allowed"] is False
+          PY
+      - name: Render only when original independent studies can be reproduced
+        run: |
+          python -m tools.depth_execution_research \
+            --source research/snapshots/bybit_public_depth_observation_20261023.json \
+            --output candidate-evidence/current-book-depth-144.json
+          python -m tools.execution_quality_console \
+            --candidate candidate-evidence/coin-210.json \
+            --depth candidate-evidence/current-book-depth-144.json \
+            --book-source research/snapshots/bybit_public_depth_observation_20261023.json \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --output candidate-evidence/execution-quality.html
+          python - <<'PY'
+          from pathlib import Path
+          page = Path("candidate-evidence/execution-quality.html").read_text()
+          assert "NO ORDER AUTHORITY" in page
+          assert "PROFITABILITY_NOT_PROVEN" in page
+          assert '"promotion_allowed":false' in page
+          assert '"visible_depth_is_historical":false' in page
+          assert '"account_mark_settlement_verified":false' in page
+          assert page.count('"return_pct":') == 210
+          assert page.count('"hypothetical_fee_bps":') == 144
+          print("EXECUTION_RESEARCH_HTML_VERIFIED",len(page))
+          PY
+      - name: Include verified operator authority surface beside the research view
+        run: |
+          python tools/status_dashboard.py --check
+          cp docs/status-console.html candidate-evidence/operator-status.html
+          test -s candidate-evidence/operator-status.html
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: twentyone-coin-independent-candidates
+          path: candidate-evidence/
+          if-no-files-found: warn
+          retention-days: 30
