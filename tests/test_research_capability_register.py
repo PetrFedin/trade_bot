@@ -134,3 +134,18 @@ def test_unsafe_path_rejected():
 def test_registry_source_is_inside_repository():
     assert isinstance(REGISTRY, Path)
     assert REGISTRY.parent == ROOT / "research"
+
+
+
+def test_unhashable_status_is_rejected_by_schema():
+    data = _case()
+    data["capabilities"][0]["priority"] = []
+    with pytest.raises(CapabilityRegisterError, match="priority"):
+        validate_register(data, ROOT)
+
+
+def test_unhashable_code_path_is_rejected_by_schema():
+    data = _case()
+    data["capabilities"][0]["code_paths"] = [{}]
+    with pytest.raises(CapabilityRegisterError, match="paths"):
+        validate_register(data, ROOT)

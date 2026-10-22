@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import sqlite3
+import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -200,6 +201,7 @@ def test_symlink_journal_and_parent_refused(tmp_path):
 def test_corrupt_journal_fail_closed(tmp_path):
     path = tmp_path / "observations.sqlite3"
     path.write_bytes(b"not a valid sqlite database")
+    path.chmod(0o600)
     with pytest.raises(ResearchSignalRejected, match="journal unavailable"):
         _admit(tmp_path)
     assert path.read_bytes() == b"not a valid sqlite database"
@@ -208,6 +210,7 @@ def test_corrupt_journal_fail_closed(tmp_path):
 def test_journal_writer_contention_fails_without_double_acceptance(tmp_path):
     path = tmp_path / "observations.sqlite3"
     with sqlite3.connect(path) as owner:
+        path.chmod(0o600)
         owner.execute("BEGIN IMMEDIATE")
         with pytest.raises(ResearchSignalRejected, match="journal unavailable"):
             _admit(tmp_path)
@@ -230,3 +233,33 @@ def test_research_gate_cannot_import_broker_oms_or_strategy():
         module.split(".")[0] in {"requests", "httpx", "socket", "websockets"}
         for module in modules
     )
+
+
+
+def test_new_journal_is_private_and_durable(tmp_path):
+    target = tmp_path / "private" / "signals.sqlite3"
+    receipt = _admit(tmp_path, journal=target)
+    assert receipt["decision"] == "RECORDED_RESEARCH_ONLY"
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert stat.S_IMODE(target.parent.stat().st_mode) == 0o700
+    with pytest.raises(ResearchSignalRejected, match="duplicate"):
+        _admit(tmp_path, journal=target)
+
+
+def test_public_readable_journal_is_rejected(tmp_path):
+    path = tmp_path / "observations.sqlite3"
+    path.write_text("do not touch")
+    path.chmod(0o644)
+    with pytest.raises(ResearchSignalRejected, match="permissions"):
+        _admit(tmp_path)
+    assert path.read_text() == "do not touch"
+
+
+def test_group_writable_storage_directory_is_rejected(tmp_path):
+    folder = tmp_path / "unsafe"
+    folder.mkdir()
+    folder.chmod(0o770)
+    path = folder / "signals.sqlite3"
+    with pytest.raises(ResearchSignalRejected, match="not private"):
+        _admit(tmp_path, journal=path)
+    assert not path.exists()

@@ -105,7 +105,12 @@ def validate_register(payload: dict, root: Path) -> dict:
             raise CapabilityRegisterError("duplicate or malformed capability identifier")
         priority = entry["priority"]
         state = entry["state"]
-        if priority not in PRIORITIES or state not in STATES:
+        if (
+            not isinstance(priority, str)
+            or not isinstance(state, str)
+            or priority not in PRIORITIES
+            or state not in STATES
+        ):
             raise CapabilityRegisterError("unknown priority or unsupported readiness claim")
         if entry["trading_authority_allowed"] is not False:
             raise CapabilityRegisterError("feature cannot grant trading authority")
@@ -119,6 +124,9 @@ def validate_register(payload: dict, root: Path) -> dict:
             not isinstance(paths, list)
             or not isinstance(references, list)
             or not isinstance(dependencies, list)
+            or any(not isinstance(item, str) for item in paths)
+            or any(not isinstance(item, str) for item in references)
+            or any(not isinstance(item, str) for item in dependencies)
             or len(paths) != len(set(paths))
             or len(references) != len(set(references))
             or len(dependencies) != len(set(dependencies))
@@ -185,6 +193,8 @@ def read_validate_register(path: Path = REGISTRY, root: Path = ROOT) -> dict:
         raise CapabilityRegisterError("missing or untrusted capability manifest")
     try:
         payload = json.loads(path.read_bytes(), object_pairs_hook=_json_unique)
+    except CapabilityRegisterError:
+        raise
     except (UnicodeError, ValueError) as exc:
         raise CapabilityRegisterError("invalid capability register JSON") from exc
     return validate_register(payload, root)

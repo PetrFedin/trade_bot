@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import re
 import sqlite3
 import stat
@@ -138,7 +139,43 @@ def _journal_path(path: Path) -> Path:
         info = path.stat()
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
             raise ResearchSignalRejected("unsafe research replay journal inode")
+        if stat.S_IMODE(info.st_mode) & 0o077:
+            raise ResearchSignalRejected("insecure research replay journal permissions")
     return path
+
+
+def _prepare_private_journal(path: Path) -> None:
+    """Require an operator-owned private directory and a non-symlinked 0600 DB."""
+    parent = path.parent
+    try:
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        info = parent.stat()
+        if (
+            parent.is_symlink()
+            or not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) & 0o077
+        ):
+            raise ResearchSignalRejected("research replay directory is not private")
+        try:
+            descriptor = os.open(
+                path, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600,
+            )
+        except FileExistsError:
+            _journal_path(path)
+        else:
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            parent_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(parent_fd)
+            finally:
+                os.close(parent_fd)
+        _journal_path(path)
+    except OSError as exc:
+        raise ResearchSignalRejected("research replay journal preparation failed") from exc
 
 
 def verify_and_record_research_signal(
@@ -184,7 +221,7 @@ def verify_and_record_research_signal(
     payload_sha256 = hashlib.sha256(raw_body).hexdigest()
     received = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
-        journal_path.parent.mkdir(parents=True, exist_ok=True)
+        _prepare_private_journal(journal_path)
         # The dedicated journal is not a trading ledger. SQLite's UNIQUE index
         # and BEGIN IMMEDIATE make independent competing writers serialize.
         connection = sqlite3.connect(
