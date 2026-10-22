@@ -12,8 +12,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -313,20 +315,48 @@ def _serialized(dossier: dict) -> str:
     return json.dumps(dossier, sort_keys=True, ensure_ascii=False, indent=2) + "\n"
 
 
+def _publish_dossier(path: Path, data: str) -> None:
+    """Commit a complete local dossier and directory entry or fail closed."""
+    if any(part.is_symlink() for part in (path, *path.parents)):
+        raise EvidenceLineageError("symlinked dossier destination forbidden")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, staged = tempfile.mkstemp(prefix=".astra-lineage-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(staged, path)
+        directory_fd = os.open(
+            path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+        )
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if os.path.exists(staged):
+            os.unlink(staged)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--emit", type=Path, required=True)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
-    data = _serialized(build())
-    args.emit.parent.mkdir(parents=True, exist_ok=True)
+    dossier = build()
+    data = _serialized(dossier)
     if args.check:
-        if not args.emit.is_file() or args.emit.read_text(encoding="utf-8") != data:
+        if (
+            args.emit.is_symlink()
+            or not args.emit.is_file()
+            or args.emit.read_text(encoding="utf-8") != data
+        ):
             print("ASTRA_EVIDENCE_DOSSIER_DRIFT", file=sys.stderr)
             return 1
     else:
-        args.emit.write_text(data, encoding="utf-8")
-    print("ASTRA_EVIDENCE_DOSSIER_HOLD", build()["dossier_sha256"])
+        _publish_dossier(args.emit, data)
+    print("ASTRA_EVIDENCE_DOSSIER_HOLD", dossier["dossier_sha256"])
     return 0
 
 
