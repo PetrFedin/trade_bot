@@ -7,6 +7,14 @@ on:
       - 'tools/research_evidence_lineage.py'
       - 'tests/test_research_evidence_lineage.py'
       - 'research/competitive_capability_register_v1.json'
+      - 'tools/research_ops_console.py'
+      - 'tools/research_ops_console.template.html'
+      - 'docs/research-ops-console.html'
+      - 'tests/test_research_ops_console.py'
+      - 'qa/capture_research_console.py'
+      - 'tests/research_ops_console_browser.test.cjs'
+      - 'CURRENT_SYSTEM_STATUS.json'
+      - 'qualification/strategy/bybit_price_only_frozen_negative.json'
       - '.github/workflows/research-evidence-lineage.yml'
   pull_request:
     branches: [feat/research-ops-console-20261022]
@@ -14,6 +22,14 @@ on:
       - 'tools/research_evidence_lineage.py'
       - 'tests/test_research_evidence_lineage.py'
       - 'research/competitive_capability_register_v1.json'
+      - 'tools/research_ops_console.py'
+      - 'tools/research_ops_console.template.html'
+      - 'docs/research-ops-console.html'
+      - 'tests/test_research_ops_console.py'
+      - 'qa/capture_research_console.py'
+      - 'tests/research_ops_console_browser.test.cjs'
+      - 'CURRENT_SYSTEM_STATUS.json'
+      - 'qualification/strategy/bybit_price_only_frozen_negative.json'
       - '.github/workflows/research-evidence-lineage.yml'
 
 permissions:
@@ -43,8 +59,10 @@ jobs:
       - name: Verify evidence graph, provenance and status contracts
         run: |
           set -euo pipefail
-          ruff check tools/research_evidence_lineage.py tests/test_research_evidence_lineage.py
-          pytest -q tests/test_research_evidence_lineage.py tests/test_research_analytics.py tests/test_research_capability_register.py
+          ruff check tools/research_evidence_lineage.py tests/test_research_evidence_lineage.py tools/research_ops_console.py tests/test_research_ops_console.py
+          pytest -q tests/test_research_evidence_lineage.py tests/test_research_analytics.py tests/test_research_capability_register.py tests/test_research_ops_console.py
+          node --test tests/research_ops_console_browser.test.cjs
+          python -m tools.research_ops_console --check
           mkdir -p research-evidence
           python -m tools.research_evidence_lineage --emit research-evidence/dossier.json
           python -m tools.research_evidence_lineage --emit research-evidence/dossier.json --check
@@ -66,5 +84,51 @@ jobs:
         with:
           name: astra-evidence-lineage-${{ github.run_id }}
           path: research-evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+  viewport-and-evidence-screenshot:
+    needs: verify-research-lineage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install pinned screenshots dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Capture screenshot evidence and horizontal overflow contract
+        run: |
+          set -euo pipefail
+          ruff check qa/capture_research_console.py
+          mkdir -p research-visual
+          python -m tools.research_ops_console --write --output research-visual/index.html
+          python qa/capture_research_console.py \
+            --html research-visual/index.html --output-dir research-visual/screenshots
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          root=Path("research-visual/screenshots")
+          receipt=json.loads((root/"visual-evidence.json").read_text())
+          assert len(receipt["screenshots"]) == 6
+          assert receipt["trading_authority_allowed"] is False
+          assert receipt["profitability_proven"] is False
+          for name, entry in receipt["screenshots"].items():
+              assert hashlib.sha256((root/name).read_bytes()).hexdigest() == entry["sha256"]
+          print("ASTRA_LINEAGE_VISUAL_375_768_1440", len(receipt["screenshots"]))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: astra-lineage-visual-${{ github.run_id }}
+          path: research-visual/
           if-no-files-found: warn
           retention-days: 30
