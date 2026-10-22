@@ -1,0 +1,68 @@
+name: historical-research-terminal
+
+on:
+  push:
+    branches: [research/research-terminal-20261022]
+  pull_request:
+    branches: [research/causal-replay-audit-20261020]
+    paths:
+      - 'tools/historical_research_console.py'
+      - 'tests/test_historical_research_console.py'
+      - '.github/workflows/historical-research-terminal.yml'
+      - 'docs/ASTRA_RESEARCH_TERMINAL_2026-10-22.md'
+
+permissions:
+  contents: read
+
+jobs:
+  research-terminal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install pinned dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Static code and adversarial read-only UI tests
+        run: |
+          ruff check tools/historical_research_console.py tests/test_historical_research_console.py
+          pytest -q tests/test_historical_research_console.py tests/test_historical_execution_journal.py tests/test_publish_research_receipt.py
+      - name: Recompute full 36-model genuine historical money evidence
+        run: |
+          mkdir -p terminal-evidence
+          git rev-parse HEAD > terminal-evidence/branch-head.txt
+          python -m tools.daily_funding_cash_replay --output terminal-evidence/baseline.json
+          python -m tools.verify_daily_funding_report terminal-evidence/baseline.json --output terminal-evidence/auditor.json
+          python -m tools.historical_execution_journal --report terminal-evidence/baseline.json --independent-verifier terminal-evidence/auditor.json --output terminal-evidence/journal.json
+      - name: Generate and verify offline terminal from admitted evidence
+        run: |
+          python -m tools.historical_research_console --journal terminal-evidence/journal.json --source-report terminal-evidence/baseline.json --independent-verifier terminal-evidence/auditor.json --output terminal-evidence/research-terminal.html
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from tools.historical_research_console import render
+          root = Path("terminal-evidence")
+          obj = lambda p: json.loads((root / p).read_text(encoding="utf-8"))
+          generated = (root / "research-terminal.html").read_text(encoding="utf-8")
+          assert generated == render(obj("journal.json"), obj("baseline.json"), obj("auditor.json"))
+          assert '"trading_allowed":false' in generated
+          assert "PROFITABILITY_NOT_PROVEN" in generated
+          assert "https://" not in generated
+          print("VERIFIED_RESEARCH_ONLY_TERMINAL", obj("journal.json")["journal_sha256"])
+          PY
+      - name: Upload static terminal and full original audit
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: astra-historical-research-terminal
+          path: terminal-evidence/
+          if-no-files-found: warn
+          retention-days: 30
