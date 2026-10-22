@@ -72,6 +72,17 @@ header{padding:26px 0}.metrics{margin-bottom:22px}
 .summary{gap:12px 17px;padding:13px}
 th,td{padding:10px 9px}.tablewrap{max-width:100%}
 .group{margin-top:32px}}
+@media(max-width:580px){
+.tablewrap table,.tablewrap tbody{display:block;width:100%}
+.tablewrap thead{display:none}
+.tablewrap tr{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;
+padding:12px;border-bottom:1px solid var(--line)}
+.tablewrap td{display:block;border:0;padding:2px 0;
+text-align:left!important;white-space:normal;overflow-wrap:anywhere}
+.tablewrap td:first-child{grid-column:1/-1;font-weight:700}
+.tablewrap td:not(:first-child)::before{content:attr(data-label);display:block;
+font:10px var(--mono);color:var(--muted);margin-bottom:2px}
+}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 </style></head><body><main>
 <div class="top"><div class="brand">ASTRA <span class="mono">/ EXECUTION RESEARCH</span></div>
@@ -178,7 +189,14 @@ minimumFractionDigits:d,maximumFractionDigits:d}).format(n(v));
 const signed=v=>(n(v)>0?"+":"")+fmt(v)+"%";
 const six=new Set(["BNBUSDT","BTCUSDT","DOGEUSDT","ETHUSDT","SOLUSDT","XRPUSDT"]);
 function cell(row,value,cls){
+const headings={
+coin:["Инструмент","Закрытых сделок","Прибыльных","Доходность",
+"Максимальная просадка","К удержанию, п.п."],
+depth:["Инструмент","Видимая глубина","Требуется","Недостаток",
+"VWAP","От средней цены, б.п.","Условная комиссия"]
+};
 const el=document.createElement("td");el.textContent=String(value);
+el.setAttribute("data-label",(headings[row.dataset.type]||[])[row.children.length]||"");
 if(cls)el.className=cls;row.appendChild(el);return el;
 }
 function semantic(el,value){
@@ -198,7 +216,7 @@ if(!rows.length){throw Error("Missing admitted historical model");}
 let sum=0,pos=0,worst=Infinity;
 for(const item of rows){
 const ret=n(item.return_pct);sum+=ret;pos+=ret>0?1:0;worst=Math.min(worst,ret);
-const row=document.createElement("tr");
+const row=document.createElement("tr");row.dataset.type="coin";
 cell(row,item.symbol,"symbol");
 cell(row,item.closed_trades,"right");cell(row,item.wins,"right");
 semantic(cell(row,signed(ret),"right"),ret);
@@ -227,7 +245,7 @@ const parent=byId("depth-rows");parent.replaceChildren();
 if(rows.length!==6)throw Error("Unqualified incomplete depth matrix");
 for(const item of rows){
 const x=item.execution,ok=x.status==="VISIBLE_DEPTH_SUFFICIENT";
-const row=document.createElement("tr");
+const row=document.createElement("tr");row.dataset.type="depth";
 cell(row,x.symbol,"symbol");
 const state=cell(row,ok?"ВИДИМЫХ УРОВНЕЙ ХВАТАЕТ":
 "НЕДОСТАТОЧНО ВИДИМОЙ ГЛУБИНЫ","status "+(ok?"good":"bad"));
