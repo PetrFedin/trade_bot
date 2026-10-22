@@ -7,6 +7,7 @@ on:
     branches: [research/causal-replay-audit-20261020]
     paths:
       - 'tools/historical_research_console.py'
+      - 'app/platform_assets/historical_research_terminal.html'
       - 'tests/test_historical_research_console.py'
       - '.github/workflows/historical-research-terminal.yml'
       - 'docs/ASTRA_RESEARCH_TERMINAL_2026-10-22.md'

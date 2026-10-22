@@ -62,3 +62,11 @@ The offline Action artifact bundles the actual verified generated
 operator authorization state, explicitly labelled as qualified main
 rather than confusing historical-model evidence with deployment authority.
 The workflow requires `tools/status_dashboard.py --check` before copying it.
+
+## Template separation
+
+The responsive static markup lives in `app/platform_assets/historical_research_terminal.html`.
+The Python module performs only verified transformation, security validation
+and immutable publication; Ruff checks all executable Python without disabling
+long-line diagnostics. Client-side JavaScript only switches existing verified
+scenarios, without API calls or order actions.
