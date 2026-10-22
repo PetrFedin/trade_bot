@@ -7,6 +7,7 @@ import json
 
 import pytest
 
+from tools import research_evidence_lineage as lineage
 from tools import research_ops_console as console
 
 STATUS = json.loads(console.STATUS_PATH.read_text())
@@ -120,3 +121,53 @@ def test_no_hidden_demo_symbols_or_lorem_ipsum_copy():
     assert "sample returns" not in html
     assert "guaranteed profit" not in html
     assert "demo balance" not in html
+
+
+
+def test_provenance_panel_contains_source_agreement_and_dependency_holds():
+    page = console.build()
+    assert 'id="lineage"' in page
+    assert 'href="#lineage"' in page
+    assert "13 / 13" in page
+    assert lineage.build()["frozen_pointer"]["source_repository_sha"][:12] in page
+    assert "СОГЛАСОВАННОСТЬ ≠ НЕЗАВИСИМОЕ ДОКАЗАТЕЛЬСТВО" in page
+    assert "GRID_DCA_SCENARIO_LAB" in page
+    assert "PORTFOLIO_RISK_SCENARIOS" in page
+    assert 'href="#cap-MARK_PRICE_FUNDING_PROVENANCE"' in page
+    assert page.count('class="num">1</td></tr>') >= 2
+    assert "RESEARCH HOLD" in page
+
+
+def test_mismatched_pointer_refuses_generated_console(monkeypatch):
+    previous = console.read_evidence_source
+
+    def changed_pointer(path, root):
+        document, raw = previous(path, root)
+        if path.name == "bybit_price_only_frozen_negative.json":
+            document = copy.deepcopy(document)
+            document["net_pnl_usdt"] = "99999.99"
+            raw = json.dumps(document).encode("utf-8")
+        return document, raw
+
+    monkeypatch.setattr(console, "read_evidence_source", changed_pointer)
+    with pytest.raises(lineage.EvidenceLineageError, match="disagrees"):
+        console.build()
+
+
+def test_source_sha_held_in_memory_must_match_rendered_authority():
+    dossier = lineage.build()
+    changed = copy.deepcopy(dossier)
+    changed["trading_authority_allowed"] = True
+    with pytest.raises(console.ResearchConsoleError, match="invalid research evidence dossier"):
+        console.render(
+            STATUS, REGISTER, TEMPLATE, evidence_root=console.ROOT,
+            dossier=changed,
+        )
+
+
+def test_registry_blocker_can_never_be_rendered_as_commercially_ready():
+    page = console.build()
+    assert "Недоступных первичных источников" in page
+    assert "Отсутствие Mark Price не маскируется" in page
+    assert "не подтверждает отдельную биржевую выгрузку" in page
+    assert "не подтверждает отдельную биржевую выгрузку" in page.lower()
