@@ -159,3 +159,18 @@ def test_unsupported_money_inputs_fail_closed(overrides):
     base.update(overrides)
     with pytest.raises(ResearchAnalyticsError):
         calculate_cash_scenarios(CashScenarioFacts(**base))
+
+
+def test_half_even_precision_only_rounds_after_full_basis_point_multiplication():
+    above_tie = calculate_cash_scenarios(CashScenarioFacts(
+        gross_pnl_usdt="0", turnover_notional_usdt="10.00000001",
+        fees_paid_usdt="0", slippage_paid_usdt="0", funding_debit_usdt="0",
+    ))
+    exact_tie = calculate_cash_scenarios(CashScenarioFacts(
+        gross_pnl_usdt="0", turnover_notional_usdt="10",
+        fees_paid_usdt="0", slippage_paid_usdt="0", funding_debit_usdt="0",
+    ))
+    assert above_tie["rows"][1]["additional_cost_usdt"] == "0.01"
+    assert above_tie["rows"][1]["modeled_net_usdt"] == "-0.01"
+    assert exact_tie["rows"][1]["additional_cost_usdt"] == "0.00"
+    assert exact_tie["rows"][1]["modeled_net_usdt"] == "0.00"
