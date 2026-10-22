@@ -312,17 +312,19 @@ tbody tr[hidden]{display:none}
     const units=BigInt(pieces[0])*SCALE+BigInt((pieces[1]||"").padEnd(8,"0"));
     return negative?-units:units;
   }
-  function moneyString(value){
+  function moneyStringFraction(value,denominator){
     const negative=value<0n;
     const magnitude=negative?-value:value;
-    let cents=magnitude/CENT_SCALE;
-    const remainder=magnitude%CENT_SCALE;
-    if(remainder*2n>CENT_SCALE || (remainder*2n===CENT_SCALE && cents%2n===1n)){
+    const unit=CENT_SCALE*denominator;
+    let cents=magnitude/unit;
+    const remainder=magnitude%unit;
+    if(remainder*2n>unit || (remainder*2n===unit && cents%2n===1n)){
       cents+=1n;
     }
     return (negative&&cents!==0n?"-":"")+(cents/100n).toString()+"."+
       (cents%100n).toString().padStart(2,"0");
   }
+  function moneyString(value){return moneyStringFraction(value,1n)}
   scenarioForm.addEventListener("submit",function(event){
     event.preventDefault();
     scenarioResults.hidden=true;
@@ -345,9 +347,13 @@ tbody tr[hidden]{display:none}
         moneyString(base)+" USDT / модельный Net P&L";
       scenarioRows.replaceChildren();
       [0,5,10,25].forEach(function(bps){
-        const extra=values.turnover*BigInt(bps)/10000n;
+        const extraNumerator=values.turnover*BigInt(bps);
         const row=document.createElement("tr");
-        [bps+" bps",moneyString(extra)+" USDT",moneyString(base-extra)+" USDT"].forEach(function(text){
+        [
+          bps+" bps",
+          moneyStringFraction(extraNumerator,10000n)+" USDT",
+          moneyStringFraction(base*10000n-extraNumerator,10000n)+" USDT"
+        ].forEach(function(text){
           const cell=document.createElement("td");
           cell.textContent=text;
           row.appendChild(cell);
