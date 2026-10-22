@@ -6,7 +6,11 @@ import copy
 import pytest
 
 from app.execution.market_depth_quote import (
-    DepthSnapshot, InstrumentRules, QuoteRejected, dec, quote_market_cross,
+    DepthSnapshot,
+    InstrumentRules,
+    QuoteRejected,
+    dec,
+    quote_market_cross,
 )
 from tools.depth_execution_research import SIX, build_depth_stress, hash_value
 
