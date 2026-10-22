@@ -70,7 +70,7 @@ def test_any_source_escape_stays_text_not_html():
     status = copy.deepcopy(STATUS)
     status["strategy"]["evidence_source"] = '<img src=x onerror="alert(1)">'
     register = copy.deepcopy(REGISTER)
-    register["capabilities"][0]["acceptance_gate"] = '<svg onload="alert(1)">'
+    register["capabilities"][0]["acceptance_gate"] += ' <svg onload="alert(1)">'
     html = console.render(status, register, TEMPLATE, evidence_root=console.ROOT)
     assert '<img src=x' not in html
     assert '<svg onload=' not in html

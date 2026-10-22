@@ -49,7 +49,8 @@ def exact_decimal(value: object, *, label: str) -> Decimal:
 
 
 def _round(value: Decimal) -> str:
-    return format(value.quantize(CENT, rounding=ROUND_HALF_EVEN), ".2f")
+    rounded = value.quantize(CENT, rounding=ROUND_HALF_EVEN)
+    return "0.00" if rounded == 0 else format(rounded, ".2f")
 
 
 def _percent(numerator: int, denominator: int) -> str:
