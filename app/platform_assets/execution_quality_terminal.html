@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><title>ASTRA / Execution Research</title>
+<style>
+:root{--bg:#0b1217;--surface:#131e25;--surface2:#17242c;--line:#293a44;
+--text:#e5ecef;--muted:#9cacb6;--accent:#8cc5bf;--gain:#83ceb1;--loss:#edaaa0;
+--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);
+font:14px/1.52 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
+main{max-width:1440px;margin:auto;padding:24px clamp(16px,4vw,54px) 60px}
+.top{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid
+var(--line);padding:8px 0 17px;gap:14px;flex-wrap:wrap}
+.brand{font-weight:800;letter-spacing:.15em;font-size:15px}
+.mono{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.deny{color:var(--loss)}.muted{color:var(--muted)}
+header{padding:32px 0 31px}
+h1{font-size:clamp(29px,3.5vw,42px);letter-spacing:-.036em;line-height:1.12;
+font-weight:650;max-width:810px;margin:0 0 12px}
+header p{margin:0;max-width:850px;color:var(--muted)}
+.eyebrow{color:var(--accent);text-transform:uppercase;font:11px var(--mono);
+letter-spacing:.09em;margin-bottom:13px}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;
+background:var(--line);border:1px solid var(--line);margin-bottom:30px}
+.metric{background:var(--surface);padding:21px 19px;min-width:0}
+.metric .value{font-size:clamp(21px,2.5vw,34px);font-variant-numeric:tabular-nums;
+font-weight:570;line-height:1.2;margin-bottom:7px}
+.metric .label{font:11px var(--mono);color:var(--muted)}
+.group{margin-top:38px}
+.heading{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:13px;margin-bottom:18px}
+h2{font-size:18px;font-weight:630;margin:0;letter-spacing:-.014em}
+.heading span{color:var(--muted);font:11px var(--mono)}
+.section-note{color:var(--muted);font-size:12px;max-width:1000px;margin:0 0 20px}
+.controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.control label{color:var(--muted);display:block;margin-bottom:7px;font:11px var(--mono)}
+select{width:100%;min-height:44px;padding:10px 12px;background:var(--surface);
+border:1px solid #435663;border-radius:2px;color:var(--text);font:13px inherit}
+select:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.summary{display:flex;gap:9px 22px;flex-wrap:wrap;background:var(--surface);
+border:1px solid var(--line);padding:14px 18px;margin-bottom:16px}
+.summary .element{display:flex;gap:9px;align-items:baseline}
+.summary b{font-size:17px;font-weight:580;font-variant-numeric:tabular-nums}
+.summary small{font:11px var(--mono);color:var(--muted)}
+.tablewrap{background:var(--surface);border:1px solid var(--line);overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;color:var(--muted);background:var(--surface2);font:10px var(--mono);
+letter-spacing:.05em;text-transform:uppercase;font-weight:500;white-space:nowrap}
+th,td{padding:12px 14px;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}.right{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.good{color:var(--gain)}.bad{color:var(--loss)}.na{color:var(--muted)}
+.symbol{font-weight:600;letter-spacing:.025em}
+.status{font:10px var(--mono);letter-spacing:.025em}
+.footnote{margin-top:11px;font-size:12px;color:var(--muted)}
+.risks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.risk{border-top:2px solid var(--loss);background:var(--surface);padding:17px 17px 20px}
+.risk h3{font-size:14px;margin:0 0 8px;font-weight:640}
+.risk p{color:var(--muted);font-size:12px;margin:0;line-height:1.65}
+.source{margin-top:36px;padding:17px 0;border-top:1px solid var(--line);
+font:10.5px/1.9 var(--mono);color:var(--muted);overflow-wrap:anywhere}
+.source b{color:var(--accent);font-weight:400}
+footer{border-top:1px solid var(--line);margin-top:20px;padding-top:13px;
+font:10px var(--mono);color:var(--muted);display:flex;flex-wrap:wrap;
+justify-content:space-between;gap:16px}
+@media(max-width:880px){.metrics{grid-template-columns:repeat(2,1fr)}
+.risks{grid-template-columns:1fr}.controls{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:550px){main{padding:16px 13px 36px}
+header{padding:26px 0}.metrics{margin-bottom:22px}
+.metric{padding:15px 12px}.metric .value{font-size:23px}
+.controls{grid-template-columns:1fr 1fr;gap:9px}
+.summary{gap:12px 17px;padding:13px}
+th,td{padding:10px 9px}.tablewrap{max-width:100%}
+.group{margin-top:32px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style></head><body><main>
+<div class="top"><div class="brand">ASTRA <span class="mono">/ EXECUTION RESEARCH</span></div>
+<div class="mono"><span class="deny">NO ORDER AUTHORITY</span> / ИСТОРИЧЕСКИЕ ИССЛЕДОВАНИЯ</div></div>
+<header><div class="eyebrow">Воспроизводимая аналитика</div>
+<h1>Качество исполнения и поведение стратегий</h1>
+<p>Раздельная оценка фиксированных торговых правил на исторических свечах и видимой
+ликвидности по одному публичному снимку Bybit. Здесь нет реальных сделок,
+фактической доходности или прогноза.</p></header>
+<div class="metrics">
+<div class="metric"><div class="value">210</div><div class="label">исторических сценариев</div></div>
+<div class="metric"><div class="value">21</div><div class="label">монета / отдельные модельные счета</div></div>
+<div class="metric"><div class="value">144</div><div class="label">оценки текущей видимой глубины</div></div>
+<div class="metric"><div class="value deny">0</div><div class="label">подтверждённых исполнений</div></div>
+</div>
+<section class="group" aria-labelledby="strategies-heading">
+<div class="heading"><h2 id="strategies-heading">01 / Исторические торговые правила</h2>
+<span>__HISTORY_START__ — __HISTORY_END__ · DAILY OHLCV</span></div>
+<p class="section-note">Каждая монета моделируется отдельно со стартовыми $10 000
+и 29% размещением средств. Сигнал по закрытию дня, вход по открытию следующего.
+В случае касания стопа и цели внутри одной свечи применяется защитный стоп.
+Исторические funding и стакан не восстановлены.</p>
+<div class="controls">
+<div class="control"><label for="arm">Алгоритм входа</label><select id="arm">
+<option value="BREAKOUT">Пробой максимума</option>
+<option value="IMPULSE">Вход после импульса</option>
+<option value="TREND_PULLBACK">Откат в тренде</option>
+<option value="MEAN_REVERSION">Возврат к среднему</option>
+<option value="BUY_HOLD_29PC">Контроль: удержание 29%</option></select></div>
+<div class="control"><label for="universe">Исследовательская вселенная</label>
+<select id="universe"><option value="six">6 основных монет</option>
+<option value="all">21 монета</option></select></div>
+<div class="control"><label for="history-cost">Комиссия / проскальзывание, б.п. за сторону</label>
+<select id="history-cost"><option value="8|5">8 / 5</option><option value="10|10">10 / 10</option>
+</select></div></div>
+<div class="summary" aria-live="polite">
+<div class="element"><b id="average">—</b><small>средняя доходность независимых счетов</small></div>
+<div class="element"><b id="positive">—</b><small>прибыльных монет</small></div>
+<div class="element"><b id="worst">—</b><small>минимальная доходность</small></div></div>
+<div class="tablewrap"><table><thead><tr><th>Монета</th>
+<th class="right">Сделок</th><th class="right">Прибыльных</th>
+<th class="right">Доходность</th><th class="right">Просадка</th>
+<th class="right">Против удержания, п.п.</th></tr></thead><tbody id="coin-rows"></tbody>
+</table></div>
+<p class="footnote">Среднее — не доходность единого портфеля. Разница с удержанием
+не означает реализуемую дополнительную прибыль.</p>
+</section>
+<section class="group" aria-labelledby="depth-heading">
+<div class="heading"><h2 id="depth-heading">02 / Видимая ликвидность Bybit</h2>
+<span>СНИМОК __BOOK_DATE__ UTC · 10 УРОВНЕЙ</span></div>
+<p class="section-note">Оценка гипотетического пересечения публичного стакана
+для заявки размером 29% выбранного капитала. Снимок 2026 года не используется
+в исторических сделках 2023–2026 годов. Видимая глубина не гарантирует исполнения.</p>
+<div class="controls">
+<div class="control"><label for="capital">Гипотетический капитал, USDT</label>
+<select id="capital"><option value="10000">10 000</option>
+<option value="100000">100 000</option><option value="1000000">1 000 000</option></select></div>
+<div class="control"><label for="side">Направление</label>
+<select id="side"><option value="BUY">BUY / покупка</option>
+<option value="SELL">SELL / продажа</option></select></div>
+<div class="control"><label for="book-cost">Гипотетическая комиссия</label>
+<select id="book-cost"><option value="8">8 б.п.</option>
+<option value="10">10 б.п.</option></select></div>
+<div class="control"><label for="haircut">Стресс доступного объёма</label>
+<select id="haircut"><option value="0">100% видимых уровней</option>
+<option value="0.5">50% видимых уровней</option></select></div></div>
+<div class="tablewrap"><table><thead><tr><th>Монета</th><th>Видимая глубина</th>
+<th class="right">Монет требуется</th><th class="right">Недостаток</th>
+<th class="right">VWAP*</th><th class="right">От mid, б.п.</th>
+<th class="right">Комиссия, USDT*</th></tr></thead>
+<tbody id="depth-rows"></tbody></table></div>
+<p class="footnote">*Только при достаточности показанных уровней. Недостаточная
+глубина означает отказ от расчёта цены «исполнения», а не частичную или
+фактическую сделку. Реальный тариф счёта не подтверждён.</p></section>
+<section class="group"><div class="heading"><h2>03 / Границы доказательств</h2>
+<span>FAIL CLOSED · PROFITABILITY_NOT_PROVEN</span></div>
+<div class="risks">
+<div class="risk"><h3>Mark Price и funding</h3><p>Точные расчётные Mark Price и
+платёжные записи счёта пока не квалифицированы. 60-минутная свеча не подтверждает
+фактическое списание funding.</p></div>
+<div class="risk"><h3>Биржевое исполнение</h3><p>Нет исторической очереди,
+частичных исполнений, реальных отклонений и задержек. Текущий стакан —
+одна публичная исследовательская оценка.</p></div>
+<div class="risk"><h3>Будущая доходность</h3><p>История ранее изучена:
+нет нетронутого future holdout, тестирования стратегий на едином общем
+капитале и подтверждения результата в реальной торговле.</p></div></div>
+</section>
+<div class="source">Исторические сценарии SHA-256:
+<b>__CANDIDATE_SHA__</b><br>Публичная глубина SHA-256:
+<b>__SNAPSHOT_SHA__</b></div>
+<footer><span>ASTRA / Static read-only research evidence</span>
+<span>NO EXCHANGE FILLS / NO DEMO OR LIVE ROUTING</span></footer>
+</main>
+<script id="evidence" type="application/json">__RESEARCH_PAYLOAD__</script>
+<script>
+(function(){
+"use strict";
+const p=JSON.parse(document.getElementById("evidence").textContent);
+const byId=id=>document.getElementById(id);
+const val=id=>byId(id).value;
+const n=v=>Number(v);
+const fmt=(v,d=2)=>new Intl.NumberFormat("ru-RU",{
+minimumFractionDigits:d,maximumFractionDigits:d}).format(n(v));
+const signed=v=>(n(v)>0?"+":"")+fmt(v)+"%";
+const six=new Set(["BNBUSDT","BTCUSDT","DOGEUSDT","ETHUSDT","SOLUSDT","XRPUSDT"]);
+function cell(row,value,cls){
+const el=document.createElement("td");el.textContent=String(value);
+if(cls)el.className=cls;row.appendChild(el);return el;
+}
+function semantic(el,value){
+el.classList.remove("good","bad","na");
+el.classList.add(Number.isFinite(n(value))?(n(value)<0?"bad":"good"):"na");
+}
+function updateHistory(){
+const [fee,slip]=val("history-cost").split("|"),arm=val("arm");
+const all=val("universe")==="all";
+const rows=p.candidate_rows.filter(x=>x.arm===arm&&x.fee_bps===fee
+&&x.slip_bps===slip&&(all||six.has(x.symbol)));
+const benchmark=new Map(p.candidate_rows.filter(x=>x.arm==="BUY_HOLD_29PC"
+&&x.fee_bps===fee&&x.slip_bps===slip).map(x=>[x.symbol,x]));
+rows.sort((a,b)=>a.symbol.localeCompare(b.symbol));
+const parent=byId("coin-rows");parent.replaceChildren();
+if(!rows.length){throw Error("Missing admitted historical model");}
+let sum=0,pos=0,worst=Infinity;
+for(const item of rows){
+const ret=n(item.return_pct);sum+=ret;pos+=ret>0?1:0;worst=Math.min(worst,ret);
+const row=document.createElement("tr");
+cell(row,item.symbol,"symbol");
+cell(row,item.closed_trades,"right");cell(row,item.wins,"right");
+semantic(cell(row,signed(ret),"right"),ret);
+cell(row,fmt(item.drawdown_pct)+"%","right");
+const hold=benchmark.get(item.symbol);
+if(!hold)throw Error("Missing buy-and-hold comparison");
+const delta=ret-n(hold.return_pct);
+semantic(cell(row,(delta>0?"+":"")+fmt(delta),"right"),delta);
+parent.appendChild(row);
+}
+const average=sum/rows.length;
+byId("average").textContent=signed(average);
+semantic(byId("average"),average);
+byId("positive").textContent=pos+" / "+rows.length;
+byId("worst").textContent=signed(worst);
+semantic(byId("worst"),worst);
+}
+function updateDepth(){
+const rows=p.quote_rows.filter(item=>
+item.hypothetical_capital_usdt===val("capital")
+&&item.execution.side===val("side")
+&&item.execution.hypothetical_fee_bps===val("book-cost")
+&&item.execution.depth_haircut_fraction_assumed===val("haircut"));
+rows.sort((a,b)=>a.execution.symbol.localeCompare(b.execution.symbol));
+const parent=byId("depth-rows");parent.replaceChildren();
+if(rows.length!==6)throw Error("Unqualified incomplete depth matrix");
+for(const item of rows){
+const x=item.execution,ok=x.status==="VISIBLE_DEPTH_SUFFICIENT";
+const row=document.createElement("tr");
+cell(row,x.symbol,"symbol");
+const state=cell(row,ok?"ВИДИМЫХ УРОВНЕЙ ХВАТАЕТ":
+"НЕДОСТАТОЧНО ВИДИМОЙ ГЛУБИНЫ","status "+(ok?"good":"bad"));
+state.title="Видимая глубина не гарантирует биржевого исполнения";
+cell(row,fmt(x.rounded_required_qty,3),"right");
+cell(row,fmt(x.uncovered_qty,3),"right");
+cell(row,ok?fmt(x.full_visible_vwap,6):"н/д","right");
+cell(row,ok?fmt(x.adverse_bps_from_mid_if_fully_visible,3):"н/д","right");
+cell(row,ok?fmt(x.hypothetical_fee_usdt):"н/д","right");
+parent.appendChild(row);
+}}
+for(const id of ["arm","universe","history-cost"]){
+byId(id).addEventListener("change",updateHistory);
+}
+for(const id of ["capital","side","book-cost","haircut"]){
+byId(id).addEventListener("change",updateDepth);
+}
+updateHistory();updateDepth();
+})();
+</script></body></html>
