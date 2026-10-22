@@ -11,7 +11,9 @@ import asyncio
 import base64
 import hashlib
 import json
+import os
 import shutil
+import signal
 import struct
 import subprocess
 import tempfile
@@ -169,7 +171,9 @@ def main() -> int:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     executable = _chrome()
     version = subprocess.check_output([executable, "--version"], text=True).strip()
-    with tempfile.TemporaryDirectory(prefix="astra-console-chrome-") as profile:
+    with tempfile.TemporaryDirectory(
+        prefix="astra-console-chrome-", ignore_cleanup_errors=True,
+    ) as profile:
         proc = subprocess.Popen(
             [
                 executable, "--headless=new", "--no-sandbox",
@@ -182,6 +186,7 @@ def main() -> int:
                 "about:blank",
             ],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
         try:
             port_file = Path(profile) / "DevToolsActivePort"
@@ -198,12 +203,22 @@ def main() -> int:
                 _capture(socket_url, args.html, args.output_dir, version),
             )
         finally:
-            proc.terminate()
-            try:
-                proc.wait(timeout=6)
-            except subprocess.TimeoutExpired:
+            # Chrome starts multiple child processes sharing its private
+            # session. Stopping only the parent races profile cleanup.
+            # The ephemeral runner contains no user/browser credentials.
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.killpg(proc.pid, sig)
+                except ProcessLookupError:
+                    break
+                if sig == signal.SIGTERM:
+                    try:
+                        proc.wait(timeout=4)
+                    except subprocess.TimeoutExpired:
+                        pass
+            if proc.poll() is None:
                 proc.kill()
-                proc.wait(timeout=6)
+            proc.wait(timeout=6)
     (args.output_dir / "visual-evidence.json").write_text(
         json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8",
     )
