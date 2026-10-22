@@ -322,3 +322,37 @@ def test_signed_order_command_is_not_part_of_research_signal_schema(tmp_path):
     with pytest.raises(ResearchSignalRejected, match="field set rejected"):
         _admit(tmp_path, body=message)
     assert not (tmp_path / "observations.sqlite3").exists()
+
+
+def test_altered_journal_without_unique_primary_key_fails_closed(tmp_path):
+    path = tmp_path / "observations.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "CREATE TABLE research_observations ("
+            " source TEXT, signal_id TEXT,"
+            " payload_sha256 TEXT, received_at_utc TEXT)"
+        )
+    path.chmod(0o600)
+    with pytest.raises(ResearchSignalRejected, match="schema mismatch"):
+        _admit(tmp_path)
+    with sqlite3.connect(path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM research_observations",
+        ).fetchone()[0] == 0
+
+
+def test_journal_trigger_that_erases_replay_record_is_refused(tmp_path):
+    _admit(tmp_path)
+    path = tmp_path / "observations.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "CREATE TRIGGER erase_replay AFTER INSERT ON research_observations "
+            "BEGIN DELETE FROM research_observations WHERE "
+            "signal_id = NEW.signal_id; END"
+        )
+    with pytest.raises(ResearchSignalRejected, match="triggers forbidden"):
+        _admit(tmp_path, body=_body(signal_id="signal_20261020_002"))
+    with sqlite3.connect(path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM research_observations",
+        ).fetchone()[0] == 1
