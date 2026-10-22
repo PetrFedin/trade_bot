@@ -370,11 +370,6 @@ footer{font:10px var(--mono);color:var(--muted);border-top:1px solid var(--line)
     minimumFractionDigits:d,maximumFractionDigits:d
   }).format(Number(v));
   const pct=v=>(Number(v)>0?"+":"")+fmt(v)+"%";
-  function label(id,val,cls){
-    const el=byId(id);el.textContent=val;
-    el.classList.remove("positive","negative");
-    if(cls==="signed"){el.classList.add(Number(val.replace(/[^0-9,+.-]/g,"").replace(",","."))<0?"negative":"positive");}
-  }
   function signed(el,value,unit){
     const v=Number(value);
     el.textContent=(v>0?"+":"")+fmt(v)+(unit||"");
@@ -530,7 +525,8 @@ def main() -> int:
     for source in (args.journal, args.source_report, args.independent_verifier):
         if not source.is_file() or source.is_symlink():
             raise ResearchConsoleError("missing or symlinked research input")
-    load = lambda path: json.loads(path.read_text(encoding="utf-8"))
+    def load(path: Path) -> dict:
+        return json.loads(path.read_text(encoding="utf-8"))
     page = render(load(args.journal), load(args.source_report),
                   load(args.independent_verifier))
     publish_new_html(args.output, page)
