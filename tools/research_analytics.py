@@ -184,6 +184,7 @@ def calculate_research_overview(
             "state": entry["state"],
             "depends_on": tuple(entry["depends_on"]),
             "acceptance_gate": entry["acceptance_gate"],
+            "code_paths": tuple(entry["code_paths"]),
         })
     return {
         "schema_version": "astra-research-operations-overview-v1",
@@ -216,7 +217,12 @@ def calculate_research_overview(
         "sharpe_ratio": None,
         "actual_exchange_funding_usdt": None,
         "fill_level_cost_stress": None,
-        "source_mark_price_status": "BLOCKED_SOURCE",
+        "source_mark_price_status": (
+            "BLOCKED_SOURCE" if any(
+                row["id"] == "MARK_PRICE_FUNDING_PROVENANCE"
+                and row["state"] == "BLOCKED_SOURCE" for row in rows
+            ) else "UNVERIFIED_SOURCE"
+        ),
         "live_signal_observations": None,
         "trading_authority_allowed": False,
         "profitability_proven": False,
