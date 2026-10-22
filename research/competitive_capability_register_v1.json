@@ -1,0 +1,178 @@
+{
+  "schema_version": "astra-competitive-capability-register-v1",
+  "project": "ASTRA",
+  "scope": "RESEARCH_PLANNING_AND_ENGINEERING_ONLY",
+  "authority_boundary": {
+    "broker_routing_allowed": false,
+    "demo_trading_allowed": false,
+    "live_trading_allowed": false,
+    "strategy_promotion_allowed": false,
+    "profitability_proven": false
+  },
+  "verification_note": "A reference/code path proves only existence. State is never automatically elevated by tests or web documentation; CI or signed production qualification must be reviewed separately.",
+  "capabilities": [
+    {
+      "id": "ACCOUNT_TRUTH_RECONCILIATION",
+      "priority": "P0",
+      "state": "EXISTING_RESEARCH_CODE",
+      "code_paths": [
+        "tools/verify_funded_replay_integration.py",
+        "tests/test_verify_funded_replay_integration.py"
+      ],
+      "official_references": [],
+      "acceptance_gate": "Проверить согласованность отчёта, денежных проводок и 36 исторических моделей по независимым источникам.",
+      "depends_on": [],
+      "trading_authority_allowed": false
+    },
+    {
+      "id": "ANTI_LOOKAHEAD_RESEARCH",
+      "priority": "P0",
+      "state": "EXISTING_RESEARCH_CODE",
+      "code_paths": [
+        "tools/historical_portfolio_walk_forward.py",
+        "tools/strategy_diagnostics.py"
+      ],
+      "official_references": [
+        "https://docs.freqtrade.io/en/stable/strategy-customization/"
+      ],
+      "acceptance_gate": "Выполнить независимые тесты утечки будущих данных и честную out-of-sample приёмку.",
+      "depends_on": [],
+      "trading_authority_allowed": false
+    },
+    {
+      "id": "BOT_LIFECYCLE_CONSOLE",
+      "priority": "P1",
+      "state": "PLANNED",
+      "code_paths": [],
+      "official_references": [
+        "https://hummingbot.org/hummingbot-api/routers/"
+      ],
+      "acceptance_gate": "Сделать безопасный просмотр полного жизненного цикла исследовательских ботов, не включая управление живыми ордерами.",
+      "depends_on": [
+        "SIGNED_SIGNAL_RESEARCH"
+      ],
+      "trading_authority_allowed": false
+    },
+    {
+      "id": "CAPABILITY_EVIDENCE_REGISTER",
+      "priority": "P0",
+      "state": "IMPLEMENTED_PENDING_QUALIFICATION",
+      "code_paths": [
+        "tools/research_capability_register.py",
+        "tests/test_research_capability_register.py"
+      ],
+      "official_references": [],
+      "acceptance_gate": "Пройти точный CI проверки связей, путей, состояний и отсутствия полномочий торговли.",
+      "depends_on": [],
+      "trading_authority_allowed": false
+    },
+    {
+      "id": "GRID_DCA_SCENARIO_LAB",
+      "priority": "P2",
+      "state": "PLANNED",
+      "code_paths": [],
+      "official_references": [
+        "https://help.veles.finance/en/getting-started/overview/bot/"
+      ],
+      "acceptance_gate": "Разработать исследовательский GRID/DCA движок с защитой от мартингейла, экспозиции и ложного backtest PnL.",
+      "depends_on": [
+        "ANTI_LOOKAHEAD_RESEARCH"
+      ],
+      "trading_authority_allowed": false
+    },
+    {
+      "id": "MARK_PRICE_FUNDING_PROVENANCE",
+      "priority": "P0",
+      "state": "BLOCKED_SOURCE",
+      "code_paths": [
+        "tools/mark_price_hourly_sensitivity.py",
+        "tools/replay_mark_price_hourly_archive.py"
+      ],
+      "official_references": [],
+      "acceptance_gate": "Получить подлинные Mark Price и независимую сверку settlement; HTTP 403 нельзя объявлять PASS.",
+      "depends_on": [],
+      "trading_authority_allowed": false
+    },
+    {
+      "id": "MULTI_VENUE_ADAPTER_CONFORMANCE",
+      "priority": "P1",
+      "state": "PLANNED",
+      "code_paths": [],
+      "official_references": [
+        "https://hummingbot.org/strategies/v2-strategies/controllers/"
+      ],
+      "acceptance_gate": "Проверить конформность CEX/DEX адаптеров по отдельному read-only контракту.",
+      "depends_on": [],
+      "trading_authority_allowed": false
+    },
+    {
+      "id": "PORTFOLIO_RISK_SCENARIOS",
+      "priority": "P1",
+      "state": "PLANNED",
+      "code_paths": [],
+      "official_references": [],
+      "acceptance_gate": "Показать влияние комиссий, ликвидности, funding, плеча и корреляции без создания ордеров.",
+      "depends_on": [
+        "ACCOUNT_TRUTH_RECONCILIATION"
+      ],
+      "trading_authority_allowed": false
+    },
+    {
+      "id": "SIGNED_SIGNAL_RESEARCH",
+      "priority": "P0",
+      "state": "IMPLEMENTED_PENDING_QUALIFICATION",
+      "code_paths": [
+        "tools/research_signal_gate.py",
+        "tests/test_research_signal_gate.py"
+      ],
+      "official_references": [
+        "https://help.3commas.io/en/articles/16281112-signal-bot-comprehensive-json-guide",
+        "https://help.veles.finance/ru/filters/tradingview/"
+      ],
+      "acceptance_gate": "Проверить HMAC, scope, время, дубль, конкурентность, неизменность журналирования и изоляцию от OMS.",
+      "depends_on": [],
+      "trading_authority_allowed": false
+    },
+    {
+      "id": "STATIC_OPERATOR_OVERVIEW",
+      "priority": "P1",
+      "state": "EXISTING_RESEARCH_CODE",
+      "code_paths": [
+        "tools/status_dashboard.py",
+        "docs/status-console.html"
+      ],
+      "official_references": [],
+      "acceptance_gate": "Подтвердить представление точного статуса текущей сборки и отсутствие ложных индикаторов готовности.",
+      "depends_on": [],
+      "trading_authority_allowed": false
+    },
+    {
+      "id": "STRATEGY_VISUAL_BUILDER",
+      "priority": "P2",
+      "state": "PLANNED",
+      "code_paths": [],
+      "official_references": [
+        "https://docs.freqtrade.io/en/stable/backtesting/"
+      ],
+      "acceptance_gate": "Спроектировать versioned no-code конструктор только для исследовательских экспериментов.",
+      "depends_on": [
+        "ANTI_LOOKAHEAD_RESEARCH"
+      ],
+      "trading_authority_allowed": false
+    },
+    {
+      "id": "TRUSTED_WEBHOOK_RELAY",
+      "priority": "P1",
+      "state": "PLANNED",
+      "code_paths": [],
+      "official_references": [
+        "https://help.3commas.io/en/articles/16281134-signal-bot-comprehensive-form-guide"
+      ],
+      "acceptance_gate": "Создать отдельный сетевой приёмник и доверенный HMAC relay: исходные TradingView webhook сами не отвечают новому подписанному контракту.",
+      "depends_on": [
+        "SIGNED_SIGNAL_RESEARCH"
+      ],
+      "trading_authority_allowed": false
+    }
+  ]
+}
