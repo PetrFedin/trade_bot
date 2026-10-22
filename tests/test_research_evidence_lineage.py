@@ -115,7 +115,7 @@ def test_direct_dependency_to_blocked_mark_price_is_explained():
         row for row in changed["capabilities"]
         if row["id"] == "PORTFOLIO_RISK_SCENARIOS"
     )
-    feature["depends_on"].append("MARK_PRICE_FUNDING_PROVENANCE")
+    assert "MARK_PRICE_FUNDING_PROVENANCE" in feature["depends_on"]
     impact = lineage.dependency_impact(changed, root=ROOT)
     match = next(
         row for row in impact["downstream_blocked_capabilities"]
@@ -129,7 +129,8 @@ def test_direct_dependency_to_blocked_mark_price_is_explained():
 def test_transitive_dependency_blockage_tracks_shortest_distance():
     changed = copy.deepcopy(REGISTER)
     rows = {row["id"]: row for row in changed["capabilities"]}
-    rows["PORTFOLIO_RISK_SCENARIOS"]["depends_on"].append(
+    # Remove the direct shortcut so the synthetic chain tests transitive depth 2.
+    rows["GRID_DCA_SCENARIO_LAB"]["depends_on"].remove(
         "MARK_PRICE_FUNDING_PROVENANCE"
     )
     rows["GRID_DCA_SCENARIO_LAB"]["depends_on"].append(
