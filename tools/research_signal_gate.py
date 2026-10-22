@@ -178,6 +178,33 @@ def _prepare_private_journal(path: Path) -> None:
         raise ResearchSignalRejected("research replay journal preparation failed") from exc
 
 
+def _validate_replay_schema(connection: sqlite3.Connection) -> None:
+    """A malicious or drifted SQLite schema must not waive UNIQUE replay keys."""
+    details = connection.execute("PRAGMA table_info(research_observations)").fetchall()
+    columns = [(row[1], row[2], row[3], row[5]) for row in details]
+    expected = [
+        ("source", "TEXT", 1, 1),
+        ("signal_id", "TEXT", 1, 2),
+        ("payload_sha256", "TEXT", 1, 0),
+        ("received_at_utc", "TEXT", 1, 0),
+    ]
+    ddl = connection.execute(
+        "SELECT sql FROM sqlite_master "
+        "WHERE type='table' AND name='research_observations'"
+    ).fetchone()
+    if (
+        columns != expected
+        or ddl is None
+        or not isinstance(ddl[0], str)
+        or "WITHOUT ROWID" not in ddl[0].upper()
+    ):
+        raise ResearchSignalRejected("research replay journal schema mismatch")
+    if connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='trigger' LIMIT 1"
+    ).fetchone():
+        raise ResearchSignalRejected("research replay journal triggers forbidden")
+
+
 def verify_and_record_research_signal(
     *, raw_body: bytes, key_id: str, signature_hex: str,
     trusted_keys: Mapping[str, ResearchSigner], now_utc: datetime,
@@ -240,6 +267,7 @@ def verify_and_record_research_signal(
                     " payload_sha256 TEXT NOT NULL, received_at_utc TEXT NOT NULL,"
                     " PRIMARY KEY (source, signal_id)) WITHOUT ROWID"
                 )
+                _validate_replay_schema(connection)
                 connection.execute(
                     "INSERT INTO research_observations "
                     "(source, signal_id, payload_sha256, received_at_utc)"
