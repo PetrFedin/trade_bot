@@ -41,7 +41,10 @@ def test_frozen_negative_pnl_is_reproduced_with_exact_decimal_math():
     assert result["neutral_rate_pct"] == "10.78"
     assert result["plan_eligibility_pct"] == "33.08"
     assert result["counts"]["portfolio_trades"] == 102
-    assert result["counts"]["wins"] + result["counts"]["breakeven"] + result["counts"]["losses"] == 102
+    assert (
+        result["counts"]["wins"] + result["counts"]["breakeven"]
+        + result["counts"]["losses"] == 102
+    )
     assert result["capability_summary"]["feature_count"] == 12
     assert result["authority"] == "HOLD"
     assert result["profitability_proven"] is False
@@ -82,7 +85,8 @@ def test_disagreeing_trade_components_refused():
 
 def test_approximate_return_cannot_contradict_pnl():
     modified = copy.deepcopy(STATUS)
-    modified["strategy"]["latest_frozen_bybit_price_only_replay"]["net_return_fraction_approx"] = "0.20"
+    replay = modified["strategy"]["latest_frozen_bybit_price_only_replay"]
+    replay["net_return_fraction_approx"] = "0.20"
     with pytest.raises(ResearchAnalyticsError, match="disagree"):
         _overview(modified)
 
