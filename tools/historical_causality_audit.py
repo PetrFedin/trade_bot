@@ -109,7 +109,7 @@ def _period_sources(root: Path):
     for name, symbols, loaded, timeline in periods:
         if len(timeline) < 400 or len(set(timeline)) != len(timeline):
             raise CausalityError(f"{name}: insufficient or duplicate chronology")
-        if any(b - a != timedelta(days=1) for a, b in zip(timeline, timeline[1:])):
+        if any(b - a != timedelta(days=1) for a, b in zip(timeline, timeline[1:], strict=False)):
             raise CausalityError(f"{name}: missing UTC market day")
         accepted = set(timeline)
         for symbol in symbols:
