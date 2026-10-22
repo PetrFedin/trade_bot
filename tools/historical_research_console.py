@@ -120,6 +120,7 @@ def _verified_payload(journal: dict, original: dict, auditor: dict) -> dict:
                 "ending_equity_usd": str(ending),
                 "max_drawdown_pct": _number(model["max_drawdown_pct"]),
                 "closed_trade_net_usd": _number(model["closed_trade_net_usd"]),
+                "trade_stats": model["closed_trade_statistics"],
                 "closed_trade_fees_usd": _number(model["closed_trade_fees_usd"]),
                 "closed_trade_slippage_usd": _number(model["closed_trade_slippage_usd"]),
                 "funding_cash_net_usd": _number(model["funding_cash_net_usd"]),
@@ -129,6 +130,23 @@ def _verified_payload(journal: dict, original: dict, auditor: dict) -> dict:
                 "worst_trades": model["worst_closed_trades"],
                 "best_trades": model["best_closed_trades"],
             }
+    for case in cases.values():
+        stats = case["trade_stats"]
+        if (
+            stats["closed_trades"] != case["trades"]
+            or stats["wins"] + stats["losses"] + stats["breakeven"]
+            != case["trades"]
+            or stats["funding_included"] is not False
+            or stats["actual_venue_fill_order_verified"] is not False
+            or stats["same_day_exit_tiebreak"] != "UTC_EXIT_DATE_THEN_SYMBOL_LEXICAL"
+        ):
+            raise ResearchConsoleError("closed-trade statistics evidence mismatch")
+        for key in (
+            "win_rate_pct", "profit_factor_ex_funding", "average_win_usd",
+            "average_loss_usd", "average_closed_trade_net_usd",
+        ):
+            if stats[key] is not None:
+                _number(stats[key])
     if len(cases) != 36 or DEFAULT_KEY not in cases:
         raise ResearchConsoleError("incomplete 36-model historic research matrix")
     pairs = journal["matched_universe_differences"]
@@ -320,6 +338,16 @@ footer{font:10px var(--mono);color:var(--muted);border-top:1px solid var(--line)
       <tr><th scope="row">Разница, процентные пункты</th><td class="right" id="difference">—</td></tr>
     </tbody></table></div>
     <div class="note">Закрытые сделки нельзя суммировать с доходностью портфеля: открытые позиции переоцениваются отдельно. Сравнение 6/21 — только на совпадающих датах.</div>
+    <h2>Результативность закрытых сделок</h2>
+    <div class="scroll"><table><tbody>
+      <tr><th scope="row">Доля прибыльных закрытий</th><td class="right" id="winrate">—</td></tr>
+      <tr><th scope="row">Profit Factor, без funding</th><td class="right" id="pf">—</td></tr>
+      <tr><th scope="row">Средний прибыльный результат, USDT</th><td class="right" id="avg_win">—</td></tr>
+      <tr><th scope="row">Средний убыточный результат, USDT</th><td class="right" id="avg_loss">—</td></tr>
+      <tr><th scope="row">Средний итог закрытия, USDT</th><td class="right" id="avg_trade">—</td></tr>
+      <tr><th scope="row">Серия убыточных закрытий*</th><td class="right" id="loss_streak">—</td></tr>
+    </tbody></table></div>
+    <div class="note">*При совпадении даты порядок определяется названием инструмента; это не реальная внутридневная последовательность исполнений. Отсутствующее значение показано как «н/д», а не ноль.</div>
   </section>
 </div>
 <div class="board">
@@ -442,6 +470,20 @@ footer{font:10px var(--mono);color:var(--muted);border-top:1px solid var(--line)
     signed(byId("funding_cash"),x.funding_cash_net_usd);
     byId("fees").textContent=fmt(x.closed_trade_fees_usd);
     byId("slippage").textContent=fmt(x.closed_trade_slippage_usd);
+    const st=x.trade_stats;
+    byId("winrate").textContent=st.win_rate_pct===null?"н/д":fmt(st.win_rate_pct)+"%";
+    byId("pf").textContent=st.profit_factor_ex_funding===null
+      ?"н/д":fmt(st.profit_factor_ex_funding);
+    for(const [id,key] of [
+      ["avg_win","average_win_usd"],
+      ["avg_loss","average_loss_usd"],
+      ["avg_trade","average_closed_trade_net_usd"]
+    ]){
+      const value=st[key];
+      if(value===null){byId(id).textContent="н/д";continue;}
+      signed(byId(id),value);
+    }
+    byId("loss_streak").textContent=String(st.max_consecutive_losing_closures);
     const p=data.pairs.find(item=>item.fee_bps_per_fill===fee
       &&item.slippage_bps_per_side===slip&&item.model_key===model);
     for(const id of ["six_return","broad_return","difference"])byId(id).textContent="—";

@@ -90,6 +90,51 @@ def _trade_excerpt(row: dict) -> dict:
     }
 
 
+def closed_trade_statistics(trades: list[tuple]) -> dict:
+    """Describe already closed trades; neither extrapolate nor include funding."""
+    sorted_tape = sorted(
+        trades, key=lambda x: (x[0], x[2]["symbol"], x[2]["entry_time"])
+    )
+    winners = [pnl for _, pnl, _ in sorted_tape if pnl > ZERO]
+    losers = [pnl for _, pnl, _ in sorted_tape if pnl < ZERO]
+    flat = len(sorted_tape) - len(winners) - len(losers)
+    gross_wins = sum(winners, ZERO)
+    gross_losses = sum(losers, ZERO)
+    total = gross_wins + gross_losses
+    peak_losses, current_losses = 0, 0
+    for _, pnl, _ in sorted_tape:
+        current_losses = current_losses + 1 if pnl < ZERO else 0
+        peak_losses = max(peak_losses, current_losses)
+    return {
+        "closed_trades": len(sorted_tape),
+        "wins": len(winners),
+        "losses": len(losers),
+        "breakeven": flat,
+        "win_rate_pct": (
+            str(D("100") * len(winners) / len(sorted_tape))
+            if sorted_tape else None
+        ),
+        "gross_positive_closed_trade_net_usd": str(gross_wins),
+        "gross_negative_closed_trade_net_usd": str(gross_losses),
+        "profit_factor_ex_funding": (
+            str(gross_wins / abs(gross_losses)) if gross_losses < ZERO else None
+        ),
+        "average_win_usd": (
+            str(gross_wins / len(winners)) if winners else None
+        ),
+        "average_loss_usd": (
+            str(gross_losses / len(losers)) if losers else None
+        ),
+        "average_closed_trade_net_usd": (
+            str(total / len(sorted_tape)) if sorted_tape else None
+        ),
+        "max_consecutive_losing_closures": peak_losses,
+        "same_day_exit_tiebreak": "UTC_EXIT_DATE_THEN_SYMBOL_LEXICAL",
+        "funding_included": False,
+        "actual_venue_fill_order_verified": False,
+    }
+
+
 def analyze_model(comparison: dict, key: str, *, window_days: int = 90) -> dict:
     """Build non-overlapping capital-path diagnostics for a single frozen model."""
     if key not in MODELS or window_days < 20:
@@ -279,6 +324,7 @@ def analyze_model(comparison: dict, key: str, *, window_days: int = 90) -> dict:
         "exit_reasons": dict(sorted(reasons.items())),
         "holding_days": {key: holdings[key] for key in ("same_day", "next_day", "longer")},
         "closed_trade_net_usd": str(total_trade_net),
+        "closed_trade_statistics": closed_trade_statistics(parsed_trades),
         "closed_trade_fees_usd": str(total_trade_fees),
         "closed_trade_slippage_usd": str(total_slippage),
         "funding_cash_net_usd": str(funding_total),

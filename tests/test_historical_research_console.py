@@ -34,6 +34,8 @@ def test_offline_terminal_is_a_complete_responsive_document(valid_research):
     assert "NOT FOR ORDER EXECUTION" in html
     assert "READ ONLY / PROFITABILITY_NOT_PROVEN" in html
     assert "—" in html
+    assert "Profit Factor" in html
+    assert "Серия убыточных закрытий" in html
     assert "http://" not in html
     assert "https://" not in html
     assert "fetch(" not in html
@@ -51,6 +53,7 @@ def test_exact_36_scenarios_and_independent_auditor_lineage(valid_research):
     assert payload["journal_sha256"] == journal["journal_sha256"]
     assert payload["auditor_sha256"] == journal["independent_auditor_sha256"]
     assert payload["cases"][ui.DEFAULT_KEY]["trades"] == 1
+    assert payload["cases"][ui.DEFAULT_KEY]["trade_stats"]["win_rate_pct"] == "100"
     assert all("windows" in item for item in payload["cases"].values())
 
 

@@ -43,3 +43,13 @@ Ruff + synthetic adversarial tests + full genuine-source replay + separate
 money audit + full journal generation + byte-identical regenerated HTML.
 All outputs are uploaded together with exact branch SHA. Missing evidence
 is a hard failure. UI is not automatically published or deployed.
+
+## Added net trade-performance analytics
+
+The SAME independently verified closed-trade tape also produces win rate,
+mean positive/negative closing P&L, per-closure realized average, Profit Factor
+(excluding funding) and a losing-closure streak. Undefined ratios are null
+rather than an invented zero or Infinity. Same-day trade ties sort by symbol
+and must NOT be interpreted as a real venue execution ordering. The model
+has no netting of historical open exposure into trade averages. These are
+retrospective descriptive metrics, not forward expected returns.
