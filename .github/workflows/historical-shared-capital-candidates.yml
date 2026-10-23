@@ -8,6 +8,9 @@ on:
     paths:
       - 'tools/shared_capital_candidate_study.py'
       - 'tests/test_shared_capital_candidate_study.py'
+      - 'tests/test_shared_capital_console.py'
+      - 'tools/execution_quality_console.py'
+      - 'app/platform_assets/execution_quality_terminal.html'
       - '.github/workflows/historical-shared-capital-candidates.yml'
 
 permissions:
@@ -34,7 +37,8 @@ jobs:
       - name: Static and adversarial historical tests
         run: |
           ruff check tools/shared_capital_candidate_study.py tests/test_shared_capital_candidate_study.py
-          pytest -q tests/test_shared_capital_candidate_study.py
+          ruff check tools/execution_quality_console.py tests/test_shared_capital_console.py
+          pytest -q tests/test_shared_capital_candidate_study.py tests/test_shared_capital_console.py tests/test_execution_quality_console.py
       - name: Replay 36 complete common-cash scenarios
         run: |
           mkdir -p shared-evidence
@@ -85,6 +89,39 @@ jobs:
               assert len(model["decision_trace"])==len(model["daily_equity"])
           assert len(seen)==36
           print("SHARED_CAPITAL_MODEL_SHA256",digest)
+          PY
+      - name: Build audited 210-coin trials and 144 current book experiments
+        run: |
+          python -m tools.independent_coin_strategy_lab \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --symbols ADAUSDT APTUSDT ARBUSDT ATOMUSDT AVAXUSDT BNBUSDT BTCUSDT DOGEUSDT DOTUSDT ETHUSDT FILUSDT INJUSDT LINKUSDT LTCUSDT NEARUSDT OPUSDT SOLUSDT SUIUSDT TONUSDT TRXUSDT XRPUSDT \
+            --output shared-evidence/independent-coin-210.json
+          python -m tools.depth_execution_research \
+            --source research/snapshots/bybit_public_depth_observation_20261023.json \
+            --output shared-evidence/public-depth-144.json
+      - name: Render fully audited standalone shared-capital research terminal
+        run: |
+          python -m tools.execution_quality_console \
+            --candidate shared-evidence/independent-coin-210.json \
+            --depth shared-evidence/public-depth-144.json \
+            --book-source research/snapshots/bybit_public_depth_observation_20261023.json \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --shared shared-evidence/shared-capital-36.json \
+            --output shared-evidence/execution-quality-terminal.html
+          python tools/status_dashboard.py --check
+          cp docs/status-console.html shared-evidence/operator-status.html
+          python - <<'PY'
+          from pathlib import Path
+          page=Path("shared-evidence/execution-quality-terminal.html").read_text()
+          assert page.count('"return_pct":')==210
+          assert page.count('"net_return_pct":')==36
+          assert page.count('"hypothetical_fee_bps":')==144
+          assert '"shared_portfolio_funding_verified":false' in page
+          assert '"promotion_allowed":false' in page
+          assert "PROFITABILITY_NOT_PROVEN" in page
+          assert 'id="portfolio-chart"' in page
+          assert 'href="operator-status.html"' in page
+          print("SHARED_CAPITAL_TERMINAL_VERIFIED",len(page))
           PY
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
