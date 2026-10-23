@@ -32,6 +32,24 @@ background:var(--line);border:1px solid var(--line);margin-bottom:30px}
 font-weight:570;line-height:1.2;margin-bottom:7px}
 .metric .label{font:11px var(--mono);color:var(--muted)}
 .group{margin-top:38px}
+.model-board{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(240px,.85fr);
+gap:14px;margin-bottom:16px}
+.model-panel{border:1px solid var(--line);background:var(--surface);
+padding:17px 18px;min-width:0}
+.model-panel h3{margin:0 0 14px;font-size:12px;letter-spacing:.015em;font-weight:590}
+.model-chart{display:block;width:100%;height:228px;margin-top:6px}
+.chart-line{fill:none;stroke:var(--accent);stroke-width:2.5;stroke-linejoin:round}
+.chart-baseline{stroke:#566872;stroke-width:1;stroke-dasharray:4 5}
+.chart-grid{stroke:#293a44;stroke-width:1}
+.chart-label{display:flex;justify-content:space-between;gap:12px;
+color:var(--muted);font:10px var(--mono)}
+.model-mini{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.model-mini .figure{font-size:clamp(18px,2vw,25px);
+font-variant-numeric:tabular-nums}
+.model-mini .description{font:11px/1.5 var(--mono);color:var(--muted)}
+.model-stat{padding:9px 0;border-top:1px solid var(--line)}
+.subtle-head{font:11px var(--mono);color:var(--muted);margin:16px 0 8px}
+@media(max-width:950px){.model-board{grid-template-columns:1fr}}
 .heading{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
 flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:13px;margin-bottom:18px}
 h2{font-size:18px;font-weight:630;margin:0;letter-spacing:-.014em}
@@ -100,7 +118,7 @@ font:10px var(--mono);color:var(--muted);margin-bottom:2px}
 фактической доходности или прогноза.</p></header>
 <div class="metrics">
 <div class="metric"><div class="value">210</div><div class="label">исторических сценариев</div></div>
-<div class="metric"><div class="value">21</div><div class="label">монета / отдельные модельные счета</div></div>
+<div class="metric"><div class="value">36</div><div class="label">сценариев с общим капиталом</div></div>
 <div class="metric"><div class="value">144</div><div class="label">оценки текущей видимой глубины</div></div>
 <div class="metric"><div class="value deny">0</div><div class="label">подтверждённых исполнений</div></div>
 </div>
@@ -136,8 +154,86 @@ font:10px var(--mono);color:var(--muted);margin-bottom:2px}
 <p class="footnote">Среднее — не доходность единого портфеля. Разница с удержанием
 не означает реализуемую дополнительную прибыль.</p>
 </section>
+<section class="group" aria-labelledby="shared-heading">
+<div class="heading"><h2 id="shared-heading">02 / Единый капитал и конкурирующие сигналы</h2>
+<span>НЕЗАВИСИМЫЙ ПОРТФЕЛЬНЫЙ ПРОГОН · $10 000</span></div>
+<p class="section-note">Отдельный cash-ledger для всех позиций: максимум два инструмента,
+29% модельного капитала на новый вход и 60% предельной экспозиции <em>при входе</em>.
+Приоритет сигнала вычисляется исключительно по предыдущим закрытым свечам.
+Поступления от закрытия не финансируют другие покупки задним числом в тот же день.
+Все суммы — в модельных USDT без funding и биржевых подтверждений.</p>
+<div class="controls">
+<div class="control"><label for="portfolio-arm">Торговое правило</label>
+<select id="portfolio-arm"><option value="BREAKOUT">Пробой максимума</option>
+<option value="IMPULSE">Вход после импульса</option>
+<option value="TREND_PULLBACK">Откат в тренде</option>
+<option value="MEAN_REVERSION">Возврат к среднему</option>
+<option value="BUY_HOLD_BTC_ETH">Нейтральный ориентир: BTC + ETH</option>
+</select></div>
+<div class="control"><label for="portfolio-universe">Доступные монеты</label>
+<select id="portfolio-universe"><option value="SIX">6 основных</option>
+<option value="BROAD21">21 монета</option></select></div>
+<div class="control"><label for="portfolio-priority">Ранжирование одновременных сигналов</label>
+<select id="portfolio-priority">
+<option value="SYMBOL_ASC">Алфавитная последовательность</option>
+<option value="PREVIOUS_20D_RETURN">Доходность предыдущих 20 дней</option>
+</select></div>
+<div class="control"><label for="portfolio-cost">Комиссия / проскальзывание за сторону, б.п.</label>
+<select id="portfolio-cost"><option value="8|5">8 / 5</option>
+<option value="10|10">10 / 10</option></select></div></div>
+<div class="model-board">
+<div class="model-panel">
+<h3>История капитала по закрытию UTC-дня</h3>
+<svg id="portfolio-chart" class="model-chart" viewBox="0 0 1000 240"
+ preserveAspectRatio="none" role="img" aria-labelledby="portfolio-figure-title">
+<title id="portfolio-figure-title">Изменение модельного капитала</title>
+<line x1="0" y1="64" x2="1000" y2="64" class="chart-grid"/>
+<line x1="0" y1="128" x2="1000" y2="128" class="chart-grid"/>
+<line x1="0" y1="192" x2="1000" y2="192" class="chart-grid"/>
+<line id="portfolio-zero" class="chart-baseline" x1="0" x2="1000"
+ y1="128" y2="128"/>
+<polyline id="portfolio-line" class="chart-line" points=""/>
+</svg>
+<div class="chart-label"><span id="portfolio-first-date">—</span>
+<span>Пунктир — стартовые $10 000</span>
+<span id="portfolio-last-date">—</span></div>
+</div>
+<div class="model-panel">
+<h3>Итог выбранного портфеля</h3>
+<div class="model-mini">
+<div class="model-stat"><div id="shared-return" class="figure">—</div>
+<div class="description">Доходность, %</div></div>
+<div class="model-stat"><div id="shared-drawdown" class="figure">—</div>
+<div class="description">Макс. просадка, %</div></div>
+<div class="model-stat"><div id="shared-benchmark" class="figure">—</div>
+<div class="description">BTC + ETH, %</div></div>
+<div class="model-stat"><div id="shared-alpha" class="figure">—</div>
+<div class="description">Разница с ориентиром, п.п.</div></div>
+<div class="model-stat"><div id="shared-trades" class="figure">—</div>
+<div class="description">Закрытых позиций</div></div>
+<div class="model-stat"><div id="shared-blocks" class="figure">—</div>
+<div class="description">Отклонённых входов</div></div>
+<div class="model-stat"><div id="shared-exposure" class="figure">—</div>
+<div class="description">Пиковая доля экспозиции на входе</div></div>
+<div class="model-stat"><div id="shared-passive-over" class="figure">—</div>
+<div class="description">Дней с превышением 60% после изменения цен</div></div>
+</div>
+</div></div>
+<div class="subtle-head">Сравнение предварительно заданных способов отбора — общий капитал</div>
+<div class="tablewrap"><table><thead><tr>
+<th>Вселенная</th><th>Приоритет</th><th class="right">Доходность</th>
+<th class="right">Просадка</th><th class="right">Сделок</th>
+<th class="right">Отклонено входов</th><th class="right">Комиссии, USDT</th>
+</tr></thead><tbody id="shared-comparison"></tbody></table></div>
+<p class="footnote">Алфавитное ранжирование служит контролем: оно не доказывает
+оптимальность выбора по прошлой доходности. Обе модели используют один ограниченный
+капитал, но результат не учитывает фактический funding, исторический стакан,
+ликвидации, шаг количества, очередь и частичные исполнения. Превышение 60%
+после изменения котировок не является новым входом. Бенчмарк BTC + ETH
+открывает две позиции и одинаков для обеих вселенных.</p>
+</section>
 <section class="group" aria-labelledby="depth-heading">
-<div class="heading"><h2 id="depth-heading">02 / Видимая ликвидность Bybit</h2>
+<div class="heading"><h2 id="depth-heading">03 / Видимая ликвидность Bybit</h2>
 <span>СНИМОК __BOOK_DATE__ UTC · 10 УРОВНЕЙ</span></div>
 <p class="section-note">Оценка гипотетического пересечения публичного стакана
 для заявки размером 29% выбранного капитала. Снимок 2026 года не используется
@@ -163,7 +259,7 @@ font:10px var(--mono);color:var(--muted);margin-bottom:2px}
 <p class="footnote">*Только при достаточности показанных уровней. Недостаточная
 глубина означает отказ от расчёта цены «исполнения», а не частичную или
 фактическую сделку. Реальный тариф счёта не подтверждён.</p></section>
-<section class="group"><div class="heading"><h2>03 / Границы доказательств</h2>
+<section class="group"><div class="heading"><h2>04 / Границы доказательств</h2>
 <span>FAIL CLOSED · PROFITABILITY_NOT_PROVEN</span></div>
 <div class="risks">
 <div class="risk"><h3>Mark Price и funding</h3><p>Точные расчётные Mark Price и
@@ -173,12 +269,13 @@ font:10px var(--mono);color:var(--muted);margin-bottom:2px}
 частичных исполнений, реальных отклонений и задержек. Текущий стакан —
 одна публичная исследовательская оценка.</p></div>
 <div class="risk"><h3>Будущая доходность</h3><p>История ранее изучена:
-нет нетронутого future holdout, тестирования стратегий на едином общем
-капитале и подтверждения результата в реальной торговле.</p></div></div>
+нет нетронутого future holdout и подтверждения результата в реальной торговле.
+Общий модельный капитал исследован отдельно, без реального исполнения.</p></div></div>
 </section>
 <div class="source">Исторические сценарии SHA-256:
 <b>__CANDIDATE_SHA__</b><br>Публичная глубина SHA-256:
-<b>__SNAPSHOT_SHA__</b></div>
+<b>__SNAPSHOT_SHA__</b><br>Общий капитал SHA-256:
+<b>__SHARED_SHA__</b></div>
 <footer><span>ASTRA / Static read-only research evidence</span>
 <span>NO EXCHANGE FILLS / NO DEMO OR LIVE ROUTING</span></footer>
 </main>
@@ -199,7 +296,9 @@ const headings={
 coin:["Инструмент","Закрытых сделок","Прибыльных","Доходность",
 "Максимальная просадка","К удержанию, п.п."],
 depth:["Инструмент","Видимая глубина","Требуется","Недостаток",
-"VWAP","От средней цены, б.п.","Условная комиссия"]
+"VWAP","От средней цены, б.п.","Условная комиссия"],
+shared:["Вселенная","Приоритет","Доходность","Просадка",
+"Закрытых","Отклонено входов","Комиссии"]
 };
 const el=document.createElement("td");el.textContent=String(value);
 el.setAttribute("data-label",(headings[row.dataset.type]||[])[row.children.length]||"");
@@ -240,6 +339,72 @@ byId("positive").textContent=pos+" / "+rows.length;
 byId("worst").textContent=signed(worst);
 semantic(byId("worst"),worst);
 }
+
+function updatePortfolio(){
+const arm=val("portfolio-arm");
+const universe=val("portfolio-universe");
+const prior=byId("portfolio-priority");
+prior.disabled=arm==="BUY_HOLD_BTC_ETH";
+const rank=arm==="BUY_HOLD_BTC_ETH"?"SYMBOL_ASC":prior.value;
+const [fee,slip]=val("portfolio-cost").split("|");
+const matched=p.shared_portfolio_rows.filter(x=>x.arm===arm
+&&x.fee_bps===fee&&x.slip_bps===slip);
+const x=matched.find(y=>y.universe===universe&&y.priority===rank);
+if(!x)throw Error("Missing verified shared-cash scenario");
+const benchmark=p.shared_portfolio_rows.find(y=>y.universe===universe
+&&y.arm==="BUY_HOLD_BTC_ETH"&&y.fee_bps===fee&&y.slip_bps===slip);
+if(!benchmark)throw Error("Missing fixed BTC/ETH benchmark");
+const ret=n(x.net_return_pct),base=n(benchmark.net_return_pct);
+const update=(id,content,numeric)=>{
+const el=byId(id);el.textContent=content;
+if(numeric!==undefined)semantic(el,numeric);
+};
+update("shared-return",signed(ret),ret);
+update("shared-drawdown",fmt(x.daily_close_drawdown_pct)+"%",-n(x.daily_close_drawdown_pct));
+update("shared-benchmark",signed(base),base);
+update("shared-alpha",(ret-base>0?"+":"")+fmt(ret-base)+" п.п.",ret-base);
+update("shared-trades",x.trades);
+update("shared-blocks",Object.values(x.entry_blocks).reduce((a,b)=>a+n(b),0));
+update("shared-exposure",fmt(n(x.max_entry_exposure)*100)+"%");
+update("shared-passive-over",x.passive_overcap_days);
+const parent=byId("shared-comparison");parent.replaceChildren();
+matched.sort((a,b)=>a.universe.localeCompare(b.universe)
+||a.priority.localeCompare(b.priority));
+for(const model of matched){
+const tr=document.createElement("tr");tr.dataset.type="shared";
+const title=model.universe==="SIX"?"6 монет":"21 монета";
+cell(tr,title);
+cell(tr,model.priority==="SYMBOL_ASC"?"Алфавит":"20 дней");
+const result=n(model.net_return_pct);
+semantic(cell(tr,signed(result),"right"),result);
+cell(tr,fmt(model.daily_close_drawdown_pct)+"%","right");
+cell(tr,model.trades,"right");
+cell(tr,Object.values(model.entry_blocks).reduce((a,b)=>a+n(b),0),"right");
+cell(tr,fmt(model.fees_usdt),"right");
+parent.appendChild(tr);
+}
+const series=x.equity_points,chart=byId("portfolio-line");
+if(series.length<2)throw Error("Unqualified historical equity path");
+const ys=series.map(row=>n(row[1]));
+const min=Math.min(10000,...ys),max=Math.max(10000,...ys);
+const buffer=Math.max(10,(max-min)*0.07);
+const floor=min-buffer,ceiling=max+buffer;
+const mapY=value=>228-(value-floor)/(ceiling-floor)*218;
+const points=ys.map((y,i)=>(
+(i*1000/(ys.length-1)).toFixed(2)+","+mapY(y).toFixed(2)
+)).join(" ");
+chart.setAttribute("points",points);
+chart.style.stroke=ret<0?"var(--loss)":"var(--accent)";
+const at=mapY(10000).toFixed(2);
+byId("portfolio-zero").setAttribute("y1",at);
+byId("portfolio-zero").setAttribute("y2",at);
+byId("portfolio-first-date").textContent=series[0][0];
+byId("portfolio-last-date").textContent=series[series.length-1][0];
+byId("portfolio-figure-title").textContent="История общего капитала "+
+titleFor(universe)+" / "+arm+" / "+signed(ret);
+}
+function titleFor(code){return code==="SIX"?"6 монет":"21 монета";}
+
 function updateDepth(){
 const rows=p.quote_rows.filter(item=>
 item.hypothetical_capital_usdt===val("capital")
@@ -269,6 +434,10 @@ byId(id).addEventListener("change",updateHistory);
 for(const id of ["capital","side","book-cost","haircut"]){
 byId(id).addEventListener("change",updateDepth);
 }
-updateHistory();updateDepth();
+for(const id of ["portfolio-arm","portfolio-universe",
+"portfolio-priority","portfolio-cost"]){
+byId(id).addEventListener("change",updatePortfolio);
+}
+updateHistory();updatePortfolio();updateDepth();
 })();
 </script></body></html>
