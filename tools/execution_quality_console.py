@@ -46,6 +46,10 @@ def render(
     if (
         candidates.get("scenario_count") != 210
         or shared.get("scenario_count") != 36
+        or candidates.get("source_sha256") != shared.get("source_sha256")
+        or candidates.get("date_range_utc") != [
+            shared.get("first_utc"), shared.get("last_utc")
+        ]
         or shared.get("current_orderbook_mixed_into_history") is not False
         or shared.get("funding_settlement_verified") is not False
         or shared.get("true_market_fills_verified") is not False
