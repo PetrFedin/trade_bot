@@ -22,7 +22,6 @@ from tools.independent_coin_strategy_lab import (
     SIX,
     WARMUP,
     Candle,
-    StrategyStudyError,
     _exit_reference,
     canonical,
     read_candles,
@@ -37,6 +36,8 @@ TARGET_ALLOCATION = D("0.29")
 MAX_ENTRY_EXPOSURE = D("0.60")
 MIN_ENTRY_ALLOCATION = D("0.05")
 MAX_SLOTS = 2
+DEFAULT_FEE_BPS = D("8")
+DEFAULT_SLIPPAGE_BPS = D("5")
 BPS = D("10000")
 RANKERS = ("SYMBOL_ASC", "PREVIOUS_20D_RETURN")
 CANDIDATES = tuple(a for a in ARMS if a != "BUY_HOLD_29PC")
@@ -59,7 +60,7 @@ def _validate(data: dict[str, list[Candle]]) -> tuple:
     for symbol, bars in data.items():
         if tuple(bar.day for bar in bars) != timeline:
             raise SharedCapitalError(f"{symbol}: unsynchronized history")
-    if any(b - a != timedelta(days=1) for a, b in zip(timeline, timeline[1:])):
+    if any(b - a != timedelta(days=1) for a, b in zip(timeline, timeline[1:], strict=False)):
         raise SharedCapitalError("shared-capital UTC time spine has a gap")
     return timeline
 
@@ -87,8 +88,8 @@ def replay_shared(
     data: dict[str, list[Candle]],
     arm: str,
     *,
-    fee_bps: D = D("8"),
-    slippage_bps: D = D("5"),
+    fee_bps: D = DEFAULT_FEE_BPS,
+    slippage_bps: D = DEFAULT_SLIPPAGE_BPS,
     ranker: str = "SYMBOL_ASC",
     finalize: bool = True,
 ) -> dict:
