@@ -1,0 +1,95 @@
+name: historical-shared-capital-candidates
+
+on:
+  push:
+    branches: [research/shared-capital-candidate-gate-20261023]
+  pull_request:
+    branches: [research/execution-quality-candidates-20261023]
+    paths:
+      - 'tools/shared_capital_candidate_study.py'
+      - 'tests/test_shared_capital_candidate_study.py'
+      - '.github/workflows/historical-shared-capital-candidates.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  shared-capital-research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Pinned dependency graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Static and adversarial historical tests
+        run: |
+          ruff check tools/shared_capital_candidate_study.py tests/test_shared_capital_candidate_study.py
+          pytest -q tests/test_shared_capital_candidate_study.py
+      - name: Replay 36 complete common-cash scenarios
+        run: |
+          mkdir -p shared-evidence
+          git rev-parse HEAD > shared-evidence/exact-head.txt
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          python -m tools.shared_capital_candidate_study \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --output shared-evidence/shared-capital-36.json
+      - name: Reconcile all portfolio trades and common-capital limits
+        run: |
+          python - <<'PY'
+          import json
+          from decimal import Decimal as D
+          from pathlib import Path
+          from tools.independent_coin_strategy_lab import canonical
+          import hashlib
+          file=Path("shared-evidence/shared-capital-36.json")
+          doc=json.loads(file.read_text(encoding="utf-8"))
+          assert doc["scenario_count"]==36 and doc["shared_days"]==981
+          assert doc["profitability_proven"] is False
+          assert doc["unseen_holdout"] is False
+          assert doc["funding_settlement_verified"] is False
+          assert doc["true_market_fills_verified"] is False
+          assert doc["strategy_promotion_allowed"] is False
+          assert doc["live_trading_allowed"] is False
+          digest=doc["report_sha256"]
+          raw={k:v for k,v in doc.items() if k!="report_sha256"}
+          assert hashlib.sha256(canonical(raw)).hexdigest()==digest
+          seen=set()
+          for model in doc["scenarios"]:
+              key=(model["universe"],model["arm"],model["entry_ranker"],
+                   model["fee_bps_per_fill"],model["slippage_bps_per_fill"])
+              assert key not in seen
+              seen.add(key)
+              trades=model["closed_trades"]
+              net=D(0)
+              for item in trades:
+                  n=D(item["net_usdt"])
+                  assert abs(D(item["gross_usdt"])-D(item["fees_usdt"])-
+                             D(item["slippage_usdt"])-n)<D("0.000001")
+                  net+=n
+              assert len(trades)==model["closed_trade_count"]
+              assert abs(net-D(model["closed_trade_net_usdt"]))<D("0.000001")
+              assert abs(D(model["ending_equity_usdt"])-D("10000")-net)<D("0.000001")*max(1,len(trades))
+              assert D(model["max_entry_exposure_fraction"])<=D("0.60")
+              assert all(len(mark["open_symbols"])<=2 and D(mark["free_cash"])>=0
+                         for mark in model["daily_equity"])
+              assert len(model["decision_trace"])==len(model["daily_equity"])
+          assert len(seen)==36
+          print("SHARED_CAPITAL_MODEL_SHA256",digest)
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: shared-capital-research-36
+          path: shared-evidence/
+          if-no-files-found: warn
+          retention-days: 30
