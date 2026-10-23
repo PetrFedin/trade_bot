@@ -1,0 +1,132 @@
+name: historical-shared-capital-candidates
+
+on:
+  push:
+    branches: [research/shared-capital-candidate-gate-20261023]
+  pull_request:
+    branches: [research/execution-quality-candidates-20261023]
+    paths:
+      - 'tools/shared_capital_candidate_study.py'
+      - 'tests/test_shared_capital_candidate_study.py'
+      - 'tests/test_shared_capital_console.py'
+      - 'tools/execution_quality_console.py'
+      - 'app/platform_assets/execution_quality_terminal.html'
+      - '.github/workflows/historical-shared-capital-candidates.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  shared-capital-research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Pinned dependency graph
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Static and adversarial historical tests
+        run: |
+          ruff check tools/shared_capital_candidate_study.py tests/test_shared_capital_candidate_study.py
+          ruff check tools/execution_quality_console.py tests/test_shared_capital_console.py
+          pytest -q tests/test_shared_capital_candidate_study.py tests/test_shared_capital_console.py tests/test_execution_quality_console.py
+      - name: Replay 36 complete common-cash scenarios
+        run: |
+          mkdir -p shared-evidence
+          git rev-parse HEAD > shared-evidence/exact-head.txt
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          python -m tools.shared_capital_candidate_study \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --output shared-evidence/shared-capital-36.json
+      - name: Reconcile all portfolio trades and common-capital limits
+        run: |
+          python - <<'PY'
+          import json
+          from decimal import Decimal as D
+          from pathlib import Path
+          from tools.independent_coin_strategy_lab import canonical
+          import hashlib
+          file=Path("shared-evidence/shared-capital-36.json")
+          doc=json.loads(file.read_text(encoding="utf-8"))
+          assert doc["scenario_count"]==36 and doc["shared_days"]==981
+          assert doc["profitability_proven"] is False
+          assert doc["unseen_holdout"] is False
+          assert doc["funding_settlement_verified"] is False
+          assert doc["true_market_fills_verified"] is False
+          assert doc["strategy_promotion_allowed"] is False
+          assert doc["live_trading_allowed"] is False
+          digest=doc["report_sha256"]
+          raw={k:v for k,v in doc.items() if k!="report_sha256"}
+          assert hashlib.sha256(canonical(raw)).hexdigest()==digest
+          seen=set()
+          for model in doc["scenarios"]:
+              key=(model["universe"],model["arm"],model["entry_ranker"],
+                   model["fee_bps_per_fill"],model["slippage_bps_per_fill"])
+              assert key not in seen
+              seen.add(key)
+              trades=model["closed_trades"]
+              net=D(0)
+              for item in trades:
+                  n=D(item["net_usdt"])
+                  assert abs(D(item["gross_usdt"])-D(item["fees_usdt"])-
+                             D(item["slippage_usdt"])-n)<D("0.000001")
+                  net+=n
+              assert len(trades)==model["closed_trade_count"]
+              assert abs(net-D(model["closed_trade_net_usdt"]))<D("0.000001")
+              assert abs(D(model["ending_equity_usdt"])-D("10000")-net)<D("0.000001")*max(1,len(trades))
+              assert D(model["max_entry_exposure_fraction"])<=D("0.60")
+              assert all(len(mark["open_symbols"])<=2 and D(mark["free_cash"])>=0
+                         for mark in model["daily_equity"])
+              assert len(model["decision_trace"])==len(model["daily_equity"])
+          assert len(seen)==36
+          print("SHARED_CAPITAL_MODEL_SHA256",digest)
+          PY
+      - name: Build audited 210-coin trials and 144 current book experiments
+        run: |
+          python -m tools.independent_coin_strategy_lab \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --symbols ADAUSDT APTUSDT ARBUSDT ATOMUSDT AVAXUSDT BNBUSDT BTCUSDT DOGEUSDT DOTUSDT ETHUSDT FILUSDT INJUSDT LINKUSDT LTCUSDT NEARUSDT OPUSDT SOLUSDT SUIUSDT TONUSDT TRXUSDT XRPUSDT \
+            --output shared-evidence/independent-coin-210.json
+          python -m tools.depth_execution_research \
+            --source research/snapshots/bybit_public_depth_observation_20261023.json \
+            --output shared-evidence/public-depth-144.json
+      - name: Render fully audited standalone shared-capital research terminal
+        run: |
+          python -m tools.execution_quality_console \
+            --candidate shared-evidence/independent-coin-210.json \
+            --depth shared-evidence/public-depth-144.json \
+            --book-source research/snapshots/bybit_public_depth_observation_20261023.json \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --shared shared-evidence/shared-capital-36.json \
+            --output shared-evidence/execution-quality-terminal.html
+          python tools/status_dashboard.py --check
+          cp docs/status-console.html shared-evidence/operator-status.html
+          python - <<'PY'
+          from pathlib import Path
+          page=Path("shared-evidence/execution-quality-terminal.html").read_text()
+          assert page.count('"return_pct":')==210
+          assert page.count('"net_return_pct":')==36
+          assert page.count('"hypothetical_fee_bps":')==144
+          assert '"shared_portfolio_funding_verified":false' in page
+          assert '"promotion_allowed":false' in page
+          assert "PROFITABILITY_NOT_PROVEN" in page
+          assert 'id="portfolio-chart"' in page
+          assert 'href="operator-status.html"' in page
+          print("SHARED_CAPITAL_TERMINAL_VERIFIED",len(page))
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: shared-capital-research-36
+          path: shared-evidence/
+          if-no-files-found: warn
+          retention-days: 30
