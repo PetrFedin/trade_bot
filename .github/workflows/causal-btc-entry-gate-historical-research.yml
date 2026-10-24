@@ -8,6 +8,9 @@ on:
     paths:
       - 'tools/shared_capital_candidate_study.py'
       - 'tools/causal_btc_entry_gate_study.py'
+      - 'tools/risk_gate_terminal.py'
+      - 'app/platform_assets/risk_gate_terminal.html'
+      - 'tests/test_risk_gate_terminal.py'
       - 'tests/test_causal_btc_entry_gate_study.py'
       - '.github/workflows/causal-btc-entry-gate-historical-research.yml'
 
@@ -35,7 +38,8 @@ jobs:
       - name: Check baseline regression and causal new-entry gates
         run: |
           ruff check tools/shared_capital_candidate_study.py tools/causal_btc_entry_gate_study.py tests/test_causal_btc_entry_gate_study.py
-          pytest -q tests/test_causal_btc_entry_gate_study.py tests/test_shared_capital_candidate_study.py
+          ruff check tools/risk_gate_terminal.py tests/test_risk_gate_terminal.py
+          pytest -q tests/test_causal_btc_entry_gate_study.py tests/test_shared_capital_candidate_study.py tests/test_risk_gate_terminal.py
       - name: Recalculate all original shared cash and exact research variant archive
         run: |
           mkdir -p gate-evidence
@@ -101,6 +105,73 @@ jobs:
           assert len(keys)==64
           print("BTC_CAUSAL_GATE_RESEARCH_SHA",new["report_sha256"])
           PY
+      - name: Rebuild lagged BTC risk attribution on exactly same original cash
+        run: |
+          python -m tools.shared_portfolio_risk_attribution \
+            --shared gate-evidence/original-36.json \
+            --btc research/snapshots/bybit_3y_2023-10-09_2026-10-08/BTCUSDT_D.csv \
+            --output gate-evidence/original-risk-regimes-36.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("gate-evidence/original-risk-regimes-36.json").read_text())
+          assert r["report_sha256"]=="f29cd1a860d7df82c6e72ffa895d4e5daafb7be40ece08bd9171674024761087"
+          assert r["scenario_count"]==36 and r["historical_days"]==930
+          assert r["profitability_proven"] is False
+          print("UNCHANGED_ORIGINAL_RISK_REPORT",r["report_sha256"])
+          PY
+      - name: Render complete source-joined offline research surfaces
+        run: |
+          python -m tools.risk_gate_terminal \
+            --shared gate-evidence/original-36.json \
+            --risk gate-evidence/original-risk-regimes-36.json \
+            --gates gate-evidence/fixed-btc-entry-gates-64.json \
+            --output gate-evidence/risk-gate-terminal.html
+          python -m tools.independent_coin_strategy_lab \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --symbols ADAUSDT APTUSDT ARBUSDT ATOMUSDT AVAXUSDT BNBUSDT BTCUSDT DOGEUSDT DOTUSDT ETHUSDT FILUSDT INJUSDT LINKUSDT LTCUSDT NEARUSDT OPUSDT SOLUSDT SUIUSDT TONUSDT TRXUSDT XRPUSDT \
+            --output gate-evidence/independent-coin-210.json
+          python -m tools.depth_execution_research \
+            --source research/snapshots/bybit_public_depth_observation_20261023.json \
+            --output gate-evidence/public-depth-144.json
+          python -m tools.execution_quality_console \
+            --candidate gate-evidence/independent-coin-210.json \
+            --depth gate-evidence/public-depth-144.json \
+            --book-source research/snapshots/bybit_public_depth_observation_20261023.json \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --shared gate-evidence/original-36.json \
+            --output gate-evidence/execution-quality-terminal.html
+          python tools/status_dashboard.py --check
+          cp docs/status-console.html gate-evidence/operator-status.html
+      - name: Verify all risk filters and isolated static browser script
+        run: |
+          python - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+          from tools.risk_gate_terminal import render
+          root=Path("gate-evidence")
+          load=lambda name:json.loads((root/name).read_text(encoding="utf-8"))
+          page=(root/"risk-gate-terminal.html").read_text(encoding="utf-8")
+          assert page==render(load("original-36.json"),
+                              load("original-risk-regimes-36.json"),
+                              load("fixed-btc-entry-gates-64.json"))
+          assert page.count('"return":')==100
+          assert "NO EXECUTION AUTHORITY" in page
+          assert '"trading_enabled":false' in page
+          assert '"profitability_proven":false' in page
+          assert '"holdout_verified":false' in page
+          assert 'href="operator-status.html"' in page
+          assert 'href="execution-quality-terminal.html"' in page
+          assert "fetch(" not in page and "WebSocket(" not in page
+          js=re.findall(r'<script>(.*?)</script>',page,re.S)
+          assert len(js)==1
+          (root/"checked-ui.js").write_text(js[0],encoding="utf-8")
+          assert (root/"operator-status.html").is_file()
+          assert (root/"execution-quality-terminal.html").is_file()
+          print("RISK_GATE_TERMINAL_ADMITTED",len(page))
+          PY
+          node --check gate-evidence/checked-ui.js
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
