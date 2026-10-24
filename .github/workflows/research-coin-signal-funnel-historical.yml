@@ -1,0 +1,126 @@
+name: research-coin-signal-funnel-historical
+
+on:
+  push:
+    branches: [research/coin-signal-funnel-attribution-20261024]
+  pull_request:
+    branches: [research/causal-btc-entry-gates-20261024]
+    paths:
+      - 'tools/coin_signal_funnel_attribution.py'
+      - 'tests/test_coin_signal_funnel_attribution.py'
+      - 'tools/signal_funnel_terminal.py'
+      - 'app/platform_assets/signal_funnel_terminal.html'
+      - 'tests/test_signal_funnel_terminal.py'
+      - '.github/workflows/research-coin-signal-funnel-historical.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  research-signal-funnel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install pinned dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Source, trade trace, rejects and bookkeeping tests
+        run: |
+          ruff check tools/coin_signal_funnel_attribution.py tests/test_coin_signal_funnel_attribution.py
+          pytest -q tests/test_coin_signal_funnel_attribution.py
+      - name: Rebuild original 36, fixed 64 and risk 36 on retained source
+        run: |
+          mkdir -p funnel-evidence
+          git rev-parse HEAD > funnel-evidence/exact-head.txt
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          python -m tools.shared_capital_candidate_study \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --output funnel-evidence/original-36.json
+          python -m tools.causal_btc_entry_gate_study \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --output funnel-evidence/gates-64.json
+          python -m tools.shared_portfolio_risk_attribution \
+            --shared funnel-evidence/original-36.json \
+            --btc research/snapshots/bybit_3y_2023-10-09_2026-10-08/BTCUSDT_D.csv \
+            --output funnel-evidence/risk-36.json
+      - name: Compute all 100 realized-trade signal funnel scenarios
+        run: |
+          python -m tools.coin_signal_funnel_attribution \
+            --shared funnel-evidence/original-36.json \
+            --gates funnel-evidence/gates-64.json \
+            --risk funnel-evidence/risk-36.json \
+            --btc research/snapshots/bybit_3y_2023-10-09_2026-10-08/BTCUSDT_D.csv \
+            --output funnel-evidence/coin-signal-funnel-100.json
+      - name: Independently check every coin and total source boundaries
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          from decimal import Decimal as D
+          from pathlib import Path
+          from tools.independent_coin_strategy_lab import canonical
+          folder=Path("funnel-evidence")
+          src=json.loads((folder/"original-36.json").read_text())
+          gates=json.loads((folder/"gates-64.json").read_text())
+          report=json.loads((folder/"coin-signal-funnel-100.json").read_text())
+          assert report["original_shared_sha256"]==src["report_sha256"]
+          assert report["experimental_gate_sha256"]==gates["report_sha256"]
+          assert report["original_portfolios"]==36
+          assert report["gated_portfolios"]==64
+          assert report["total_model_scenarios"]==100
+          assert report["ranker_pair_count"]==48
+          assert report["matched_daily_marks"]==930
+          assert report["untouched_future_holdout"] is False
+          assert report["profitability_proven"] is False
+          assert report["live_trading_allowed"] is False
+          assert report["real_exchange_fills_verified"] is False
+          assert report["no_historical_rejected_signal_pnl_assumed"] is True
+          assert hashlib.sha256(canonical({k:v for k,v in report.items()
+              if k!="report_sha256"})).hexdigest()==report["report_sha256"]
+          identifiers=set()
+          for model in report["scenario_records"]:
+              key=tuple(model[x] for x in ("universe","arm","entry_ranker",
+                  "gate","fee_bps_per_side","slippage_bps_per_side"))
+              assert key not in identifiers
+              identifiers.add(key)
+              assert model["eligible_signals"] == (
+                  model["accepted_signals"] + model["rejected_signals"])
+              assert model["closed_trades"]==model["accepted_signals"]
+              assert model["rejected_signal_counterfactual_pnl"] is None
+              coins=model["per_coin"]
+              assert sum(x["eligible_signal_days"] for x in coins)==model["eligible_signals"]
+              assert sum(x["accepted_entries"] for x in coins)==model["accepted_signals"]
+              assert sum(x["rejected_signal_days"] for x in coins)==model["rejected_signals"]
+              for metric, coin_key in (
+                  ("realized_gross_usdt","gross_usdt"),
+                  ("realized_fee_usdt","fees_usdt"),
+                  ("realized_slippage_usdt","slippage_usdt"),
+                  ("realized_net_usdt","net_usdt"),
+              ):
+                  assert abs(D(model[metric])-sum(
+                      (D(x[coin_key]) for x in coins), D(0)))<D("0.000001")
+              for coin in coins:
+                  assert coin["rejected_signal_counterfactual_pnl"] is None
+                  assert coin["accepted_entries"] == coin["closed_trades"]
+                  assert coin["eligible_signal_days"] == (
+                      coin["accepted_entries"]+coin["rejected_signal_days"])
+          assert len(identifiers)==100
+          print("COIN_FUNNEL_SOURCE_AND_MONEY_ADMITTED",report["report_sha256"])
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: astra-coin-signal-funnel-100
+          path: funnel-evidence/
+          if-no-files-found: warn
+          retention-days: 30
