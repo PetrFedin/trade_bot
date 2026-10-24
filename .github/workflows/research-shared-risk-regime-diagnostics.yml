@@ -1,0 +1,108 @@
+name: research-shared-risk-regime-diagnostics
+
+on:
+  push:
+    branches: [research/portfolio-risk-regime-stress-20261024]
+  pull_request:
+    branches: [research/shared-capital-candidate-gate-20261023]
+    paths:
+      - 'tools/shared_portfolio_risk_attribution.py'
+      - 'tests/test_shared_portfolio_risk_attribution.py'
+      - '.github/workflows/research-shared-risk-regime-diagnostics.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  risk-regime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Pinned Python dependency set
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
+          python -m pip check
+      - name: Source, chronology and arithmetic regression tests
+        run: |
+          ruff check tools/shared_portfolio_risk_attribution.py tests/test_shared_portfolio_risk_attribution.py
+          pytest -q tests/test_shared_portfolio_risk_attribution.py
+      - name: Build unchanged original common-capital model
+        run: |
+          mkdir -p risk-evidence
+          git rev-parse HEAD > risk-evidence/exact-head.txt
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          python -m tools.shared_capital_candidate_study \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --output risk-evidence/shared-original-36.json
+      - name: Verify unchanged original model SHA and build risk report
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path("risk-evidence/shared-original-36.json").read_text())
+          assert p["report_sha256"] == "e2f8c37d5c6df948dccfbb054ad2941a443ba2b5b3015bdfadfee44ee82f9613"
+          assert p["strategy_promotion_allowed"] is False
+          print("UNCHANGED_SHARED_CAPITAL_BASELINE",p["report_sha256"])
+          PY
+          python -m tools.shared_portfolio_risk_attribution \
+            --shared risk-evidence/shared-original-36.json \
+            --btc research/snapshots/bybit_3y_2023-10-09_2026-10-08/BTCUSDT_D.csv \
+            --output risk-evidence/attributed-tail-regimes-36.json
+      - name: Independently reconcile all cost, coin and regime attributions
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          from collections import Counter
+          from decimal import Decimal as D
+          from pathlib import Path
+          from tools.independent_coin_strategy_lab import canonical
+          r=json.loads(Path("risk-evidence/attributed-tail-regimes-36.json").read_text())
+          source=json.loads(Path("risk-evidence/shared-original-36.json").read_text())
+          assert r["scenario_count"]==36 and r["cost_comparison_count"]==18
+          assert r["historical_days"]==930
+          assert r["source_shared_sha256"]==source["report_sha256"]
+          assert sum(r["BTC_regime_days"].values())==930
+          assert r["profitability_proven"] is False
+          assert r["unseen_holdout"] is False
+          assert r["live_trading_allowed"] is False
+          assert r["historical_mark_price_verified"] is False
+          assert r["real_funding_settlement_verified"] is False
+          copy={k:v for k,v in r.items() if k!="report_sha256"}
+          assert hashlib.sha256(canonical(copy)).hexdigest()==r["report_sha256"]
+          assert len({(m["universe"],m["arm"],m["ranker"],m["fee_bps"],m["slippage_bps"])
+                      for m in r["models"]})==36
+          for model in r["models"]:
+              original=next(p for p in source["scenarios"] if
+                  p["universe"]==model["universe"] and
+                  p["arm"]==model["arm"] and p["entry_ranker"]==model["ranker"] and
+                  p["fee_bps_per_fill"]==model["fee_bps"] and
+                  p["slippage_bps_per_fill"]==model["slippage_bps"])
+              trades=model["trades"]
+              assert trades["closed_trade_count"]==original["closed_trade_count"]
+              assert sum(c["trades"] for c in trades["per_coin"].values())==trades["closed_trade_count"]
+              assert abs(sum(D(c["net_usdt"]) for c in trades["per_coin"].values())
+                         - D(original["closed_trade_net_usdt"]))<D("0.000001")
+              assert abs(sum(D(c["marked_equity_change_usdt"]) for c in
+                             model["BTC_previous_close_regimes"].values())
+                         -(D(original["ending_equity_usdt"])-D("10000")))<D("0.000001")
+              assert sum(c["days"] for c in
+                         model["BTC_previous_close_regimes"].values())==930
+          print("RISK_ATTRIBUTION_ACCEPTED",r["report_sha256"])
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: astra-portfolio-risk-regime-evidence
+          path: risk-evidence/
+          if-no-files-found: warn
+          retention-days: 30
