@@ -94,6 +94,7 @@ body{
   margin:0;background:var(--bg);color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
   font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;
+  overflow-wrap:anywhere;
 }
 .wrap{
   max-width:900px;margin:0 auto;
