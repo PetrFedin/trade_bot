@@ -103,11 +103,9 @@ def render(shared: dict, risk: dict, gates: dict) -> str:
         gate_keys.add(full)
         if (
             item["baseline_return_pct"] != base_rows[key]["return_pct"]
-            or model["return_pct"] != str(
+            or Decimal(model["return_pct"]) != (
                 Decimal(item["baseline_return_pct"])
-                + Decimal(
-                    item["gate_minus_original_percentage_points"]
-                )
+                + Decimal(item["gate_minus_original_percentage_points"])
             )
             or model.get("entry_gate_policy") != item["gate"]
             or model.get("historical_funding_included") is not False
