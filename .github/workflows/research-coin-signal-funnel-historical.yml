@@ -10,6 +10,8 @@ on:
       - 'tests/test_coin_signal_funnel_attribution.py'
       - 'tools/signal_funnel_terminal.py'
       - 'app/platform_assets/signal_funnel_terminal.html'
+      - 'app/platform_assets/risk_gate_terminal.html'
+      - 'app/platform_assets/execution_quality_terminal.html'
       - 'tests/test_signal_funnel_terminal.py'
       - '.github/workflows/research-coin-signal-funnel-historical.yml'
 
@@ -174,6 +176,17 @@ jobs:
           assert (folder/"risk-gate-terminal.html").is_file()
           assert (folder/"execution-quality-terminal.html").is_file()
           assert (folder/"operator-status.html").is_file()
+          pages=("signal-funnel-terminal.html","risk-gate-terminal.html",
+                 "execution-quality-terminal.html","operator-status.html")
+          for name in pages:
+              body=(folder/name).read_text(encoding="utf-8")
+              for href in re.findall(r'href="([^"]+)"',body):
+                  if "://" not in href and not href.startswith("#"):
+                      assert (folder/href.split("#",1)[0].split("?",1)[0]).is_file(), (name,href)
+          assert 'href="signal-funnel-terminal.html"' in (
+              folder/"risk-gate-terminal.html").read_text(encoding="utf-8")
+          assert 'href="signal-funnel-terminal.html"' in (
+              folder/"execution-quality-terminal.html").read_text(encoding="utf-8")
           scripts=re.findall(r'<script>(.*?)</script>',html,re.S)
           assert len(scripts)==1
           (folder/"verified-signal-ui.js").write_text(scripts[0],encoding="utf-8")
