@@ -9,8 +9,8 @@ import pytest
 
 from tools.independent_coin_strategy_lab import canonical
 from tools.risk_gate_terminal import (
-    RiskGateUIError,
     TEMPLATE,
+    RiskGateUIError,
     render,
     verify_digest,
 )
