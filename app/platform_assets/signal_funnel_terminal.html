@@ -63,7 +63,12 @@ white-space:nowrap}
 th{background:var(--surface2);color:var(--muted);
 font:10px var(--mono);text-align:left;font-weight:500}
 th.right,td.right{text-align:right;font-variant-numeric:tabular-nums}
-tbody tr:last-child td{border:0}.coin{font-weight:630;letter-spacing:.035em}
+tbody tr:last-child td{border:0}.coin-select{background:transparent;border:0;color:var(--fg);padding:0;
+font:630 12px/1.6 system-ui,sans-serif;letter-spacing:.035em;
+text-decoration:underline;text-decoration-color:transparent;text-underline-offset:3px;
+cursor:pointer}.coin-select:hover,.coin-select[aria-pressed="true"]{
+text-decoration-color:var(--accent);color:var(--accent)}
+.coin-select:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .meter{display:flex;align-items:center;gap:8px;justify-content:end}
 .track{width:65px;height:4px;background:#334851;border-radius:1px;overflow:hidden}
 .track i{display:block;background:var(--accent);height:100%}
@@ -291,8 +296,13 @@ if(!rows.length)throw Error("Missing coin evidence");
 if(!rows.some(x=>x.symbol===activeSymbol))activeSymbol=rows[0].symbol;
 for(const item of rows){
 const row=make("tr","");
-const coin=make("td",item.symbol);coin.className="coin";
-row.appendChild(coin);
+const coin=make("td","");
+const selectCoin=make("button",item.symbol);
+selectCoin.type="button";selectCoin.className="coin-select";
+selectCoin.dataset.symbol=item.symbol;
+selectCoin.setAttribute("aria-pressed",String(item.symbol===activeSymbol));
+selectCoin.setAttribute("aria-label","Показать результаты "+item.symbol);
+coin.appendChild(selectCoin);row.appendChild(coin);
 row.appendChild(make("td",item.eligible_signal_days,"Сигналов"));
 row.appendChild(make("td",item.accepted_entries,"Открыто"));
 row.appendChild(make("td",item.rejected_signal_days,"Отклонено"));
@@ -309,13 +319,12 @@ const pnl=make("td",sign(item.net_usdt),"Net P&L, USDT");
 pnl.className="right";tone(pnl,item.net_usdt);row.appendChild(pnl);
 if(item.symbol===activeSymbol){row.setAttribute("aria-current","true");
 row.style.background="var(--surface2)";}
-row.style.cursor="pointer";row.tabIndex=0;row.setAttribute("role","button");
-row.setAttribute("aria-label","Показать атрибуцию "+item.symbol);
-const choose=()=>{activeSymbol=item.symbol;renderCoins(model);renderCoin(model);};
-row.addEventListener("click",choose);
-row.addEventListener("keydown",event=>{
-if(event.key==="Enter"||event.key===" "){event.preventDefault();choose();}
-});
+const choose=()=>{
+activeSymbol=item.symbol;renderCoins(model);renderCoin(model);
+const target=list.querySelector('button[data-symbol="'+item.symbol+'"]');
+if(target)target.focus();
+};
+selectCoin.addEventListener("click",choose);
 list.appendChild(row);
 }
 }
