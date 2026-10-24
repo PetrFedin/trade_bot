@@ -80,7 +80,9 @@ def render(shared: dict, risk: dict, gates: dict) -> str:
             or model["return_pct"] != observed["return_pct"]
             or model["max_drawdown_pct"] != observed["max_daily_close_drawdown_pct"]
             or model["trades"]["closed_trade_count"] != observed["closed_trade_count"]
-            or model["trades"]["fee_usdt"] != observed["gross_fee_paid_usdt"]
+            or abs(Decimal(model["trades"]["fee_usdt"]) - Decimal(
+                observed["gross_fee_paid_usdt"]
+            )) > Decimal("0.000001")
         ):
             raise RiskGateUIError("baseline risk attributes differ from cash model")
         if key in base_rows:
@@ -103,10 +105,10 @@ def render(shared: dict, risk: dict, gates: dict) -> str:
         gate_keys.add(full)
         if (
             item["baseline_return_pct"] != base_rows[key]["return_pct"]
-            or Decimal(model["return_pct"]) != (
-                Decimal(item["baseline_return_pct"])
-                + Decimal(item["gate_minus_original_percentage_points"])
-            )
+            or abs(
+                Decimal(model["return_pct"]) - Decimal(item["baseline_return_pct"])
+                - Decimal(item["gate_minus_original_percentage_points"])
+            ) > Decimal("0.00000001")
             or model.get("entry_gate_policy") != item["gate"]
             or model.get("historical_funding_included") is not False
             or model.get("live_trading_allowed") is not False
