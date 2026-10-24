@@ -9,13 +9,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 from decimal import Decimal as D
 from pathlib import Path
 
 from tools.causal_btc_entry_gate_study import BASELINE_SHA, GATES
 from tools.independent_coin_strategy_lab import BROAD21, COSTS, SIX, canonical
-from tools.shared_capital_candidate_study import CANDIDATES, RANKERS, BENCHMARK
+from tools.shared_capital_candidate_study import CANDIDATES, RANKERS
 from tools.shared_portfolio_risk_attribution import (
     prior_close_regime,
     verify_sources,
