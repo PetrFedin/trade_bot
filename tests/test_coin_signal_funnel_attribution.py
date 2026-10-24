@@ -20,6 +20,8 @@ from tools.coin_signal_funnel_attribution import (
 from tools.shared_capital_candidate_study import study_shared
 from tools.shared_portfolio_risk_attribution import (
     build_report as build_risk,
+)
+from tools.shared_portfolio_risk_attribution import (
     prior_close_regime,
     verify_sources,
 )
