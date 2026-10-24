@@ -19,6 +19,7 @@ D = Decimal
 ZERO = D("0")
 ONE = D("1")
 CASH = D("10000")
+DEFAULT_TOLERANCE = D("0.000001")
 REGIMES = ("BTC_UPTREND", "BTC_DOWNTREND", "BTC_MIXED")
 REASONS = {
     "STOP", "STOP_FIRST", "GAP_STOP", "TARGET", "GAP_TARGET",
@@ -42,7 +43,7 @@ def num(value: object, label: str) -> D:
     return result
 
 
-def check(actual: D, expected: D, label: str, tolerance: D = D("0.000001")):
+def check(actual: D, expected: D, label: str, tolerance: D = DEFAULT_TOLERANCE):
     if abs(actual - expected) > tolerance:
         raise RiskAuditError(f"{label}: financial evidence mismatch")
 
