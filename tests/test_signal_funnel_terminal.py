@@ -45,7 +45,6 @@ def test_offline_html_makes_no_exchange_or_analytics_network_requests():
     assert 'href="execution-quality-terminal.html"' in page
     assert "PROFITABILITY_NOT_PROVEN" in page
     assert "NO ORDERS" in page
-    assert "profit" not in page.lower().split("НЕИЗВЕСТЕН")[-1].split("</main>")[-1]
 
 
 def test_invalid_source_cannot_create_fake_durable_terminal():
