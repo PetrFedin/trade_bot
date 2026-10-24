@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from decimal import Decimal
 from pathlib import Path
 
 from tools.historical_research_console import _safe_json, publish_new_html
@@ -50,6 +51,9 @@ def render(shared: dict, risk: dict, gates: dict) -> str:
         or risk.get("historical_days") != 930
         or gates.get("historical_days") != 930
         or gates.get("untouched_future_holdout") is not False
+        or gates.get("current_public_orderbook_used_as_historic") is not False
+        or gates.get("funding_cash_settlement_verified") is not False
+        or risk.get("historical_mark_price_verified") is not False
         or risk.get("unseen_holdout") is not False
         or risk.get("source_shared_sha256") != shared.get("report_sha256")
         or gates.get("baseline_shared_report_sha256") != shared.get("report_sha256")
@@ -57,12 +61,28 @@ def render(shared: dict, risk: dict, gates: dict) -> str:
         or risk.get("source_btc_sha256") != shared["source_sha256"]["BTCUSDT_D.csv"]
     ):
         raise RiskGateUIError("source join, population, or research scope invalid")
+    original_models = {
+        (m["universe"], m["arm"], m["entry_ranker"],
+         m["fee_bps_per_fill"], m["slippage_bps_per_fill"]): m
+        for m in shared["scenarios"]
+    }
+    if len(original_models) != 36:
+        raise RiskGateUIError("original cash portfolio identities are missing")
     base_rows = {}
     for model in risk["models"]:
         key = (
             model["universe"], model["arm"], model["ranker"],
             model["fee_bps"], model["slippage_bps"],
         )
+        observed = original_models.get(key)
+        if (
+            observed is None
+            or model["return_pct"] != observed["return_pct"]
+            or model["max_drawdown_pct"] != observed["max_daily_close_drawdown_pct"]
+            or model["trades"]["closed_trade_count"] != observed["closed_trade_count"]
+            or model["trades"]["fee_usdt"] != observed["gross_fee_paid_usdt"]
+        ):
+            raise RiskGateUIError("baseline risk attributes differ from cash model")
         if key in base_rows:
             raise RiskGateUIError("duplicate baseline research scenario")
         base_rows[key] = model
@@ -77,11 +97,19 @@ def render(shared: dict, risk: dict, gates: dict) -> str:
             item["fee_bps_per_fill"], item["slippage_bps_per_fill"],
         )
         full = (*key, item["gate"])
-        if full in gate_keys or key not in base_rows:
+        if (full in gate_keys or key not in base_rows
+                or item["gate"] not in ("BTC_SMA50_BLOCK", "BTC_VOLATILITY_100_BLOCK")):
             raise RiskGateUIError("unexpected, duplicated or absent gate comparison")
         gate_keys.add(full)
         if (
-            model.get("entry_gate_policy") != item["gate"]
+            item["baseline_return_pct"] != base_rows[key]["return_pct"]
+            or model["return_pct"] != str(
+                Decimal(item["baseline_return_pct"])
+                + Decimal(
+                    item["gate_minus_original_percentage_points"]
+                )
+            )
+            or model.get("entry_gate_policy") != item["gate"]
             or model.get("historical_funding_included") is not False
             or model.get("live_trading_allowed") is not False
         ):
