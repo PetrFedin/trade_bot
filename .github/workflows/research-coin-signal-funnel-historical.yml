@@ -37,7 +37,8 @@ jobs:
       - name: Source, trade trace, rejects and bookkeeping tests
         run: |
           ruff check tools/coin_signal_funnel_attribution.py tests/test_coin_signal_funnel_attribution.py
-          pytest -q tests/test_coin_signal_funnel_attribution.py
+          ruff check tools/signal_funnel_terminal.py tests/test_signal_funnel_terminal.py
+          pytest -q tests/test_coin_signal_funnel_attribution.py tests/test_signal_funnel_terminal.py
       - name: Rebuild original 36, fixed 64 and risk 36 on retained source
         run: |
           mkdir -p funnel-evidence
@@ -117,6 +118,68 @@ jobs:
           assert len(identifiers)==100
           print("COIN_FUNNEL_SOURCE_AND_MONEY_ADMITTED",report["report_sha256"])
           PY
+      - name: Compose standalone original-source investor-safe research pages
+        run: |
+          python -m tools.signal_funnel_terminal \
+            --shared funnel-evidence/original-36.json \
+            --gates funnel-evidence/gates-64.json \
+            --risk funnel-evidence/risk-36.json \
+            --funnel funnel-evidence/coin-signal-funnel-100.json \
+            --btc research/snapshots/bybit_3y_2023-10-09_2026-10-08/BTCUSDT_D.csv \
+            --output funnel-evidence/signal-funnel-terminal.html
+          python -m tools.risk_gate_terminal \
+            --shared funnel-evidence/original-36.json \
+            --risk funnel-evidence/risk-36.json \
+            --gates funnel-evidence/gates-64.json \
+            --output funnel-evidence/risk-gate-terminal.html
+          python -m tools.independent_coin_strategy_lab \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --symbols ADAUSDT APTUSDT ARBUSDT ATOMUSDT AVAXUSDT BNBUSDT BTCUSDT DOGEUSDT DOTUSDT ETHUSDT FILUSDT INJUSDT LINKUSDT LTCUSDT NEARUSDT OPUSDT SOLUSDT SUIUSDT TONUSDT TRXUSDT XRPUSDT \
+            --output funnel-evidence/independent-coin-210.json
+          python -m tools.depth_execution_research \
+            --source research/snapshots/bybit_public_depth_observation_20261023.json \
+            --output funnel-evidence/public-depth-144.json
+          python -m tools.execution_quality_console \
+            --candidate funnel-evidence/independent-coin-210.json \
+            --depth funnel-evidence/public-depth-144.json \
+            --book-source research/snapshots/bybit_public_depth_observation_20261023.json \
+            --bars-dir research/snapshots/bybit_3y_2023-10-09_2026-10-08 \
+            --shared funnel-evidence/original-36.json \
+            --output funnel-evidence/execution-quality-terminal.html
+          python tools/status_dashboard.py --check
+          cp docs/status-console.html funnel-evidence/operator-status.html
+      - name: Verify all tabs, script syntax, no-network and financial provenance
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import re
+          from pathlib import Path
+          from tools.signal_funnel_terminal import render
+          folder=Path("funnel-evidence")
+          read=lambda x:json.loads((folder/x).read_text(encoding="utf-8"))
+          html=(folder/"signal-funnel-terminal.html").read_text(encoding="utf-8")
+          assert html==render(read("original-36.json"),read("gates-64.json"),
+                              read("risk-36.json"),read("coin-signal-funnel-100.json"),
+                              Path("research/snapshots/bybit_3y_2023-10-09_2026-10-08/BTCUSDT_D.csv"))
+          assert html.count('"eligible":')==100
+          assert html.count('"symbols":')>=48
+          assert html.count('"gross_usdt":')>=100
+          assert '"historical_execution_verified":false' in html
+          assert '"missed_signal_pnl_known":false' in html
+          assert '"live_order_authority":false' in html
+          assert '"profitability_proven":false' in html
+          assert "NO ORDERS" in html
+          assert "fetch(" not in html and "WebSocket(" not in html
+          assert (folder/"risk-gate-terminal.html").is_file()
+          assert (folder/"execution-quality-terminal.html").is_file()
+          assert (folder/"operator-status.html").is_file()
+          scripts=re.findall(r'<script>(.*?)</script>',html,re.S)
+          assert len(scripts)==1
+          (folder/"verified-signal-ui.js").write_text(scripts[0],encoding="utf-8")
+          print("ASTRA_COIN_SIGNAL_FUNNEL_HTML_SHA",hashlib.sha256(html.encode()).hexdigest())
+          PY
+          node --check funnel-evidence/verified-signal-ui.js
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
