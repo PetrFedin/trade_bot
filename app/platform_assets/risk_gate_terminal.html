@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>ASTRA / Risk & Strategy Research</title>
+<style>
+:root{--bg:#0a1318;--paper:#142028;--panel:#182730;--line:#2a3c46;
+--ink:#e9f0f0;--muted:#9aadb4;--teal:#93c7bf;--gain:#86cdb5;
+--loss:#e9aca0;--code:ui-monospace,SFMono-Regular,Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
+.shell{max-width:1460px;margin:auto;padding:27px clamp(17px,4vw,56px) 56px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;
+flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:16px}
+.brand{font-size:15px;letter-spacing:.16em;font-weight:800}
+.brand span{font:11px var(--code);color:var(--muted);letter-spacing:.01em}
+.links{display:flex;align-items:center;gap:19px;flex-wrap:wrap}
+.links a{font:11px var(--code);color:var(--teal);text-decoration:underline;
+text-underline-offset:4px}
+.links a:focus-visible,select:focus-visible{outline:2px solid var(--teal);outline-offset:3px}
+.danger{color:var(--loss)}.up{color:var(--gain)}.down{color:var(--loss)}
+.mono{font:11px var(--code);color:var(--muted)}
+header{padding:38px 0 28px}h1{font-size:clamp(28px,3.4vw,45px);
+font-weight:620;letter-spacing:-.034em;line-height:1.13;margin:0 0 13px}
+header p{color:var(--muted);margin:0;max-width:90ch}
+.eyebrow{font:10px var(--code);letter-spacing:.09em;color:var(--teal);
+margin-bottom:11px;text-transform:uppercase}
+.stamps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+border:1px solid var(--line);gap:1px;background:var(--line);margin-bottom:32px}
+.stamp{background:var(--paper);padding:19px;min-width:0}
+.stamp b{font:600 clamp(20px,2.4vw,29px)/1.3 system-ui,sans-serif;
+letter-spacing:-.03em;display:block;margin-bottom:5px}
+.stamp span{font:10px/1.4 var(--code);color:var(--muted);display:block}
+.section-title{display:flex;justify-content:space-between;gap:12px;
+align-items:baseline;flex-wrap:wrap;padding:13px 0;margin-top:31px;
+border-bottom:1px solid var(--line)}
+h2{font-size:17px;letter-spacing:-.012em;font-weight:640;margin:0}
+.section-title small{font:10px var(--code);color:var(--muted)}
+.explain{color:var(--muted);font-size:12px;max-width:94ch;line-height:1.65}
+.controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+gap:12px;padding:11px 0 20px}
+.control label{color:var(--muted);font:10px var(--code);display:block;margin-bottom:8px}
+select{width:100%;background:var(--paper);color:var(--ink);
+border:1px solid #435a64;min-height:44px;border-radius:2px;padding:9px 11px;
+font:13px system-ui,sans-serif}
+select:disabled{opacity:.52}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+gap:1px;background:var(--line);border:1px solid var(--line)}
+.kpi{background:var(--paper);padding:18px}
+.kpi span{font:11px var(--code);color:var(--muted);display:block}
+.kpi strong{display:block;font-weight:600;letter-spacing:-.02em;
+font-size:clamp(18px,2.3vw,28px);font-variant-numeric:tabular-nums;
+overflow-wrap:anywhere;margin:8px 0 5px}
+.panes{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,1fr);
+gap:17px;margin-top:17px}
+.panel{background:var(--paper);border:1px solid var(--line);min-width:0}
+.panel h3{margin:0;padding:15px 18px;font-size:13px;font-weight:620;
+border-bottom:1px solid var(--line)}
+.panel p{font-size:11px;color:var(--muted);padding:10px 18px;margin:0}
+.table-wrap{overflow-x:auto;max-width:100%}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{border-bottom:1px solid var(--line);padding:11px 12px}
+th{background:var(--panel);text-align:left;font:10px var(--code);
+color:var(--muted);font-weight:500;text-transform:uppercase}
+tr:last-child td{border:0}
+.right{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.risk-panel{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.risk-cell{border-top:2px solid var(--line);padding:16px 0}
+.risk-cell strong{font-size:14px}
+.risk-cell p{color:var(--muted);font-size:11px;margin:6px 0 0}
+.details{border:1px solid var(--line);background:var(--paper);padding:17px;
+margin-top:17px}
+.details h3{font-size:13px;margin:0 0 12px}
+.details .status{color:var(--muted);font:11px/1.75 var(--code)}
+.sources{border-top:1px solid var(--line);margin-top:35px;padding-top:16px;
+font:10px/1.85 var(--code);color:var(--muted);overflow-wrap:anywhere}
+.sources b{color:var(--teal);font-weight:500}
+footer{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
+margin-top:18px;padding-top:15px;border-top:1px solid var(--line);
+color:var(--muted);font:10px var(--code)}
+@media(max-width:900px){.stamps,.kpis{grid-template-columns:repeat(2,1fr)}
+.panes{grid-template-columns:1fr}.controls{grid-template-columns:repeat(2,1fr)}
+.risk-panel{grid-template-columns:1fr 1fr}}
+@media(max-width:590px){.shell{padding:19px 13px 36px}
+header{padding:26px 0}.stamp,.kpi{padding:13px 12px}
+.controls{grid-template-columns:1fr 1fr;gap:10px}
+.risk-panel{grid-template-columns:1fr}
+.table-wrap table,.table-wrap tbody{display:block;width:100%}
+.table-wrap thead{display:none}
+.table-wrap tr{display:grid;grid-template-columns:1fr 1fr;gap:5px 9px;
+padding:12px;border-bottom:1px solid var(--line)}
+.table-wrap td{border:0;padding:2px;white-space:normal!important;
+text-align:left!important;overflow-wrap:anywhere}
+.table-wrap td:first-child{grid-column:1/-1;font-weight:600}
+.table-wrap td:not(:first-child)::before{content:attr(data-label);
+display:block;color:var(--muted);font:10px var(--code);margin-bottom:2px}
+}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style></head>
+<body><main class="shell">
+<div class="top"><div class="brand">ASTRA <span>/ RISK ENGINE RESEARCH</span></div>
+<nav class="links"><a href="execution-quality-terminal.html">Исполнение и портфель</a>
+<a href="operator-status.html">Допуск / main</a>
+<span class="mono danger">LIVE TRADING: DISABLED</span></nav></div>
+<header>
+<div class="eyebrow">Independent research ledger / ex-post audit</div>
+<h1>Риск, качество сигналов и рыночные фильтры</h1>
+<p>Историческая диагностика одной кассы $10 000. Два дополнительных фильтра
+проверяются на той же выборке без подбора победителя по доходности.
+Рыночные режимы BTC определены исключительно по предыдущим закрытым дням.</p>
+</header>
+<div class="stamps">
+<div class="stamp"><b>36</b><span>ОРИГИНАЛЬНЫХ ПОРТФЕЛЕЙ</span></div>
+<div class="stamp"><b>64</b><span>НОВЫХ ФИКСИРОВАННЫХ ПРОГОНОВ</span></div>
+<div class="stamp"><b>930</b><span>ДНЕЙ МОДЕЛЬНОГО КАПИТАЛА</span></div>
+<div class="stamp"><b class="danger">0</b><span>ПОДТВЕРЖДЁННЫХ БИРЖЕВЫХ ИСПОЛНЕНИЙ</span></div>
+</div>
+<section aria-label="Сценарий исследований">
+<div class="section-title"><h2>01 / Выбор исходного и экспериментального сценария</h2>
+<small>__FIRST_DATE__ — __LAST_DATE__ · REUSED HISTORY</small></div>
+<div class="controls">
+<div class="control"><label for="universe">Торговая вселенная</label>
+<select id="universe"><option value="SIX">6 основных монет</option>
+<option value="BROAD21">21 монета</option></select></div>
+<div class="control"><label for="strategy">Правило входа</label>
+<select id="strategy">
+<option value="BREAKOUT">Пробой максимума</option>
+<option value="IMPULSE">Импульс</option>
+<option value="TREND_PULLBACK">Откат по тренду</option>
+<option value="MEAN_REVERSION">Возврат к среднему</option>
+</select></div>
+<div class="control"><label for="priority">Приоритет сигналов</label>
+<select id="priority">
+<option value="SYMBOL_ASC">Алфавитный контроль</option>
+<option value="PREVIOUS_20D_RETURN">Доходность предыдущих 20 дней</option>
+</select></div>
+<div class="control"><label for="cost">Комиссия / проскальзывание, б.п. за сторону</label>
+<select id="cost"><option value="8|5">8 / 5</option>
+<option value="10|10">10 / 10</option></select></div>
+<div class="control"><label for="gate">Экспериментальный фильтр входа</label>
+<select id="gate"><option value="BTC_SMA50_BLOCK">BTC ниже SMA50 — блокировать</option>
+<option value="BTC_VOLATILITY_100_BLOCK">BTC volatility >100% — блокировать</option>
+</select></div></div>
+</section>
+<div class="kpis" aria-live="polite">
+<div class="kpi"><span>Исходная доходность</span><strong id="base-return">—</strong>
+<span>Одна касса $10 000</span></div>
+<div class="kpi"><span>Доходность с фильтром</span><strong id="gate-return">—</strong>
+<span>Тот же капитал и период</span></div>
+<div class="kpi"><span>Разница, процентные пункты</span><strong id="delta">—</strong>
+<span>История, не прогноз</span></div>
+<div class="kpi"><span>Отклонённые новые сигналы</span><strong id="blocked">—</strong>
+<span>Уже открытые позиции не ликвидируются</span></div>
+</div>
+<section>
+<div class="section-title"><h2>02 / Историческая структура риска</h2>
+<small>ПО ЗАКРЫТИЮ UTC-ДНЯ · НЕ INTRADAY VaR</small></div>
+<div class="kpis">
+<div class="kpi"><span>Макс. дневная просадка от пика</span>
+<strong id="max-dd">—</strong><span>Портфельная просадка, не худший день</span></div>
+<div class="kpi"><span>Среднее худших 5% дней</span>
+<strong id="tail-day">—</strong><span>47 наблюдений, без прогноза</span></div>
+<div class="kpi"><span>Дней ниже прежнего пика подряд</span>
+<strong id="underwater">—</strong><span>По дневным закрытиям</span></div>
+<div class="kpi"><span>Выходы по стопам</span>
+<strong id="stop-share">—</strong><span>Доля закрытых сделок</span></div>
+</div>
+<div class="panes">
+<div class="panel"><h3>Денежный результат по режимам BTC</h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Предыдущий режим BTC</th><th class="right">Дней</th>
+<th class="right">Изменение капитала, USDT</th></tr></thead>
+<tbody id="regimes"></tbody></table></div>
+<p>Изменения дневной стоимости капитала суммируются в общий результат,
+но не доказывают, что вход в данный режим приносит прибыль.</p></div>
+<div class="panel"><h3>Атрибуция закрытых сделок по монетам</h3>
+<div class="table-wrap"><table><thead><tr>
+<th>Инструмент</th><th class="right">Закрытий</th>
+<th class="right">P&amp;L, USDT</th></tr></thead><tbody id="coins"></tbody></table></div>
+<p>Ранжирование — для диагностики исторических причин убытков,
+не автоматический список разрешённых инструментов.</p></div>
+</div>
+</section>
+<section>
+<div class="section-title"><h2>03 / Проверка устойчивости фильтров</h2>
+<small>ДВА ЗАРАНЕЕ ФИКСИРОВАННЫХ ГИПОТЕЗЫ</small></div>
+<p class="explain">Сравниваются оригинал и оба фильтра на одной вселенной,
+одной стратегии, одном способе ранжирования и одинаковых комиссиях.
+Лучшее значение в прошлом не означает пригодности для будущей торговли.</p>
+<div class="panel"><div class="table-wrap"><table><thead><tr>
+<th>Политика</th><th class="right">Доходность</th>
+<th class="right">Просадка</th><th class="right">Закрытий</th>
+<th class="right">Блокировано сигналов</th></tr></thead>
+<tbody id="gate-comparison"></tbody></table></div></div>
+</section>
+<section>
+<div class="section-title"><h2>04 / Факторы, которые пока не проверены</h2>
+<small>PROFITABILITY_NOT_PROVEN</small></div>
+<div class="risk-panel">
+<div class="risk-cell"><strong>Биржевые исполнения</strong>
+<p>Нет подлинных частичных исполнений, очереди заявок и исторического
+стакана. Комиссии и проскальзывание моделируются.</p></div>
+<div class="risk-cell"><strong>Mark Price / funding</strong>
+<p>Не подтверждены цены расчётов funding, реальный баланс счёта,
+уровень комиссии или ликвидационные события.</p></div>
+<div class="risk-cell"><strong>Независимое будущее</strong>
+<p>Результаты основаны на ранее изученном интервале. Нет ни нетронутого
+будущего периода, ни разрешения на автоматическую торговлю.</p></div>
+</div></section>
+<div class="sources">
+Исходные 36 портфелей: <b>__ORIGINAL_SHA__</b>
+<br>Риск и режимы: <b>__RISK_SHA__</b>
+<br>64 исследовательских фильтра: <b>__GATES_SHA__</b>
+</div>
+<footer><span>ASTRA / Financial research, no runtime order path</span>
+<span class="danger">RESEARCH ONLY / NO EXECUTION AUTHORITY</span></footer>
+</main>
+<script type="application/json" id="risk-evidence">__RESEARCH_JSON__</script>
+<script>
+(function(){
+"use strict";
+const evidence=JSON.parse(document.getElementById("risk-evidence").textContent);
+const byId=id=>document.getElementById(id);
+const value=id=>byId(id).value;
+const num=x=>Number(x);
+const fmt=(x,d=2)=>new Intl.NumberFormat("ru-RU",{
+minimumFractionDigits:d,maximumFractionDigits:d}).format(num(x));
+const signed=(n,suffix="")=>(num(n)>0?"+":"")+fmt(n)+suffix;
+function tone(element,n){
+element.classList.remove("up","down");
+element.classList.add(num(n)<0?"down":"up");
+}
+function put(id,val,n){
+const element=byId(id);element.textContent=val;
+if(n!==undefined)tone(element,n);
+}
+function td(row,content,head){
+const t=document.createElement("td");t.textContent=String(content);
+t.setAttribute("data-label",head||"");
+row.appendChild(t);return t;
+}
+function refresh(){
+const [fee,slip]=value("cost").split("|");
+const key=r=>r.universe===value("universe")&&r.arm===value("strategy")
+&&r.ranker===value("priority")&&r.fee===fee&&r.slip===slip;
+const original=evidence.baseline.find(key);
+const selected=evidence.gates.find(r=>key(r)&&r.gate===value("gate"));
+if(!original||!selected)throw Error("Missing independently verified case");
+put("base-return",signed(original.return,"%"),original.return);
+put("gate-return",signed(selected.return,"%"),selected.return);
+put("delta",signed(selected.delta," п.п."),selected.delta);
+put("blocked",fmt(selected.blocked,0));
+put("max-dd",fmt(original.drawdown)+"%");
+put("tail-day",signed(original.worst_5pct_daily,"%"),
+original.worst_5pct_daily);
+put("underwater",fmt(original.underwater_days,0));
+put("stop-share",original.stop_share===null?"н/д":fmt(original.stop_share)+"%");
+const labels=[
+["BTC_UPTREND","Восходящий BTC"],
+["BTC_MIXED","Смешанный BTC"],
+["BTC_DOWNTREND","Нисходящий BTC"],
+];
+const regimes=byId("regimes");regimes.replaceChildren();
+for(const [code,label] of labels){
+const m=original.BTC_regimes[code];
+const row=document.createElement("tr");
+td(row,label,"Режим");td(row,m.days,"Дней");
+tone(td(row,signed(m.marked_equity_change_usdt),"P&L, USDT"),
+m.marked_equity_change_usdt);
+regimes.appendChild(row);
+}
+const coins=byId("coins");coins.replaceChildren();
+const instrumentRows=Object.entries(original.coins)
+.sort((a,b)=>num(a[1].net_usdt)-num(b[1].net_usdt));
+for(const [symbol,model] of instrumentRows){
+const row=document.createElement("tr");
+td(row,symbol,"Инструмент");td(row,model.trades,"Закрытий");
+tone(td(row,signed(model.net_usdt),"P&L, USDT"),model.net_usdt);
+coins.appendChild(row);
+}
+const table=byId("gate-comparison");table.replaceChildren();
+const models=[
+{policy:"Без фильтра",return:original.return,drawdown:original.drawdown,
+trades:original.trades,blocked:0},
+...evidence.gates.filter(key).sort((a,b)=>a.gate.localeCompare(b.gate))
+.map(m=>({policy:m.gate==="BTC_SMA50_BLOCK"?"Входы только при BTC ≥ SMA50":
+"Отказ при волатильности BTC > 100%",
+return:m.return,drawdown:m.drawdown,trades:m.trades,blocked:m.blocked})),
+];
+if(models.length!==3)throw Error("Missing one of two fixed gate policies");
+for(const m of models){
+const row=document.createElement("tr");
+td(row,m.policy,"Политика");
+tone(td(row,signed(m.return,"%"),"Доходность"),m.return);
+td(row,fmt(m.drawdown)+"%","Макс. просадка");
+td(row,m.trades,"Закрытий");
+td(row,m.blocked,"Блокировано");
+table.appendChild(row);
+}
+}
+for(const id of ["universe","strategy","priority","cost","gate"]){
+byId(id).addEventListener("change",refresh);
+}
+refresh();
+})();
+</script></body></html>
