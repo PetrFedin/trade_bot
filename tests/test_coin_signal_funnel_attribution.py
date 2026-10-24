@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from tools.causal_btc_entry_gate_study import build_gate_report
 from tools.coin_signal_funnel_attribution import (
     BASELINE_SHA,
     GATE_SHA,
@@ -16,12 +17,9 @@ from tools.coin_signal_funnel_attribution import (
     build_report,
     verify,
 )
-from tools.causal_btc_entry_gate_study import build_gate_report
 from tools.shared_capital_candidate_study import study_shared
 from tools.shared_portfolio_risk_attribution import (
     build_report as build_risk,
-)
-from tools.shared_portfolio_risk_attribution import (
     prior_close_regime,
     verify_sources,
 )
