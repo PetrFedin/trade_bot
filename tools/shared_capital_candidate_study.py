@@ -43,6 +43,7 @@ RANKERS = ("SYMBOL_ASC", "PREVIOUS_20D_RETURN")
 CANDIDATES = tuple(a for a in ARMS if a != "BUY_HOLD_29PC")
 BENCHMARK = "BUY_HOLD_BTC_ETH"
 STUDIES = CANDIDATES + (BENCHMARK,)
+ENTRY_GATES = ("NONE", "BTC_SMA50_BLOCK", "BTC_VOLATILITY_100_BLOCK")
 
 
 class SharedCapitalError(ValueError):
@@ -84,6 +85,29 @@ def _signal(
     return signal(data[symbol], index, arm)
 
 
+def _reject_btc_entry(data: dict[str, list[Candle]], index: int, gate: str) -> bool:
+    """Optional long-entry safety study, using BTC closes only through T-1."""
+    if gate not in ENTRY_GATES:
+        raise SharedCapitalError("unregistered BTC research entry gate")
+    if gate == "NONE":
+        return False
+    if index < WARMUP:
+        raise SharedCapitalError("BTC prior-day research warmup missing")
+    past = data["BTCUSDT"][:index]
+    if gate == "BTC_SMA50_BLOCK":
+        sma50 = sum((bar.close for bar in past[-50:]), ZERO) / 50
+        return past[-1].close < sma50
+    # Twenty complete daily close returns, annualized with 365 UTC days.
+    changes = [
+        past[j].close / past[j - 1].close - ONE
+        for j in range(len(past) - 20, len(past))
+    ]
+    mean = sum(changes, ZERO) / 20
+    variance = sum(((value - mean) ** 2 for value in changes), ZERO) / 20
+    volatility = (max(ZERO, variance) * D("365")).sqrt()
+    return volatility > ONE
+
+
 def replay_shared(
     data: dict[str, list[Candle]],
     arm: str,
@@ -92,11 +116,14 @@ def replay_shared(
     slippage_bps: D = DEFAULT_SLIPPAGE_BPS,
     ranker: str = "SYMBOL_ASC",
     finalize: bool = True,
+    entry_gate: str = "NONE",
 ) -> dict:
     """Replay one common capital book; never assume same-day exit cash at open."""
     days = _validate(data)
-    if arm not in STUDIES or ranker not in RANKERS:
+    if arm not in STUDIES or ranker not in RANKERS or entry_gate not in ENTRY_GATES:
         raise SharedCapitalError("unsupported historical arm/ranker")
+    if arm == BENCHMARK and entry_gate != "NONE":
+        raise SharedCapitalError("fixed benchmark cannot be retrospectively gated")
     if arm == BENCHMARK and ranker != "SYMBOL_ASC":
         raise SharedCapitalError("benchmark has one fixed symbol selection")
     fee, slip = fee_bps / BPS, slippage_bps / BPS
@@ -134,8 +161,11 @@ def replay_shared(
         entries: list[str] = []
         rejected: dict[str, str] = {}
         gross = opening_market_value
+        gate_blocked = bool(priority) and _reject_btc_entry(data, index, entry_gate)
         for symbol in priority:
-            if len(positions) >= MAX_SLOTS:
+            if gate_blocked:
+                reason = "BTC_PRIOR_CLOSE_ENTRY_GATE"
+            elif len(positions) >= MAX_SLOTS:
                 reason = "MAX_TWO_POSITIONS"
             elif gross >= opening_equity * MAX_ENTRY_EXPOSURE:
                 reason = "ENTRY_EXPOSURE_CAP"
@@ -271,7 +301,7 @@ def replay_shared(
         equity = D(row["equity"])
         peak = max(peak, equity)
         max_drawdown = max(max_drawdown, (peak - equity) / peak)
-    return {
+    result = {
         "arm": arm, "entry_ranker": ranker,
         "fee_bps_per_fill": str(fee_bps),
         "slippage_bps_per_fill": str(slippage_bps),
@@ -302,6 +332,9 @@ def replay_shared(
         "live_trading_allowed": False,
         "strategy_promotion_allowed": False,
     }
+    if entry_gate != "NONE":
+        result["entry_gate_policy"] = entry_gate
+    return result
 
 
 def study_shared(
