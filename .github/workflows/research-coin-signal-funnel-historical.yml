@@ -12,6 +12,8 @@ on:
       - 'app/platform_assets/signal_funnel_terminal.html'
       - 'app/platform_assets/risk_gate_terminal.html'
       - 'app/platform_assets/execution_quality_terminal.html'
+      - 'tools/status_dashboard.py'
+      - 'docs/status-console.html'
       - 'tests/test_signal_funnel_terminal.py'
       - '.github/workflows/research-coin-signal-funnel-historical.yml'
 
@@ -176,6 +178,8 @@ jobs:
           assert (folder/"risk-gate-terminal.html").is_file()
           assert (folder/"execution-quality-terminal.html").is_file()
           assert (folder/"operator-status.html").is_file()
+          assert "overflow-wrap:anywhere;" in (
+              folder/"operator-status.html").read_text(encoding="utf-8")
           pages=("signal-funnel-terminal.html","risk-gate-terminal.html",
                  "execution-quality-terminal.html","operator-status.html")
           for name in pages:
