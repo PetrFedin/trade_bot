@@ -84,8 +84,12 @@ def analyze_model(
     model: dict, *, label: str, gate: str,
     clock: dict[str, str], original_days: tuple[str, ...],
 ) -> dict:
-    symbols = tuple(model["symbols"])
+    if label not in ("SIX", "BROAD21"):
+        raise FunnelAuditError("unregistered portfolio research universe")
     expected_symbols = SIX if label == "SIX" else BROAD21
+    # Original 36 wrapper includes symbols; the 64-gate child model does not.
+    # Gate universe comes from an immutable, SHA-pinned enclosing scenario.
+    symbols = tuple(model.get("symbols", expected_symbols))
     if symbols != expected_symbols:
         raise FunnelAuditError("unknown or reordered research coin universe")
     traces = model["decision_trace"]
