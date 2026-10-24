@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>ASTRA / Signal Selection Research</title>
+<style>
+:root{--bg:#0b151b;--surface:#14212a;--surface2:#1b2a33;--line:#2c3d46;
+--fg:#e9f0f1;--muted:#a1b1b9;--accent:#9bc9c1;--red:#e8a9a1;
+--green:#8bcbb2;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}body{background:var(--bg);color:var(--fg);
+font:14px/1.58 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+margin:0}main{margin:auto;max-width:1472px;padding:27px clamp(15px,4vw,55px) 60px}
+nav{display:flex;flex-wrap:wrap;gap:12px 22px;align-items:center;
+justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:17px}
+.brand{font-size:15px;font-weight:760;letter-spacing:.16em}
+.brand small{font:11px var(--mono);letter-spacing:normal;color:var(--muted)}
+.menu{display:flex;flex-wrap:wrap;gap:12px 21px;align-items:center}
+.menu a{color:var(--accent);font:11px var(--mono);text-underline-offset:4px}
+.research-only{font:10px var(--mono);color:var(--red)}
+header{padding:37px 0 27px}.overline{font:11px var(--mono);letter-spacing:.08em;
+text-transform:uppercase;color:var(--accent);margin-bottom:13px}
+h1{font-size:clamp(29px,3.3vw,45px);font-weight:630;letter-spacing:-.037em;
+line-height:1.14;max-width:800px;margin:0 0 14px}
+header p{color:var(--muted);max-width:970px;margin:0}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+border:1px solid var(--line);gap:1px;background:var(--line);margin-bottom:37px}
+.stats>div{min-width:0;background:var(--surface);padding:20px 18px}
+.stats b{font-size:clamp(23px,2.7vw,33px);font-weight:620;
+font-variant-numeric:tabular-nums;display:block;line-height:1.25}
+.stats span{display:block;color:var(--muted);font:10px/1.5 var(--mono);
+margin-top:7px}.section-head{display:flex;flex-wrap:wrap;
+align-items:baseline;justify-content:space-between;gap:12px;
+padding-bottom:13px;border-bottom:1px solid var(--line);margin:30px 0 18px}
+h2{font-size:18px;letter-spacing:-.012em;margin:0;font-weight:625}
+.section-head small{font:10px var(--mono);color:var(--muted)}
+.copy{color:var(--muted);font-size:12px;line-height:1.7;max-width:1020px}
+.filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+gap:13px 15px;margin:19px 0 23px}
+.control label{display:block;font:10px var(--mono);color:var(--muted);
+margin-bottom:8px}
+.control select{appearance:auto;background:var(--surface);
+border:1px solid #4d636d;color:var(--fg);height:44px;width:100%;
+padding:8px 12px;border-radius:2px;font-size:13px;min-width:0}
+.control select:focus-visible,.menu a:focus-visible{outline:2px solid var(--accent);
+outline-offset:3px}
+.metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));
+gap:1px;background:var(--line);border:1px solid var(--line)}
+.metric{background:var(--surface);padding:18px 16px;min-width:0}
+.metric b{display:block;font-size:clamp(17px,2vw,27px);
+font-weight:600;line-height:1.25;font-variant-numeric:tabular-nums}
+.metric span{display:block;color:var(--muted);font:10px/1.5 var(--mono);
+margin-top:6px}.up{color:var(--green)}.down{color:var(--red)}
+.content-grid{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(320px,1fr);
+gap:16px;margin-top:18px}.panel{background:var(--surface);
+border:1px solid var(--line);min-width:0;overflow:hidden}
+.panel h3{margin:0;padding:16px 18px;border-bottom:1px solid var(--line);
+font-size:13px;font-weight:600}
+.table-scroll{width:100%;overflow-x:auto;max-height:650px;overflow-y:auto}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{padding:11px 12px;border-bottom:1px solid var(--line);
+white-space:nowrap}
+th{background:var(--surface2);color:var(--muted);
+font:10px var(--mono);text-align:left;font-weight:500}
+th.right,td.right{text-align:right;font-variant-numeric:tabular-nums}
+tbody tr:last-child td{border:0}.coin{font-weight:630;letter-spacing:.035em}
+.meter{display:flex;align-items:center;gap:8px;justify-content:end}
+.track{width:65px;height:4px;background:#334851;border-radius:1px;overflow:hidden}
+.track i{display:block;background:var(--accent);height:100%}
+.inside{padding:15px 18px}
+.detail-head{font:11px var(--mono);color:var(--muted);margin:0 0 12px}
+.detail-name{font-size:23px;font-weight:620;letter-spacing:.01em}
+.detail-info{color:var(--muted);font-size:12px;margin:7px 0 15px}
+.detail-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px 17px;
+margin-bottom:18px}.detail-pair div{border-top:1px solid var(--line);
+padding-top:10px}.detail-pair b{display:block;font-size:20px;font-weight:580;
+font-variant-numeric:tabular-nums}
+.detail-pair span{font:10px/1.5 var(--mono);color:var(--muted)}
+.mini-table{width:100%}.mini-table td{padding:9px 0;font-size:11px}
+.mini-table td:last-child{text-align:right}.mini-label{
+font:10px var(--mono);color:var(--muted);margin:18px 0 8px}
+.caveat{border-top:1px solid var(--line);padding:13px 17px;
+font-size:11px;color:var(--muted);line-height:1.7}
+.compare{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+gap:1px;background:var(--line);border:1px solid var(--line)}
+.compare>div{background:var(--surface);padding:20px 18px}
+.compare b{display:block;font-size:clamp(20px,2.5vw,31px);
+font-variant-numeric:tabular-nums;font-weight:620}
+.compare span{font:10px var(--mono);color:var(--muted)}
+.notes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px}
+.note{padding:15px 0;border-top:2px solid var(--line)}.note strong{font-size:13px}
+.note p{color:var(--muted);font-size:11px;line-height:1.7;margin:7px 0}
+.digests{margin-top:38px;padding:17px 0;border-top:1px solid var(--line);
+font:10px/1.95 var(--mono);color:var(--muted);overflow-wrap:anywhere}
+.digests b{color:var(--accent);font-weight:500}
+footer{margin-top:18px;padding-top:13px;border-top:1px solid var(--line);
+font:10px var(--mono);color:var(--muted);display:flex;gap:12px;
+justify-content:space-between;flex-wrap:wrap}
+@media(max-width:1080px){.content-grid{grid-template-columns:1fr}
+.filters{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+.notes{grid-template-columns:1fr 1fr}}
+@media(max-width:580px){
+main{padding:17px 13px 34px}header{padding:28px 0 20px}
+.stats>div,.metric{padding:15px 12px}.stats b{font-size:24px}
+.filters{grid-template-columns:1fr 1fr;gap:10px}
+.content-grid{gap:12px}.compare{grid-template-columns:1fr}
+.notes{grid-template-columns:1fr}
+.table-scroll table,.table-scroll tbody{display:block}
+.table-scroll thead{display:none}
+.table-scroll tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+padding:12px;gap:6px 11px;border-bottom:1px solid var(--line)}
+.table-scroll td{border:0;padding:0;white-space:normal;
+text-align:left!important;min-width:0}
+.table-scroll td:first-child{grid-column:1/-1}
+.table-scroll td:not(:first-child)::before{content:attr(data-label);
+display:block;font:10px var(--mono);color:var(--muted);margin-bottom:3px}
+.table-scroll .meter{justify-content:start}
+}
+</style></head><body><main>
+<nav><div class="brand">ASTRA <small>/ SIGNAL SELECTION RESEARCH</small></div>
+<div class="menu"><a href="risk-gate-terminal.html">Риск и режимы</a>
+<a href="execution-quality-terminal.html">Исполнение</a>
+<a href="operator-status.html">Допуск / main</a>
+<span class="research-only">ORDERS DISABLED</span></div></nav>
+<header>
+<div class="overline">Retained UTC data · Source-verified research</div>
+<h1>От сигнала до результата сделки</h1>
+<p>Проверка доступа к капиталу, порядка выбора монет и структуры P&amp;L на одном
+исследовательском счёте. Убыточные сделки не скрываются.
+Доходность отклонённых сигналов не оценивается: они никогда не исполнялись в модели.</p>
+</header>
+<div class="stats">
+<div><b>100</b><span>ПОРТФЕЛЬНЫХ СЦЕНАРИЕВ</span></div>
+<div><b>48</b><span>СОПОСТАВЛЕНИЙ ПРИОРИТЕТОВ</span></div>
+<div><b>930</b><span>ДНЕЙ КОММОН-КЭШ МОДЕЛИ</span></div>
+<div><b class="down">0</b><span>ФАКТИЧЕСКИХ БИРЖЕВЫХ ИСПОЛНЕНИЙ</span></div>
+</div>
+<section><div class="section-head"><h2>01 / Воронка торговых сигналов</h2>
+<small>__START_DATE__ — __END_DATE__ · НЕ FUTURE HOLDOUT</small></div>
+<p class="copy">Сравнивайте одинаковые горизонты и расходы. Два слота,
+максимум 60% экспозиции в момент нового входа, без использования
+будущей выручки от закрытия позиций. Подтверждённые цифры относятся только
+к моделируемым сделкам, без funding.</p>
+<div class="filters">
+<div class="control"><label for="universe">Доступные монеты</label>
+<select id="universe"><option value="SIX">6 основных</option>
+<option value="BROAD21">21 монета</option></select></div>
+<div class="control"><label for="arm">Стратегия</label>
+<select id="arm"><option value="BREAKOUT">Пробой</option>
+<option value="IMPULSE">Импульс</option>
+<option value="TREND_PULLBACK">Откат по тренду</option>
+<option value="MEAN_REVERSION">Возврат к среднему</option>
+<option value="BUY_HOLD_BTC_ETH">Контроль BTC + ETH</option>
+</select></div>
+<div class="control"><label for="ranker">Очередность входов</label>
+<select id="ranker"><option value="SYMBOL_ASC">Алфавитная</option>
+<option value="PREVIOUS_20D_RETURN">20-дневная доходность</option></select></div>
+<div class="control"><label for="gate">Фильтр новых входов</label>
+<select id="gate"><option value="NONE">Без фильтра</option>
+<option value="BTC_SMA50_BLOCK">BTC под SMA50</option>
+<option value="BTC_VOLATILITY_100_BLOCK">BTC волатильность &gt; 100%</option>
+</select></div>
+<div class="control"><label for="cost">Комиссия / проскальзывание, б.п. за сторону</label>
+<select id="cost"><option value="8|5">8 / 5</option>
+<option value="10|10">10 / 10</option></select></div>
+<div class="control"><label for="sort">Порядок монет в таблице</label>
+<select id="sort"><option value="loss">Наибольшие убытки</option>
+<option value="signals">Количество сигналов</option>
+<option value="symbol">По алфавиту</option></select></div>
+</div>
+<div class="metrics" aria-live="polite">
+<div class="metric"><b id="signals">—</b><span>ВСЕГО ПРИГОДНЫХ СИГНАЛОВ</span></div>
+<div class="metric"><b id="accepted">—</b><span>ПРИНЯТО К ОТКРЫТИЮ</span></div>
+<div class="metric"><b id="rejected">—</b><span>ОТКЛОНЕНО ПО ПРАВИЛАМ</span></div>
+<div class="metric"><b id="return">—</b><span>МОДЕЛЬНАЯ ДОХОДНОСТЬ</span></div>
+<div class="metric"><b id="fees">—</b><span>КОМИССИИ, USDT</span></div>
+</div>
+<div class="content-grid">
+<div class="panel"><h3>Профиль по инструментам</h3>
+<div class="table-scroll"><table><thead><tr>
+<th>Монета</th><th class="right">Сигналы</th><th class="right">Открыто</th>
+<th class="right">Отказано</th><th class="right">Доля допущенных</th>
+<th class="right">P&amp;L, USDT</th></tr></thead>
+<tbody id="coin-list"></tbody></table></div>
+<div class="caveat">P&amp;L — только фактически закрытые модельные сделки
+с учётом комиссий и проскальзывания. Для пропущенных входов финансовый
+результат неизвестен. Входы на разных вариантах меняют последующие сигналы.</div>
+</div>
+<div class="panel"><h3>Атрибуция выбранной монеты</h3>
+<div class="inside">
+<div class="detail-head">HISTORICAL COIN TRADE REPORT</div>
+<div id="coin-title" class="detail-name">—</div>
+<p id="coin-context" class="detail-info">—</p>
+<div class="detail-pair">
+<div><b id="coin-pnl">—</b><span>ЧИСТЫЙ P&amp;L, USDT</span></div>
+<div><b id="coin-avg">—</b><span>СРЕДНЕЕ НА СДЕЛКУ</span></div>
+<div><b id="coin-wins">—</b><span>ПРИБЫЛЬНЫХ СДЕЛОК</span></div>
+<div><b id="coin-costs">—</b><span>КОМИССИИ + СЛИППЕДЖ, USDT</span></div>
+</div>
+<p class="mini-label">Закрытые сделки по состоянию BTC на момент входа</p>
+<table class="mini-table"><tbody id="coin-regimes"></tbody></table>
+<p class="mini-label">Причины отклонения заявок на вход</p>
+<table class="mini-table"><tbody id="coin-rejections"></tbody></table>
+</div>
+</div></div></section>
+<section>
+<div class="section-head"><h2>02 / Изменение приоритета входов</h2>
+<small>ОБЩИЙ КАПИТАЛ · НЕ ПАРНЫЕ КОНТРФАКТИЧЕСКИЕ СДЕЛКИ</small></div>
+<p class="copy">Для одинаковых торговых правил сравниваются два заранее
+зафиксированных порядка рассмотрения сигналов. Изменение очередности
+меняет состав открытых позиций и последующую доступность капитала.
+Поэтому разница — результат двух полных моделей, а не прибыль
+от одной переставленной заявки.</p>
+<div class="compare">
+<div><b id="rank-alpha">—</b><span>АЛФАВИТНЫЙ ПРИОРИТЕТ, ДОХОДНОСТЬ</span></div>
+<div><b id="rank-momentum">—</b><span>20-ДНЕВНАЯ ДОХОДНОСТЬ, ИТОГ</span></div>
+<div><b id="rank-gap">—</b><span>РАЗНИЦА, ПРОЦЕНТНЫЕ ПУНКТЫ</span></div>
+</div></section>
+<section>
+<div class="section-head"><h2>03 / Границы достоверности</h2>
+<small>FAIL CLOSED · PROFITABILITY_NOT_PROVEN</small></div>
+<div class="notes">
+<div class="note"><strong>Отказанные входы</strong>
+<p>Стоимость непроведённой сделки неизвестна. Динамическое изменение
+портфеля запрещает представлять отклонённый сигнал как гарантированный
+заработок или убыток.</p></div>
+<div class="note"><strong>Реальная биржа</strong>
+<p>Нет точных исторических Mark Price на расчёте funding, подлинных ордеров,
+комиссий учётной записи, частичных исполнений и очереди заявок.</p></div>
+<div class="note"><strong>Будущие данные</strong>
+<p>Используется ранее просмотренная история. Сравнения — диагностика
+качества отбора, а не подтверждённая прогнозная способность.</p></div>
+</div></section>
+<div class="digests">
+Исходная касса SHA-256: <b>__BASE_SHA__</b><br>
+64 фильтра SHA-256: <b>__GATE_SHA__</b><br>
+100 воронок SHA-256: <b>__FUNNEL_SHA__</b>
+</div>
+<footer><span>ASTRA / Signal selection research only</span>
+<span class="research-only">NO ORDERS · NO STRATEGY PROMOTION</span></footer>
+</main>
+<script id="research-data" type="application/json">__RESEARCH_DATA__</script>
+<script>
+(function(){
+"use strict";
+const src=JSON.parse(document.getElementById("research-data").textContent);
+const $=id=>document.getElementById(id);
+const value=id=>$(id).value;
+const dec=x=>Number(x);
+const fmt=(x,d=2)=>new Intl.NumberFormat("ru-RU",{
+minimumFractionDigits:d,maximumFractionDigits:d}).format(dec(x));
+const sign=x=>(dec(x)>0?"+":"")+fmt(x);
+const tone=(node,n)=>{node.classList.remove("up","down");
+node.classList.add(dec(n)<0?"down":"up");};
+const put=(id,string,n)=>{const node=$(id);node.textContent=String(string);
+if(n!==undefined)tone(node,n);};
+const make=(name,content,label)=>{const el=document.createElement(name);
+el.textContent=String(content);if(label)el.setAttribute("data-label",label);
+return el;};
+const displayGate=id=>({
+NONE:"без фильтра",BTC_SMA50_BLOCK:"BTC / SMA50",
+BTC_VOLATILITY_100_BLOCK:"BTC / vol 100%"
+})[id]||id;
+const labels=[
+["BTC_UPTREND","Восходящий"],["BTC_DOWNTREND","Нисходящий"],
+["BTC_MIXED","Смешанный"]
+];
+let activeSymbol="";
+function getModel(){
+const fee=value("cost").split("|");
+const arm=value("arm"),control=arm==="BUY_HOLD_BTC_ETH";
+$("ranker").disabled=control;$("gate").disabled=control;
+const rank=control?"SYMBOL_ASC":value("ranker");
+const gate=control?"NONE":value("gate");
+const model=src.models.find(x=>x.universe===value("universe")
+&&x.arm===arm&&x.ranker===rank&&x.gate===gate
+&&x.fee===fee[0]&&x.slip===fee[1]);
+if(!model)throw Error("Unqualified model filters");
+return model;
+}
+function renderCoins(model){
+const list=$("coin-list");list.replaceChildren();
+let rows=model.coins.slice();
+const sorter=value("sort");
+if(sorter==="loss")rows.sort((a,b)=>dec(a.net_usdt)-dec(b.net_usdt));
+else if(sorter==="signals")rows.sort((a,b)=>b.eligible_signal_days-a.eligible_signal_days);
+else rows.sort((a,b)=>a.symbol.localeCompare(b.symbol));
+if(!rows.length)throw Error("Missing coin evidence");
+if(!rows.some(x=>x.symbol===activeSymbol))activeSymbol=rows[0].symbol;
+for(const item of rows){
+const row=make("tr","");
+const coin=make("td",item.symbol);coin.className="coin";
+row.appendChild(coin);
+row.appendChild(make("td",item.eligible_signal_days,"Сигналов"));
+row.appendChild(make("td",item.accepted_entries,"Открыто"));
+row.appendChild(make("td",item.rejected_signal_days,"Отклонено"));
+const fraction=item.accepted_signal_fraction;
+const ratio=fraction===null?0:Math.max(0,Math.min(100,100*dec(fraction)));
+const cell=make("td","","Допуск, %");cell.className="right";
+const meter=make("div","");meter.className="meter";
+const val=make("span",fraction===null?"—":fmt(ratio,1)+"%");
+const track=make("span","");track.className="track";
+const fill=make("i","");fill.style.width=ratio+"%";track.appendChild(fill);
+meter.appendChild(track);meter.appendChild(val);cell.appendChild(meter);
+row.appendChild(cell);
+const pnl=make("td",sign(item.net_usdt),"Net P&L, USDT");
+pnl.className="right";tone(pnl,item.net_usdt);row.appendChild(pnl);
+if(item.symbol===activeSymbol){row.setAttribute("aria-current","true");
+row.style.background="var(--surface2)";}
+row.style.cursor="pointer";row.tabIndex=0;row.setAttribute("role","button");
+row.setAttribute("aria-label","Показать атрибуцию "+item.symbol);
+const choose=()=>{activeSymbol=item.symbol;renderCoins(model);renderCoin(model);};
+row.addEventListener("click",choose);
+row.addEventListener("keydown",event=>{
+if(event.key==="Enter"||event.key===" "){event.preventDefault();choose();}
+});
+list.appendChild(row);
+}
+}
+function renderCoin(model){
+const coin=model.coins.find(x=>x.symbol===activeSymbol);
+if(!coin)throw Error("Missing per-coin original journal");
+put("coin-title",coin.symbol);
+put("coin-context",coin.accepted_entries+" входов из "+
+coin.eligible_signal_days+" сигналов; "+coin.rejected_signal_days+
+" отклонено. Контрфактический P&L: неизвестен.");
+put("coin-pnl",sign(coin.net_usdt),coin.net_usdt);
+put("coin-avg",coin.average_net_per_closed_trade_usdt===null?
+"—":sign(coin.average_net_per_closed_trade_usdt),
+coin.average_net_per_closed_trade_usdt);
+put("coin-wins",coin.winning_trades+" / "+coin.closed_trades);
+put("coin-costs",fmt(dec(coin.fees_usdt)+dec(coin.slippage_usdt)));
+const tbody=$("coin-regimes");tbody.replaceChildren();
+for(const [id,label] of labels){
+const entry=coin.entry_regimes[id];
+const row=make("tr","");
+row.appendChild(make("td",label+" · "+entry.closed_trades_entered_in_regime));
+const pnl=make("td",sign(entry.eventual_net_trade_pnl_usdt)+" USDT");
+tone(pnl,entry.eventual_net_trade_pnl_usdt);row.appendChild(pnl);
+tbody.appendChild(row);
+}
+const rejects=$("coin-rejections");rejects.replaceChildren();
+const names={
+MAX_TWO_POSITIONS:"Два занятых слота",
+ENTRY_EXPOSURE_CAP:"Лимит 60% на входе",
+MIN_ALLOCATION_NOT_REACHED:"Недостаточно допустимого объёма",
+BTC_PRIOR_CLOSE_ENTRY_GATE:"Фильтр BTC"
+};
+for(const [reason,description] of Object.entries(names)){
+const count=coin.rejection_reasons[reason]||0;
+const tr=make("tr","");tr.appendChild(make("td",description));
+tr.appendChild(make("td",count));rejects.appendChild(tr);
+}
+}
+function render(){
+const m=getModel();
+put("signals",fmt(m.eligible,0));
+put("accepted",fmt(m.accepted,0));
+put("rejected",fmt(m.rejected,0));
+put("return",sign(m.return_pct)+"%",m.return_pct);
+put("fees",fmt(m.fees_usdt));
+renderCoins(m);renderCoin(m);
+const arm=value("arm");
+if(arm==="BUY_HOLD_BTC_ETH"){
+put("rank-alpha",sign(m.return_pct)+"%",m.return_pct);
+put("rank-momentum","—");put("rank-gap","—");
+return;
+}
+const fee=value("cost").split("|");
+const pair=src.rankers.find(x=>x.universe===value("universe")
+&&x.arm===arm&&x.gate===value("gate")
+&&x.fee_bps===fee[0]&&x.slip_bps===fee[1]);
+if(!pair)throw Error("Missing independent ranker comparison");
+put("rank-alpha",sign(pair.alphabetic_return_pct)+"%",
+pair.alphabetic_return_pct);
+put("rank-momentum",sign(pair.prior_20d_return_rank_return_pct)+"%",
+pair.prior_20d_return_rank_return_pct);
+put("rank-gap",sign(pair.prior_20d_minus_alphabetic_percentage_points)
++" п.п.",pair.prior_20d_minus_alphabetic_percentage_points);
+}
+for(const id of ["universe","arm","ranker","gate","cost","sort"]){
+$(id).addEventListener("change",()=>{activeSymbol="";render();});
+}
+render();
+})();
+</script>
+</body></html>
